@@ -482,6 +482,32 @@ export default function Home() {
             }
           }
         }
+        
+        // Toujours finaliser à la fin du stream si pas déjà fait
+        // Vérifier si le dernier message est encore en streaming
+        setMessages(prev => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg?.streaming) {
+            // Extraire les choix du JSON et finaliser
+            let finalContent = lastMsg.content;
+            const choixMatch = fullJson.match(/"choix"\s*:\s*\[\s*([\s\S]*?)\s*\]/);
+            if (choixMatch && !finalContent.includes('1.')) {
+              try {
+                const choixArray = JSON.parse(`[${choixMatch[1]}]`);
+                if (choixArray.length > 0) {
+                  finalContent += '\n\n' + choixArray.map((c, i) => `${i + 1}. ${c}`).join('\n');
+                }
+              } catch (e) {}
+            }
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1] = { role: 'assistant', content: finalContent };
+            return newMessages;
+          }
+          return prev;
+        });
+        
+        setLoading(false);
+        setSaving(false);
       } else {
         const data = await res.json();
 
