@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 export default function Home() {
@@ -20,19 +20,43 @@ export default function Home() {
   const [editingMessageIndex, setEditingMessageIndex] = useState(null);
   const [editedContent, setEditedContent] = useState('');
   const [fontSize, setFontSize] = useState(14);
+  const [isClient, setIsClient] = useState(false);
+  
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
   const abortControllerRef = useRef(null);
   const userScrolledUp = useRef(false);
+  const textareaRef = useRef(null);
+
+  // Détecter le client (pour localStorage)
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   useEffect(() => { loadParties(); }, []);
   
+  // Charger la taille de police depuis localStorage (côté client uniquement)
+  useEffect(() => {
+    if (isClient) {
+      const saved = localStorage.getItem('ldvelh-fontsize');
+      if (saved) setFontSize(parseInt(saved, 10));
+    }
+  }, [isClient]);
+
   // Scroll auto seulement si l'utilisateur n'a pas scrollé vers le haut
   useEffect(() => { 
     if (!userScrolledUp.current) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
     }
   }, [messages]);
+
+  // Auto-resize du textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+    }
+  }, [input]);
 
   // Détecter si l'utilisateur scroll vers le haut
   const handleScroll = (e) => {
@@ -45,23 +69,23 @@ export default function Home() {
   const resetScrollBehavior = () => {
     userScrolledUp.current = false;
   };
-  
-  // Charger la taille de police depuis localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem('ldvelh-fontsize');
-    if (saved) setFontSize(parseInt(saved, 10));
-  }, []);
 
   const changeFontSize = (delta) => {
     const newSize = Math.min(24, Math.max(10, fontSize + delta));
     setFontSize(newSize);
-    localStorage.setItem('ldvelh-fontsize', newSize.toString());
+    if (isClient) {
+      localStorage.setItem('ldvelh-fontsize', newSize.toString());
+    }
   };
 
   const loadParties = async () => {
-    const res = await fetch('/api/chat?action=list');
-    const data = await res.json();
-    setParties(data.parties || []);
+    try {
+      const res = await fetch('/api/chat?action=list');
+      const data = await res.json();
+      setParties(data.parties || []);
+    } catch (e) {
+      console.error('Erreur chargement parties:', e);
+    }
   };
 
   const loadGame = async (id) => {
@@ -71,8 +95,6 @@ export default function Home() {
       const res = await fetch(`/api/chat?action=load&partieId=${id}`);
       const data = await res.json();
       
-      console.log('Loaded game data:', data); // Debug
-      
       if (data.error) {
         setError(data.error);
         return;
@@ -80,7 +102,6 @@ export default function Home() {
       
       setPartieId(id);
       
-      // Reconstruire le gameState avec la bonne structure
       if (data.state) {
         const state = data.state;
         setGameState({
@@ -100,15 +121,12 @@ export default function Home() {
         setPartieName(state.partie?.nom || 'Partie sans nom');
       }
       
-      // Charger les messages
       if (data.messages && data.messages.length > 0) {
-        console.log('Loading messages:', data.messages.length); // Debug
         setMessages(data.messages.map(m => ({
           role: m.role,
           content: m.content
         })));
       } else {
-        console.log('No messages found'); // Debug
         setMessages([]);
       }
     } catch (e) {
@@ -121,6 +139,7 @@ export default function Home() {
 
   const newGame = async () => {
     setLoadingGame(true);
+    setError('');
     try {
       const res = await fetch('/api/chat?action=new');
       const data = await res.json();
@@ -129,10 +148,9 @@ export default function Home() {
         setPartieName('Nouvelle partie');
         setGameState(null);
         setMessages([]);
-        // Rafraîchir la liste pour inclure la nouvelle partie
         loadParties();
       } else {
-        setError('Erreur lors de la création de la partie');
+        setError(data.error || 'Erreur lors de la création de la partie');
       }
     } catch (e) {
       setError('Erreur lors de la création de la partie');
@@ -142,17 +160,30 @@ export default function Home() {
   };
 
   const deleteGame = async (id) => {
-    await fetch(`/api/chat?action=delete&partieId=${id}`);
-    setConfirmDelete(null);
-    loadParties();
+    try {
+      const res = await fetch(`/api/chat?action=delete&partieId=${id}`);
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+      setConfirmDelete(null);
+      loadParties();
+    } catch (e) {
+      setError('Erreur lors de la suppression');
+    }
   };
 
   const renameGame = async () => {
     if (!newName.trim()) return;
-    await fetch(`/api/chat?action=rename&partieId=${partieId}&name=${encodeURIComponent(newName.trim())}`);
-    setPartieName(newName.trim());
-    setEditingName(false);
-    setNewName('');
+    try {
+      await fetch(`/api/chat?action=rename&partieId=${partieId}&name=${encodeURIComponent(newName.trim())}`);
+      setPartieName(newName.trim());
+      setEditingName(false);
+      setNewName('');
+    } catch (e) {
+      setError('Erreur lors du renommage');
+    }
   };
 
   // Annuler la requête en cours
@@ -161,8 +192,18 @@ export default function Home() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setLoading(false);
-      // Supprimer le dernier message user qui attendait une réponse
-      setMessages(prev => prev.slice(0, -1));
+      // Retirer le flag streaming du dernier message si présent
+      setMessages(prev => {
+        const newMessages = [...prev];
+        if (newMessages.length > 0 && newMessages[newMessages.length - 1].streaming) {
+          newMessages[newMessages.length - 1] = {
+            ...newMessages[newMessages.length - 1],
+            streaming: false,
+            content: newMessages[newMessages.length - 1].content + '\n\n*(Annulé)*'
+          };
+        }
+        return newMessages;
+      });
     }
   };
 
@@ -184,153 +225,153 @@ export default function Home() {
     const messageIndex = editingMessageIndex;
     const newContent = editedContent.trim();
     
+    // Capturer le state actuel AVANT de modifier
+    const currentMessages = [...messages];
+    const previousMessages = currentMessages.slice(0, messageIndex);
+    const currentGameState = gameState;
+    
     setEditingMessageIndex(null);
     setEditedContent('');
     setLoading(true);
     setError('');
+    resetScrollBehavior();
 
-    // Supprimer les messages à partir de l'index édité (en local)
-    const previousMessages = messages.slice(0, messageIndex);
+    // Mettre à jour l'affichage
     setMessages([...previousMessages, { role: 'user', content: newContent }]);
 
     // Supprimer les messages en BDD à partir de cet index
-    try {
-      await fetch('/api/chat', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          partieId, 
-          fromIndex: messageIndex 
-        })
-      });
-    } catch (e) {
-      console.error('Erreur suppression messages:', e);
+    if (partieId) {
+      try {
+        await fetch('/api/chat', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partieId, fromIndex: messageIndex })
+        });
+      } catch (e) {
+        console.error('Erreur suppression messages:', e);
+      }
     }
 
     // Regénérer avec le nouveau message
-    await sendMessageInternal(newContent, previousMessages);
+    await sendMessageInternal(newContent, previousMessages, currentGameState);
   };
 
   // Regénérer le dernier message assistant
   const regenerateLastResponse = async () => {
     if (loading || messages.length < 2) return;
     
+    // Capturer le state actuel
+    const currentMessages = [...messages];
+    const currentGameState = gameState;
+    
     // Trouver le dernier message user
-    let lastUserIndex = messages.length - 1;
-    while (lastUserIndex >= 0 && messages[lastUserIndex].role !== 'user') {
+    let lastUserIndex = currentMessages.length - 1;
+    while (lastUserIndex >= 0 && currentMessages[lastUserIndex].role !== 'user') {
       lastUserIndex--;
     }
     if (lastUserIndex < 0) return;
 
-    const userMessage = messages[lastUserIndex].content;
-    const previousMessages = messages.slice(0, lastUserIndex);
+    const userMessage = currentMessages[lastUserIndex].content;
+    const previousMessages = currentMessages.slice(0, lastUserIndex);
     
     setMessages([...previousMessages, { role: 'user', content: userMessage }]);
     setLoading(true);
     setError('');
+    resetScrollBehavior();
 
     // Supprimer le dernier échange en BDD
-    try {
-      await fetch('/api/chat', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          partieId, 
-          fromIndex: lastUserIndex 
-        })
-      });
-    } catch (e) {
-      console.error('Erreur suppression:', e);
+    if (partieId) {
+      try {
+        await fetch('/api/chat', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partieId, fromIndex: lastUserIndex })
+        });
+      } catch (e) {
+        console.error('Erreur suppression:', e);
+      }
     }
 
-    await sendMessageInternal(userMessage, previousMessages);
+    await sendMessageInternal(userMessage, previousMessages, currentGameState);
   };
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
     const userMessage = input.trim();
+    const currentMessages = [...messages];
+    const currentGameState = gameState;
+    
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
     setError('');
-    resetScrollBehavior(); // Remettre le scroll auto quand on envoie
-    await sendMessageInternal(userMessage, messages);
+    resetScrollBehavior();
+    
+    await sendMessageInternal(userMessage, currentMessages, currentGameState);
   };
 
-  const sendMessageInternal = async (userMessage, previousMessages) => {
+  const sendMessageInternal = async (userMessage, previousMessages, currentGameState) => {
     abortControllerRef.current = new AbortController();
+
+    // Fonction pour extraire le narratif du JSON partiel
+    const extractNarratif = (jsonStr) => {
+      const startMatch = jsonStr.match(/"narratif"\s*:\s*"/);
+      if (!startMatch) return null;
+      
+      const startIndex = startMatch.index + startMatch[0].length;
+      let narratif = '';
+      let i = startIndex;
+      
+      while (i < jsonStr.length) {
+        const char = jsonStr[i];
+        
+        if (char === '\\' && i + 1 < jsonStr.length) {
+          const nextChar = jsonStr[i + 1];
+          if (nextChar === 'n') { narratif += '\n'; i += 2; }
+          else if (nextChar === '"') { narratif += '"'; i += 2; }
+          else if (nextChar === '\\') { narratif += '\\'; i += 2; }
+          else if (nextChar === 't') { narratif += '\t'; i += 2; }
+          else if (nextChar === 'r') { narratif += '\r'; i += 2; }
+          else { break; }
+        } else if (char === '"') {
+          break;
+        } else {
+          narratif += char;
+          i++;
+        }
+      }
+      
+      return narratif || null;
+    };
+
+    const extractHeure = (jsonStr) => {
+      const heureMatch = jsonStr.match(/"heure"\s*:\s*"([^"]+)"/);
+      return heureMatch ? heureMatch[1] : null;
+    };
+
+    // Helper pour finaliser le message (retirer streaming)
+    const finalizeMessage = (content) => {
+      setMessages([...previousMessages,
+        { role: 'user', content: userMessage },
+        { role: 'assistant', content }
+      ]);
+    };
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage, partieId, gameState }),
+        body: JSON.stringify({ message: userMessage, partieId, gameState: currentGameState }),
         signal: abortControllerRef.current.signal
       });
 
-      // Vérifier si c'est du streaming (SSE)
       const contentType = res.headers.get('content-type');
       
       if (contentType?.includes('text/event-stream')) {
-        // Mode streaming
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let fullJson = '';
         let assistantMessageAdded = false;
-
-        // Fonction pour extraire le narratif du JSON partiel
-        const extractNarratif = (jsonStr) => {
-          // Chercher le début du narratif
-          const startMatch = jsonStr.match(/"narratif"\s*:\s*"/);
-          if (!startMatch) return null;
-          
-          const startIndex = startMatch.index + startMatch[0].length;
-          let narratif = '';
-          let i = startIndex;
-          
-          // Parcourir caractère par caractère en gérant les échappements
-          while (i < jsonStr.length) {
-            const char = jsonStr[i];
-            
-            if (char === '\\' && i + 1 < jsonStr.length) {
-              // Séquence d'échappement
-              const nextChar = jsonStr[i + 1];
-              if (nextChar === 'n') {
-                narratif += '\n';
-                i += 2;
-              } else if (nextChar === '"') {
-                narratif += '"';
-                i += 2;
-              } else if (nextChar === '\\') {
-                narratif += '\\';
-                i += 2;
-              } else if (nextChar === 't') {
-                narratif += '\t';
-                i += 2;
-              } else if (nextChar === 'r') {
-                narratif += '\r';
-                i += 2;
-              } else {
-                // Échappement incomplet, on attend la suite
-                break;
-              }
-            } else if (char === '"') {
-              // Fin du narratif
-              break;
-            } else {
-              narratif += char;
-              i++;
-            }
-          }
-          
-          return narratif || null;
-        };
-
-        // Fonction pour extraire l'heure
-        const extractHeure = (jsonStr) => {
-          const heureMatch = jsonStr.match(/"heure"\s*:\s*"([^"]+)"/);
-          return heureMatch ? heureMatch[1] : null;
-        };
 
         try {
           while (true) {
@@ -348,7 +389,6 @@ export default function Home() {
                   if (data.type === 'chunk') {
                     fullJson += data.content;
                     
-                    // Extraire et afficher le narratif en cours
                     const narratif = extractNarratif(fullJson);
                     const heure = extractHeure(fullJson);
                     
@@ -374,10 +414,7 @@ export default function Home() {
                       }
                     }
                   } else if (data.type === 'done') {
-                    setMessages([...previousMessages,
-                      { role: 'user', content: userMessage },
-                      { role: 'assistant', content: data.displayText || extractNarratif(fullJson) || fullJson }
-                    ]);
+                    finalizeMessage(data.displayText || extractNarratif(fullJson) || fullJson);
                     
                     if (data.state) {
                       setGameState({ 
@@ -392,6 +429,10 @@ export default function Home() {
                     }
                   } else if (data.type === 'error') {
                     setError(data.error);
+                    // Finaliser avec le contenu partiel
+                    if (fullJson) {
+                      finalizeMessage(extractNarratif(fullJson) || fullJson);
+                    }
                   }
                 } catch (parseError) {
                   // Ignorer les lignes mal formées
@@ -402,18 +443,14 @@ export default function Home() {
         } catch (streamError) {
           if (streamError.name !== 'AbortError') {
             console.error('Stream error:', streamError);
-            // Si on a du contenu, l'afficher quand même
+            // Finaliser avec le contenu partiel
             const narratif = extractNarratif(fullJson);
             if (narratif || fullJson) {
-              setMessages([...previousMessages,
-                { role: 'user', content: userMessage },
-                { role: 'assistant', content: narratif || fullJson }
-              ]);
+              finalizeMessage(narratif || fullJson);
             }
           }
         }
       } else {
-        // Mode classique (fallback)
         const data = await res.json();
 
         if (data.error) {
@@ -422,10 +459,7 @@ export default function Home() {
         }
 
         if (data.displayText) {
-          setMessages([...previousMessages, 
-            { role: 'user', content: userMessage },
-            { role: 'assistant', content: data.displayText }
-          ]);
+          finalizeMessage(data.displayText);
           if (data.state) {
             setGameState({ 
               partie: { 
@@ -438,10 +472,7 @@ export default function Home() {
             });
           }
         } else if (data.content) {
-          setMessages([...previousMessages,
-            { role: 'user', content: userMessage },
-            { role: 'assistant', content: data.content }
-          ]);
+          finalizeMessage(data.content);
         }
       }
 
@@ -470,9 +501,10 @@ export default function Home() {
     return (
       <div style={{ padding: 20, maxWidth: 600, margin: '0 auto' }}>
         <h1 style={{ color: '#60a5fa', marginBottom: 20 }}>LDVELH</h1>
-        <button onClick={newGame} style={{ padding: '10px 20px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', marginBottom: 20, cursor: 'pointer' }}>
-          + Nouvelle partie
+        <button onClick={newGame} disabled={loadingGame} style={{ padding: '10px 20px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', marginBottom: 20, cursor: 'pointer', opacity: loadingGame ? 0.5 : 1 }}>
+          {loadingGame ? 'Création...' : '+ Nouvelle partie'}
         </button>
+        {error && <div style={{ color: '#f87171', marginBottom: 10 }}>{error}</div>}
         <h2 style={{ marginBottom: 10 }}>Parties existantes :</h2>
         {parties.length === 0 && <p style={{ color: '#6b7280' }}>Aucune partie sauvegardée</p>}
         {parties.map(p => (
@@ -658,7 +690,10 @@ export default function Home() {
               </div>
             ) : (
               // Mode affichage
-              <div style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}>
+              <div 
+                style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}
+                className="message-container"
+              >
                 <div style={{ padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937' }}>
                   <div className="markdown-content" style={{ fontSize: fontSize }}>
                     <ReactMarkdown
@@ -685,7 +720,7 @@ export default function Home() {
                   {msg.streaming && <span style={{ color: '#60a5fa' }}>▋</span>}
                 </div>
                 {/* Boutons d'action au survol */}
-                <div style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0.7 }}>
+                <div className="message-actions" style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0, transition: 'opacity 0.2s' }}>
                   {msg.role === 'user' && !loading && (
                     <button 
                       onClick={() => startEditMessage(i)} 
@@ -695,7 +730,7 @@ export default function Home() {
                       ✏️
                     </button>
                   )}
-                  {msg.role === 'assistant' && i === messages.length - 1 && !loading && (
+                  {msg.role === 'assistant' && i === messages.length - 1 && !loading && !msg.streaming && (
                     <button 
                       onClick={regenerateLastResponse} 
                       title="Regénérer"
@@ -709,7 +744,7 @@ export default function Home() {
             )}
           </div>
         ))}
-        {loading && (
+        {loading && !messages.some(m => m.streaming) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6b7280', fontStyle: 'italic' }}>
             <span>En cours...</span>
             <button 
@@ -720,7 +755,17 @@ export default function Home() {
             </button>
           </div>
         )}
-        {error && <div style={{ color: '#f87171' }}>{error}</div>}
+        {loading && messages.some(m => m.streaming) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+            <button 
+              onClick={cancelRequest}
+              style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}
+            >
+              ✕ Annuler
+            </button>
+          </div>
+        )}
+        {error && <div style={{ color: '#f87171', marginTop: 8 }}>{error}</div>}
         <div ref={messagesEndRef} />
       </div>
 
@@ -728,6 +773,7 @@ export default function Home() {
       <div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -738,7 +784,6 @@ export default function Home() {
             }}
             placeholder="Ton action... (Ctrl+Entrée pour envoyer)"
             disabled={loading}
-            rows={2}
             style={{ 
               flex: 1, 
               padding: '8px 16px', 
@@ -748,10 +793,11 @@ export default function Home() {
               color: '#fff', 
               outline: 'none', 
               fontSize: fontSize,
-              resize: 'vertical',
+              resize: 'none',
               minHeight: 44,
               maxHeight: 200,
-              fontFamily: 'inherit'
+              fontFamily: 'inherit',
+              overflow: 'hidden'
             }}
           />
           <button onClick={sendMessage} disabled={loading} style={{ padding: '12px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1, height: 44 }}>
@@ -762,6 +808,13 @@ export default function Home() {
           Entrée = nouvelle ligne • Ctrl+Entrée = envoyer
         </div>
       </div>
+
+      {/* CSS pour le hover des boutons d'action */}
+      <style jsx>{`
+        .message-container:hover .message-actions {
+          opacity: 1 !important;
+        }
+      `}</style>
     </div>
   );
 }
