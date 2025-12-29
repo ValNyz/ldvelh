@@ -5,6 +5,69 @@ import { SYSTEM_PROMPT } from '../../../lib/prompt';
 // Configuration pour le streaming
 export const dynamic = 'force-dynamic';
 
+// Fonction pour tenter de réparer un JSON mal formé
+function tryFixJSON(jsonStr) {
+  let fixed = jsonStr.trim();
+  
+  // Enlever les backticks markdown
+  if (fixed.startsWith('```json')) fixed = fixed.slice(7);
+  if (fixed.startsWith('```')) fixed = fixed.slice(3);
+  if (fixed.endsWith('```')) fixed = fixed.slice(0, -3);
+  fixed = fixed.trim();
+  
+  // Essayer de parser directement
+  try {
+    return JSON.parse(fixed);
+  } catch (e) {
+    // Continue avec les corrections
+  }
+  
+  // Correction 1: Ajouter } ou ] manquants à la fin
+  let openBraces = (fixed.match(/{/g) || []).length;
+  let closeBraces = (fixed.match(/}/g) || []).length;
+  let openBrackets = (fixed.match(/\[/g) || []).length;
+  let closeBrackets = (fixed.match(/\]/g) || []).length;
+  
+  while (closeBrackets < openBrackets) {
+    fixed += ']';
+    closeBrackets++;
+  }
+  while (closeBraces < openBraces) {
+    fixed += '}';
+    closeBraces++;
+  }
+  
+  try {
+    return JSON.parse(fixed);
+  } catch (e) {
+    // Continue
+  }
+  
+  // Correction 2: Virgule trailing avant } ou ]
+  fixed = fixed.replace(/,\s*}/g, '}');
+  fixed = fixed.replace(/,\s*\]/g, ']');
+  
+  try {
+    return JSON.parse(fixed);
+  } catch (e) {
+    // Continue
+  }
+  
+  // Correction 3: Guillemets non fermés (basique)
+  // Compter les guillemets (hors échappés)
+  const unescapedQuotes = fixed.match(/(?<!\\)"/g) || [];
+  if (unescapedQuotes.length % 2 !== 0) {
+    // Ajouter un guillemet avant la dernière } ou ]
+    fixed = fixed.replace(/([}\]])$/, '"$1');
+  }
+  
+  try {
+    return JSON.parse(fixed);
+  } catch (e) {
+    return null;
+  }
+}
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -465,12 +528,57 @@ export async function POST(request) {
             
             // Envoyer le chunk au client
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`));
+            
+            // Détecter si on a le narratif et les choix complets (avant la fin du state)
+            if (!doneSent) {
+              // Vérifier qu'on a narratif et au moins un choix fermé avec ]
+              const hasNarratif = fullContent.includes('"narratif"');
+              const choixComplete = fullContent.match(/"choix"\s*:\s*\[[^\]]*\]/);
+              
+              if (hasNarratif && choixComplete) {
+                // Extraire narratif et choix maintenant
+                const narratifMatch = fullContent.match(/"narratif"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"choix")/);
+                const heureMatch = fullContent.match(/"heure"\s*:\s*"([^"]+)"/);
+                
+                if (narratifMatch) {
+                  let narratif = narratifMatch[1]
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+                  
+                  let earlyDisplayText = '';
+                  if (heureMatch) earlyDisplayText += `[${heureMatch[1]}] `;
+                  earlyDisplayText += narratif;
+                  
+                  // Extraire les choix
+                  try {
+                    const choixArrayMatch = fullContent.match(/"choix"\s*:\s*(\[[^\]]+\])/);
+                    if (choixArrayMatch) {
+                      const choixArray = JSON.parse(choixArrayMatch[1]);
+                      if (choixArray.length > 0) {
+                        earlyDisplayText += '\n\n' + choixArray.map((c, i) => `${i + 1}. ${c}`).join('\n');
+                      }
+                    }
+                  } catch (e) {}
+                  
+                  // Envoyer done immédiatement avec le displayText
+                  await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+                    type: 'done', 
+                    displayText: earlyDisplayText
+                  })}\n\n`));
+                  await writer.ready;
+                  doneSent = true;
+                  
+                  console.log('Early done sent after narratif+choix detected');
+                }
+              }
+            }
           }
         }
 
         // Traitement final une fois le stream terminé
-        const parseStart = Date.now();
-        displayText = fullContent;
+        let parsed = null;
+        let displayText = fullContent;
 
         try {
           let cleanContent = fullContent.trim();
