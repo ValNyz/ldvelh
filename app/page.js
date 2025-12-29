@@ -440,33 +440,12 @@ export default function Home() {
                       }
                     }
                   } else if (data.type === 'done') {
-                    // Toujours utiliser displayText du serveur s'il existe et contient des choix
-                    let finalContent = data.displayText;
+                    // Débloquer l'écriture immédiatement
+                    setLoading(false);
+                    setSaving(true);
                     
-                    // Si pas de displayText ou pas de choix dedans, essayer de reconstruire
-                    if (!finalContent || !finalContent.includes('1.')) {
-                      const narratif = extractNarratif(fullJson);
-                      const heure = extractHeure(fullJson);
-                      const choixMatch = fullJson.match(/"choix"\s*:\s*\[([\s\S]*?)\]/);
-                      
-                      if (narratif) {
-                        finalContent = heure ? `[${heure}] ${narratif}` : narratif;
-                        
-                        // Extraire et ajouter les choix
-                        if (choixMatch) {
-                          try {
-                            const choixArray = JSON.parse(`[${choixMatch[1]}]`);
-                            if (choixArray.length > 0) {
-                              finalContent += '\n\n' + choixArray.map((c, i) => `${i + 1}. ${c}`).join('\n');
-                            }
-                          } catch (e) {
-                            // Ignore parsing errors
-                          }
-                        }
-                      }
-                    }
-                    
-                    finalizeMessage(finalContent || extractDisplayContent(fullJson) || fullJson);
+                    // Utiliser directement displayText du serveur
+                    finalizeMessage(data.displayText || fullJson);
                     
                     if (data.state) {
                       setGameState({ 
@@ -479,9 +458,6 @@ export default function Home() {
                         ...data.state 
                       });
                     }
-                    
-                    // Attendre la confirmation de sauvegarde
-                    setSaving(true);
                   } else if (data.type === 'saved') {
                     // Sauvegarde terminée
                     setSaving(false);
