@@ -466,6 +466,7 @@ export async function POST(request) {
         }
 
         // Traitement final une fois le stream terminé
+        const parseStart = Date.now();
         let parsed = null;
         let displayText = fullContent;
 
@@ -552,12 +553,13 @@ export async function POST(request) {
           state: parsed?.state,
           heure: parsed?.heure
         })}\n\n`));
-
-        // === SAUVEGARDES ===
         
-        // Sauvegarder les messages (PRIORITAIRE - on attend juste ça)
+        // Forcer l'envoi immédiat du "done"
+        await writer.ready;
+
+        // === SAUVEGARDE MESSAGES (on attend juste ça) ===
         if (partieId) {
-          console.log(`Saving messages for partie ${partieId}, cycle ${cycleForSave}`);
+          const saveStart = Date.now();
           
           await supabase.from('chat_messages').insert({
             partie_id: partieId, 
@@ -572,9 +574,11 @@ export async function POST(request) {
             content: displayText, 
             cycle: cycleForSave
           });
+          
+          console.log(`Messages saved in ${Date.now() - saveStart}ms`);
         }
 
-        // Notifier le client que les messages sont sauvés - IL PEUT RÉPONDRE
+        // Envoyer "saved" - le client peut répondre
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
 
       } catch (error) {
