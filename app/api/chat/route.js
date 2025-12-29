@@ -514,64 +514,7 @@ export async function POST(request) {
         // Déterminer le cycle à utiliser pour la sauvegarde
         const cycleForSave = parsed?.state?.cycle || currentCycle;
 
-        // Détecter changement de cycle et générer résumé
-        if (partieId && parsed && cycleForSave > currentCycle) {
-          const { data: cycleMessages } = await supabase
-            .from('chat_messages')
-            .select('role, content')
-            .eq('partie_id', partieId)
-            .eq('cycle', currentCycle)
-            .order('created_at', { ascending: true });
-
-          // Générer le résumé en arrière-plan (ne pas bloquer)
-          generateCycleResume(partieId, currentCycle, cycleMessages, gameState).catch(console.error);
-        }
-
-        // Sauvegarder l'état si partieId existe
-        if (partieId && parsed?.state) {
-          // Sauvegarde en arrière-plan
-          saveGameState(partieId, {
-            partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
-            valentin: parsed.state.valentin,
-            ia: parsed.state.ia,
-            contexte: parsed.state.contexte,
-            pnj: parsed.state.pnj,
-            arcs: parsed.state.arcs,
-            historique: parsed.state.historique,
-            aVenir: parsed.state.a_venir,
-            lieux: parsed.state.lieux,
-            horsChamp: parsed.state.hors_champ
-          }).catch(console.error);
-        }
-
-        // Sauvegarder messages chat - TOUJOURS si partieId existe
-        if (partieId) {
-          console.log(`Saving messages for partie ${partieId}, cycle ${cycleForSave}`);
-          
-          // Insérer le message user d'abord
-          const { error: userError } = await supabase.from('chat_messages').insert({
-            partie_id: partieId, 
-            role: 'user', 
-            content: message, 
-            cycle: cycleForSave
-          });
-          if (userError) {
-            console.error('Erreur sauvegarde message user:', userError);
-          }
-          
-          // Puis le message assistant (avec un petit délai pour garantir l'ordre)
-          const { error: assistantError } = await supabase.from('chat_messages').insert({
-            partie_id: partieId, 
-            role: 'assistant', 
-            content: displayText, 
-            cycle: cycleForSave
-          });
-          if (assistantError) {
-            console.error('Erreur sauvegarde message assistant:', assistantError);
-          }
-        }
-
-        // Envoyer le message final avec les données parsées
+        // Envoyer le message final avec les données parsées AVANT les sauvegardes
         await writer.write(encoder.encode(`data: ${JSON.stringify({ 
           type: 'done', 
           displayText,
@@ -579,11 +522,85 @@ export async function POST(request) {
           heure: parsed?.heure
         })}\n\n`));
 
+        // === SAUVEGARDES (stream toujours ouvert pour envoyer 'saved') ===
+        
+        try {
+          const savePromises = [];
+
+          // Détecter changement de cycle et générer résumé
+          if (partieId && parsed && cycleForSave > currentCycle) {
+            const resumePromise = supabase
+              .from('chat_messages')
+              .select('role, content')
+              .eq('partie_id', partieId)
+              .eq('cycle', currentCycle)
+              .order('created_at', { ascending: true })
+              .then(({ data: cycleMessages }) => {
+                if (cycleMessages) {
+                  return generateCycleResume(partieId, currentCycle, cycleMessages, gameState);
+                }
+              });
+            savePromises.push(resumePromise);
+          }
+
+          // Sauvegarder l'état si partieId existe
+          if (partieId && parsed?.state) {
+            savePromises.push(saveGameState(partieId, {
+              partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
+              valentin: parsed.state.valentin,
+              ia: parsed.state.ia,
+              contexte: parsed.state.contexte,
+              pnj: parsed.state.pnj,
+              arcs: parsed.state.arcs,
+              historique: parsed.state.historique,
+              aVenir: parsed.state.a_venir,
+              lieux: parsed.state.lieux,
+              horsChamp: parsed.state.hors_champ
+            }));
+          }
+
+          // Sauvegarder messages chat
+          if (partieId) {
+            console.log(`Saving messages for partie ${partieId}, cycle ${cycleForSave}`);
+            
+            const messagesPromise = supabase.from('chat_messages').insert({
+              partie_id: partieId, 
+              role: 'user', 
+              content: message, 
+              cycle: cycleForSave
+            }).then(() => {
+              return supabase.from('chat_messages').insert({
+                partie_id: partieId, 
+                role: 'assistant', 
+                content: displayText, 
+                cycle: cycleForSave
+              });
+            });
+            savePromises.push(messagesPromise);
+          }
+
+          // Attendre toutes les sauvegardes
+          await Promise.all(savePromises);
+          
+          // Notifier le client que la sauvegarde est terminée
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
+          
+        } catch (saveError) {
+          console.error('Erreur sauvegarde:', saveError);
+          // On envoie quand même 'saved' pour débloquer le client
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved', error: saveError.message })}\n\n`));
+        }
+
+        await writer.close();
+
       } catch (error) {
         console.error('Streaming error:', error);
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
-      } finally {
-        await writer.close();
+        try {
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
+          await writer.close();
+        } catch (e) {
+          // Writer peut être déjà fermé
+        }
       }
     })();
 
@@ -600,4 +617,4 @@ export async function POST(request) {
     console.error('Erreur:', e);
     return Response.json({ error: e.message }, { status: 500 });
   }
-            }
+}
