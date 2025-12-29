@@ -327,6 +327,43 @@ export async function GET(request) {
   return Response.json({ error: 'Action non reconnue' });
 }
 
+export async function DELETE(request) {
+  try {
+    const { partieId, fromIndex } = await request.json();
+    
+    if (!partieId) {
+      return Response.json({ error: 'partieId manquant' }, { status: 400 });
+    }
+
+    // Récupérer tous les messages de la partie ordonnés par date
+    const { data: allMessages } = await supabase
+      .from('chat_messages')
+      .select('id, created_at')
+      .eq('partie_id', partieId)
+      .order('created_at', { ascending: true });
+
+    if (!allMessages || fromIndex >= allMessages.length) {
+      return Response.json({ success: true });
+    }
+
+    // Supprimer les messages à partir de fromIndex
+    const messagesToDelete = allMessages.slice(fromIndex).map(m => m.id);
+    
+    if (messagesToDelete.length > 0) {
+      await supabase
+        .from('chat_messages')
+        .delete()
+        .in('id', messagesToDelete);
+    }
+
+    return Response.json({ success: true, deleted: messagesToDelete.length });
+
+  } catch (e) {
+    console.error('Erreur DELETE:', e);
+    return Response.json({ error: e.message }, { status: 500 });
+  }
+}
+
 export async function POST(request) {
   try {
     const { message, partieId, gameState } = await request.json();
