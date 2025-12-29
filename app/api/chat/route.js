@@ -74,11 +74,18 @@ async function loadConversationContext(partieId, currentCycle) {
 
 // Charger tous les messages chat (pour l'affichage)
 async function loadChatMessages(partieId) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('chat_messages')
-    .select('role, content, created_at')
+    .select('role, content, cycle, created_at')
     .eq('partie_id', partieId)
     .order('created_at', { ascending: true });
+  
+  if (error) {
+    console.error('Erreur chargement messages:', error);
+    return [];
+  }
+  
+  console.log(`Loaded ${data?.length || 0} messages for partie ${partieId}`);
   return data || [];
 }
 
@@ -420,7 +427,7 @@ export async function POST(request) {
 
     const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
 
-    // Charger le contexte conversationnel si partie existante
+    // Charger le contexte conversationnel si partie existante avec gameState
     let contextMessage;
     if (partieId && gameState && gameState.partie) {
       const conversationData = await loadConversationContext(partieId, currentCycle);
@@ -481,9 +488,11 @@ export async function POST(request) {
           parsed = null;
         }
 
+        // Déterminer le cycle à utiliser pour la sauvegarde
+        const cycleForSave = parsed?.state?.cycle || currentCycle;
+
         // Détecter changement de cycle et générer résumé
-        const newCycle = parsed?.state?.cycle || currentCycle;
-        if (partieId && parsed && newCycle > currentCycle) {
+        if (partieId && parsed && cycleForSave > currentCycle) {
           const { data: cycleMessages } = await supabase
             .from('chat_messages')
             .select('role, content')
@@ -512,13 +521,16 @@ export async function POST(request) {
           }).catch(console.error);
         }
 
-        // Sauvegarder messages chat
+        // Sauvegarder messages chat - TOUJOURS si partieId existe
         if (partieId) {
-          const newCycleForSave = parsed?.state?.cycle || currentCycle;
-          supabase.from('chat_messages').insert([
-            { partie_id: partieId, role: 'user', content: message, cycle: newCycleForSave },
-            { partie_id: partieId, role: 'assistant', content: displayText, cycle: newCycleForSave }
-          ]).then(() => {}).catch(console.error);
+          console.log(`Saving messages for partie ${partieId}, cycle ${cycleForSave}`);
+          const { error } = await supabase.from('chat_messages').insert([
+            { partie_id: partieId, role: 'user', content: message, cycle: cycleForSave },
+            { partie_id: partieId, role: 'assistant', content: displayText, cycle: cycleForSave }
+          ]);
+          if (error) {
+            console.error('Erreur sauvegarde messages:', error);
+          }
         }
 
         // Envoyer le message final avec les données parsées
@@ -530,6 +542,7 @@ export async function POST(request) {
         })}\n\n`));
 
       } catch (error) {
+        console.error('Streaming error:', error);
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
       } finally {
         await writer.close();
