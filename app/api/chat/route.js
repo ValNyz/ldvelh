@@ -576,50 +576,55 @@ export async function POST(request) {
 
         // Notifier le client que les messages sont sauvés - IL PEUT RÉPONDRE
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
-        await writer.close();
-
-        // === LE RESTE EN VRAI ARRIÈRE-PLAN (après fermeture du stream) ===
-        
-        // Sauvegarder l'état (non-bloquant)
-        if (partieId && parsed?.state) {
-          saveGameState(partieId, {
-            partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
-            valentin: parsed.state.valentin,
-            ia: parsed.state.ia,
-            contexte: parsed.state.contexte,
-            pnj: parsed.state.pnj,
-            arcs: parsed.state.arcs,
-            historique: parsed.state.historique,
-            aVenir: parsed.state.a_venir,
-            lieux: parsed.state.lieux,
-            horsChamp: parsed.state.hors_champ
-          }).catch(console.error);
-        }
-
-        // Générer résumé si changement de cycle (non-bloquant)
-        if (partieId && parsed && cycleForSave > currentCycle) {
-          supabase
-            .from('chat_messages')
-            .select('role, content')
-            .eq('partie_id', partieId)
-            .eq('cycle', currentCycle)
-            .order('created_at', { ascending: true })
-            .then(({ data: cycleMessages }) => {
-              if (cycleMessages) {
-                generateCycleResume(partieId, currentCycle, cycleMessages, gameState).catch(console.error);
-              }
-            })
-            .catch(console.error);
-        }
 
       } catch (error) {
         console.error('Streaming error:', error);
         try {
           await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
-          await writer.close();
         } catch (e) {
           // Writer peut être déjà fermé
         }
+      } finally {
+        // TOUJOURS fermer le stream
+        try {
+          await writer.close();
+        } catch (e) {
+          // Déjà fermé
+        }
+      }
+      
+      // === LE RESTE EN VRAI ARRIÈRE-PLAN (après fermeture du stream) ===
+      
+      // Sauvegarder l'état (non-bloquant)
+      if (partieId && parsed?.state) {
+        saveGameState(partieId, {
+          partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
+          valentin: parsed.state.valentin,
+          ia: parsed.state.ia,
+          contexte: parsed.state.contexte,
+          pnj: parsed.state.pnj,
+          arcs: parsed.state.arcs,
+          historique: parsed.state.historique,
+          aVenir: parsed.state.a_venir,
+          lieux: parsed.state.lieux,
+          horsChamp: parsed.state.hors_champ
+        }).catch(console.error);
+      }
+
+      // Générer résumé si changement de cycle (non-bloquant)
+      if (partieId && parsed && cycleForSave > currentCycle) {
+        supabase
+          .from('chat_messages')
+          .select('role, content')
+          .eq('partie_id', partieId)
+          .eq('cycle', currentCycle)
+          .order('created_at', { ascending: true })
+          .then(({ data: cycleMessages }) => {
+            if (cycleMessages) {
+              generateCycleResume(partieId, currentCycle, cycleMessages, gameState).catch(console.error);
+            }
+          })
+          .catch(console.error);
       }
     })();
 
