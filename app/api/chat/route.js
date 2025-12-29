@@ -444,6 +444,9 @@ export async function POST(request) {
     // Lancer le traitement en arrière-plan
     (async () => {
       let fullContent = '';
+      let parsed = null;
+      let displayText = '';
+      let cycleForSave = currentCycle;
 
       try {
         // Appel Claude avec streaming
@@ -467,8 +470,7 @@ export async function POST(request) {
 
         // Traitement final une fois le stream terminé
         const parseStart = Date.now();
-        let parsed = null;
-        let displayText = fullContent;
+        displayText = fullContent;
 
         try {
           let cleanContent = fullContent.trim();
