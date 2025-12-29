@@ -459,8 +459,21 @@ export default function Home() {
                       });
                     }
                   } else if (data.type === 'saved') {
-                    // Sauvegarde terminée
+                    // Sauvegarde terminée - le client peut envoyer
                     setSaving(false);
+                    
+                    // Mettre à jour le state s'il arrive avec saved (done envoyé tôt)
+                    if (data.state) {
+                      setGameState({ 
+                        partie: { 
+                          cycle_actuel: data.state.cycle, 
+                          jour: data.state.jour,
+                          date_jeu: data.state.date_jeu,
+                          heure: data.heure
+                        }, 
+                        ...data.state 
+                      });
+                    }
                   } else if (data.type === 'error') {
                     setError(data.error);
                     if (fullJson) {
@@ -482,32 +495,6 @@ export default function Home() {
             }
           }
         }
-        
-        // Toujours finaliser à la fin du stream si pas déjà fait
-        // Vérifier si le dernier message est encore en streaming
-        setMessages(prev => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg?.streaming) {
-            // Extraire les choix du JSON et finaliser
-            let finalContent = lastMsg.content;
-            const choixMatch = fullJson.match(/"choix"\s*:\s*\[\s*([\s\S]*?)\s*\]/);
-            if (choixMatch && !finalContent.includes('1.')) {
-              try {
-                const choixArray = JSON.parse(`[${choixMatch[1]}]`);
-                if (choixArray.length > 0) {
-                  finalContent += '\n\n' + choixArray.map((c, i) => `${i + 1}. ${c}`).join('\n');
-                }
-              } catch (e) {}
-            }
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = { role: 'assistant', content: finalContent };
-            return newMessages;
-          }
-          return prev;
-        });
-        
-        setLoading(false);
-        setSaving(false);
       } else {
         const data = await res.json();
 
