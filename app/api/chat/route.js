@@ -528,57 +528,12 @@ export async function POST(request) {
             
             // Envoyer le chunk au client
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`));
-            
-            // Détecter si on a le narratif et les choix complets (avant la fin du state)
-            if (!doneSent) {
-              // Vérifier qu'on a narratif et au moins un choix fermé avec ]
-              const hasNarratif = fullContent.includes('"narratif"');
-              const choixComplete = fullContent.match(/"choix"\s*:\s*\[[^\]]*\]/);
-              
-              if (hasNarratif && choixComplete) {
-                // Extraire narratif et choix maintenant
-                const narratifMatch = fullContent.match(/"narratif"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"choix")/);
-                const heureMatch = fullContent.match(/"heure"\s*:\s*"([^"]+)"/);
-                
-                if (narratifMatch) {
-                  let narratif = narratifMatch[1]
-                    .replace(/\\n/g, '\n')
-                    .replace(/\\"/g, '"')
-                    .replace(/\\\\/g, '\\');
-                  
-                  let earlyDisplayText = '';
-                  if (heureMatch) earlyDisplayText += `[${heureMatch[1]}] `;
-                  earlyDisplayText += narratif;
-                  
-                  // Extraire les choix
-                  try {
-                    const choixArrayMatch = fullContent.match(/"choix"\s*:\s*(\[[^\]]+\])/);
-                    if (choixArrayMatch) {
-                      const choixArray = JSON.parse(choixArrayMatch[1]);
-                      if (choixArray.length > 0) {
-                        earlyDisplayText += '\n\n' + choixArray.map((c, i) => `${i + 1}. ${c}`).join('\n');
-                      }
-                    }
-                  } catch (e) {}
-                  
-                  // Envoyer done immédiatement avec le displayText
-                  await writer.write(encoder.encode(`data: ${JSON.stringify({ 
-                    type: 'done', 
-                    displayText: earlyDisplayText
-                  })}\n\n`));
-                  await writer.ready;
-                  doneSent = true;
-                  
-                  console.log('Early done sent after narratif+choix detected');
-                }
-              }
-            }
           }
         }
 
         // Traitement final une fois le stream terminé
-        let parsed = null;
-        let displayText = fullContent;
+        const parseStart = Date.now();
+        displayText = fullContent;
 
         try {
           let cleanContent = fullContent.trim();
@@ -593,21 +548,22 @@ export async function POST(request) {
           if (jsonStartIndex > 0) {
             jsonContent = cleanContent.slice(jsonStartIndex + 1).trim();
           } else if (jsonStartIndex2 === 0) {
-            // Le contenu commence par { - c'est du JSON pur
-            if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
-            if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
-            if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
-            jsonContent = cleanContent.trim();
+            jsonContent = cleanContent;
           }
           
-          parsed = JSON.parse(jsonContent);
-
-          // Construire le texte d'affichage à partir du JSON
-          displayText = '';
-          if (parsed.heure) displayText += `[${parsed.heure}] `;
-          if (parsed.narratif) displayText += parsed.narratif;
-          if (parsed.choix && parsed.choix.length > 0) {
-            displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
+          // Tenter de parser, avec correction si nécessaire
+          parsed = tryFixJSON(jsonContent);
+          
+          if (parsed) {
+            // Construire le texte d'affichage à partir du JSON
+            displayText = '';
+            if (parsed.heure) displayText += `[${parsed.heure}] `;
+            if (parsed.narratif) displayText += parsed.narratif;
+            if (parsed.choix && parsed.choix.length > 0) {
+              displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
+            }
+          } else {
+            throw new Error('JSON non réparable');
           }
         } catch (e) {
           console.error('Erreur parsing JSON:', e.message);
@@ -694,9 +650,7 @@ export async function POST(request) {
       } catch (error) {
         console.error('Streaming error:', error);
         try {
-          if (!doneSent) {
-            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
-          }
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
         } catch (e) {
           // Writer peut être déjà fermé
         }
