@@ -485,6 +485,7 @@ export async function POST(request) {
           }
         } catch (e) {
           // Si pas JSON valide, garder le texte brut
+          console.error('Erreur parsing JSON:', e.message);
           parsed = null;
         }
 
