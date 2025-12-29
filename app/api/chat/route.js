@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import { SYSTEM_PROMPT } from '@/lib/prompt';
+import { SYSTEM_PROMPT } from '../../../lib/prompt';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const supabase = createClient(
@@ -137,6 +137,27 @@ async function createNewGame() {
   return partie.id;
 }
 
+// Supprimer une partie et toutes ses données
+async function deleteGame(partieId) {
+  // Supprimer dans l'ordre pour respecter les contraintes FK
+  await supabase.from('chat_messages').delete().eq('partie_id', partieId);
+  await supabase.from('hors_champ').delete().eq('partie_id', partieId);
+  await supabase.from('lieux').delete().eq('partie_id', partieId);
+  await supabase.from('a_venir').delete().eq('partie_id', partieId);
+  await supabase.from('historique').delete().eq('partie_id', partieId);
+  await supabase.from('arcs').delete().eq('partie_id', partieId);
+  await supabase.from('pnj').delete().eq('partie_id', partieId);
+  await supabase.from('contexte').delete().eq('partie_id', partieId);
+  await supabase.from('ia_personnelle').delete().eq('partie_id', partieId);
+  await supabase.from('valentin').delete().eq('partie_id', partieId);
+  await supabase.from('parties').delete().eq('id', partieId);
+}
+
+// Renommer une partie
+async function renameGame(partieId, newName) {
+  await supabase.from('parties').update({ nom: newName }).eq('id', partieId);
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
@@ -149,13 +170,27 @@ export async function GET(request) {
   }
 
   if (action === 'list') {
-    const { data } = await supabase.from('parties').select('id, nom, cycle_actuel, updated_at').eq('active', true).order('updated_at', { ascending: false });
+    const { data } = await supabase.from('parties').select('id, nom, cycle_actuel, updated_at, created_at').eq('active', true).order('updated_at', { ascending: false });
     return Response.json({ parties: data });
   }
 
   if (action === 'new') {
     const partieId = await createNewGame();
     return Response.json({ partieId });
+  }
+
+  if (action === 'delete' && partieId) {
+    await deleteGame(partieId);
+    return Response.json({ success: true });
+  }
+
+  if (action === 'rename' && partieId) {
+    const newName = searchParams.get('name');
+    if (newName) {
+      await renameGame(partieId, newName);
+      return Response.json({ success: true });
+    }
+    return Response.json({ error: 'Nom manquant' }, { status: 400 });
   }
 
   return Response.json({ error: 'Action non reconnue' });
