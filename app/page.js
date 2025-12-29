@@ -21,10 +21,30 @@ export default function Home() {
   const [editedContent, setEditedContent] = useState('');
   const [fontSize, setFontSize] = useState(14);
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
   const abortControllerRef = useRef(null);
+  const userScrolledUp = useRef(false);
 
   useEffect(() => { loadParties(); }, []);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  
+  // Scroll auto seulement si l'utilisateur n'a pas scrollé vers le haut
+  useEffect(() => { 
+    if (!userScrolledUp.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+    }
+  }, [messages]);
+
+  // Détecter si l'utilisateur scroll vers le haut
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+    userScrolledUp.current = !isAtBottom;
+  };
+
+  // Reset le scroll quand on envoie un nouveau message
+  const resetScrollBehavior = () => {
+    userScrolledUp.current = false;
+  };
   
   // Charger la taille de police depuis localStorage
   useEffect(() => {
@@ -46,22 +66,53 @@ export default function Home() {
 
   const loadGame = async (id) => {
     setLoadingGame(true);
+    setError('');
     try {
       const res = await fetch(`/api/chat?action=load&partieId=${id}`);
       const data = await res.json();
-      setPartieId(id);
-      setGameState(data.state);
-      setPartieName(data.state?.partie?.nom || 'Partie sans nom');
       
+      console.log('Loaded game data:', data); // Debug
+      
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+      
+      setPartieId(id);
+      
+      // Reconstruire le gameState avec la bonne structure
+      if (data.state) {
+        const state = data.state;
+        setGameState({
+          partie: state.partie,
+          cycle: state.partie?.cycle_actuel || 1,
+          jour: state.partie?.jour,
+          valentin: state.valentin,
+          ia: state.ia,
+          contexte: state.contexte,
+          pnj: state.pnj || [],
+          arcs: state.arcs || [],
+          historique: state.historique || [],
+          aVenir: state.aVenir || [],
+          lieux: state.lieux || [],
+          horsChamp: state.horsChamp || []
+        });
+        setPartieName(state.partie?.nom || 'Partie sans nom');
+      }
+      
+      // Charger les messages
       if (data.messages && data.messages.length > 0) {
+        console.log('Loading messages:', data.messages.length); // Debug
         setMessages(data.messages.map(m => ({
           role: m.role,
           content: m.content
         })));
       } else {
+        console.log('No messages found'); // Debug
         setMessages([]);
       }
     } catch (e) {
+      console.error('Load game error:', e);
       setError('Erreur lors du chargement de la partie');
     } finally {
       setLoadingGame(false);
@@ -202,6 +253,7 @@ export default function Home() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
     setError('');
+    resetScrollBehavior(); // Remettre le scroll auto quand on envoie
     await sendMessageInternal(userMessage, messages);
   };
 
@@ -574,7 +626,11 @@ export default function Home() {
       )}
 
       {/* Messages */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        style={{ flex: 1, overflow: 'auto', padding: 16 }}
+      >
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}>
             <p>Tape "Commencer" pour lancer la partie</p>
