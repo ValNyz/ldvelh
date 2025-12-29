@@ -228,19 +228,50 @@ export default function Home() {
 
         // Fonction pour extraire le narratif du JSON partiel
         const extractNarratif = (jsonStr) => {
-          // Chercher le contenu après "narratif": "
-          const narratifMatch = jsonStr.match(/"narratif"\s*:\s*"([\s\S]*?)(?:"|$)/);
-          if (narratifMatch) {
-            let narratif = narratifMatch[1];
-            // Nettoyer les échappements JSON
-            narratif = narratif
-              .replace(/\\n/g, '\n')
-              .replace(/\\"/g, '"')
-              .replace(/\\\\/g, '\\')
-              .replace(/\\t/g, '\t');
-            return narratif;
+          // Chercher le début du narratif
+          const startMatch = jsonStr.match(/"narratif"\s*:\s*"/);
+          if (!startMatch) return null;
+          
+          const startIndex = startMatch.index + startMatch[0].length;
+          let narratif = '';
+          let i = startIndex;
+          
+          // Parcourir caractère par caractère en gérant les échappements
+          while (i < jsonStr.length) {
+            const char = jsonStr[i];
+            
+            if (char === '\\' && i + 1 < jsonStr.length) {
+              // Séquence d'échappement
+              const nextChar = jsonStr[i + 1];
+              if (nextChar === 'n') {
+                narratif += '\n';
+                i += 2;
+              } else if (nextChar === '"') {
+                narratif += '"';
+                i += 2;
+              } else if (nextChar === '\\') {
+                narratif += '\\';
+                i += 2;
+              } else if (nextChar === 't') {
+                narratif += '\t';
+                i += 2;
+              } else if (nextChar === 'r') {
+                narratif += '\r';
+                i += 2;
+              } else {
+                // Échappement incomplet, on attend la suite
+                break;
+              }
+            } else if (char === '"') {
+              // Fin du narratif
+              break;
+            } else {
+              narratif += char;
+              i++;
+            }
           }
-          return null;
+          
+          return narratif || null;
         };
 
         // Fonction pour extraire l'heure
