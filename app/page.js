@@ -201,34 +201,108 @@ export default function Home() {
         body: JSON.stringify({ message: userMessage, partieId, gameState }),
         signal: abortControllerRef.current.signal
       });
-      const data = await res.json();
 
-      if (data.error) {
-        setError(data.error);
-        return;
-      }
+      // Vérifier si c'est du streaming (SSE)
+      const contentType = res.headers.get('content-type');
+      
+      if (contentType?.includes('text/event-stream')) {
+        // Mode streaming
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let streamedContent = '';
+        let assistantMessageAdded = false;
 
-      if (data.displayText) {
-        setMessages([...previousMessages, 
-          { role: 'user', content: userMessage },
-          { role: 'assistant', content: data.displayText }
-        ]);
-        if (data.state) {
-          setGameState({ 
-            partie: { 
-              cycle_actuel: data.state.cycle, 
-              jour: data.state.jour,
-              date_jeu: data.state.date_jeu,
-              heure: data.heure
-            }, 
-            ...data.state 
-          });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const text = decoder.decode(value);
+          const lines = text.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (data.type === 'chunk') {
+                  streamedContent += data.content;
+                  
+                  // Ajouter ou mettre à jour le message assistant
+                  if (!assistantMessageAdded) {
+                    setMessages([...previousMessages, 
+                      { role: 'user', content: userMessage },
+                      { role: 'assistant', content: streamedContent, streaming: true }
+                    ]);
+                    assistantMessageAdded = true;
+                  } else {
+                    setMessages(prev => {
+                      const newMessages = [...prev];
+                      newMessages[newMessages.length - 1] = { 
+                        role: 'assistant', 
+                        content: streamedContent,
+                        streaming: true 
+                      };
+                      return newMessages;
+                    });
+                  }
+                } else if (data.type === 'done') {
+                  // Remplacer par le contenu final formaté
+                  setMessages([...previousMessages,
+                    { role: 'user', content: userMessage },
+                    { role: 'assistant', content: data.displayText || streamedContent }
+                  ]);
+                  
+                  if (data.state) {
+                    setGameState({ 
+                      partie: { 
+                        cycle_actuel: data.state.cycle, 
+                        jour: data.state.jour,
+                        date_jeu: data.state.date_jeu,
+                        heure: data.heure
+                      }, 
+                      ...data.state 
+                    });
+                  }
+                } else if (data.type === 'error') {
+                  setError(data.error);
+                }
+              } catch (e) {
+                // Ignorer les lignes mal formées
+              }
+            }
+          }
         }
-      } else if (data.content) {
-        setMessages([...previousMessages,
-          { role: 'user', content: userMessage },
-          { role: 'assistant', content: data.content }
-        ]);
+      } else {
+        // Mode classique (fallback)
+        const data = await res.json();
+
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+
+        if (data.displayText) {
+          setMessages([...previousMessages, 
+            { role: 'user', content: userMessage },
+            { role: 'assistant', content: data.displayText }
+          ]);
+          if (data.state) {
+            setGameState({ 
+              partie: { 
+                cycle_actuel: data.state.cycle, 
+                jour: data.state.jour,
+                date_jeu: data.state.date_jeu,
+                heure: data.heure
+              }, 
+              ...data.state 
+            });
+          }
+        } else if (data.content) {
+          setMessages([...previousMessages,
+            { role: 'user', content: userMessage },
+            { role: 'assistant', content: data.content }
+          ]);
+        }
       }
 
     } catch (e) {
@@ -443,6 +517,7 @@ export default function Home() {
               <div style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}>
                 <div style={{ padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937' }}>
                   <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: fontSize, margin: 0 }}>{msg.content}</pre>
+                  {msg.streaming && <span style={{ color: '#60a5fa', marginLeft: 4 }}>▋</span>}
                 </div>
                 {/* Boutons d'action au survol */}
                 <div style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0.7 }}>
