@@ -16,10 +16,26 @@ export default function Home() {
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [editingMessageIndex, setEditingMessageIndex] = useState(null);
+  const [editedContent, setEditedContent] = useState('');
+  const [fontSize, setFontSize] = useState(14);
   const messagesEndRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   useEffect(() => { loadParties(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  
+  // Charger la taille de police depuis localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('ldvelh-fontsize');
+    if (saved) setFontSize(parseInt(saved, 10));
+  }, []);
+
+  const changeFontSize = (delta) => {
+    const newSize = Math.min(24, Math.max(10, fontSize + delta));
+    setFontSize(newSize);
+    localStorage.setItem('ldvelh-fontsize', newSize.toString());
+  };
 
   const loadParties = async () => {
     const res = await fetch('/api/chat?action=list');
@@ -74,20 +90,116 @@ export default function Home() {
     setNewName('');
   };
 
+  // Annuler la requête en cours
+  const cancelRequest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setLoading(false);
+      // Supprimer le dernier message user qui attendait une réponse
+      setMessages(prev => prev.slice(0, -1));
+    }
+  };
+
+  // Éditer un message et regénérer
+  const startEditMessage = (index) => {
+    if (messages[index].role !== 'user') return;
+    setEditingMessageIndex(index);
+    setEditedContent(messages[index].content);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageIndex(null);
+    setEditedContent('');
+  };
+
+  const submitEdit = async () => {
+    if (!editedContent.trim() || loading) return;
+    
+    const messageIndex = editingMessageIndex;
+    const newContent = editedContent.trim();
+    
+    setEditingMessageIndex(null);
+    setEditedContent('');
+    setLoading(true);
+    setError('');
+
+    // Supprimer les messages à partir de l'index édité (en local)
+    const previousMessages = messages.slice(0, messageIndex);
+    setMessages([...previousMessages, { role: 'user', content: newContent }]);
+
+    // Supprimer les messages en BDD à partir de cet index
+    try {
+      await fetch('/api/chat', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          partieId, 
+          fromIndex: messageIndex 
+        })
+      });
+    } catch (e) {
+      console.error('Erreur suppression messages:', e);
+    }
+
+    // Regénérer avec le nouveau message
+    await sendMessageInternal(newContent, previousMessages);
+  };
+
+  // Regénérer le dernier message assistant
+  const regenerateLastResponse = async () => {
+    if (loading || messages.length < 2) return;
+    
+    // Trouver le dernier message user
+    let lastUserIndex = messages.length - 1;
+    while (lastUserIndex >= 0 && messages[lastUserIndex].role !== 'user') {
+      lastUserIndex--;
+    }
+    if (lastUserIndex < 0) return;
+
+    const userMessage = messages[lastUserIndex].content;
+    const previousMessages = messages.slice(0, lastUserIndex);
+    
+    setMessages([...previousMessages, { role: 'user', content: userMessage }]);
+    setLoading(true);
+    setError('');
+
+    // Supprimer le dernier échange en BDD
+    try {
+      await fetch('/api/chat', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          partieId, 
+          fromIndex: lastUserIndex 
+        })
+      });
+    } catch (e) {
+      console.error('Erreur suppression:', e);
+    }
+
+    await sendMessageInternal(userMessage, previousMessages);
+  };
+
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
     const userMessage = input.trim();
     setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
     setError('');
+    await sendMessageInternal(userMessage, messages);
+  };
 
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+  const sendMessageInternal = async (userMessage, previousMessages) => {
+    abortControllerRef.current = new AbortController();
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage, partieId, gameState })
+        body: JSON.stringify({ message: userMessage, partieId, gameState }),
+        signal: abortControllerRef.current.signal
       });
       const data = await res.json();
 
@@ -97,10 +209,10 @@ export default function Home() {
       }
 
       if (data.displayText) {
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: data.displayText
-        }]);
+        setMessages([...previousMessages, 
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: data.displayText }
+        ]);
         if (data.state) {
           setGameState({ 
             partie: { 
@@ -113,13 +225,21 @@ export default function Home() {
           });
         }
       } else if (data.content) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
+        setMessages([...previousMessages,
+          { role: 'user', content: userMessage },
+          { role: 'assistant', content: data.content }
+        ]);
       }
 
     } catch (e) {
-      setError(e.message);
+      if (e.name === 'AbortError') {
+        console.log('Requête annulée');
+      } else {
+        setError(e.message);
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -211,7 +331,31 @@ export default function Home() {
         <div style={{ background: '#1f2937', padding: 16, borderBottom: '1px solid #374151' }}>
           <h3 style={{ marginBottom: 12, fontSize: 14, color: '#9ca3af' }}>Paramètres de la partie</h3>
           
-          {/* Renommer */}
+          {/* Taille de police */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 8 }}>Taille de police</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button 
+                onClick={() => changeFontSize(-2)} 
+                disabled={fontSize <= 10}
+                style={{ width: 32, height: 32, background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 18, opacity: fontSize <= 10 ? 0.5 : 1 }}
+              >
+                −
+              </button>
+              <span style={{ color: '#fff', minWidth: 40, textAlign: 'center' }}>{fontSize}px</span>
+              <button 
+                onClick={() => changeFontSize(2)} 
+                disabled={fontSize >= 24}
+                style={{ width: 32, height: 32, background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 18, opacity: fontSize >= 24 ? 0.5 : 1 }}
+              >
+                +
+              </button>
+              <span style={{ color: '#6b7280', fontSize: 12, marginLeft: 8 }}>Aperçu :</span>
+              <span style={{ color: '#fff', fontSize: fontSize }}>Texte</span>
+            </div>
+          </div>
+          
+          {/* Nom de la partie */}
           <div style={{ marginBottom: 12 }}>
             <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nom de la partie</label>
             {editingName ? (
@@ -242,7 +386,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Supprimer */}
           <div>
             <button 
               onClick={() => {
@@ -277,12 +420,66 @@ export default function Home() {
         )}
         {messages.map((msg, i) => (
           <div key={i} style={{ marginBottom: 16, textAlign: msg.role === 'user' ? 'right' : 'left' }}>
-            <div style={{ display: 'inline-block', maxWidth: '80%', padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937' }}>
-              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 14, margin: 0 }}>{msg.content}</pre>
-            </div>
+            {editingMessageIndex === i ? (
+              // Mode édition
+              <div style={{ display: 'inline-block', maxWidth: '80%', padding: 12, borderRadius: 8, background: '#1e3a5f' }}>
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  autoFocus
+                  style={{ width: '100%', minHeight: 60, padding: 8, background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize: fontSize, resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                  <button onClick={cancelEdit} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                    Annuler
+                  </button>
+                  <button onClick={submitEdit} style={{ padding: '4px 12px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                    Envoyer
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Mode affichage
+              <div style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}>
+                <div style={{ padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937' }}>
+                  <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: fontSize, margin: 0 }}>{msg.content}</pre>
+                </div>
+                {/* Boutons d'action au survol */}
+                <div style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0.7 }}>
+                  {msg.role === 'user' && !loading && (
+                    <button 
+                      onClick={() => startEditMessage(i)} 
+                      title="Éditer et regénérer"
+                      style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}
+                    >
+                      ✏️
+                    </button>
+                  )}
+                  {msg.role === 'assistant' && i === messages.length - 1 && !loading && (
+                    <button 
+                      onClick={regenerateLastResponse} 
+                      title="Regénérer"
+                      style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}
+                    >
+                      🔄
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         ))}
-        {loading && <div style={{ color: '#6b7280', fontStyle: 'italic' }}>En cours...</div>}
+        {loading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6b7280', fontStyle: 'italic' }}>
+            <span>En cours...</span>
+            <button 
+              onClick={cancelRequest}
+              style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}
+            >
+              ✕ Annuler
+            </button>
+          </div>
+        )}
         {error && <div style={{ color: '#f87171' }}>{error}</div>}
         <div ref={messagesEndRef} />
       </div>
@@ -297,7 +494,7 @@ export default function Home() {
             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
             placeholder="Ton action..."
             disabled={loading}
-            style={{ flex: 1, padding: '8px 16px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none' }}
+            style={{ flex: 1, padding: '8px 16px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize: fontSize }}
           />
           <button onClick={sendMessage} disabled={loading} style={{ padding: '8px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1 }}>
             Envoyer
@@ -306,4 +503,4 @@ export default function Home() {
       </div>
     </div>
   );
-    }
+}
