@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 export default function Home() {
   const [parties, setParties] = useState([]);
@@ -212,63 +213,74 @@ export default function Home() {
         let streamedContent = '';
         let assistantMessageAdded = false;
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-          const text = decoder.decode(value);
-          const lines = text.split('\n');
+            const text = decoder.decode(value, { stream: true });
+            const lines = text.split('\n');
 
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
 
-                if (data.type === 'chunk') {
-                  streamedContent += data.content;
-                  
-                  // Ajouter ou mettre à jour le message assistant
-                  if (!assistantMessageAdded) {
-                    setMessages([...previousMessages, 
+                  if (data.type === 'chunk') {
+                    streamedContent += data.content;
+                    
+                    if (!assistantMessageAdded) {
+                      setMessages([...previousMessages, 
+                        { role: 'user', content: userMessage },
+                        { role: 'assistant', content: streamedContent, streaming: true }
+                      ]);
+                      assistantMessageAdded = true;
+                    } else {
+                      setMessages(prev => {
+                        const newMessages = [...prev];
+                        newMessages[newMessages.length - 1] = { 
+                          role: 'assistant', 
+                          content: streamedContent,
+                          streaming: true 
+                        };
+                        return newMessages;
+                      });
+                    }
+                  } else if (data.type === 'done') {
+                    setMessages([...previousMessages,
                       { role: 'user', content: userMessage },
-                      { role: 'assistant', content: streamedContent, streaming: true }
+                      { role: 'assistant', content: data.displayText || streamedContent }
                     ]);
-                    assistantMessageAdded = true;
-                  } else {
-                    setMessages(prev => {
-                      const newMessages = [...prev];
-                      newMessages[newMessages.length - 1] = { 
-                        role: 'assistant', 
-                        content: streamedContent,
-                        streaming: true 
-                      };
-                      return newMessages;
-                    });
+                    
+                    if (data.state) {
+                      setGameState({ 
+                        partie: { 
+                          cycle_actuel: data.state.cycle, 
+                          jour: data.state.jour,
+                          date_jeu: data.state.date_jeu,
+                          heure: data.heure
+                        }, 
+                        ...data.state 
+                      });
+                    }
+                  } else if (data.type === 'error') {
+                    setError(data.error);
                   }
-                } else if (data.type === 'done') {
-                  // Remplacer par le contenu final formaté
-                  setMessages([...previousMessages,
-                    { role: 'user', content: userMessage },
-                    { role: 'assistant', content: data.displayText || streamedContent }
-                  ]);
-                  
-                  if (data.state) {
-                    setGameState({ 
-                      partie: { 
-                        cycle_actuel: data.state.cycle, 
-                        jour: data.state.jour,
-                        date_jeu: data.state.date_jeu,
-                        heure: data.heure
-                      }, 
-                      ...data.state 
-                    });
-                  }
-                } else if (data.type === 'error') {
-                  setError(data.error);
+                } catch (parseError) {
+                  // Ignorer les lignes mal formées
                 }
-              } catch (e) {
-                // Ignorer les lignes mal formées
               }
+            }
+          }
+        } catch (streamError) {
+          if (streamError.name !== 'AbortError') {
+            console.error('Stream error:', streamError);
+            // Si on a du contenu, l'afficher quand même
+            if (streamedContent) {
+              setMessages([...previousMessages,
+                { role: 'user', content: userMessage },
+                { role: 'assistant', content: streamedContent }
+              ]);
             }
           }
         }
@@ -516,8 +528,29 @@ export default function Home() {
               // Mode affichage
               <div style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}>
                 <div style={{ padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937' }}>
-                  <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: fontSize, margin: 0 }}>{msg.content}</pre>
-                  {msg.streaming && <span style={{ color: '#60a5fa', marginLeft: 4 }}>▋</span>}
+                  <div className="markdown-content" style={{ fontSize: fontSize }}>
+                    <ReactMarkdown
+                      components={{
+                        p: ({children}) => <p style={{ margin: '0 0 8px 0' }}>{children}</p>,
+                        strong: ({children}) => <strong style={{ color: '#60a5fa' }}>{children}</strong>,
+                        em: ({children}) => <em style={{ color: '#a5b4fc' }}>{children}</em>,
+                        ul: ({children}) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
+                        ol: ({children}) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
+                        li: ({children}) => <li style={{ marginBottom: 4 }}>{children}</li>,
+                        code: ({inline, children}) => inline 
+                          ? <code style={{ background: '#374151', padding: '2px 6px', borderRadius: 4, fontSize: '0.9em' }}>{children}</code>
+                          : <pre style={{ background: '#374151', padding: 12, borderRadius: 4, overflow: 'auto', margin: '8px 0' }}><code>{children}</code></pre>,
+                        blockquote: ({children}) => <blockquote style={{ borderLeft: '3px solid #60a5fa', paddingLeft: 12, margin: '8px 0', color: '#9ca3af', fontStyle: 'italic' }}>{children}</blockquote>,
+                        h1: ({children}) => <h1 style={{ fontSize: '1.4em', margin: '12px 0 8px', color: '#60a5fa' }}>{children}</h1>,
+                        h2: ({children}) => <h2 style={{ fontSize: '1.2em', margin: '10px 0 6px', color: '#60a5fa' }}>{children}</h2>,
+                        h3: ({children}) => <h3 style={{ fontSize: '1.1em', margin: '8px 0 4px', color: '#60a5fa' }}>{children}</h3>,
+                        hr: () => <hr style={{ border: 'none', borderTop: '1px solid #374151', margin: '12px 0' }} />,
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
+                  {msg.streaming && <span style={{ color: '#60a5fa' }}>▋</span>}
                 </div>
                 {/* Boutons d'action au survol */}
                 <div style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0.7 }}>
@@ -561,19 +594,40 @@ export default function Home() {
 
       {/* Input */}
       <div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            type="text"
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-            placeholder="Ton action..."
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            placeholder="Ton action... (Ctrl+Entrée pour envoyer)"
             disabled={loading}
-            style={{ flex: 1, padding: '8px 16px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize: fontSize }}
+            rows={2}
+            style={{ 
+              flex: 1, 
+              padding: '8px 16px', 
+              background: '#374151', 
+              border: '1px solid #4b5563', 
+              borderRadius: 4, 
+              color: '#fff', 
+              outline: 'none', 
+              fontSize: fontSize,
+              resize: 'vertical',
+              minHeight: 44,
+              maxHeight: 200,
+              fontFamily: 'inherit'
+            }}
           />
-          <button onClick={sendMessage} disabled={loading} style={{ padding: '8px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1 }}>
+          <button onClick={sendMessage} disabled={loading} style={{ padding: '12px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1, height: 44 }}>
             Envoyer
           </button>
+        </div>
+        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+          Entrée = nouvelle ligne • Ctrl+Entrée = envoyer
         </div>
       </div>
     </div>
