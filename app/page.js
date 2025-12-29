@@ -444,9 +444,23 @@ export default function Home() {
                     setLoading(false);
                     setSaving(true);
                     
-                    // Utiliser directement displayText du serveur
+                    // Afficher le contenu
                     finalizeMessage(data.displayText || fullJson);
                     
+                    // Mettre à jour le state si présent
+                    if (data.state) {
+                      setGameState({ 
+                        partie: { 
+                          cycle_actuel: data.state.cycle, 
+                          jour: data.state.jour,
+                          date_jeu: data.state.date_jeu,
+                          heure: data.heure
+                        }, 
+                        ...data.state 
+                      });
+                    }
+                  } else if (data.type === 'state') {
+                    // State reçu séparément (après done)
                     if (data.state) {
                       setGameState({ 
                         partie: { 
@@ -459,21 +473,8 @@ export default function Home() {
                       });
                     }
                   } else if (data.type === 'saved') {
-                    // Sauvegarde terminée - le client peut envoyer
+                    // Sauvegarde terminée
                     setSaving(false);
-                    
-                    // Mettre à jour le state s'il arrive avec saved (done envoyé tôt)
-                    if (data.state) {
-                      setGameState({ 
-                        partie: { 
-                          cycle_actuel: data.state.cycle, 
-                          jour: data.state.jour,
-                          date_jeu: data.state.date_jeu,
-                          heure: data.heure
-                        }, 
-                        ...data.state 
-                      });
-                    }
                   } else if (data.type === 'error') {
                     setError(data.error);
                     if (fullJson) {
