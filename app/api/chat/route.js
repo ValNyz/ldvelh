@@ -524,12 +524,27 @@ export async function POST(request) {
         // Sauvegarder messages chat - TOUJOURS si partieId existe
         if (partieId) {
           console.log(`Saving messages for partie ${partieId}, cycle ${cycleForSave}`);
-          const { error } = await supabase.from('chat_messages').insert([
-            { partie_id: partieId, role: 'user', content: message, cycle: cycleForSave },
-            { partie_id: partieId, role: 'assistant', content: displayText, cycle: cycleForSave }
-          ]);
-          if (error) {
-            console.error('Erreur sauvegarde messages:', error);
+          
+          // Insérer le message user d'abord
+          const { error: userError } = await supabase.from('chat_messages').insert({
+            partie_id: partieId, 
+            role: 'user', 
+            content: message, 
+            cycle: cycleForSave
+          });
+          if (userError) {
+            console.error('Erreur sauvegarde message user:', userError);
+          }
+          
+          // Puis le message assistant (avec un petit délai pour garantir l'ordre)
+          const { error: assistantError } = await supabase.from('chat_messages').insert({
+            partie_id: partieId, 
+            role: 'assistant', 
+            content: displayText, 
+            cycle: cycleForSave
+          });
+          if (assistantError) {
+            console.error('Erreur sauvegarde message assistant:', assistantError);
           }
         }
 
