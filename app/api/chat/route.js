@@ -39,36 +39,33 @@ async function loadGameState(partieId) {
 
 // Charger les messages pour le contexte conversationnel
 async function loadConversationContext(partieId, currentCycle) {
-  // 1. Tous les messages du cycle actuel
-  const { data: currentCycleMessages } = await supabase
-    .from('chat_messages')
-    .select('role, content, cycle, created_at')
-    .eq('partie_id', partieId)
-    .eq('cycle', currentCycle)
-    .order('created_at', { ascending: true });
-
-  // 2. Les 5 derniers messages du cycle précédent
-  const { data: previousCycleMessages } = await supabase
-    .from('chat_messages')
-    .select('role, content, cycle, created_at')
-    .eq('partie_id', partieId)
-    .eq('cycle', currentCycle - 1)
-    .order('created_at', { ascending: false })
-    .limit(5);
-
-  // 3. Les résumés des 5 derniers cycles (hors cycle actuel et précédent)
-  const { data: cycleResumes } = await supabase
-    .from('cycle_resumes')
-    .select('cycle, jour, date_jeu, resume, evenements_cles, relations_modifiees')
-    .eq('partie_id', partieId)
-    .lt('cycle', currentCycle - 1)
-    .order('cycle', { ascending: false })
-    .limit(5);
+  const [currentCycleRes, previousCycleRes, cycleResumesRes] = await Promise.all([
+    supabase
+      .from('chat_messages')
+      .select('role, content, cycle, created_at')
+      .eq('partie_id', partieId)
+      .eq('cycle', currentCycle)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('chat_messages')
+      .select('role, content, cycle, created_at')
+      .eq('partie_id', partieId)
+      .eq('cycle', currentCycle - 1)
+      .order('created_at', { ascending: false })
+      .limit(5),
+    supabase
+      .from('cycle_resumes')
+      .select('cycle, jour, date_jeu, resume, evenements_cles, relations_modifiees')
+      .eq('partie_id', partieId)
+      .lt('cycle', currentCycle - 1)
+      .order('cycle', { ascending: false })
+      .limit(5)
+  ]);
 
   return {
-    currentCycleMessages: currentCycleMessages || [],
-    previousCycleMessages: (previousCycleMessages || []).reverse(),
-    cycleResumes: (cycleResumes || []).reverse()
+    currentCycleMessages: currentCycleRes.data || [],
+    previousCycleMessages: (previousCycleRes.data || []).reverse(),
+    cycleResumes: (cycleResumesRes.data || []).reverse()
   };
 }
 
@@ -82,7 +79,7 @@ async function loadChatMessages(partieId) {
   return data || [];
 }
 
-// Générer un résumé de cycle via Claude
+// Générer un résumé de cycle via Claude (non-streaming)
 async function generateCycleResume(partieId, cycle, messages, gameState) {
   if (!messages || messages.length === 0) return null;
 
@@ -114,7 +111,6 @@ Réponds en JSON uniquement :
     
     const parsed = JSON.parse(content.trim());
 
-    // Sauvegarder le résumé
     await supabase.from('cycle_resumes').upsert({
       partie_id: partieId,
       cycle: cycle,
@@ -138,7 +134,6 @@ function buildConversationContext(conversationData, gameState, userMessage) {
   
   let context = '';
 
-  // Ajouter les résumés des cycles passés
   if (cycleResumes.length > 0) {
     context += '=== RÉSUMÉS DES CYCLES PRÉCÉDENTS ===\n';
     for (const r of cycleResumes) {
@@ -150,12 +145,10 @@ function buildConversationContext(conversationData, gameState, userMessage) {
     context += '\n';
   }
 
-  // Ajouter l'état actuel
   context += '=== ÉTAT ACTUEL ===\n';
   context += JSON.stringify(gameState, null, 2);
   context += '\n\n';
 
-  // Ajouter les messages du cycle précédent (fin)
   if (previousCycleMessages.length > 0) {
     context += '=== FIN DU CYCLE PRÉCÉDENT ===\n';
     for (const m of previousCycleMessages) {
@@ -163,7 +156,6 @@ function buildConversationContext(conversationData, gameState, userMessage) {
     }
   }
 
-  // Ajouter les messages du cycle actuel
   if (currentCycleMessages.length > 0) {
     context += '=== CYCLE ACTUEL ===\n';
     for (const m of currentCycleMessages) {
@@ -171,105 +163,138 @@ function buildConversationContext(conversationData, gameState, userMessage) {
     }
   }
 
-  // Action du joueur
   context += '=== ACTION DU JOUEUR ===\n';
   context += userMessage;
 
   return context;
 }
 
-// Sauvegarder l'état
+// Sauvegarder l'état - VERSION BATCH
 async function saveGameState(partieId, state) {
   const { partie, valentin, ia, contexte, pnj, arcs, historique, aVenir, lieux, horsChamp } = state;
 
+  // Batch 1: Updates simples (upsert uniques)
+  const batch1 = [];
+  
   if (partie) {
-    await supabase.from('parties').update({
-      cycle_actuel: partie.cycle_actuel,
-      jour: partie.jour,
-      date_jeu: partie.date_jeu,
-      heure: partie.heure
-    }).eq('id', partieId);
+    batch1.push(
+      supabase.from('parties').update({
+        cycle_actuel: partie.cycle_actuel,
+        jour: partie.jour,
+        date_jeu: partie.date_jeu,
+        heure: partie.heure
+      }).eq('id', partieId)
+    );
   }
 
   if (valentin) {
-    await supabase.from('valentin').upsert({ ...valentin, partie_id: partieId });
+    batch1.push(supabase.from('valentin').upsert({ ...valentin, partie_id: partieId }));
   }
 
   if (ia) {
-    await supabase.from('ia_personnelle').upsert({ ...ia, partie_id: partieId });
+    batch1.push(supabase.from('ia_personnelle').upsert({ ...ia, partie_id: partieId }));
   }
 
   if (contexte) {
-    await supabase.from('contexte').upsert({ ...contexte, partie_id: partieId });
+    batch1.push(supabase.from('contexte').upsert({ ...contexte, partie_id: partieId }));
   }
 
+  await Promise.all(batch1);
+
+  // Batch 2: Arrays (PNJ, arcs, etc.)
+  const batch2 = [];
+
+  // PNJ - séparer updates et inserts
   if (pnj && pnj.length > 0) {
-    for (const p of pnj) {
-      if (p.id) {
-        await supabase.from('pnj').update(p).eq('id', p.id);
-      } else {
-        await supabase.from('pnj').insert({ ...p, partie_id: partieId });
+    const pnjToUpdate = pnj.filter(p => p.id);
+    const pnjToInsert = pnj.filter(p => !p.id).map(p => ({ ...p, partie_id: partieId }));
+    
+    if (pnjToUpdate.length > 0) {
+      for (const p of pnjToUpdate) {
+        batch2.push(supabase.from('pnj').update(p).eq('id', p.id));
       }
+    }
+    if (pnjToInsert.length > 0) {
+      batch2.push(supabase.from('pnj').insert(pnjToInsert));
     }
   }
 
+  // Arcs
   if (arcs && arcs.length > 0) {
-    for (const a of arcs) {
-      if (a.id) {
-        await supabase.from('arcs').update(a).eq('id', a.id);
-      } else {
-        await supabase.from('arcs').insert({ ...a, partie_id: partieId });
+    const arcsToUpdate = arcs.filter(a => a.id);
+    const arcsToInsert = arcs.filter(a => !a.id).map(a => ({ ...a, partie_id: partieId }));
+    
+    if (arcsToUpdate.length > 0) {
+      for (const a of arcsToUpdate) {
+        batch2.push(supabase.from('arcs').update(a).eq('id', a.id));
       }
+    }
+    if (arcsToInsert.length > 0) {
+      batch2.push(supabase.from('arcs').insert(arcsToInsert));
     }
   }
 
+  // Historique - insert du nouveau uniquement
   if (historique && historique.length > 0) {
-    const latest = historique[0];
-    if (latest && !latest.id) {
-      await supabase.from('historique').insert({ ...latest, partie_id: partieId });
+    const newHistorique = historique.filter(h => !h.id).map(h => ({ ...h, partie_id: partieId }));
+    if (newHistorique.length > 0) {
+      batch2.push(supabase.from('historique').insert(newHistorique));
     }
   }
 
+  // A venir
   if (aVenir && aVenir.length > 0) {
-    for (const av of aVenir) {
-      if (av.id) {
-        await supabase.from('a_venir').update(av).eq('id', av.id);
-      } else {
-        await supabase.from('a_venir').insert({ ...av, partie_id: partieId });
+    const aVenirToUpdate = aVenir.filter(av => av.id);
+    const aVenirToInsert = aVenir.filter(av => !av.id).map(av => ({ ...av, partie_id: partieId }));
+    
+    if (aVenirToUpdate.length > 0) {
+      for (const av of aVenirToUpdate) {
+        batch2.push(supabase.from('a_venir').update(av).eq('id', av.id));
       }
+    }
+    if (aVenirToInsert.length > 0) {
+      batch2.push(supabase.from('a_venir').insert(aVenirToInsert));
     }
   }
 
+  // Lieux - insert nouveaux uniquement
   if (lieux && lieux.length > 0) {
-    for (const l of lieux) {
-      if (!l.id) {
-        await supabase.from('lieux').insert({ ...l, partie_id: partieId });
-      }
+    const newLieux = lieux.filter(l => !l.id).map(l => ({ ...l, partie_id: partieId }));
+    if (newLieux.length > 0) {
+      batch2.push(supabase.from('lieux').insert(newLieux));
     }
   }
 
+  // Hors champ - insert nouveaux uniquement
   if (horsChamp && horsChamp.length > 0) {
-    for (const hc of horsChamp) {
-      if (!hc.id) {
-        await supabase.from('hors_champ').insert({ ...hc, partie_id: partieId });
-      }
+    const newHorsChamp = horsChamp.filter(hc => !hc.id).map(hc => ({ ...hc, partie_id: partieId }));
+    if (newHorsChamp.length > 0) {
+      batch2.push(supabase.from('hors_champ').insert(newHorsChamp));
     }
+  }
+
+  if (batch2.length > 0) {
+    await Promise.all(batch2);
   }
 }
 
 // Supprimer une partie et toutes ses données
 async function deleteGame(partieId) {
-  await supabase.from('chat_messages').delete().eq('partie_id', partieId);
-  await supabase.from('cycle_resumes').delete().eq('partie_id', partieId);
-  await supabase.from('hors_champ').delete().eq('partie_id', partieId);
-  await supabase.from('lieux').delete().eq('partie_id', partieId);
-  await supabase.from('a_venir').delete().eq('partie_id', partieId);
-  await supabase.from('historique').delete().eq('partie_id', partieId);
-  await supabase.from('arcs').delete().eq('partie_id', partieId);
-  await supabase.from('pnj').delete().eq('partie_id', partieId);
-  await supabase.from('contexte').delete().eq('partie_id', partieId);
-  await supabase.from('ia_personnelle').delete().eq('partie_id', partieId);
-  await supabase.from('valentin').delete().eq('partie_id', partieId);
+  // Toutes les suppressions en parallèle (les FK sont en CASCADE normalement)
+  await Promise.all([
+    supabase.from('chat_messages').delete().eq('partie_id', partieId),
+    supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
+    supabase.from('hors_champ').delete().eq('partie_id', partieId),
+    supabase.from('lieux').delete().eq('partie_id', partieId),
+    supabase.from('a_venir').delete().eq('partie_id', partieId),
+    supabase.from('historique').delete().eq('partie_id', partieId),
+    supabase.from('arcs').delete().eq('partie_id', partieId),
+    supabase.from('pnj').delete().eq('partie_id', partieId),
+    supabase.from('contexte').delete().eq('partie_id', partieId),
+    supabase.from('ia_personnelle').delete().eq('partie_id', partieId),
+    supabase.from('valentin').delete().eq('partie_id', partieId)
+  ]);
+  
   await supabase.from('parties').delete().eq('id', partieId);
 }
 
@@ -282,9 +307,11 @@ async function renameGame(partieId, newName) {
 async function createNewGame() {
   const { data: partie } = await supabase.from('parties').insert({ nom: 'Nouvelle partie' }).select().single();
   
-  await supabase.from('valentin').insert({ partie_id: partie.id });
-  await supabase.from('ia_personnelle').insert({ partie_id: partie.id });
-  await supabase.from('contexte').insert({ partie_id: partie.id });
+  await Promise.all([
+    supabase.from('valentin').insert({ partie_id: partie.id }),
+    supabase.from('ia_personnelle').insert({ partie_id: partie.id }),
+    supabase.from('contexte').insert({ partie_id: partie.id })
+  ]);
 
   return partie.id;
 }
@@ -335,7 +362,6 @@ export async function DELETE(request) {
       return Response.json({ error: 'partieId manquant' }, { status: 400 });
     }
 
-    // Récupérer tous les messages de la partie ordonnés par date
     const { data: allMessages } = await supabase
       .from('chat_messages')
       .select('id, created_at')
@@ -346,7 +372,6 @@ export async function DELETE(request) {
       return Response.json({ success: true });
     }
 
-    // Supprimer les messages à partir de fromIndex
     const messagesToDelete = allMessages.slice(fromIndex).map(m => m.id);
     
     if (messagesToDelete.length > 0) {
@@ -369,7 +394,6 @@ export async function POST(request) {
     const { message, partieId, gameState } = await request.json();
 
     const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
-    const previousCycle = currentCycle - 1;
 
     // Charger le contexte conversationnel si partie existante
     let contextMessage;
@@ -380,78 +404,119 @@ export async function POST(request) {
       contextMessage = 'Nouvelle partie. Lance le jeu. Génère tout au lancement.';
     }
 
-    // Appel Claude
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: contextMessage }]
+    // Créer un encoder pour le streaming
+    const encoder = new TextEncoder();
+
+    // Créer un stream
+    const stream = new ReadableStream({
+      async start(controller) {
+        let fullContent = '';
+
+        try {
+          // Appel Claude avec streaming
+          const streamResponse = await anthropic.messages.stream({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 4096,
+            system: SYSTEM_PROMPT,
+            messages: [{ role: 'user', content: contextMessage }]
+          });
+
+          // Écouter les événements de texte
+          for await (const event of streamResponse) {
+            if (event.type === 'content_block_delta' && event.delta?.text) {
+              const chunk = event.delta.text;
+              fullContent += chunk;
+              
+              // Envoyer le chunk au client
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`));
+            }
+          }
+
+          // Traitement final une fois le stream terminé
+          let parsed = null;
+          let displayText = fullContent;
+
+          try {
+            let cleanContent = fullContent.trim();
+            if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
+            if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
+            if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
+            parsed = JSON.parse(cleanContent.trim());
+
+            // Construire le texte d'affichage à partir du JSON
+            displayText = '';
+            if (parsed.heure) displayText += `[${parsed.heure}] `;
+            if (parsed.narratif) displayText += parsed.narratif;
+            if (parsed.choix && parsed.choix.length > 0) {
+              displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
+            }
+          } catch (e) {
+            // Si pas JSON valide, garder le texte brut
+            parsed = null;
+          }
+
+          // Détecter changement de cycle et générer résumé
+          const newCycle = parsed?.state?.cycle || currentCycle;
+          if (partieId && parsed && newCycle > currentCycle) {
+            const { data: cycleMessages } = await supabase
+              .from('chat_messages')
+              .select('role, content')
+              .eq('partie_id', partieId)
+              .eq('cycle', currentCycle)
+              .order('created_at', { ascending: true });
+
+            // Générer le résumé en arrière-plan (ne pas bloquer)
+            generateCycleResume(partieId, currentCycle, cycleMessages, gameState).catch(console.error);
+          }
+
+          // Sauvegarder l'état si partieId existe
+          if (partieId && parsed?.state) {
+            // Sauvegarde en arrière-plan
+            saveGameState(partieId, {
+              partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
+              valentin: parsed.state.valentin,
+              ia: parsed.state.ia,
+              contexte: parsed.state.contexte,
+              pnj: parsed.state.pnj,
+              arcs: parsed.state.arcs,
+              historique: parsed.state.historique,
+              aVenir: parsed.state.a_venir,
+              lieux: parsed.state.lieux,
+              horsChamp: parsed.state.hors_champ
+            }).catch(console.error);
+          }
+
+          // Sauvegarder messages chat
+          if (partieId) {
+            const newCycleForSave = parsed?.state?.cycle || currentCycle;
+            supabase.from('chat_messages').insert([
+              { partie_id: partieId, role: 'user', content: message, cycle: newCycleForSave },
+              { partie_id: partieId, role: 'assistant', content: displayText, cycle: newCycleForSave }
+            ]).then(() => {}).catch(console.error);
+          }
+
+          // Envoyer le message final avec les données parsées
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
+            type: 'done', 
+            displayText,
+            state: parsed?.state,
+            heure: parsed?.heure
+          })}\n\n`));
+
+        } catch (error) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
+        } finally {
+          controller.close();
+        }
+      }
     });
 
-    const content = response.content[0].text;
-
-    let parsed;
-    try {
-      let cleanContent = content.trim();
-      if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
-      if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
-      if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
-      parsed = JSON.parse(cleanContent.trim());
-    } catch (e) {
-      return Response.json({ content, raw: true });
-    }
-
-    // Détecter changement de cycle et générer résumé
-    const newCycle = parsed.state?.cycle || currentCycle;
-    if (partieId && newCycle > currentCycle) {
-      // Charger les messages du cycle qui vient de se terminer
-      const { data: cycleMessages } = await supabase
-        .from('chat_messages')
-        .select('role, content')
-        .eq('partie_id', partieId)
-        .eq('cycle', currentCycle)
-        .order('created_at', { ascending: true });
-
-      // Générer et sauvegarder le résumé
-      await generateCycleResume(partieId, currentCycle, cycleMessages, gameState);
-    }
-
-    // Construire le texte narratif pour l'affichage
-    let displayText = '';
-    if (parsed.heure) displayText += `[${parsed.heure}] `;
-    if (parsed.narratif) displayText += parsed.narratif;
-    if (parsed.choix && parsed.choix.length > 0) {
-      displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
-    }
-
-    // Sauvegarder l'état si partieId existe
-    if (partieId && parsed.state) {
-      await saveGameState(partieId, {
-        partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
-        valentin: parsed.state.valentin,
-        ia: parsed.state.ia,
-        contexte: parsed.state.contexte,
-        pnj: parsed.state.pnj,
-        arcs: parsed.state.arcs,
-        historique: parsed.state.historique,
-        aVenir: parsed.state.a_venir,
-        lieux: parsed.state.lieux,
-        horsChamp: parsed.state.hors_champ
-      });
-    }
-
-    // Sauvegarder messages chat avec le cycle
-    if (partieId) {
-      await supabase.from('chat_messages').insert([
-        { partie_id: partieId, role: 'user', content: message, cycle: newCycle },
-        { partie_id: partieId, role: 'assistant', content: displayText, cycle: newCycle }
-      ]);
-    }
-
-    return Response.json({ 
-      displayText,
-      state: parsed.state,
-      heure: parsed.heure
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
 
   } catch (e) {
