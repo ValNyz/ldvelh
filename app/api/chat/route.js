@@ -471,10 +471,25 @@ export async function POST(request) {
 
         try {
           let cleanContent = fullContent.trim();
-          if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
-          if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
-          if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
-          parsed = JSON.parse(cleanContent.trim());
+          
+          // Chercher le dernier bloc JSON valide dans la réponse
+          const jsonStartIndex = cleanContent.lastIndexOf('\n{');
+          const jsonStartIndex2 = cleanContent.indexOf('{');
+          
+          let jsonContent = cleanContent;
+          
+          // Si le contenu ne commence pas par {, chercher le JSON à la fin
+          if (jsonStartIndex > 0) {
+            jsonContent = cleanContent.slice(jsonStartIndex + 1).trim();
+          } else if (jsonStartIndex2 === 0) {
+            // Le contenu commence par { - c'est du JSON pur
+            if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
+            if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
+            if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
+            jsonContent = cleanContent.trim();
+          }
+          
+          parsed = JSON.parse(jsonContent);
 
           // Construire le texte d'affichage à partir du JSON
           displayText = '';
@@ -484,8 +499,15 @@ export async function POST(request) {
             displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
           }
         } catch (e) {
-          // Si pas JSON valide, garder le texte brut
+          // Si pas JSON valide, garder le texte brut mais nettoyer le JSON visible
           console.error('Erreur parsing JSON:', e.message);
+          
+          // Essayer de nettoyer le texte brut (enlever le JSON à la fin)
+          const jsonStartIndex = fullContent.lastIndexOf('\n{');
+          if (jsonStartIndex > 0) {
+            displayText = fullContent.slice(0, jsonStartIndex).trim();
+          }
+          
           parsed = null;
         }
 
@@ -578,4 +600,4 @@ export async function POST(request) {
     console.error('Erreur:', e);
     return Response.json({ error: e.message }, { status: 500 });
   }
-}
+            }
