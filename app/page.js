@@ -8,6 +8,7 @@ export default function Home() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingGame, setLoadingGame] = useState(false);
   const [error, setError] = useState('');
   const [showState, setShowState] = useState(false);
   const messagesEndRef = useRef(null);
@@ -22,10 +23,27 @@ export default function Home() {
   };
 
   const loadGame = async (id) => {
-    const res = await fetch(`/api/chat?action=load&partieId=${id}`);
-    const data = await res.json();
-    setPartieId(id);
-    setGameState(data.state);
+    setLoadingGame(true);
+    try {
+      const res = await fetch(`/api/chat?action=load&partieId=${id}`);
+      const data = await res.json();
+      setPartieId(id);
+      setGameState(data.state);
+      
+      // Charger les messages depuis la base de données
+      if (data.messages && data.messages.length > 0) {
+        setMessages(data.messages.map(m => ({
+          role: m.role,
+          content: m.content
+        })));
+      } else {
+        setMessages([]);
+      }
+    } catch (e) {
+      setError('Erreur lors du chargement de la partie');
+    } finally {
+      setLoadingGame(false);
+    }
   };
 
   const newGame = async () => {
@@ -58,15 +76,25 @@ export default function Home() {
         return;
       }
 
-      if (data.parsed) {
+      // Utiliser displayText au lieu de parser le JSON côté client
+      if (data.displayText) {
         setMessages(prev => [...prev, { 
           role: 'assistant', 
-          content: `[${data.parsed.heure}] ${data.parsed.narratif}\n\n${data.parsed.choix?.map((c,i) => `${i+1}. ${c}`).join('\n') || ''}`
+          content: data.displayText
         }]);
-        if (data.parsed.state) {
-          setGameState({ partie: data.parsed.state, ...data.parsed.state });
+        if (data.state) {
+          setGameState({ 
+            partie: { 
+              cycle_actuel: data.state.cycle, 
+              jour: data.state.jour,
+              date_jeu: data.state.date_jeu,
+              heure: data.heure
+            }, 
+            ...data.state 
+          });
         }
       } else if (data.content) {
+        // Fallback pour les réponses brutes (non-JSON)
         setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
       }
 
@@ -79,6 +107,7 @@ export default function Home() {
 
   const dots = (n, max=5) => '●'.repeat(Math.min(n,max)) + '○'.repeat(Math.max(0,max-n));
 
+  // Écran sélection partie
   if (!partieId) {
     return (
       <div style={{ padding: 20, maxWidth: 600, margin: '0 auto' }}>
@@ -87,17 +116,29 @@ export default function Home() {
           Nouvelle partie
         </button>
         <h2 style={{ marginBottom: 10 }}>Parties existantes :</h2>
+        {parties.length === 0 && <p style={{ color: '#6b7280' }}>Aucune partie sauvegardée</p>}
         {parties.map(p => (
           <div key={p.id} onClick={() => loadGame(p.id)} style={{ padding: 10, background: '#1f2937', marginBottom: 10, borderRadius: 4, cursor: 'pointer' }}>
-            <strong>{p.nom}</strong> — Cycle {p.cycle_actuel}
+            <strong>{p.nom}</strong> — Cycle {p.cycle_actuel || 0}
           </div>
         ))}
       </div>
     );
   }
 
+  // Écran de chargement
+  if (loadingGame) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <p style={{ color: '#6b7280' }}>Chargement de la partie...</p>
+      </div>
+    );
+  }
+
+  // Écran jeu
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {/* Header */}
       <div style={{ background: '#1f2937', padding: 12, borderBottom: '1px solid #374151' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h1 style={{ fontSize: 18, color: '#60a5fa' }}>LDVELH</h1>
@@ -105,7 +146,7 @@ export default function Home() {
             <button onClick={() => setShowState(!showState)} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>
               {showState ? 'Masquer' : 'État'}
             </button>
-            <button onClick={() => { setPartieId(null); setMessages([]); }} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>
+            <button onClick={() => { setPartieId(null); setMessages([]); setGameState(null); }} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>
               Quitter
             </button>
           </div>
@@ -119,12 +160,13 @@ export default function Home() {
         )}
       </div>
 
-      {showState && (
+      {showState && gameState && (
         <div style={{ background: '#1f2937', padding: 12, maxHeight: 200, overflow: 'auto', borderBottom: '1px solid #374151' }}>
           <pre style={{ fontSize: 10, color: '#9ca3af' }}>{JSON.stringify(gameState, null, 2)}</pre>
         </div>
       )}
 
+      {/* Messages */}
       <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}>
@@ -143,6 +185,7 @@ export default function Home() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Input */}
       <div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
@@ -154,7 +197,7 @@ export default function Home() {
             disabled={loading}
             style={{ flex: 1, padding: '8px 16px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none' }}
           />
-          <button onClick={sendMessage} disabled={loading} style={{ padding: '8px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>
+          <button onClick={sendMessage} disabled={loading} style={{ padding: '8px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1 }}>
             Envoyer
           </button>
         </div>
