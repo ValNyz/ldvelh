@@ -1,526 +1,624 @@
-import Anthropic from '@anthropic-ai/sdk';
-import { createClient } from '@supabase/supabase-js';
-import { SYSTEM_PROMPT } from '../../../lib/prompt';
+'use client';
+import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+export default function Home() {
+  const [parties, setParties] = useState([]);
+  const [partieId, setPartieId] = useState(null);
+  const [partieName, setPartieName] = useState('');
+  const [gameState, setGameState] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [loadingGame, setLoadingGame] = useState(false);
+  const [error, setError] = useState('');
+  const [showState, setShowState] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [editingMessageIndex, setEditingMessageIndex] = useState(null);
+  const [editedContent, setEditedContent] = useState('');
+  const [fontSize, setFontSize] = useState(14);
+  const messagesEndRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-// Charger l'état complet d'une partie
-async function loadGameState(partieId) {
-  const [partie, valentin, ia, contexte, pnj, arcs, historique, aVenir, lieux, horsChamp] = await Promise.all([
-    supabase.from('parties').select('*').eq('id', partieId).single(),
-    supabase.from('valentin').select('*').eq('partie_id', partieId).single(),
-    supabase.from('ia_personnelle').select('*').eq('partie_id', partieId).single(),
-    supabase.from('contexte').select('*').eq('partie_id', partieId).single(),
-    supabase.from('pnj').select('*').eq('partie_id', partieId),
-    supabase.from('arcs').select('*').eq('partie_id', partieId),
-    supabase.from('historique').select('*').eq('partie_id', partieId).order('cycle', { ascending: false }).limit(10),
-    supabase.from('a_venir').select('*').eq('partie_id', partieId).eq('realise', false),
-    supabase.from('lieux').select('*').eq('partie_id', partieId),
-    supabase.from('hors_champ').select('*').eq('partie_id', partieId).order('cycle', { ascending: false }).limit(20)
-  ]);
-
-  return {
-    partie: partie.data,
-    valentin: valentin.data,
-    ia: ia.data,
-    contexte: contexte.data,
-    pnj: pnj.data || [],
-    arcs: arcs.data || [],
-    historique: historique.data || [],
-    aVenir: aVenir.data || [],
-    lieux: lieux.data || [],
-    horsChamp: horsChamp.data || []
-  };
-}
-
-// Charger les messages pour le contexte conversationnel
-async function loadConversationContext(partieId, currentCycle) {
-  const [currentCycleRes, previousCycleRes, cycleResumesRes] = await Promise.all([
-    supabase
-      .from('chat_messages')
-      .select('role, content, cycle, created_at')
-      .eq('partie_id', partieId)
-      .eq('cycle', currentCycle)
-      .order('created_at', { ascending: true }),
-    supabase
-      .from('chat_messages')
-      .select('role, content, cycle, created_at')
-      .eq('partie_id', partieId)
-      .eq('cycle', currentCycle - 1)
-      .order('created_at', { ascending: false })
-      .limit(5),
-    supabase
-      .from('cycle_resumes')
-      .select('cycle, jour, date_jeu, resume, evenements_cles, relations_modifiees')
-      .eq('partie_id', partieId)
-      .lt('cycle', currentCycle - 1)
-      .order('cycle', { ascending: false })
-      .limit(5)
-  ]);
-
-  return {
-    currentCycleMessages: currentCycleRes.data || [],
-    previousCycleMessages: (previousCycleRes.data || []).reverse(),
-    cycleResumes: (cycleResumesRes.data || []).reverse()
-  };
-}
-
-// Charger tous les messages chat (pour l'affichage)
-async function loadChatMessages(partieId) {
-  const { data } = await supabase
-    .from('chat_messages')
-    .select('role, content, created_at')
-    .eq('partie_id', partieId)
-    .order('created_at', { ascending: true });
-  return data || [];
-}
-
-// Générer un résumé de cycle via Claude (non-streaming)
-async function generateCycleResume(partieId, cycle, messages, gameState) {
-  if (!messages || messages.length === 0) return null;
-
-  const prompt = `Résume ce cycle de jeu en 2-3 phrases maximum. Identifie aussi :
-- Les événements clés (max 3)
-- Les relations modifiées (nom du PNJ et changement)
-
-Messages du cycle ${cycle} :
-${messages.map(m => `${m.role}: ${m.content}`).join('\n\n')}
-
-Réponds en JSON uniquement :
-{
-  "resume": "...",
-  "evenements_cles": ["...", "..."],
-  "relations_modifiees": [{"pnj": "...", "changement": "..."}]
-}`;
-
-  try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }]
-    });
-
-    let content = response.content[0].text.trim();
-    if (content.startsWith('```json')) content = content.slice(7);
-    if (content.startsWith('```')) content = content.slice(3);
-    if (content.endsWith('```')) content = content.slice(0, -3);
-    
-    const parsed = JSON.parse(content.trim());
-
-    await supabase.from('cycle_resumes').upsert({
-      partie_id: partieId,
-      cycle: cycle,
-      jour: gameState?.partie?.jour,
-      date_jeu: gameState?.partie?.date_jeu,
-      resume: parsed.resume,
-      evenements_cles: parsed.evenements_cles || [],
-      relations_modifiees: parsed.relations_modifiees || []
-    });
-
-    return parsed;
-  } catch (e) {
-    console.error('Erreur génération résumé:', e);
-    return null;
-  }
-}
-
-// Construire le contexte conversationnel pour Claude
-function buildConversationContext(conversationData, gameState, userMessage) {
-  const { currentCycleMessages, previousCycleMessages, cycleResumes } = conversationData;
+  useEffect(() => { loadParties(); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   
-  let context = '';
+  // Charger la taille de police depuis localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('ldvelh-fontsize');
+    if (saved) setFontSize(parseInt(saved, 10));
+  }, []);
 
-  if (cycleResumes.length > 0) {
-    context += '=== RÉSUMÉS DES CYCLES PRÉCÉDENTS ===\n';
-    for (const r of cycleResumes) {
-      context += `[Cycle ${r.cycle} - ${r.jour} ${r.date_jeu}] ${r.resume}\n`;
-      if (r.evenements_cles?.length > 0) {
-        context += `  → Événements: ${r.evenements_cles.join(', ')}\n`;
+  const changeFontSize = (delta) => {
+    const newSize = Math.min(24, Math.max(10, fontSize + delta));
+    setFontSize(newSize);
+    localStorage.setItem('ldvelh-fontsize', newSize.toString());
+  };
+
+  const loadParties = async () => {
+    const res = await fetch('/api/chat?action=list');
+    const data = await res.json();
+    setParties(data.parties || []);
+  };
+
+  const loadGame = async (id) => {
+    setLoadingGame(true);
+    try {
+      const res = await fetch(`/api/chat?action=load&partieId=${id}`);
+      const data = await res.json();
+      setPartieId(id);
+      setGameState(data.state);
+      setPartieName(data.state?.partie?.nom || 'Partie sans nom');
+      
+      if (data.messages && data.messages.length > 0) {
+        setMessages(data.messages.map(m => ({
+          role: m.role,
+          content: m.content
+        })));
+      } else {
+        setMessages([]);
       }
+    } catch (e) {
+      setError('Erreur lors du chargement de la partie');
+    } finally {
+      setLoadingGame(false);
     }
-    context += '\n';
-  }
+  };
 
-  context += '=== ÉTAT ACTUEL ===\n';
-  context += JSON.stringify(gameState, null, 2);
-  context += '\n\n';
+  const newGame = async () => {
+    const res = await fetch('/api/chat?action=new');
+    const data = await res.json();
+    setPartieId(data.partieId);
+    setPartieName('Nouvelle partie');
+    setGameState(null);
+    setMessages([]);
+  };
 
-  if (previousCycleMessages.length > 0) {
-    context += '=== FIN DU CYCLE PRÉCÉDENT ===\n';
-    for (const m of previousCycleMessages) {
-      context += `${m.role.toUpperCase()}: ${m.content}\n\n`;
+  const deleteGame = async (id) => {
+    await fetch(`/api/chat?action=delete&partieId=${id}`);
+    setConfirmDelete(null);
+    loadParties();
+  };
+
+  const renameGame = async () => {
+    if (!newName.trim()) return;
+    await fetch(`/api/chat?action=rename&partieId=${partieId}&name=${encodeURIComponent(newName.trim())}`);
+    setPartieName(newName.trim());
+    setEditingName(false);
+    setNewName('');
+  };
+
+  // Annuler la requête en cours
+  const cancelRequest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setLoading(false);
+      // Supprimer le dernier message user qui attendait une réponse
+      setMessages(prev => prev.slice(0, -1));
     }
-  }
+  };
 
-  if (currentCycleMessages.length > 0) {
-    context += '=== CYCLE ACTUEL ===\n';
-    for (const m of currentCycleMessages) {
-      context += `${m.role.toUpperCase()}: ${m.content}\n\n`;
+  // Éditer un message et regénérer
+  const startEditMessage = (index) => {
+    if (messages[index].role !== 'user') return;
+    setEditingMessageIndex(index);
+    setEditedContent(messages[index].content);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessageIndex(null);
+    setEditedContent('');
+  };
+
+  const submitEdit = async () => {
+    if (!editedContent.trim() || loading) return;
+    
+    const messageIndex = editingMessageIndex;
+    const newContent = editedContent.trim();
+    
+    setEditingMessageIndex(null);
+    setEditedContent('');
+    setLoading(true);
+    setError('');
+
+    // Supprimer les messages à partir de l'index édité (en local)
+    const previousMessages = messages.slice(0, messageIndex);
+    setMessages([...previousMessages, { role: 'user', content: newContent }]);
+
+    // Supprimer les messages en BDD à partir de cet index
+    try {
+      await fetch('/api/chat', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          partieId, 
+          fromIndex: messageIndex 
+        })
+      });
+    } catch (e) {
+      console.error('Erreur suppression messages:', e);
     }
-  }
 
-  context += '=== ACTION DU JOUEUR ===\n';
-  context += userMessage;
+    // Regénérer avec le nouveau message
+    await sendMessageInternal(newContent, previousMessages);
+  };
 
-  return context;
-}
+  // Regénérer le dernier message assistant
+  const regenerateLastResponse = async () => {
+    if (loading || messages.length < 2) return;
+    
+    // Trouver le dernier message user
+    let lastUserIndex = messages.length - 1;
+    while (lastUserIndex >= 0 && messages[lastUserIndex].role !== 'user') {
+      lastUserIndex--;
+    }
+    if (lastUserIndex < 0) return;
 
-// Sauvegarder l'état - VERSION BATCH
-async function saveGameState(partieId, state) {
-  const { partie, valentin, ia, contexte, pnj, arcs, historique, aVenir, lieux, horsChamp } = state;
+    const userMessage = messages[lastUserIndex].content;
+    const previousMessages = messages.slice(0, lastUserIndex);
+    
+    setMessages([...previousMessages, { role: 'user', content: userMessage }]);
+    setLoading(true);
+    setError('');
 
-  // Batch 1: Updates simples (upsert uniques)
-  const batch1 = [];
-  
-  if (partie) {
-    batch1.push(
-      supabase.from('parties').update({
-        cycle_actuel: partie.cycle_actuel,
-        jour: partie.jour,
-        date_jeu: partie.date_jeu,
-        heure: partie.heure
-      }).eq('id', partieId)
+    // Supprimer le dernier échange en BDD
+    try {
+      await fetch('/api/chat', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          partieId, 
+          fromIndex: lastUserIndex 
+        })
+      });
+    } catch (e) {
+      console.error('Erreur suppression:', e);
+    }
+
+    await sendMessageInternal(userMessage, previousMessages);
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+    const userMessage = input.trim();
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setLoading(true);
+    setError('');
+    await sendMessageInternal(userMessage, messages);
+  };
+
+  const sendMessageInternal = async (userMessage, previousMessages) => {
+    abortControllerRef.current = new AbortController();
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage, partieId, gameState }),
+        signal: abortControllerRef.current.signal
+      });
+
+      // Vérifier si c'est du streaming (SSE)
+      const contentType = res.headers.get('content-type');
+      
+      if (contentType?.includes('text/event-stream')) {
+        // Mode streaming
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let streamedContent = '';
+        let assistantMessageAdded = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const text = decoder.decode(value);
+          const lines = text.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (data.type === 'chunk') {
+                  streamedContent += data.content;
+                  
+                  // Ajouter ou mettre à jour le message assistant
+                  if (!assistantMessageAdded) {
+                    setMessages([...previousMessages, 
+                      { role: 'user', content: userMessage },
+                      { role: 'assistant', content: streamedContent, streaming: true }
+                    ]);
+                    assistantMessageAdded = true;
+                  } else {
+                    setMessages(prev => {
+                      const newMessages = [...prev];
+                      newMessages[newMessages.length - 1] = { 
+                        role: 'assistant', 
+                        content: streamedContent,
+                        streaming: true 
+                      };
+                      return newMessages;
+                    });
+                  }
+                } else if (data.type === 'done') {
+                  // Remplacer par le contenu final formaté
+                  setMessages([...previousMessages,
+                    { role: 'user', content: userMessage },
+                    { role: 'assistant', content: data.displayText || streamedContent }
+                  ]);
+                  
+                  if (data.state) {
+                    setGameState({ 
+                      partie: { 
+                        cycle_actuel: data.state.cycle, 
+                        jour: data.state.jour,
+                        date_jeu: data.state.date_jeu,
+                        heure: data.heure
+                      }, 
+                      ...data.state 
+                    });
+                  }
+                } else if (data.type === 'error') {
+                  setError(data.error);
+                }
+              } catch (e) {
+                // Ignorer les lignes mal formées
+              }
+            }
+          }
+        }
+      } else {
+        // Mode classique (fallback)
+        const data = await res.json();
+
+        if (data.error) {
+          setError(data.error);
+          return;
+        }
+
+        if (data.displayText) {
+          setMessages([...previousMessages, 
+            { role: 'user', content: userMessage },
+            { role: 'assistant', content: data.displayText }
+          ]);
+          if (data.state) {
+            setGameState({ 
+              partie: { 
+                cycle_actuel: data.state.cycle, 
+                jour: data.state.jour,
+                date_jeu: data.state.date_jeu,
+                heure: data.heure
+              }, 
+              ...data.state 
+            });
+          }
+        } else if (data.content) {
+          setMessages([...previousMessages,
+            { role: 'user', content: userMessage },
+            { role: 'assistant', content: data.content }
+          ]);
+        }
+      }
+
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        console.log('Requête annulée');
+      } else {
+        setError(e.message);
+      }
+    } finally {
+      setLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const dots = (n, max=5) => '●'.repeat(Math.min(n,max)) + '○'.repeat(Math.max(0,max-n));
+
+  // Écran sélection partie
+  if (!partieId) {
+    return (
+      <div style={{ padding: 20, maxWidth: 600, margin: '0 auto' }}>
+        <h1 style={{ color: '#60a5fa', marginBottom: 20 }}>LDVELH</h1>
+        <button onClick={newGame} style={{ padding: '10px 20px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', marginBottom: 20, cursor: 'pointer' }}>
+          + Nouvelle partie
+        </button>
+        <h2 style={{ marginBottom: 10 }}>Parties existantes :</h2>
+        {parties.length === 0 && <p style={{ color: '#6b7280' }}>Aucune partie sauvegardée</p>}
+        {parties.map(p => (
+          <div key={p.id} style={{ padding: 12, background: '#1f2937', marginBottom: 10, borderRadius: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div onClick={() => loadGame(p.id)} style={{ cursor: 'pointer', flex: 1 }}>
+              <strong>{p.nom}</strong>
+              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                Cycle {p.cycle_actuel || 0} • {formatDate(p.updated_at)}
+              </div>
+            </div>
+            {confirmDelete === p.id ? (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => deleteGame(p.id)} style={{ padding: '4px 8px', background: '#dc2626', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                  Confirmer
+                </button>
+                <button onClick={() => setConfirmDelete(null)} style={{ padding: '4px 8px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                  Annuler
+                </button>
+              </div>
+            ) : (
+              <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(p.id); }} style={{ padding: '4px 8px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                ✕
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     );
   }
 
-  if (valentin) {
-    batch1.push(supabase.from('valentin').upsert({ ...valentin, partie_id: partieId }));
+  // Écran de chargement
+  if (loadingGame) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <p style={{ color: '#6b7280' }}>Chargement de la partie...</p>
+      </div>
+    );
   }
 
-  if (ia) {
-    batch1.push(supabase.from('ia_personnelle').upsert({ ...ia, partie_id: partieId }));
-  }
+  // Écran jeu
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {/* Header */}
+      <div style={{ background: '#1f2937', padding: 12, borderBottom: '1px solid #374151' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h1 style={{ fontSize: 18, color: '#60a5fa' }}>{partieName}</h1>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setShowSettings(!showSettings)} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>
+              ⚙️
+            </button>
+            <button onClick={() => setShowState(!showState)} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>
+              {showState ? 'Masquer' : 'État'}
+            </button>
+            <button onClick={() => { setPartieId(null); setMessages([]); setGameState(null); loadParties(); }} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>
+              Quitter
+            </button>
+          </div>
+        </div>
+        {gameState?.valentin && (
+          <div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>
+            <div style={{ color: '#4ade80' }}>Cycle {gameState.partie?.cycle_actuel || gameState.cycle} | {gameState.partie?.jour || gameState.jour}</div>
+            <div>Énergie: {dots(gameState.valentin.energie)} | Moral: {dots(gameState.valentin.moral)} | Santé: {dots(gameState.valentin.sante)}</div>
+            <div style={{ color: '#fbbf24' }}>Crédits: {gameState.valentin.credits}</div>
+          </div>
+        )}
+      </div>
 
-  if (contexte) {
-    batch1.push(supabase.from('contexte').upsert({ ...contexte, partie_id: partieId }));
-  }
+      {/* Panneau paramètres */}
+      {showSettings && (
+        <div style={{ background: '#1f2937', padding: 16, borderBottom: '1px solid #374151' }}>
+          <h3 style={{ marginBottom: 12, fontSize: 14, color: '#9ca3af' }}>Paramètres de la partie</h3>
+          
+          {/* Taille de police */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 8 }}>Taille de police</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button 
+                onClick={() => changeFontSize(-2)} 
+                disabled={fontSize <= 10}
+                style={{ width: 32, height: 32, background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 18, opacity: fontSize <= 10 ? 0.5 : 1 }}
+              >
+                −
+              </button>
+              <span style={{ color: '#fff', minWidth: 40, textAlign: 'center' }}>{fontSize}px</span>
+              <button 
+                onClick={() => changeFontSize(2)} 
+                disabled={fontSize >= 24}
+                style={{ width: 32, height: 32, background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 18, opacity: fontSize >= 24 ? 0.5 : 1 }}
+              >
+                +
+              </button>
+              <span style={{ color: '#6b7280', fontSize: 12, marginLeft: 8 }}>Aperçu :</span>
+              <span style={{ color: '#fff', fontSize: fontSize }}>Texte</span>
+            </div>
+          </div>
+          
+          {/* Nom de la partie */}
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nom de la partie</label>
+            {editingName ? (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && renameGame()}
+                  placeholder={partieName}
+                  autoFocus
+                  style={{ flex: 1, padding: '6px 12px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize: 14 }}
+                />
+                <button onClick={renameGame} style={{ padding: '6px 12px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                  OK
+                </button>
+                <button onClick={() => { setEditingName(false); setNewName(''); }} style={{ padding: '6px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <span style={{ color: '#fff' }}>{partieName}</span>
+                <button onClick={() => { setEditingName(true); setNewName(partieName); }} style={{ padding: '4px 8px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>
+                  ✏️ Modifier
+                </button>
+              </div>
+            )}
+          </div>
 
-  await Promise.all(batch1);
+          <div>
+            <button 
+              onClick={() => {
+                if (confirm('Supprimer définitivement cette partie ?')) {
+                  deleteGame(partieId);
+                  setPartieId(null);
+                  setMessages([]);
+                  setGameState(null);
+                  setShowSettings(false);
+                }
+              }} 
+              style={{ padding: '8px 16px', background: '#dc2626', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}
+            >
+              🗑️ Supprimer cette partie
+            </button>
+          </div>
+        </div>
+      )}
 
-  // Batch 2: Arrays (PNJ, arcs, etc.)
-  const batch2 = [];
+      {showState && gameState && (
+        <div style={{ background: '#1f2937', padding: 12, maxHeight: 200, overflow: 'auto', borderBottom: '1px solid #374151' }}>
+          <pre style={{ fontSize: 10, color: '#9ca3af' }}>{JSON.stringify(gameState, null, 2)}</pre>
+        </div>
+      )}
 
-  // PNJ - séparer updates et inserts
-  if (pnj && pnj.length > 0) {
-    const pnjToUpdate = pnj.filter(p => p.id);
-    const pnjToInsert = pnj.filter(p => !p.id).map(p => ({ ...p, partie_id: partieId }));
-    
-    if (pnjToUpdate.length > 0) {
-      for (const p of pnjToUpdate) {
-        batch2.push(supabase.from('pnj').update(p).eq('id', p.id));
-      }
-    }
-    if (pnjToInsert.length > 0) {
-      batch2.push(supabase.from('pnj').insert(pnjToInsert));
-    }
-  }
+      {/* Messages */}
+      <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+        {messages.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}>
+            <p>Tape "Commencer" pour lancer la partie</p>
+          </div>
+        )}
+        {messages.map((msg, i) => (
+          <div key={i} style={{ marginBottom: 16, textAlign: msg.role === 'user' ? 'right' : 'left' }}>
+            {editingMessageIndex === i ? (
+              // Mode édition
+              <div style={{ display: 'inline-block', maxWidth: '80%', padding: 12, borderRadius: 8, background: '#1e3a5f' }}>
+                <textarea
+                  value={editedContent}
+                  onChange={(e) => setEditedContent(e.target.value)}
+                  autoFocus
+                  style={{ width: '100%', minHeight: 60, padding: 8, background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize: fontSize, resize: 'vertical' }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                  <button onClick={cancelEdit} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                    Annuler
+                  </button>
+                  <button onClick={submitEdit} style={{ padding: '4px 12px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>
+                    Envoyer
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Mode affichage
+              <div style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}>
+                <div style={{ padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937' }}>
+                  <div className="markdown-content" style={{ fontSize: fontSize }}>
+                    <ReactMarkdown
+                      components={{
+                        p: ({children}) => <p style={{ margin: '0 0 8px 0' }}>{children}</p>,
+                        strong: ({children}) => <strong style={{ color: '#60a5fa' }}>{children}</strong>,
+                        em: ({children}) => <em style={{ color: '#a5b4fc' }}>{children}</em>,
+                        ul: ({children}) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
+                        ol: ({children}) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
+                        li: ({children}) => <li style={{ marginBottom: 4 }}>{children}</li>,
+                        code: ({inline, children}) => inline 
+                          ? <code style={{ background: '#374151', padding: '2px 6px', borderRadius: 4, fontSize: '0.9em' }}>{children}</code>
+                          : <pre style={{ background: '#374151', padding: 12, borderRadius: 4, overflow: 'auto', margin: '8px 0' }}><code>{children}</code></pre>,
+                        blockquote: ({children}) => <blockquote style={{ borderLeft: '3px solid #60a5fa', paddingLeft: 12, margin: '8px 0', color: '#9ca3af', fontStyle: 'italic' }}>{children}</blockquote>,
+                        h1: ({children}) => <h1 style={{ fontSize: '1.4em', margin: '12px 0 8px', color: '#60a5fa' }}>{children}</h1>,
+                        h2: ({children}) => <h2 style={{ fontSize: '1.2em', margin: '10px 0 6px', color: '#60a5fa' }}>{children}</h2>,
+                        h3: ({children}) => <h3 style={{ fontSize: '1.1em', margin: '8px 0 4px', color: '#60a5fa' }}>{children}</h3>,
+                        hr: () => <hr style={{ border: 'none', borderTop: '1px solid #374151', margin: '12px 0' }} />,
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
+                  </div>
+                  {msg.streaming && <span style={{ color: '#60a5fa' }}>▋</span>}
+                </div>
+                {/* Boutons d'action au survol */}
+                <div style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0.7 }}>
+                  {msg.role === 'user' && !loading && (
+                    <button 
+                      onClick={() => startEditMessage(i)} 
+                      title="Éditer et regénérer"
+                      style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}
+                    >
+                      ✏️
+                    </button>
+                  )}
+                  {msg.role === 'assistant' && i === messages.length - 1 && !loading && (
+                    <button 
+                      onClick={regenerateLastResponse} 
+                      title="Regénérer"
+                      style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}
+                    >
+                      🔄
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6b7280', fontStyle: 'italic' }}>
+            <span>En cours...</span>
+            <button 
+              onClick={cancelRequest}
+              style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}
+            >
+              ✕ Annuler
+            </button>
+          </div>
+        )}
+        {error && <div style={{ color: '#f87171' }}>{error}</div>}
+        <div ref={messagesEndRef} />
+      </div>
 
-  // Arcs
-  if (arcs && arcs.length > 0) {
-    const arcsToUpdate = arcs.filter(a => a.id);
-    const arcsToInsert = arcs.filter(a => !a.id).map(a => ({ ...a, partie_id: partieId }));
-    
-    if (arcsToUpdate.length > 0) {
-      for (const a of arcsToUpdate) {
-        batch2.push(supabase.from('arcs').update(a).eq('id', a.id));
-      }
-    }
-    if (arcsToInsert.length > 0) {
-      batch2.push(supabase.from('arcs').insert(arcsToInsert));
-    }
-  }
-
-  // Historique - insert du nouveau uniquement
-  if (historique && historique.length > 0) {
-    const newHistorique = historique.filter(h => !h.id).map(h => ({ ...h, partie_id: partieId }));
-    if (newHistorique.length > 0) {
-      batch2.push(supabase.from('historique').insert(newHistorique));
-    }
-  }
-
-  // A venir
-  if (aVenir && aVenir.length > 0) {
-    const aVenirToUpdate = aVenir.filter(av => av.id);
-    const aVenirToInsert = aVenir.filter(av => !av.id).map(av => ({ ...av, partie_id: partieId }));
-    
-    if (aVenirToUpdate.length > 0) {
-      for (const av of aVenirToUpdate) {
-        batch2.push(supabase.from('a_venir').update(av).eq('id', av.id));
-      }
-    }
-    if (aVenirToInsert.length > 0) {
-      batch2.push(supabase.from('a_venir').insert(aVenirToInsert));
-    }
-  }
-
-  // Lieux - insert nouveaux uniquement
-  if (lieux && lieux.length > 0) {
-    const newLieux = lieux.filter(l => !l.id).map(l => ({ ...l, partie_id: partieId }));
-    if (newLieux.length > 0) {
-      batch2.push(supabase.from('lieux').insert(newLieux));
-    }
-  }
-
-  // Hors champ - insert nouveaux uniquement
-  if (horsChamp && horsChamp.length > 0) {
-    const newHorsChamp = horsChamp.filter(hc => !hc.id).map(hc => ({ ...hc, partie_id: partieId }));
-    if (newHorsChamp.length > 0) {
-      batch2.push(supabase.from('hors_champ').insert(newHorsChamp));
-    }
-  }
-
-  if (batch2.length > 0) {
-    await Promise.all(batch2);
-  }
-}
-
-// Supprimer une partie et toutes ses données
-async function deleteGame(partieId) {
-  // Toutes les suppressions en parallèle (les FK sont en CASCADE normalement)
-  await Promise.all([
-    supabase.from('chat_messages').delete().eq('partie_id', partieId),
-    supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
-    supabase.from('hors_champ').delete().eq('partie_id', partieId),
-    supabase.from('lieux').delete().eq('partie_id', partieId),
-    supabase.from('a_venir').delete().eq('partie_id', partieId),
-    supabase.from('historique').delete().eq('partie_id', partieId),
-    supabase.from('arcs').delete().eq('partie_id', partieId),
-    supabase.from('pnj').delete().eq('partie_id', partieId),
-    supabase.from('contexte').delete().eq('partie_id', partieId),
-    supabase.from('ia_personnelle').delete().eq('partie_id', partieId),
-    supabase.from('valentin').delete().eq('partie_id', partieId)
-  ]);
-  
-  await supabase.from('parties').delete().eq('id', partieId);
-}
-
-// Renommer une partie
-async function renameGame(partieId, newName) {
-  await supabase.from('parties').update({ nom: newName }).eq('id', partieId);
-}
-
-// Créer nouvelle partie
-async function createNewGame() {
-  const { data: partie } = await supabase.from('parties').insert({ nom: 'Nouvelle partie' }).select().single();
-  
-  await Promise.all([
-    supabase.from('valentin').insert({ partie_id: partie.id }),
-    supabase.from('ia_personnelle').insert({ partie_id: partie.id }),
-    supabase.from('contexte').insert({ partie_id: partie.id })
-  ]);
-
-  return partie.id;
-}
-
-export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const action = searchParams.get('action');
-  const partieId = searchParams.get('partieId');
-
-  if (action === 'load' && partieId) {
-    const state = await loadGameState(partieId);
-    const messages = await loadChatMessages(partieId);
-    return Response.json({ state, messages });
-  }
-
-  if (action === 'list') {
-    const { data } = await supabase.from('parties').select('id, nom, cycle_actuel, updated_at, created_at').eq('active', true).order('updated_at', { ascending: false });
-    return Response.json({ parties: data });
-  }
-
-  if (action === 'new') {
-    const partieId = await createNewGame();
-    return Response.json({ partieId });
-  }
-
-  if (action === 'delete' && partieId) {
-    await deleteGame(partieId);
-    return Response.json({ success: true });
-  }
-
-  if (action === 'rename' && partieId) {
-    const newName = searchParams.get('name');
-    if (newName) {
-      await renameGame(partieId, newName);
-      return Response.json({ success: true });
-    }
-    return Response.json({ error: 'Nom manquant' }, { status: 400 });
-  }
-
-  return Response.json({ error: 'Action non reconnue' });
-}
-
-export async function DELETE(request) {
-  try {
-    const { partieId, fromIndex } = await request.json();
-    
-    if (!partieId) {
-      return Response.json({ error: 'partieId manquant' }, { status: 400 });
-    }
-
-    const { data: allMessages } = await supabase
-      .from('chat_messages')
-      .select('id, created_at')
-      .eq('partie_id', partieId)
-      .order('created_at', { ascending: true });
-
-    if (!allMessages || fromIndex >= allMessages.length) {
-      return Response.json({ success: true });
-    }
-
-    const messagesToDelete = allMessages.slice(fromIndex).map(m => m.id);
-    
-    if (messagesToDelete.length > 0) {
-      await supabase
-        .from('chat_messages')
-        .delete()
-        .in('id', messagesToDelete);
-    }
-
-    return Response.json({ success: true, deleted: messagesToDelete.length });
-
-  } catch (e) {
-    console.error('Erreur DELETE:', e);
-    return Response.json({ error: e.message }, { status: 500 });
-  }
-}
-
-export async function POST(request) {
-  try {
-    const { message, partieId, gameState } = await request.json();
-
-    const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
-
-    // Charger le contexte conversationnel si partie existante
-    let contextMessage;
-    if (partieId && gameState && gameState.partie) {
-      const conversationData = await loadConversationContext(partieId, currentCycle);
-      contextMessage = buildConversationContext(conversationData, gameState, message);
-    } else {
-      contextMessage = 'Nouvelle partie. Lance le jeu. Génère tout au lancement.';
-    }
-
-    // Créer un encoder pour le streaming
-    const encoder = new TextEncoder();
-
-    // Créer un stream
-    const stream = new ReadableStream({
-      async start(controller) {
-        let fullContent = '';
-
-        try {
-          // Appel Claude avec streaming
-          const streamResponse = await anthropic.messages.stream({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 4096,
-            system: SYSTEM_PROMPT,
-            messages: [{ role: 'user', content: contextMessage }]
-          });
-
-          // Écouter les événements de texte
-          for await (const event of streamResponse) {
-            if (event.type === 'content_block_delta' && event.delta?.text) {
-              const chunk = event.delta.text;
-              fullContent += chunk;
-              
-              // Envoyer le chunk au client
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`));
-            }
-          }
-
-          // Traitement final une fois le stream terminé
-          let parsed = null;
-          let displayText = fullContent;
-
-          try {
-            let cleanContent = fullContent.trim();
-            if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
-            if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
-            if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
-            parsed = JSON.parse(cleanContent.trim());
-
-            // Construire le texte d'affichage à partir du JSON
-            displayText = '';
-            if (parsed.heure) displayText += `[${parsed.heure}] `;
-            if (parsed.narratif) displayText += parsed.narratif;
-            if (parsed.choix && parsed.choix.length > 0) {
-              displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
-            }
-          } catch (e) {
-            // Si pas JSON valide, garder le texte brut
-            parsed = null;
-          }
-
-          // Détecter changement de cycle et générer résumé
-          const newCycle = parsed?.state?.cycle || currentCycle;
-          if (partieId && parsed && newCycle > currentCycle) {
-            const { data: cycleMessages } = await supabase
-              .from('chat_messages')
-              .select('role, content')
-              .eq('partie_id', partieId)
-              .eq('cycle', currentCycle)
-              .order('created_at', { ascending: true });
-
-            // Générer le résumé en arrière-plan (ne pas bloquer)
-            generateCycleResume(partieId, currentCycle, cycleMessages, gameState).catch(console.error);
-          }
-
-          // Sauvegarder l'état si partieId existe
-          if (partieId && parsed?.state) {
-            // Sauvegarde en arrière-plan
-            saveGameState(partieId, {
-              partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
-              valentin: parsed.state.valentin,
-              ia: parsed.state.ia,
-              contexte: parsed.state.contexte,
-              pnj: parsed.state.pnj,
-              arcs: parsed.state.arcs,
-              historique: parsed.state.historique,
-              aVenir: parsed.state.a_venir,
-              lieux: parsed.state.lieux,
-              horsChamp: parsed.state.hors_champ
-            }).catch(console.error);
-          }
-
-          // Sauvegarder messages chat
-          if (partieId) {
-            const newCycleForSave = parsed?.state?.cycle || currentCycle;
-            supabase.from('chat_messages').insert([
-              { partie_id: partieId, role: 'user', content: message, cycle: newCycleForSave },
-              { partie_id: partieId, role: 'assistant', content: displayText, cycle: newCycleForSave }
-            ]).then(() => {}).catch(console.error);
-          }
-
-          // Envoyer le message final avec les données parsées
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ 
-            type: 'done', 
-            displayText,
-            state: parsed?.state,
-            heure: parsed?.heure
-          })}\n\n`));
-
-        } catch (error) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
-        } finally {
-          controller.close();
-        }
-      }
-    });
-
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
-    });
-
-  } catch (e) {
-    console.error('Erreur:', e);
-    return Response.json({ error: e.message }, { status: 500 });
-  }
+      {/* Input */}
+      <div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            placeholder="Ton action... (Ctrl+Entrée pour envoyer)"
+            disabled={loading}
+            rows={2}
+            style={{ 
+              flex: 1, 
+              padding: '8px 16px', 
+              background: '#374151', 
+              border: '1px solid #4b5563', 
+              borderRadius: 4, 
+              color: '#fff', 
+              outline: 'none', 
+              fontSize: fontSize,
+              resize: 'vertical',
+              minHeight: 44,
+              maxHeight: 200,
+              fontFamily: 'inherit'
+            }}
+          />
+          <button onClick={sendMessage} disabled={loading} style={{ padding: '12px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1, height: 44 }}>
+            Envoyer
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+          Entrée = nouvelle ligne • Ctrl+Entrée = envoyer
+        </div>
+      </div>
+    </div>
+  );
 }
