@@ -37,7 +37,42 @@ async function loadGameState(partieId) {
   };
 }
 
-// Charger les messages chat d'une partie
+// Charger les messages pour le contexte conversationnel
+async function loadConversationContext(partieId, currentCycle) {
+  // 1. Tous les messages du cycle actuel
+  const { data: currentCycleMessages } = await supabase
+    .from('chat_messages')
+    .select('role, content, cycle, created_at')
+    .eq('partie_id', partieId)
+    .eq('cycle', currentCycle)
+    .order('created_at', { ascending: true });
+
+  // 2. Les 5 derniers messages du cycle précédent
+  const { data: previousCycleMessages } = await supabase
+    .from('chat_messages')
+    .select('role, content, cycle, created_at')
+    .eq('partie_id', partieId)
+    .eq('cycle', currentCycle - 1)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  // 3. Les résumés des 5 derniers cycles (hors cycle actuel et précédent)
+  const { data: cycleResumes } = await supabase
+    .from('cycle_resumes')
+    .select('cycle, jour, date_jeu, resume, evenements_cles, relations_modifiees')
+    .eq('partie_id', partieId)
+    .lt('cycle', currentCycle - 1)
+    .order('cycle', { ascending: false })
+    .limit(5);
+
+  return {
+    currentCycleMessages: currentCycleMessages || [],
+    previousCycleMessages: (previousCycleMessages || []).reverse(),
+    cycleResumes: (cycleResumes || []).reverse()
+  };
+}
+
+// Charger tous les messages chat (pour l'affichage)
 async function loadChatMessages(partieId) {
   const { data } = await supabase
     .from('chat_messages')
@@ -45,6 +80,102 @@ async function loadChatMessages(partieId) {
     .eq('partie_id', partieId)
     .order('created_at', { ascending: true });
   return data || [];
+}
+
+// Générer un résumé de cycle via Claude
+async function generateCycleResume(partieId, cycle, messages, gameState) {
+  if (!messages || messages.length === 0) return null;
+
+  const prompt = `Résume ce cycle de jeu en 2-3 phrases maximum. Identifie aussi :
+- Les événements clés (max 3)
+- Les relations modifiées (nom du PNJ et changement)
+
+Messages du cycle ${cycle} :
+${messages.map(m => `${m.role}: ${m.content}`).join('\n\n')}
+
+Réponds en JSON uniquement :
+{
+  "resume": "...",
+  "evenements_cles": ["...", "..."],
+  "relations_modifiees": [{"pnj": "...", "changement": "..."}]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [{ role: 'user', content: prompt }]
+    });
+
+    let content = response.content[0].text.trim();
+    if (content.startsWith('```json')) content = content.slice(7);
+    if (content.startsWith('```')) content = content.slice(3);
+    if (content.endsWith('```')) content = content.slice(0, -3);
+    
+    const parsed = JSON.parse(content.trim());
+
+    // Sauvegarder le résumé
+    await supabase.from('cycle_resumes').upsert({
+      partie_id: partieId,
+      cycle: cycle,
+      jour: gameState?.partie?.jour,
+      date_jeu: gameState?.partie?.date_jeu,
+      resume: parsed.resume,
+      evenements_cles: parsed.evenements_cles || [],
+      relations_modifiees: parsed.relations_modifiees || []
+    });
+
+    return parsed;
+  } catch (e) {
+    console.error('Erreur génération résumé:', e);
+    return null;
+  }
+}
+
+// Construire le contexte conversationnel pour Claude
+function buildConversationContext(conversationData, gameState, userMessage) {
+  const { currentCycleMessages, previousCycleMessages, cycleResumes } = conversationData;
+  
+  let context = '';
+
+  // Ajouter les résumés des cycles passés
+  if (cycleResumes.length > 0) {
+    context += '=== RÉSUMÉS DES CYCLES PRÉCÉDENTS ===\n';
+    for (const r of cycleResumes) {
+      context += `[Cycle ${r.cycle} - ${r.jour} ${r.date_jeu}] ${r.resume}\n`;
+      if (r.evenements_cles?.length > 0) {
+        context += `  → Événements: ${r.evenements_cles.join(', ')}\n`;
+      }
+    }
+    context += '\n';
+  }
+
+  // Ajouter l'état actuel
+  context += '=== ÉTAT ACTUEL ===\n';
+  context += JSON.stringify(gameState, null, 2);
+  context += '\n\n';
+
+  // Ajouter les messages du cycle précédent (fin)
+  if (previousCycleMessages.length > 0) {
+    context += '=== FIN DU CYCLE PRÉCÉDENT ===\n';
+    for (const m of previousCycleMessages) {
+      context += `${m.role.toUpperCase()}: ${m.content}\n\n`;
+    }
+  }
+
+  // Ajouter les messages du cycle actuel
+  if (currentCycleMessages.length > 0) {
+    context += '=== CYCLE ACTUEL ===\n';
+    for (const m of currentCycleMessages) {
+      context += `${m.role.toUpperCase()}: ${m.content}\n\n`;
+    }
+  }
+
+  // Action du joueur
+  context += '=== ACTION DU JOUEUR ===\n';
+  context += userMessage;
+
+  return context;
 }
 
 // Sauvegarder l'état
@@ -126,21 +257,10 @@ async function saveGameState(partieId, state) {
   }
 }
 
-// Créer nouvelle partie
-async function createNewGame() {
-  const { data: partie } = await supabase.from('parties').insert({ nom: 'Nouvelle partie' }).select().single();
-  
-  await supabase.from('valentin').insert({ partie_id: partie.id });
-  await supabase.from('ia_personnelle').insert({ partie_id: partie.id });
-  await supabase.from('contexte').insert({ partie_id: partie.id });
-
-  return partie.id;
-}
-
 // Supprimer une partie et toutes ses données
 async function deleteGame(partieId) {
-  // Supprimer dans l'ordre pour respecter les contraintes FK
   await supabase.from('chat_messages').delete().eq('partie_id', partieId);
+  await supabase.from('cycle_resumes').delete().eq('partie_id', partieId);
   await supabase.from('hors_champ').delete().eq('partie_id', partieId);
   await supabase.from('lieux').delete().eq('partie_id', partieId);
   await supabase.from('a_venir').delete().eq('partie_id', partieId);
@@ -156,6 +276,17 @@ async function deleteGame(partieId) {
 // Renommer une partie
 async function renameGame(partieId, newName) {
   await supabase.from('parties').update({ nom: newName }).eq('id', partieId);
+}
+
+// Créer nouvelle partie
+async function createNewGame() {
+  const { data: partie } = await supabase.from('parties').insert({ nom: 'Nouvelle partie' }).select().single();
+  
+  await supabase.from('valentin').insert({ partie_id: partie.id });
+  await supabase.from('ia_personnelle').insert({ partie_id: partie.id });
+  await supabase.from('contexte').insert({ partie_id: partie.id });
+
+  return partie.id;
 }
 
 export async function GET(request) {
@@ -200,13 +331,19 @@ export async function POST(request) {
   try {
     const { message, partieId, gameState } = await request.json();
 
+    const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
+    const previousCycle = currentCycle - 1;
+
+    // Charger le contexte conversationnel si partie existante
     let contextMessage;
-    if (gameState && gameState.partie) {
-      contextMessage = `État actuel:\n${JSON.stringify(gameState, null, 2)}\n\nAction du joueur: ${message}`;
+    if (partieId && gameState && gameState.partie) {
+      const conversationData = await loadConversationContext(partieId, currentCycle);
+      contextMessage = buildConversationContext(conversationData, gameState, message);
     } else {
       contextMessage = 'Nouvelle partie. Lance le jeu. Génère tout au lancement.';
     }
 
+    // Appel Claude
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
@@ -218,30 +355,34 @@ export async function POST(request) {
 
     let parsed;
     try {
-      // Nettoyer le contenu JSON (enlever les ```json si présents)
       let cleanContent = content.trim();
-      if (cleanContent.startsWith('```json')) {
-        cleanContent = cleanContent.slice(7);
-      }
-      if (cleanContent.startsWith('```')) {
-        cleanContent = cleanContent.slice(3);
-      }
-      if (cleanContent.endsWith('```')) {
-        cleanContent = cleanContent.slice(0, -3);
-      }
+      if (cleanContent.startsWith('```json')) cleanContent = cleanContent.slice(7);
+      if (cleanContent.startsWith('```')) cleanContent = cleanContent.slice(3);
+      if (cleanContent.endsWith('```')) cleanContent = cleanContent.slice(0, -3);
       parsed = JSON.parse(cleanContent.trim());
     } catch (e) {
       return Response.json({ content, raw: true });
     }
 
+    // Détecter changement de cycle et générer résumé
+    const newCycle = parsed.state?.cycle || currentCycle;
+    if (partieId && newCycle > currentCycle) {
+      // Charger les messages du cycle qui vient de se terminer
+      const { data: cycleMessages } = await supabase
+        .from('chat_messages')
+        .select('role, content')
+        .eq('partie_id', partieId)
+        .eq('cycle', currentCycle)
+        .order('created_at', { ascending: true });
+
+      // Générer et sauvegarder le résumé
+      await generateCycleResume(partieId, currentCycle, cycleMessages, gameState);
+    }
+
     // Construire le texte narratif pour l'affichage
     let displayText = '';
-    if (parsed.heure) {
-      displayText += `[${parsed.heure}] `;
-    }
-    if (parsed.narratif) {
-      displayText += parsed.narratif;
-    }
+    if (parsed.heure) displayText += `[${parsed.heure}] `;
+    if (parsed.narratif) displayText += parsed.narratif;
     if (parsed.choix && parsed.choix.length > 0) {
       displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
     }
@@ -262,11 +403,11 @@ export async function POST(request) {
       });
     }
 
-    // Sauvegarder messages chat (texte narratif, pas le JSON)
+    // Sauvegarder messages chat avec le cycle
     if (partieId) {
       await supabase.from('chat_messages').insert([
-        { partie_id: partieId, role: 'user', content: message, cycle: parsed.state?.cycle },
-        { partie_id: partieId, role: 'assistant', content: displayText, cycle: parsed.state?.cycle }
+        { partie_id: partieId, role: 'user', content: message, cycle: newCycle },
+        { partie_id: partieId, role: 'assistant', content: displayText, cycle: newCycle }
       ]);
     }
 
