@@ -10,6 +10,7 @@ export default function Home() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [loadingGame, setLoadingGame] = useState(false);
   const [error, setError] = useState('');
   const [showState, setShowState] = useState(false);
@@ -296,7 +297,7 @@ export default function Home() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+    if (!input.trim() || loading || saving) return;
     const userMessage = input.trim();
     const currentMessages = [...messages];
     const currentGameState = gameState;
@@ -452,6 +453,12 @@ export default function Home() {
                         ...data.state 
                       });
                     }
+                    
+                    // Attendre la confirmation de sauvegarde
+                    setSaving(true);
+                  } else if (data.type === 'saved') {
+                    // Sauvegarde terminée
+                    setSaving(false);
                   } else if (data.type === 'error') {
                     setError(data.error);
                     if (fullJson) {
