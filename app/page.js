@@ -69,12 +69,25 @@ export default function Home() {
   };
 
   const newGame = async () => {
-    const res = await fetch('/api/chat?action=new');
-    const data = await res.json();
-    setPartieId(data.partieId);
-    setPartieName('Nouvelle partie');
-    setGameState(null);
-    setMessages([]);
+    setLoadingGame(true);
+    try {
+      const res = await fetch('/api/chat?action=new');
+      const data = await res.json();
+      if (data.partieId) {
+        setPartieId(data.partieId);
+        setPartieName('Nouvelle partie');
+        setGameState(null);
+        setMessages([]);
+        // Rafraîchir la liste pour inclure la nouvelle partie
+        loadParties();
+      } else {
+        setError('Erreur lors de la création de la partie');
+      }
+    } catch (e) {
+      setError('Erreur lors de la création de la partie');
+    } finally {
+      setLoadingGame(false);
+    }
   };
 
   const deleteGame = async (id) => {
@@ -210,8 +223,31 @@ export default function Home() {
         // Mode streaming
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
-        let streamedContent = '';
+        let fullJson = '';
         let assistantMessageAdded = false;
+
+        // Fonction pour extraire le narratif du JSON partiel
+        const extractNarratif = (jsonStr) => {
+          // Chercher le contenu après "narratif": "
+          const narratifMatch = jsonStr.match(/"narratif"\s*:\s*"([\s\S]*?)(?:"|$)/);
+          if (narratifMatch) {
+            let narratif = narratifMatch[1];
+            // Nettoyer les échappements JSON
+            narratif = narratif
+              .replace(/\\n/g, '\n')
+              .replace(/\\"/g, '"')
+              .replace(/\\\\/g, '\\')
+              .replace(/\\t/g, '\t');
+            return narratif;
+          }
+          return null;
+        };
+
+        // Fonction pour extraire l'heure
+        const extractHeure = (jsonStr) => {
+          const heureMatch = jsonStr.match(/"heure"\s*:\s*"([^"]+)"/);
+          return heureMatch ? heureMatch[1] : null;
+        };
 
         try {
           while (true) {
@@ -227,29 +263,37 @@ export default function Home() {
                   const data = JSON.parse(line.slice(6));
 
                   if (data.type === 'chunk') {
-                    streamedContent += data.content;
+                    fullJson += data.content;
                     
-                    if (!assistantMessageAdded) {
-                      setMessages([...previousMessages, 
-                        { role: 'user', content: userMessage },
-                        { role: 'assistant', content: streamedContent, streaming: true }
-                      ]);
-                      assistantMessageAdded = true;
-                    } else {
-                      setMessages(prev => {
-                        const newMessages = [...prev];
-                        newMessages[newMessages.length - 1] = { 
-                          role: 'assistant', 
-                          content: streamedContent,
-                          streaming: true 
-                        };
-                        return newMessages;
-                      });
+                    // Extraire et afficher le narratif en cours
+                    const narratif = extractNarratif(fullJson);
+                    const heure = extractHeure(fullJson);
+                    
+                    if (narratif) {
+                      const displayContent = heure ? `[${heure}] ${narratif}` : narratif;
+                      
+                      if (!assistantMessageAdded) {
+                        setMessages([...previousMessages, 
+                          { role: 'user', content: userMessage },
+                          { role: 'assistant', content: displayContent, streaming: true }
+                        ]);
+                        assistantMessageAdded = true;
+                      } else {
+                        setMessages(prev => {
+                          const newMessages = [...prev];
+                          newMessages[newMessages.length - 1] = { 
+                            role: 'assistant', 
+                            content: displayContent,
+                            streaming: true 
+                          };
+                          return newMessages;
+                        });
+                      }
                     }
                   } else if (data.type === 'done') {
                     setMessages([...previousMessages,
                       { role: 'user', content: userMessage },
-                      { role: 'assistant', content: data.displayText || streamedContent }
+                      { role: 'assistant', content: data.displayText || extractNarratif(fullJson) || fullJson }
                     ]);
                     
                     if (data.state) {
@@ -276,10 +320,11 @@ export default function Home() {
           if (streamError.name !== 'AbortError') {
             console.error('Stream error:', streamError);
             // Si on a du contenu, l'afficher quand même
-            if (streamedContent) {
+            const narratif = extractNarratif(fullJson);
+            if (narratif || fullJson) {
               setMessages([...previousMessages,
                 { role: 'user', content: userMessage },
-                { role: 'assistant', content: streamedContent }
+                { role: 'assistant', content: narratif || fullJson }
               ]);
             }
           }
