@@ -429,7 +429,6 @@ export default function Home() {
                     }
                   } else if (data.type === 'error') {
                     setError(data.error);
-                    // Finaliser avec le contenu partiel
                     if (fullJson) {
                       finalizeMessage(extractNarratif(fullJson) || fullJson);
                     }
@@ -443,7 +442,6 @@ export default function Home() {
         } catch (streamError) {
           if (streamError.name !== 'AbortError') {
             console.error('Stream error:', streamError);
-            // Finaliser avec le contenu partiel
             const narratif = extractNarratif(fullJson);
             if (narratif || fullJson) {
               finalizeMessage(narratif || fullJson);
@@ -691,10 +689,10 @@ export default function Home() {
             ) : (
               // Mode affichage
               <div 
-                style={{ display: 'inline-block', maxWidth: '80%', position: 'relative' }}
+                style={{ display: 'inline-block', maxWidth: msg.role === 'user' ? '80%' : '95%', position: 'relative' }}
                 className="message-container"
               >
-                <div style={{ padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937' }}>
+                <div style={{ padding: 12, borderRadius: 8, background: msg.role === 'user' ? '#1e3a5f' : '#1f2937', maxWidth: msg.role === 'user' ? '80%' : '95%' }}>
                   <div className="markdown-content" style={{ fontSize: fontSize }}>
                     <ReactMarkdown
                       components={{
