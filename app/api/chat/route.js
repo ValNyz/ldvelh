@@ -694,7 +694,9 @@ export async function POST(request) {
       } catch (error) {
         console.error('Streaming error:', error);
         try {
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
+          if (!doneSent) {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
+          }
         } catch (e) {
           // Writer peut être déjà fermé
         }
