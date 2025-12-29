@@ -499,16 +499,47 @@ export async function POST(request) {
             displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
           }
         } catch (e) {
-          // Si pas JSON valide, garder le texte brut mais nettoyer le JSON visible
           console.error('Erreur parsing JSON:', e.message);
           
-          // Essayer de nettoyer le texte brut (enlever le JSON à la fin)
+          // Fallback : essayer d'extraire les choix avec regex même si JSON invalide
           const jsonStartIndex = fullContent.lastIndexOf('\n{');
-          if (jsonStartIndex > 0) {
-            displayText = fullContent.slice(0, jsonStartIndex).trim();
+          let textPart = jsonStartIndex > 0 ? fullContent.slice(0, jsonStartIndex).trim() : fullContent;
+          
+          // Essayer d'extraire les choix du JSON partiel
+          const choixMatch = fullContent.match(/"choix"\s*:\s*\[\s*([\s\S]*?)\s*\]/);
+          if (choixMatch) {
+            try {
+              // Nettoyer et parser le tableau de choix
+              const choixArray = JSON.parse(`[${choixMatch[1]}]`);
+              if (choixArray.length > 0) {
+                // Retirer les choix s'ils sont déjà dans le texte (éviter doublon)
+                for (const choix of choixArray) {
+                  textPart = textPart.replace(choix, '').trim();
+                }
+                // Nettoyer les numéros orphelins (1. 2. 3. sans texte)
+                textPart = textPart.replace(/^\s*\d+\.\s*$/gm, '').trim();
+                textPart = textPart.replace(/\n{3,}/g, '\n\n');
+                
+                displayText = textPart + '\n\n' + choixArray.map((c, i) => `${i + 1}. ${c}`).join('\n');
+              } else {
+                displayText = textPart;
+              }
+            } catch (e2) {
+              displayText = textPart;
+            }
+          } else {
+            displayText = textPart;
           }
           
-          parsed = null;
+          // Essayer quand même d'extraire le state pour la sauvegarde
+          const stateMatch = fullContent.match(/"state"\s*:\s*(\{[\s\S]*\})\s*\}?\s*$/);
+          if (stateMatch) {
+            try {
+              parsed = { state: JSON.parse(stateMatch[1]) };
+            } catch (e3) {
+              parsed = null;
+            }
+          }
         }
 
         // Déterminer le cycle à utiliser pour la sauvegarde
