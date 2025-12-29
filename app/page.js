@@ -349,6 +349,34 @@ export default function Home() {
       return heureMatch ? heureMatch[1] : null;
     };
 
+    // Fonction pour extraire le contenu affichable (gère JSON pur ou texte mixte)
+    const extractDisplayContent = (content) => {
+      const trimmed = content.trim();
+      
+      // Cas 1: JSON pur (commence par {)
+      if (trimmed.startsWith('{')) {
+        const narratif = extractNarratif(content);
+        const heure = extractHeure(content);
+        if (narratif) {
+          return heure ? `[${heure}] ${narratif}` : narratif;
+        }
+        return null;
+      }
+      
+      // Cas 2: Texte libre (peut-être avec JSON à la fin)
+      // Retirer le JSON partiel à la fin s'il y en a un
+      let displayContent = content;
+      const jsonStartIndex = content.lastIndexOf('\n{');
+      if (jsonStartIndex > 0) {
+        displayContent = content.slice(0, jsonStartIndex).trim();
+      }
+      
+      // Retirer les doublons d'heure du type "[09h15] [09h15]"
+      displayContent = displayContent.replace(/\[(\d{2}h\d{2})\]\s*\[\1\]/g, '[$1]');
+      
+      return displayContent || null;
+    };
+
     // Helper pour finaliser le message (retirer streaming)
     const finalizeMessage = (content) => {
       setMessages([...previousMessages,
@@ -389,12 +417,9 @@ export default function Home() {
                   if (data.type === 'chunk') {
                     fullJson += data.content;
                     
-                    const narratif = extractNarratif(fullJson);
-                    const heure = extractHeure(fullJson);
+                    const displayContent = extractDisplayContent(fullJson);
                     
-                    if (narratif) {
-                      const displayContent = heure ? `[${heure}] ${narratif}` : narratif;
-                      
+                    if (displayContent) {
                       if (!assistantMessageAdded) {
                         setMessages([...previousMessages, 
                           { role: 'user', content: userMessage },
@@ -414,7 +439,7 @@ export default function Home() {
                       }
                     }
                   } else if (data.type === 'done') {
-                    finalizeMessage(data.displayText || extractNarratif(fullJson) || fullJson);
+                    finalizeMessage(data.displayText || extractDisplayContent(fullJson) || fullJson);
                     
                     if (data.state) {
                       setGameState({ 
@@ -430,7 +455,7 @@ export default function Home() {
                   } else if (data.type === 'error') {
                     setError(data.error);
                     if (fullJson) {
-                      finalizeMessage(extractNarratif(fullJson) || fullJson);
+                      finalizeMessage(extractDisplayContent(fullJson) || fullJson);
                     }
                   }
                 } catch (parseError) {
@@ -442,9 +467,9 @@ export default function Home() {
         } catch (streamError) {
           if (streamError.name !== 'AbortError') {
             console.error('Stream error:', streamError);
-            const narratif = extractNarratif(fullJson);
-            if (narratif || fullJson) {
-              finalizeMessage(narratif || fullJson);
+            const displayContent = extractDisplayContent(fullJson);
+            if (displayContent || fullJson) {
+              finalizeMessage(displayContent || fullJson);
             }
           }
         }
