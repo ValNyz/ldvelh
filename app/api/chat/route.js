@@ -522,76 +522,64 @@ export async function POST(request) {
           heure: parsed?.heure
         })}\n\n`));
 
-        // === SAUVEGARDES (stream toujours ouvert pour envoyer 'saved') ===
+        // === SAUVEGARDES ===
         
-        try {
-          const savePromises = [];
-
-          // Détecter changement de cycle et générer résumé
-          if (partieId && parsed && cycleForSave > currentCycle) {
-            const resumePromise = supabase
-              .from('chat_messages')
-              .select('role, content')
-              .eq('partie_id', partieId)
-              .eq('cycle', currentCycle)
-              .order('created_at', { ascending: true })
-              .then(({ data: cycleMessages }) => {
-                if (cycleMessages) {
-                  return generateCycleResume(partieId, currentCycle, cycleMessages, gameState);
-                }
-              });
-            savePromises.push(resumePromise);
-          }
-
-          // Sauvegarder l'état si partieId existe
-          if (partieId && parsed?.state) {
-            savePromises.push(saveGameState(partieId, {
-              partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
-              valentin: parsed.state.valentin,
-              ia: parsed.state.ia,
-              contexte: parsed.state.contexte,
-              pnj: parsed.state.pnj,
-              arcs: parsed.state.arcs,
-              historique: parsed.state.historique,
-              aVenir: parsed.state.a_venir,
-              lieux: parsed.state.lieux,
-              horsChamp: parsed.state.hors_champ
-            }));
-          }
-
-          // Sauvegarder messages chat
-          if (partieId) {
-            console.log(`Saving messages for partie ${partieId}, cycle ${cycleForSave}`);
-            
-            const messagesPromise = supabase.from('chat_messages').insert({
-              partie_id: partieId, 
-              role: 'user', 
-              content: message, 
-              cycle: cycleForSave
-            }).then(() => {
-              return supabase.from('chat_messages').insert({
-                partie_id: partieId, 
-                role: 'assistant', 
-                content: displayText, 
-                cycle: cycleForSave
-              });
-            });
-            savePromises.push(messagesPromise);
-          }
-
-          // Attendre toutes les sauvegardes
-          await Promise.all(savePromises);
+        // Sauvegarder les messages (PRIORITAIRE - on attend juste ça)
+        if (partieId) {
+          console.log(`Saving messages for partie ${partieId}, cycle ${cycleForSave}`);
           
-          // Notifier le client que la sauvegarde est terminée
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
+          await supabase.from('chat_messages').insert({
+            partie_id: partieId, 
+            role: 'user', 
+            content: message, 
+            cycle: cycleForSave
+          });
           
-        } catch (saveError) {
-          console.error('Erreur sauvegarde:', saveError);
-          // On envoie quand même 'saved' pour débloquer le client
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved', error: saveError.message })}\n\n`));
+          await supabase.from('chat_messages').insert({
+            partie_id: partieId, 
+            role: 'assistant', 
+            content: displayText, 
+            cycle: cycleForSave
+          });
         }
 
+        // Notifier le client que les messages sont sauvés - IL PEUT RÉPONDRE
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
         await writer.close();
+
+        // === LE RESTE EN VRAI ARRIÈRE-PLAN (après fermeture du stream) ===
+        
+        // Sauvegarder l'état (non-bloquant)
+        if (partieId && parsed?.state) {
+          saveGameState(partieId, {
+            partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
+            valentin: parsed.state.valentin,
+            ia: parsed.state.ia,
+            contexte: parsed.state.contexte,
+            pnj: parsed.state.pnj,
+            arcs: parsed.state.arcs,
+            historique: parsed.state.historique,
+            aVenir: parsed.state.a_venir,
+            lieux: parsed.state.lieux,
+            horsChamp: parsed.state.hors_champ
+          }).catch(console.error);
+        }
+
+        // Générer résumé si changement de cycle (non-bloquant)
+        if (partieId && parsed && cycleForSave > currentCycle) {
+          supabase
+            .from('chat_messages')
+            .select('role, content')
+            .eq('partie_id', partieId)
+            .eq('cycle', currentCycle)
+            .order('created_at', { ascending: true })
+            .then(({ data: cycleMessages }) => {
+              if (cycleMessages) {
+                generateCycleResume(partieId, currentCycle, cycleMessages, gameState).catch(console.error);
+              }
+            })
+            .catch(console.error);
+        }
 
       } catch (error) {
         console.error('Streaming error:', error);
