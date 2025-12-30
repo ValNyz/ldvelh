@@ -232,17 +232,51 @@ export default function Home() {
       return m ? m[1] : null;
     };
 
+    const extractChoix = (jsonStr) => {
+      const match = jsonStr.match(/"choix"\s*:\s*\[([\s\S]*?)\]/);
+      if (!match) return null;
+      try {
+        const choixArray = JSON.parse(`[${match[1]}]`);
+        return choixArray.length > 0 ? choixArray : null;
+      } catch (e) {
+        return null;
+      }
+    };
+
     const extractDisplayContent = (content) => {
       const trimmed = content.trim();
       if (trimmed.startsWith('{')) {
-        const narratif = extractNarratif(content), heure = extractHeure(content);
-        if (narratif) return heure ? `[${heure}] ${narratif}` : narratif;
+        const narratif = extractNarratif(content);
+        const heure = extractHeure(content);
+        const choix = extractChoix(content);
+        
+        if (narratif) {
+          // Retirer l'heure du narratif si elle y est (Claude l'ajoute parfois)
+          let display = narratif.replace(/^\[?\d{2}h\d{2}\]?\s*[-–—:]?\s*/i, '');
+          
+          // Ajouter l'heure depuis le champ dédié
+          if (heure) {
+            display = `[${heure}] ${display}`;
+          }
+          
+          // Ajouter les choix s'ils sont disponibles
+          if (choix && choix.length > 0) {
+            display += '\n\n' + choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
+          }
+          
+          return display;
+        }
         return null;
       }
+      
       let display = content;
       const jsonIdx = content.lastIndexOf('\n{');
       if (jsonIdx > 0) display = content.slice(0, jsonIdx).trim();
-      return display.replace(/\[(\d{2}h\d{2})\]\s*\[\1\]/g, '[$1]') || null;
+      
+      // Retirer les doublons d'heure
+      display = display.replace(/\[(\d{2}h\d{2})\]\s*\[\1\]/g, '[$1]');
+      
+      return display || null;
     };
 
     const finalizeMessage = (content) => {
