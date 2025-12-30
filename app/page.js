@@ -68,6 +68,51 @@ export default function Home() {
     } catch (e) { console.error('Erreur chargement parties:', e); }
   };
 
+  // Fonction pour normaliser le state (utilisée par loadGame et après réponse Claude)
+  const normalizeGameState = (rawState) => {
+    if (!rawState) return null;
+    
+    // Si ça vient de Supabase (loadGame), la structure est différente
+    if (rawState.partie && rawState.partie.id) {
+      return {
+        partie: {
+          cycle_actuel: rawState.partie.cycle_actuel || 1,
+          jour: rawState.partie.jour,
+          date_jeu: rawState.partie.date_jeu,
+          heure: rawState.partie.heure
+        },
+        valentin: rawState.valentin,
+        ia: rawState.ia,
+        contexte: rawState.contexte,
+        pnj: rawState.pnj || [],
+        arcs: rawState.arcs || [],
+        historique: rawState.historique || [],
+        aVenir: rawState.aVenir || [],
+        lieux: rawState.lieux || [],
+        horsChamp: rawState.horsChamp || []
+      };
+    }
+    
+    // Si ça vient de Claude (réponse API), normaliser depuis le format Claude
+    return {
+      partie: {
+        cycle_actuel: rawState.cycle || 1,
+        jour: rawState.jour,
+        date_jeu: rawState.date_jeu,
+        heure: rawState.heure
+      },
+      valentin: rawState.valentin,
+      ia: rawState.ia,
+      contexte: rawState.contexte,
+      pnj: rawState.pnj || [],
+      arcs: rawState.arcs || [],
+      historique: rawState.historique || [],
+      aVenir: rawState.a_venir || [],
+      lieux: rawState.lieux || [],
+      horsChamp: rawState.hors_champ || []
+    };
+  };
+
   const loadGame = async (id) => {
     setLoadingGame(true);
     setError('');
@@ -78,14 +123,8 @@ export default function Home() {
       
       setPartieId(id);
       if (data.state) {
-        const s = data.state;
-        setGameState({
-          partie: s.partie, cycle: s.partie?.cycle_actuel || 1, jour: s.partie?.jour,
-          valentin: s.valentin, ia: s.ia, contexte: s.contexte, pnj: s.pnj || [],
-          arcs: s.arcs || [], historique: s.historique || [], aVenir: s.aVenir || [],
-          lieux: s.lieux || [], horsChamp: s.horsChamp || []
-        });
-        setPartieName(s.partie?.nom || 'Partie sans nom');
+        setGameState(normalizeGameState(data.state));
+        setPartieName(data.state.partie?.nom || 'Partie sans nom');
       }
       setMessages(data.messages?.map(m => ({ role: m.role, content: m.content })) || []);
     } catch (e) {
@@ -207,6 +246,7 @@ export default function Home() {
   const sendMessageInternal = async (userMessage, previousMessages, currentGameState) => {
     abortControllerRef.current = new AbortController();
 
+    // Extraction robuste du narratif depuis le JSON en streaming
     const extractNarratif = (jsonStr) => {
       const m = jsonStr.match(/"narratif"\s*:\s*"/);
       if (!m) return null;
@@ -220,9 +260,32 @@ export default function Home() {
           else if (n === '\\') { narratif += '\\'; i += 2; }
           else if (n === 't') { narratif += '\t'; i += 2; }
           else if (n === 'r') { narratif += '\r'; i += 2; }
-          else break;
-        } else if (c === '"') break;
-        else { narratif += c; i++; }
+          else if (n === 'b') { narratif += '\b'; i += 2; }
+          else if (n === 'f') { narratif += '\f'; i += 2; }
+          else if (n === '/') { narratif += '/'; i += 2; }
+          else if (n === 'u' && i + 5 < jsonStr.length) {
+            // Unicode escape \uXXXX
+            const hex = jsonStr.slice(i + 2, i + 6);
+            if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+              narratif += String.fromCharCode(parseInt(hex, 16));
+              i += 6;
+            } else {
+              // Malformed unicode, keep as-is
+              narratif += '\\u';
+              i += 2;
+            }
+          } else {
+            // Unknown escape, keep the backslash and continue
+            narratif += c;
+            i++;
+          }
+        } else if (c === '"') {
+          // End of string
+          break;
+        } else {
+          narratif += c;
+          i++;
+        }
       }
       return narratif || null;
     };
@@ -320,7 +383,11 @@ export default function Home() {
                   setLoading(false);
                   setSaving(true);
                   finalizeMessage(data.displayText || fullJson);
-                  if (data.state) setGameState({ partie: { cycle_actuel: data.state.cycle, jour: data.state.jour, date_jeu: data.state.date_jeu, heure: data.heure }, ...data.state });
+                  // Normaliser le state reçu avant de le stocker
+                  if (data.state) {
+                    const normalized = normalizeGameState({ ...data.state, heure: data.heure });
+                    setGameState(normalized);
+                  }
                 } else if (data.type === 'saved') {
                   setSaving(false);
                 } else if (data.type === 'error') {
@@ -342,7 +409,10 @@ export default function Home() {
         if (data.error) { setError(data.error); return; }
         if (data.displayText) {
           finalizeMessage(data.displayText);
-          if (data.state) setGameState({ partie: { cycle_actuel: data.state.cycle, jour: data.state.jour, date_jeu: data.state.date_jeu, heure: data.heure }, ...data.state });
+          if (data.state) {
+            const normalized = normalizeGameState({ ...data.state, heure: data.heure });
+            setGameState(normalized);
+          }
         } else if (data.content) finalizeMessage(data.content);
       }
     } catch (e) {
@@ -404,7 +474,7 @@ export default function Home() {
         </div>
         {gameState?.valentin && (
           <div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>
-            <div style={{ color: '#4ade80' }}>Cycle {gameState.partie?.cycle_actuel || gameState.cycle} | {gameState.partie?.jour || gameState.jour}</div>
+            <div style={{ color: '#4ade80' }}>Cycle {gameState.partie?.cycle_actuel || 1} | {gameState.partie?.jour || '-'}</div>
             <div>Énergie: {dots(gameState.valentin.energie)} | Moral: {dots(gameState.valentin.moral)} | Santé: {dots(gameState.valentin.sante)}</div>
             <div style={{ color: '#fbbf24' }}>Crédits: {gameState.valentin.credits}</div>
           </div>
