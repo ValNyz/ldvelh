@@ -449,4 +449,46 @@ export default function Home() {
                   {msg.streaming && <span style={{ color: '#60a5fa' }}>▋</span>}
                 </div>
                 <div className="message-actions" style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0, transition: 'opacity 0.2s' }}>
-                  {msg.role === 'user' && !loading && <button onClick={() => startEditMessage(i)} title="Éditer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer
+                  {msg.role === 'user' && !loading && <button onClick={() => startEditMessage(i)} title="Éditer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>✏️</button>}
+                  {msg.role === 'assistant' && i === messages.length - 1 && !loading && !msg.streaming && <button onClick={regenerateLastResponse} title="Regénérer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>🔄</button>}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+        {loading && !messages.some(m => m.streaming) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6b7280', fontStyle: 'italic' }}>
+            <span>En cours...</span>
+            <button onClick={cancelRequest} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕ Annuler</button>
+          </div>
+        )}
+        {loading && messages.some(m => m.streaming) && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+            <button onClick={cancelRequest} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕ Annuler</button>
+          </div>
+        )}
+        {error && <div style={{ color: '#f87171', marginTop: 8 }}>{error}</div>}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input */}
+      <div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendMessage(); }}}
+            placeholder="Ton action... (Ctrl+Entrée)"
+            disabled={loading}
+            style={{ flex: 1, padding: '8px 16px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize, resize: 'none', minHeight: 44, maxHeight: 200, fontFamily: 'inherit', overflow: 'hidden' }}
+          />
+          <button onClick={sendMessage} disabled={loading} style={{ padding: '12px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1, height: 44 }}>Envoyer</button>
+        </div>
+        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>Entrée = nouvelle ligne • Ctrl+Entrée = envoyer</div>
+      </div>
+
+      <style jsx>{`.message-container:hover .message-actions { opacity: 1 !important; }`}</style>
+    </div>
+  );
+}
