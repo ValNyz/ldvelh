@@ -350,32 +350,39 @@ export default function Home() {
       return heureMatch ? heureMatch[1] : null;
     };
 
-
 const extractDisplayContent = (content) => {
   const trimmed = content.trim();
   
-  // Chercher le narratif dans le JSON (fonctionne pour init ET turn)
-  const narratif = extractNarratif(content);
-  const heure = extractHeure(content);
-  
-  if (narratif) {
-    let display = heure ? `[${heure}] ${narratif}` : narratif;
+  // Cas 1: JSON pur (commence par {) - extraire narratif
+  if (trimmed.startsWith('{')) {
+    const narratif = extractNarratif(content);
+    const heure = extractHeure(content);
     
-    // Essayer d'extraire les choix aussi
-    const choixMatch = content.match(/"choix"\s*:\s*\[\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\]/);
-    if (choixMatch) {
-      display += '\n\n1. ' + choixMatch[1] + '\n2. ' + choixMatch[2] + '\n3. ' + choixMatch[3];
+    if (narratif) {
+      let display = heure ? `[${heure}] ${narratif}` : narratif;
+      
+      // Essayer d'extraire les choix aussi
+      const choixMatch = content.match(/"choix"\s*:\s*\[\s*"([^"]+)"\s*,\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\]/);
+      if (choixMatch) {
+        display += '\n\n1. ' + choixMatch[1] + '\n2. ' + choixMatch[2] + '\n3. ' + choixMatch[3];
+      }
+      
+      return display;
     }
-    
-    return display;
+    return null;
   }
   
-  // Fallback: si pas de narratif trouvé mais contenu non-JSON
-  if (!trimmed.startsWith('{')) {
-    return trimmed;
+  // Cas 2: Texte libre (peut-être avec JSON à la fin)
+  let displayContent = content;
+  const jsonStartIndex = content.lastIndexOf('\n{');
+  if (jsonStartIndex > 0) {
+    displayContent = content.slice(0, jsonStartIndex).trim();
   }
   
-  return null;
+  // Retirer les doublons d'heure du type "[09h15] [09h15]"
+  displayContent = displayContent.replace(/\[(\d{2}h\d{2})\]\s*\[\1\]/g, '[$1]');
+  
+  return displayContent || null;
 };
 
     // Helper pour finaliser le message (retirer streaming)
