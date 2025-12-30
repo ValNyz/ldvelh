@@ -884,8 +884,7 @@ export async function POST(request) {
         if (parsed.choix && parsed.choix.length > 0) {
           displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
         }
-        
-        // Les arcs sont stockés mais jamais affichés au joueur
+
 
         // Envoyer le résultat final
         await writer.write(encoder.encode(`data: ${JSON.stringify({ 
