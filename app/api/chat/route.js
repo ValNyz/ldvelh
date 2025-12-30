@@ -885,13 +885,7 @@ export async function POST(request) {
           displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
         }
         
-        // Ajouter les arcs proposés pour l'init
-        if (parsed.init?.arcs?.length > 0) {
-          displayText += '\n\n**Arcs narratifs disponibles :**\n';
-          displayText += parsed.init.arcs.map(a => 
-            `- **${a.titre}** (${a.type}) : ${a.description}`
-          ).join('\n');
-        }
+        // Les arcs sont stockés mais jamais affichés au joueur
 
         // Envoyer le résultat final
         await writer.write(encoder.encode(`data: ${JSON.stringify({ 
