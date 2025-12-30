@@ -727,6 +727,11 @@ export async function POST(request) {
         // Parser le JSON
         parsed = extractJSON(fullContent);
         t1 = Date.now(); console.log(`>>> 3. JSON parsé: +${t1 - t0}ms`); t0 = t1;
+        console.log('>>> 3b. parsed est null?', parsed === null);
+        console.log('>>> 3c. parsed.heure:', parsed?.heure);
+        console.log('>>> 3d. parsed.narratif length:', parsed?.narratif?.length);
+        console.log('>>> 3e. parsed.choix:', parsed?.choix);
+        console.log('>>> 3f. parsed.state exists?', !!parsed?.state);
 
         if (parsed) {
           // Construire le texte d'affichage à partir du JSON
