@@ -1,11 +1,254 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import { SYSTEM_PROMPT } from '../../../lib/prompt';
+import { SYSTEM_PROMPT_INIT, SYSTEM_PROMPT_GAME } from '../../../lib/prompt';
 
-// Configuration pour le streaming
 export const dynamic = 'force-dynamic';
 
-// Fonction pour tenter de réparer un JSON mal formé
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
+
+// ============================================
+// APPLY DELTA - Applique les changements au state
+// ============================================
+
+function applyDelta(currentState, delta) {
+  if (!delta || Object.keys(delta).length === 0) {
+    return { newState: currentState, changelog: [] };
+  }
+
+  const newState = JSON.parse(JSON.stringify(currentState));
+  const changelog = [];
+
+  for (const [key, value] of Object.entries(delta)) {
+    
+    // === Stats Valentin ===
+    if (key.startsWith('valentin.')) {
+      const stat = key.replace('valentin.', '');
+      const oldVal = newState.valentin?.[stat];
+      let newVal = value;
+      
+      // Validation des bornes
+      if (['energie', 'moral', 'sante'].includes(stat)) {
+        newVal = Math.max(0, Math.min(5, value));
+      }
+      if (stat === 'credits') {
+        newVal = Math.max(0, value);
+      }
+      
+      if (!newState.valentin) newState.valentin = {};
+      newState.valentin[stat] = newVal;
+      changelog.push(`${stat}: ${oldVal} → ${newVal}`);
+    }
+    
+    // === Heure ===
+    else if (key === 'heure') {
+      newState.heure = value;
+      changelog.push(`heure: ${value}`);
+    }
+    
+    // === Nouveau cycle ===
+    else if (key === 'nouveau_cycle') {
+      newState.cycle = value.cycle;
+      newState.jour = value.jour;
+      newState.date_jeu = value.date_jeu;
+      newState.heure = '08h00';
+      changelog.push(`nouveau cycle ${value.cycle}: ${value.jour} ${value.date_jeu}`);
+    }
+    
+    // === PNJ existant ===
+    else if (key.startsWith('pnj.')) {
+      const parts = key.split('.');
+      const pnjName = parts[1];
+      const prop = parts[2];
+      
+      if (!newState.pnj) newState.pnj = [];
+      const pnj = newState.pnj.find(p => p.nom === pnjName);
+      
+      if (pnj) {
+        const oldVal = pnj[prop];
+        let newVal = value;
+        
+        // Validation
+        if (prop === 'relation') {
+          newVal = Math.max(-5, Math.min(10, value));
+        }
+        if (prop === 'etape_romantique') {
+          // On ne peut avancer que de 1 max
+          const maxEtape = Math.min(7, (pnj.etape_romantique || 0) + 1);
+          newVal = Math.max(0, Math.min(maxEtape, value));
+        }
+        
+        pnj[prop] = newVal;
+        changelog.push(`${pnjName}.${prop}: ${oldVal} → ${newVal}`);
+      }
+    }
+    
+    // === Nouveau PNJ ===
+    else if (key === 'nouveau_pnj') {
+      if (!newState.pnj) newState.pnj = [];
+      
+      if (!newState.pnj.find(p => p.nom === value.nom)) {
+        newState.pnj.push({
+          nom: value.nom,
+          metier: value.metier || 'Inconnu',
+          traits: value.traits || [],
+          description: value.description || '',
+          relation: 0,
+          disposition: 'neutre',
+          etape_romantique: 0
+        });
+        changelog.push(`nouveau PNJ: ${value.nom}`);
+      }
+    }
+    
+    // === Hors-champ ===
+    else if (key === 'hors_champ') {
+      if (!newState.horsChamp) newState.horsChamp = [];
+      newState.horsChamp.push({
+        cycle: newState.cycle || 1,
+        description: value
+      });
+      // Garder max 20
+      if (newState.horsChamp.length > 20) {
+        newState.horsChamp = newState.horsChamp.slice(-20);
+      }
+      changelog.push(`hors-champ ajouté`);
+    }
+    
+    // === Historique ===
+    else if (key === 'historique') {
+      if (!newState.historique) newState.historique = [];
+      newState.historique.push({
+        cycle: newState.cycle || 1,
+        description: value
+      });
+      if (newState.historique.length > 50) {
+        newState.historique = newState.historique.slice(-50);
+      }
+      changelog.push(`historique ajouté`);
+    }
+    
+    // === Nouveau lieu ===
+    else if (key === 'nouveau_lieu') {
+      if (!newState.lieux) newState.lieux = [];
+      if (!newState.lieux.find(l => l.nom === value.nom)) {
+        newState.lieux.push({
+          nom: value.nom,
+          type: value.type || 'autre',
+          description: value.description || ''
+        });
+        changelog.push(`nouveau lieu: ${value.nom}`);
+      }
+    }
+    
+    // === Arc narratif ===
+    else if (key.startsWith('arc.')) {
+      const parts = key.split('.');
+      const arcTitre = parts[1];
+      const prop = parts[2];
+      
+      if (!newState.arcs) newState.arcs = [];
+      let arc = newState.arcs.find(a => a.titre === arcTitre);
+      
+      if (arc) {
+        const oldVal = arc[prop];
+        if (prop === 'progression') {
+          arc[prop] = Math.max(0, Math.min(10, value));
+          arc.actif = true;
+        } else {
+          arc[prop] = value;
+        }
+        changelog.push(`arc "${arcTitre}".${prop}: ${oldVal} → ${value}`);
+      }
+    }
+  }
+
+  return { newState, changelog };
+}
+
+// ============================================
+// BUILD INITIAL STATE - Construit le state depuis l'init
+// ============================================
+
+function buildInitialState(init, heure) {
+  return {
+    cycle: 1,
+    jour: 'Lundi',
+    date_jeu: '15 mars 2247',
+    heure: heure || '08h00',
+    
+    valentin: {
+      energie: 4,
+      moral: 3,
+      sante: 5,
+      credits: 1400,
+      competences: {
+        informatique: 5,
+        systemes: 4,
+        social: 2,
+        cuisine: 3,
+        bricolage: 3,
+        medical: 1
+      },
+      traits: ['Introverti', 'Maladroit en amour', 'Drôle par défense', 'Curieux', 'Romantique malgré lui'],
+      hobbies: init.valentin?.hobbies || ['Cuisine'],
+      poste: init.valentin?.poste || '',
+      raison_depart: init.valentin?.raison_depart || ''
+    },
+    
+    ia: {
+      nom: init.ia?.nom || 'Nova',
+      traits: init.ia?.traits || ['Sarcastique', 'Pragmatique']
+    },
+    
+    contexte: {
+      station_nom: init.contexte?.station_nom || '',
+      station_type: init.contexte?.station_type || '',
+      orbite: init.contexte?.orbite || '',
+      population: init.contexte?.population || 0,
+      ambiance: init.contexte?.ambiance || '',
+      employeur_nom: init.employeur?.nom || '',
+      employeur_type: init.employeur?.type || '',
+      employeur_description: init.employeur?.description || ''
+    },
+    
+    pnj: [{
+      nom: 'Justine Lépicier',
+      relation: 0,
+      disposition: 'neutre',
+      traits: init.justine?.traits || [],
+      metier: init.justine?.metier || '',
+      arc: init.justine?.arc || '',
+      domicile: init.justine?.domicile || '',
+      etape_romantique: 0,
+      stat_social: 4,
+      stat_travail: 2,
+      stat_sante: 2
+    }],
+    
+    lieux: init.lieux || [],
+    
+    arcs: (init.arcs || []).map(a => ({
+      titre: a.titre,
+      type: a.type,
+      description: a.description,
+      progression: 0,
+      actif: false
+    })),
+    
+    historique: [],
+    horsChamp: [],
+    aVenir: []
+  };
+}
+
+// ============================================
+// PARSING JSON ROBUSTE
+// ============================================
+
 function tryFixJSON(jsonStr) {
   let fixed = jsonStr.trim();
   
@@ -15,6 +258,14 @@ function tryFixJSON(jsonStr) {
   if (fixed.endsWith('```')) fixed = fixed.slice(0, -3);
   fixed = fixed.trim();
   
+  // Trouver le premier {
+  const firstBrace = fixed.indexOf('{');
+  if (firstBrace > 0) {
+    fixed = fixed.slice(firstBrace);
+  } else if (firstBrace === -1) {
+    return null;
+  }
+  
   // Essayer de parser directement
   try {
     return JSON.parse(fixed);
@@ -22,59 +273,44 @@ function tryFixJSON(jsonStr) {
     // Continue avec les corrections
   }
   
-  // Correction 1: Ajouter } ou ] manquants à la fin
-  let openBraces = (fixed.match(/{/g) || []).length;
-  let closeBraces = (fixed.match(/}/g) || []).length;
-  let openBrackets = (fixed.match(/\[/g) || []).length;
-  let closeBrackets = (fixed.match(/\]/g) || []).length;
+  // Compter et réparer les accolades/crochets
+  let braces = 0, brackets = 0, inString = false, escape = false;
   
-  while (closeBrackets < openBrackets) {
-    fixed += ']';
-    closeBrackets++;
+  for (let i = 0; i < fixed.length; i++) {
+    const c = fixed[i];
+    if (escape) { escape = false; continue; }
+    if (c === '\\' && inString) { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (c === '{') braces++;
+      if (c === '}') braces--;
+      if (c === '[') brackets++;
+      if (c === ']') brackets--;
+    }
   }
-  while (closeBraces < openBraces) {
-    fixed += '}';
-    closeBraces++;
-  }
+  
+  // Fermer les strings non fermées
+  if (inString) fixed += '"';
+  
+  // Fermer les brackets et braces manquants
+  while (brackets > 0) { fixed += ']'; brackets--; }
+  while (braces > 0) { fixed += '}'; braces--; }
+  
+  // Retirer virgules trailing
+  fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
   
   try {
     return JSON.parse(fixed);
   } catch (e) {
-    // Continue
-  }
-  
-  // Correction 2: Virgule trailing avant } ou ]
-  fixed = fixed.replace(/,\s*}/g, '}');
-  fixed = fixed.replace(/,\s*\]/g, ']');
-  
-  try {
-    return JSON.parse(fixed);
-  } catch (e) {
-    // Continue
-  }
-  
-  // Correction 3: Guillemets non fermés (basique)
-  // Compter les guillemets (hors échappés)
-  const unescapedQuotes = fixed.match(/(?<!\\)"/g) || [];
-  if (unescapedQuotes.length % 2 !== 0) {
-    // Ajouter un guillemet avant la dernière } ou ]
-    fixed = fixed.replace(/([}\]])$/, '"$1');
-  }
-  
-  try {
-    return JSON.parse(fixed);
-  } catch (e) {
+    console.error('JSON non réparable:', e.message);
     return null;
   }
 }
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+// ============================================
+// CHARGEMENT STATE COMPLET
+// ============================================
 
-// Charger l'état complet d'une partie
 async function loadGameState(partieId) {
   const [partie, valentin, ia, contexte, pnj, arcs, historique, aVenir, lieux, horsChamp] = await Promise.all([
     supabase.from('parties').select('*').eq('id', partieId).single(),
@@ -91,6 +327,10 @@ async function loadGameState(partieId) {
 
   return {
     partie: partie.data,
+    cycle: partie.data?.cycle_actuel || 1,
+    jour: partie.data?.jour,
+    date_jeu: partie.data?.date_jeu,
+    heure: partie.data?.heure || '08h00',
     valentin: valentin.data,
     ia: ia.data,
     contexte: contexte.data,
@@ -103,7 +343,10 @@ async function loadGameState(partieId) {
   };
 }
 
-// Charger les messages pour le contexte conversationnel
+// ============================================
+// CHARGEMENT CONTEXTE CONVERSATIONNEL
+// ============================================
+
 async function loadConversationContext(partieId, currentCycle) {
   const [currentCycleRes, previousCycleRes, cycleResumesRes] = await Promise.all([
     supabase
@@ -135,7 +378,10 @@ async function loadConversationContext(partieId, currentCycle) {
   };
 }
 
-// Charger tous les messages chat (pour l'affichage)
+// ============================================
+// CHARGEMENT MESSAGES CHAT
+// ============================================
+
 async function loadChatMessages(partieId) {
   const { data, error } = await supabase
     .from('chat_messages')
@@ -148,11 +394,13 @@ async function loadChatMessages(partieId) {
     return [];
   }
   
-  console.log(`Loaded ${data?.length || 0} messages for partie ${partieId}`);
   return data || [];
 }
 
-// Générer un résumé de cycle via Claude (non-streaming)
+// ============================================
+// GÉNÉRATION RÉSUMÉ DE CYCLE
+// ============================================
+
 async function generateCycleResume(partieId, cycle, messages, gameState) {
   if (!messages || messages.length === 0) return null;
 
@@ -187,8 +435,8 @@ Réponds en JSON uniquement :
     await supabase.from('cycle_resumes').upsert({
       partie_id: partieId,
       cycle: cycle,
-      jour: gameState?.partie?.jour,
-      date_jeu: gameState?.partie?.date_jeu,
+      jour: gameState?.jour,
+      date_jeu: gameState?.date_jeu,
       resume: parsed.resume,
       evenements_cles: parsed.evenements_cles || [],
       relations_modifiees: parsed.relations_modifiees || []
@@ -201,12 +449,16 @@ Réponds en JSON uniquement :
   }
 }
 
-// Construire le contexte conversationnel pour Claude
+// ============================================
+// CONSTRUCTION CONTEXTE POUR CLAUDE
+// ============================================
+
 function buildConversationContext(conversationData, gameState, userMessage) {
   const { currentCycleMessages, previousCycleMessages, cycleResumes } = conversationData;
   
   let context = '';
 
+  // Résumés des cycles passés
   if (cycleResumes.length > 0) {
     context += '=== RÉSUMÉS DES CYCLES PRÉCÉDENTS ===\n';
     for (const r of cycleResumes) {
@@ -218,10 +470,41 @@ function buildConversationContext(conversationData, gameState, userMessage) {
     context += '\n';
   }
 
+  // État actuel (version allégée pour le contexte)
   context += '=== ÉTAT ACTUEL ===\n';
-  context += JSON.stringify(gameState, null, 2);
+  context += JSON.stringify({
+    cycle: gameState.cycle,
+    jour: gameState.jour,
+    date_jeu: gameState.date_jeu,
+    heure: gameState.heure,
+    valentin: {
+      energie: gameState.valentin?.energie,
+      moral: gameState.valentin?.moral,
+      sante: gameState.valentin?.sante,
+      credits: gameState.valentin?.credits
+    },
+    pnj: gameState.pnj?.map(p => ({
+      nom: p.nom,
+      relation: p.relation,
+      disposition: p.disposition,
+      etape_romantique: p.etape_romantique
+    })),
+    lieux_connus: gameState.lieux?.map(l => l.nom),
+    arcs_actifs: gameState.arcs?.filter(a => a.actif || a.progression > 0).map(a => ({
+      titre: a.titre,
+      progression: a.progression
+    }))
+  }, null, 2);
   context += '\n\n';
 
+  // Hors-champ récent
+  if (gameState.horsChamp?.length > 0) {
+    context += '=== HORS-CHAMP RÉCENT ===\n';
+    context += gameState.horsChamp.slice(-5).map(h => `[Cycle ${h.cycle}] ${h.description}`).join('\n');
+    context += '\n\n';
+  }
+
+  // Fin du cycle précédent
   if (previousCycleMessages.length > 0) {
     context += '=== FIN DU CYCLE PRÉCÉDENT ===\n';
     for (const m of previousCycleMessages) {
@@ -229,6 +512,7 @@ function buildConversationContext(conversationData, gameState, userMessage) {
     }
   }
 
+  // Messages du cycle actuel
   if (currentCycleMessages.length > 0) {
     context += '=== CYCLE ACTUEL ===\n';
     for (const m of currentCycleMessages) {
@@ -242,50 +526,62 @@ function buildConversationContext(conversationData, gameState, userMessage) {
   return context;
 }
 
-// Sauvegarder l'état - VERSION BATCH
-async function saveGameState(partieId, state) {
-  const { partie, valentin, ia, contexte, pnj, arcs, historique, aVenir, lieux, horsChamp } = state;
+// ============================================
+// SAUVEGARDE STATE - VERSION BATCH
+// ============================================
 
-  // Batch 1: Updates simples (upsert uniques)
-  const batch1 = [];
-  
-  if (partie) {
-    batch1.push(
-      supabase.from('parties').update({
-        cycle_actuel: partie.cycle_actuel,
-        jour: partie.jour,
-        date_jeu: partie.date_jeu,
-        heure: partie.heure
-      }).eq('id', partieId)
-    );
+async function saveGameState(partieId, state, previousCycle) {
+  // Batch 1: Updates simples
+  const batch1 = [
+    supabase.from('parties').update({
+      cycle_actuel: state.cycle,
+      jour: state.jour,
+      date_jeu: state.date_jeu,
+      heure: state.heure
+    }).eq('id', partieId)
+  ];
+
+  if (state.valentin) {
+    // Retirer les champs qui ne sont pas dans la table
+    const { partie_id, id, ...valentinData } = state.valentin;
+    batch1.push(supabase.from('valentin').upsert({ 
+      partie_id: partieId,
+      ...valentinData
+    }));
   }
 
-  if (valentin) {
-    batch1.push(supabase.from('valentin').upsert({ ...valentin, partie_id: partieId }));
+  if (state.ia) {
+    const { partie_id, id, ...iaData } = state.ia;
+    batch1.push(supabase.from('ia_personnelle').upsert({ 
+      partie_id: partieId,
+      ...iaData
+    }));
   }
 
-  if (ia) {
-    batch1.push(supabase.from('ia_personnelle').upsert({ ...ia, partie_id: partieId }));
-  }
-
-  if (contexte) {
-    batch1.push(supabase.from('contexte').upsert({ ...contexte, partie_id: partieId }));
+  if (state.contexte) {
+    const { partie_id, id, ...contexteData } = state.contexte;
+    batch1.push(supabase.from('contexte').upsert({ 
+      partie_id: partieId,
+      ...contexteData
+    }));
   }
 
   await Promise.all(batch1);
 
-  // Batch 2: Arrays (PNJ, arcs, etc.)
+  // Batch 2: Arrays
   const batch2 = [];
 
-  // PNJ - séparer updates et inserts
-  if (pnj && pnj.length > 0) {
-    const pnjToUpdate = pnj.filter(p => p.id);
-    const pnjToInsert = pnj.filter(p => !p.id).map(p => ({ ...p, partie_id: partieId }));
+  // PNJ
+  if (state.pnj && state.pnj.length > 0) {
+    const pnjToUpdate = state.pnj.filter(p => p.id);
+    const pnjToInsert = state.pnj.filter(p => !p.id).map(p => {
+      const { id, ...rest } = p;
+      return { ...rest, partie_id: partieId };
+    });
     
-    if (pnjToUpdate.length > 0) {
-      for (const p of pnjToUpdate) {
-        batch2.push(supabase.from('pnj').update(p).eq('id', p.id));
-      }
+    for (const p of pnjToUpdate) {
+      const { partie_id, ...pData } = p;
+      batch2.push(supabase.from('pnj').update(pData).eq('id', p.id));
     }
     if (pnjToInsert.length > 0) {
       batch2.push(supabase.from('pnj').insert(pnjToInsert));
@@ -293,14 +589,16 @@ async function saveGameState(partieId, state) {
   }
 
   // Arcs
-  if (arcs && arcs.length > 0) {
-    const arcsToUpdate = arcs.filter(a => a.id);
-    const arcsToInsert = arcs.filter(a => !a.id).map(a => ({ ...a, partie_id: partieId }));
+  if (state.arcs && state.arcs.length > 0) {
+    const arcsToUpdate = state.arcs.filter(a => a.id);
+    const arcsToInsert = state.arcs.filter(a => !a.id).map(a => {
+      const { id, ...rest } = a;
+      return { ...rest, partie_id: partieId };
+    });
     
-    if (arcsToUpdate.length > 0) {
-      for (const a of arcsToUpdate) {
-        batch2.push(supabase.from('arcs').update(a).eq('id', a.id));
-      }
+    for (const a of arcsToUpdate) {
+      const { partie_id, ...aData } = a;
+      batch2.push(supabase.from('arcs').update(aData).eq('id', a.id));
     }
     if (arcsToInsert.length > 0) {
       batch2.push(supabase.from('arcs').insert(arcsToInsert));
@@ -308,104 +606,79 @@ async function saveGameState(partieId, state) {
   }
 
   // Historique - insert du nouveau uniquement
-  if (historique && historique.length > 0) {
-    const newHistorique = historique.filter(h => !h.id).map(h => ({ ...h, partie_id: partieId }));
+  if (state.historique && state.historique.length > 0) {
+    const newHistorique = state.historique.filter(h => !h.id).map(h => {
+      const { id, ...rest } = h;
+      return { ...rest, partie_id: partieId };
+    });
     if (newHistorique.length > 0) {
       batch2.push(supabase.from('historique').insert(newHistorique));
     }
   }
 
+  // Hors champ - insert du nouveau uniquement
+  if (state.horsChamp && state.horsChamp.length > 0) {
+    const newHorsChamp = state.horsChamp.filter(hc => !hc.id).map(hc => {
+      const { id, ...rest } = hc;
+      return { ...rest, partie_id: partieId };
+    });
+    if (newHorsChamp.length > 0) {
+      batch2.push(supabase.from('hors_champ').insert(newHorsChamp));
+    }
+  }
+
+  // Lieux - insert nouveaux uniquement
+  if (state.lieux && state.lieux.length > 0) {
+    const newLieux = state.lieux.filter(l => !l.id).map(l => {
+      const { id, ...rest } = l;
+      return { ...rest, partie_id: partieId };
+    });
+    if (newLieux.length > 0) {
+      batch2.push(supabase.from('lieux').insert(newLieux));
+    }
+  }
+
   // A venir
-  if (aVenir && aVenir.length > 0) {
-    const aVenirToUpdate = aVenir.filter(av => av.id);
-    const aVenirToInsert = aVenir.filter(av => !av.id).map(av => ({ ...av, partie_id: partieId }));
+  if (state.aVenir && state.aVenir.length > 0) {
+    const aVenirToUpdate = state.aVenir.filter(av => av.id);
+    const aVenirToInsert = state.aVenir.filter(av => !av.id).map(av => {
+      const { id, ...rest } = av;
+      return { ...rest, partie_id: partieId };
+    });
     
-    if (aVenirToUpdate.length > 0) {
-      for (const av of aVenirToUpdate) {
-        batch2.push(supabase.from('a_venir').update(av).eq('id', av.id));
-      }
+    for (const av of aVenirToUpdate) {
+      const { partie_id, ...avData } = av;
+      batch2.push(supabase.from('a_venir').update(avData).eq('id', av.id));
     }
     if (aVenirToInsert.length > 0) {
       batch2.push(supabase.from('a_venir').insert(aVenirToInsert));
     }
   }
 
-  // Lieux - insert nouveaux uniquement
-  if (lieux && lieux.length > 0) {
-    const newLieux = lieux.filter(l => !l.id).map(l => ({ ...l, partie_id: partieId }));
-    if (newLieux.length > 0) {
-      batch2.push(supabase.from('lieux').insert(newLieux));
-    }
-  }
-
-  // Hors champ - insert nouveaux uniquement
-  if (horsChamp && horsChamp.length > 0) {
-    const newHorsChamp = horsChamp.filter(hc => !hc.id).map(hc => ({ ...hc, partie_id: partieId }));
-    if (newHorsChamp.length > 0) {
-      batch2.push(supabase.from('hors_champ').insert(newHorsChamp));
-    }
-  }
-
   if (batch2.length > 0) {
     await Promise.all(batch2);
   }
-}
 
-// Supprimer une partie et toutes ses données
-async function deleteGame(partieId) {
-  // Toutes les suppressions en parallèle (les FK sont en CASCADE normalement)
-  await Promise.all([
-    supabase.from('chat_messages').delete().eq('partie_id', partieId),
-    supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
-    supabase.from('hors_champ').delete().eq('partie_id', partieId),
-    supabase.from('lieux').delete().eq('partie_id', partieId),
-    supabase.from('a_venir').delete().eq('partie_id', partieId),
-    supabase.from('historique').delete().eq('partie_id', partieId),
-    supabase.from('arcs').delete().eq('partie_id', partieId),
-    supabase.from('pnj').delete().eq('partie_id', partieId),
-    supabase.from('contexte').delete().eq('partie_id', partieId),
-    supabase.from('ia_personnelle').delete().eq('partie_id', partieId),
-    supabase.from('valentin').delete().eq('partie_id', partieId)
-  ]);
-  
-  await supabase.from('parties').delete().eq('id', partieId);
-}
-
-// Renommer une partie
-async function renameGame(partieId, newName) {
-  await supabase.from('parties').update({ nom: newName }).eq('id', partieId);
-}
-
-// Créer nouvelle partie
-async function createNewGame() {
-  try {
-    const { data: partie, error: partieError } = await supabase
-      .from('parties')
-      .insert({ nom: 'Nouvelle partie', cycle_actuel: 1, active: true })
-      .select()
-      .single();
-    
-    if (partieError) {
-      console.error('Erreur création partie:', partieError);
-      throw partieError;
-    }
-
-    const [valentinRes, iaRes, contexteRes] = await Promise.all([
-      supabase.from('valentin').insert({ partie_id: partie.id }),
-      supabase.from('ia_personnelle').insert({ partie_id: partie.id }),
-      supabase.from('contexte').insert({ partie_id: partie.id })
-    ]);
-
-    if (valentinRes.error) console.error('Erreur valentin:', valentinRes.error);
-    if (iaRes.error) console.error('Erreur ia:', iaRes.error);
-    if (contexteRes.error) console.error('Erreur contexte:', contexteRes.error);
-
-    return partie.id;
-  } catch (e) {
-    console.error('Erreur createNewGame:', e);
-    throw e;
+  // Générer résumé si changement de cycle
+  if (state.cycle > previousCycle) {
+    supabase
+      .from('chat_messages')
+      .select('role, content')
+      .eq('partie_id', partieId)
+      .eq('cycle', previousCycle)
+      .order('created_at', { ascending: true })
+      .then(({ data: cycleMessages }) => {
+        if (cycleMessages && cycleMessages.length > 0) {
+          generateCycleResume(partieId, previousCycle, cycleMessages, state).catch(console.error);
+        }
+      })
+      .catch(console.error);
   }
 }
+
+// ============================================
+// ROUTES - GET
+// ============================================
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -419,28 +692,58 @@ export async function GET(request) {
   }
 
   if (action === 'list') {
-    const { data } = await supabase.from('parties').select('id, nom, cycle_actuel, updated_at, created_at').eq('active', true).order('updated_at', { ascending: false });
+    const { data } = await supabase
+      .from('parties')
+      .select('id, nom, cycle_actuel, updated_at, created_at')
+      .eq('active', true)
+      .order('updated_at', { ascending: false });
     return Response.json({ parties: data });
   }
 
   if (action === 'new') {
     try {
-      const partieId = await createNewGame();
-      return Response.json({ partieId });
+      const { data: partie, error: partieError } = await supabase
+        .from('parties')
+        .insert({ nom: 'Nouvelle partie', cycle_actuel: 1, active: true })
+        .select()
+        .single();
+      
+      if (partieError) throw partieError;
+
+      await Promise.all([
+        supabase.from('valentin').insert({ partie_id: partie.id }),
+        supabase.from('ia_personnelle').insert({ partie_id: partie.id }),
+        supabase.from('contexte').insert({ partie_id: partie.id })
+      ]);
+
+      return Response.json({ partieId: partie.id });
     } catch (e) {
       return Response.json({ error: e.message }, { status: 500 });
     }
   }
 
   if (action === 'delete' && partieId) {
-    await deleteGame(partieId);
+    await Promise.all([
+      supabase.from('chat_messages').delete().eq('partie_id', partieId),
+      supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
+      supabase.from('hors_champ').delete().eq('partie_id', partieId),
+      supabase.from('lieux').delete().eq('partie_id', partieId),
+      supabase.from('a_venir').delete().eq('partie_id', partieId),
+      supabase.from('historique').delete().eq('partie_id', partieId),
+      supabase.from('arcs').delete().eq('partie_id', partieId),
+      supabase.from('pnj').delete().eq('partie_id', partieId),
+      supabase.from('contexte').delete().eq('partie_id', partieId),
+      supabase.from('ia_personnelle').delete().eq('partie_id', partieId),
+      supabase.from('valentin').delete().eq('partie_id', partieId)
+    ]);
+    await supabase.from('parties').delete().eq('id', partieId);
     return Response.json({ success: true });
   }
 
   if (action === 'rename' && partieId) {
     const newName = searchParams.get('name');
     if (newName) {
-      await renameGame(partieId, newName);
+      await supabase.from('parties').update({ nom: newName }).eq('id', partieId);
       return Response.json({ success: true });
     }
     return Response.json({ error: 'Nom manquant' }, { status: 400 });
@@ -448,6 +751,10 @@ export async function GET(request) {
 
   return Response.json({ error: 'Action non reconnue' });
 }
+
+// ============================================
+// ROUTES - DELETE
+// ============================================
 
 export async function DELETE(request) {
   try {
@@ -484,217 +791,160 @@ export async function DELETE(request) {
   }
 }
 
+// ============================================
+// ROUTES - POST
+// ============================================
+
 export async function POST(request) {
   try {
     const { message, partieId, gameState } = await request.json();
 
-    const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
-
-    // Charger le contexte conversationnel si partie existante avec gameState
-    let contextMessage;
-    if (partieId && gameState && gameState.partie) {
-      const conversationData = await loadConversationContext(partieId, currentCycle);
-      contextMessage = buildConversationContext(conversationData, gameState, message);
-    } else {
-      contextMessage = 'Nouvelle partie. Lance le jeu. Génère tout au lancement.';
+    if (!partieId) {
+      return Response.json({ error: 'partieId manquant' }, { status: 400 });
     }
 
-    // Créer un TransformStream pour le SSE
+    const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
+
+    // Déterminer si c'est une init ou un tour normal
+    const isInit = !gameState?.contexte?.station_nom || 
+                   message.toLowerCase().includes('commencer') ||
+                   message.toLowerCase().includes('nouvelle partie');
+
+    // Créer le stream SSE
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
 
-    // Lancer le traitement en arrière-plan
+    // Traitement en arrière-plan
     (async () => {
       let fullContent = '';
-      let parsed = null;
       let displayText = '';
-      let cycleForSave = currentCycle;
 
       try {
+        let systemPrompt, userContent;
+
+        if (isInit) {
+          systemPrompt = SYSTEM_PROMPT_INIT;
+          userContent = 'Lance le jeu. Génère l\'univers, les personnages et l\'introduction.';
+        } else {
+          systemPrompt = SYSTEM_PROMPT_GAME;
+          const conversationData = await loadConversationContext(partieId, currentCycle);
+          userContent = buildConversationContext(conversationData, gameState, message);
+        }
+
         // Appel Claude avec streaming
         const streamResponse = await anthropic.messages.stream({
           model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          system: SYSTEM_PROMPT,
-          messages: [{ role: 'user', content: contextMessage }]
+          max_tokens: isInit ? 4096 : 2048, // Plus petit pour les tours normaux
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userContent }]
         });
 
-        // Écouter les événements de texte
+        // Streaming des chunks
         for await (const event of streamResponse) {
           if (event.type === 'content_block_delta' && event.delta?.text) {
             const chunk = event.delta.text;
             fullContent += chunk;
-            
-            // Envoyer le chunk au client
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`));
           }
         }
 
-        // Traitement final une fois le stream terminé
-        const parseStart = Date.now();
-        displayText = fullContent;
+        // Parsing du JSON
+        const parsed = tryFixJSON(fullContent);
+        
+        if (!parsed) {
+          throw new Error('JSON non réparable');
+        }
 
-        try {
-          let cleanContent = fullContent.trim();
+        // Construire le nouveau state
+        let newState;
+        
+        if (parsed.type === 'init' && parsed.init) {
+          // Génération initiale
+          newState = buildInitialState(parsed.init, parsed.heure);
+        } else {
+          // Tour normal - appliquer le delta
+          const { newState: updatedState, changelog } = applyDelta(gameState, parsed.delta || {});
+          newState = updatedState;
           
-          // Chercher le dernier bloc JSON valide dans la réponse
-          const jsonStartIndex = cleanContent.lastIndexOf('\n{');
-          const jsonStartIndex2 = cleanContent.indexOf('{');
-          
-          let jsonContent = cleanContent;
-          
-          // Si le contenu ne commence pas par {, chercher le JSON à la fin
-          if (jsonStartIndex > 0) {
-            jsonContent = cleanContent.slice(jsonStartIndex + 1).trim();
-          } else if (jsonStartIndex2 === 0) {
-            jsonContent = cleanContent;
+          // Mettre à jour l'heure si fournie directement
+          if (parsed.heure) {
+            newState.heure = parsed.heure;
           }
           
-          // Tenter de parser, avec correction si nécessaire
-          parsed = tryFixJSON(jsonContent);
-          
-          if (parsed) {
-            // Construire le texte d'affichage à partir du JSON
-            displayText = '';
-            if (parsed.heure) displayText += `[${parsed.heure}] `;
-            if (parsed.narratif) displayText += parsed.narratif;
-            if (parsed.choix && parsed.choix.length > 0) {
-              displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
-            }
-          } else {
-            throw new Error('JSON non réparable');
-          }
-        } catch (e) {
-          console.error('Erreur parsing JSON:', e.message);
-          
-          // Fallback : essayer d'extraire les choix avec regex même si JSON invalide
-          const jsonStartIndex = fullContent.lastIndexOf('\n{');
-          let textPart = jsonStartIndex > 0 ? fullContent.slice(0, jsonStartIndex).trim() : fullContent;
-          
-          // Essayer d'extraire les choix du JSON partiel
-          const choixMatch = fullContent.match(/"choix"\s*:\s*\[\s*([\s\S]*?)\s*\]/);
-          if (choixMatch) {
-            try {
-              // Nettoyer et parser le tableau de choix
-              const choixArray = JSON.parse(`[${choixMatch[1]}]`);
-              if (choixArray.length > 0) {
-                // Retirer les choix s'ils sont déjà dans le texte (éviter doublon)
-                for (const choix of choixArray) {
-                  textPart = textPart.replace(choix, '').trim();
-                }
-                // Nettoyer les numéros orphelins (1. 2. 3. sans texte)
-                textPart = textPart.replace(/^\s*\d+\.\s*$/gm, '').trim();
-                textPart = textPart.replace(/\n{3,}/g, '\n\n');
-                
-                displayText = textPart + '\n\n' + choixArray.map((c, i) => `${i + 1}. ${c}`).join('\n');
-              } else {
-                displayText = textPart;
-              }
-            } catch (e2) {
-              displayText = textPart;
-            }
-          } else {
-            displayText = textPart;
-          }
-          
-          // Essayer quand même d'extraire le state pour la sauvegarde
-          const stateMatch = fullContent.match(/"state"\s*:\s*(\{[\s\S]*\})\s*\}?\s*$/);
-          if (stateMatch) {
-            try {
-              parsed = { state: JSON.parse(stateMatch[1]) };
-            } catch (e3) {
-              parsed = null;
-            }
+          if (changelog.length > 0) {
+            console.log('Delta appliqué:', changelog);
           }
         }
 
-        // Déterminer le cycle à utiliser pour la sauvegarde
-        const cycleForSave = parsed?.state?.cycle || currentCycle;
+        // Construire le texte d'affichage
+        displayText = '';
+        if (parsed.heure) displayText += `[${parsed.heure}] `;
+        if (parsed.narratif) displayText += parsed.narratif;
+        if (parsed.choix && parsed.choix.length > 0) {
+          displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
+        }
+        
+        // Ajouter les arcs proposés pour l'init
+        if (parsed.init?.arcs?.length > 0) {
+          displayText += '\n\n**Arcs narratifs disponibles :**\n';
+          displayText += parsed.init.arcs.map(a => 
+            `- **${a.titre}** (${a.type}) : ${a.description}`
+          ).join('\n');
+        }
 
-        // Envoyer le message final avec les données parsées AVANT les sauvegardes
+        // Envoyer le résultat final
         await writer.write(encoder.encode(`data: ${JSON.stringify({ 
           type: 'done', 
           displayText,
-          state: parsed?.state,
-          heure: parsed?.heure
+          state: newState,
+          heure: parsed.heure
         })}\n\n`));
+
+        // Sauvegarder les messages
+        const cycleForSave = newState.cycle || currentCycle;
         
-        // Forcer l'envoi immédiat du "done"
-        await writer.ready;
+        await supabase.from('chat_messages').insert({
+          partie_id: partieId, 
+          role: 'user', 
+          content: message, 
+          cycle: cycleForSave
+        });
+        
+        await supabase.from('chat_messages').insert({
+          partie_id: partieId, 
+          role: 'assistant', 
+          content: displayText, 
+          cycle: cycleForSave
+        });
 
-        // === SAUVEGARDE MESSAGES (on attend juste ça) ===
-        if (partieId) {
-          const saveStart = Date.now();
-          
-          await supabase.from('chat_messages').insert({
-            partie_id: partieId, 
-            role: 'user', 
-            content: message, 
-            cycle: cycleForSave
-          });
-          
-          await supabase.from('chat_messages').insert({
-            partie_id: partieId, 
-            role: 'assistant', 
-            content: displayText, 
-            cycle: cycleForSave
-          });
-          
-          console.log(`Messages saved in ${Date.now() - saveStart}ms`);
-        }
+        // Sauvegarder le state
+        await saveGameState(partieId, newState, currentCycle);
 
-        // Envoyer "saved" - le client peut répondre
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
 
       } catch (error) {
         console.error('Streaming error:', error);
-        try {
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
-        } catch (e) {
-          // Writer peut être déjà fermé
+        
+        // Essayer d'extraire quelque chose d'utile même en cas d'erreur
+        if (fullContent) {
+          const narratifMatch = fullContent.match(/"narratif"\s*:\s*"([^"]+)"/);
+          if (narratifMatch) {
+            displayText = narratifMatch[1].replace(/\\n/g, '\n');
+          }
         }
+        
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+          type: 'error', 
+          error: error.message,
+          partialContent: displayText || null
+        })}\n\n`));
       } finally {
-        // TOUJOURS fermer le stream
         try {
           await writer.close();
         } catch (e) {
           // Déjà fermé
         }
-      }
-      
-      // === LE RESTE EN VRAI ARRIÈRE-PLAN (après fermeture du stream) ===
-      
-      // Sauvegarder l'état (non-bloquant)
-      if (partieId && parsed?.state) {
-        saveGameState(partieId, {
-          partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
-          valentin: parsed.state.valentin,
-          ia: parsed.state.ia,
-          contexte: parsed.state.contexte,
-          pnj: parsed.state.pnj,
-          arcs: parsed.state.arcs,
-          historique: parsed.state.historique,
-          aVenir: parsed.state.a_venir,
-          lieux: parsed.state.lieux,
-          horsChamp: parsed.state.hors_champ
-        }).catch(console.error);
-      }
-
-      // Générer résumé si changement de cycle (non-bloquant)
-      if (partieId && parsed && cycleForSave > currentCycle) {
-        supabase
-          .from('chat_messages')
-          .select('role, content')
-          .eq('partie_id', partieId)
-          .eq('cycle', currentCycle)
-          .order('created_at', { ascending: true })
-          .then(({ data: cycleMessages }) => {
-            if (cycleMessages) {
-              generateCycleResume(partieId, currentCycle, cycleMessages, gameState).catch(console.error);
-            }
-          })
-          .catch(console.error);
       }
     })();
 
