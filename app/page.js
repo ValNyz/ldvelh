@@ -264,23 +264,19 @@ export default function Home() {
           else if (n === 'f') { narratif += '\f'; i += 2; }
           else if (n === '/') { narratif += '/'; i += 2; }
           else if (n === 'u' && i + 5 < jsonStr.length) {
-            // Unicode escape \uXXXX
             const hex = jsonStr.slice(i + 2, i + 6);
             if (/^[0-9a-fA-F]{4}$/.test(hex)) {
               narratif += String.fromCharCode(parseInt(hex, 16));
               i += 6;
             } else {
-              // Malformed unicode, keep as-is
               narratif += '\\u';
               i += 2;
             }
           } else {
-            // Unknown escape, keep the backslash and continue
             narratif += c;
             i++;
           }
         } else if (c === '"') {
-          // End of string
           break;
         } else {
           narratif += c;
@@ -314,19 +310,13 @@ export default function Home() {
         const choix = extractChoix(content);
         
         if (narratif) {
-          // Retirer l'heure du narratif si elle y est (Claude l'ajoute parfois)
           let display = narratif.replace(/^\[?\d{2}h\d{2}\]?\s*[-–—:]?\s*/i, '');
-          
-          // Ajouter l'heure depuis le champ dédié
           if (heure) {
             display = `[${heure}] ${display}`;
           }
-          
-          // Ajouter les choix s'ils sont disponibles
           if (choix && choix.length > 0) {
             display += '\n\n' + choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
           }
-          
           return display;
         }
         return null;
@@ -335,10 +325,7 @@ export default function Home() {
       let display = content;
       const jsonIdx = content.lastIndexOf('\n{');
       if (jsonIdx > 0) display = content.slice(0, jsonIdx).trim();
-      
-      // Retirer les doublons d'heure
       display = display.replace(/\[(\d{2}h\d{2})\]\s*\[\1\]/g, '[$1]');
-      
       return display || null;
     };
 
@@ -383,7 +370,6 @@ export default function Home() {
                   setLoading(false);
                   setSaving(true);
                   finalizeMessage(data.displayText || fullJson);
-                  // Normaliser le state reçu avant de le stocker
                   if (data.state) {
                     const normalized = normalizeGameState({ ...data.state, heure: data.heure });
                     setGameState(normalized);
@@ -424,7 +410,7 @@ export default function Home() {
   };
 
   const formatDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-  const dots = (n, max = 5) => '●'.repeat(Math.min(n, max)) + '○'.repeat(Math.max(0, max - n));
+  const dots = (n, max = 5) => '●'.repeat(Math.min(Math.max(n || 0, 0), max)) + '○'.repeat(Math.max(0, max - (n || 0)));
 
   // Écran sélection partie
   if (!partieId) {
@@ -476,7 +462,7 @@ export default function Home() {
           <div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>
             <div style={{ color: '#4ade80' }}>Cycle {gameState.partie?.cycle_actuel || 1} | {gameState.partie?.jour || '-'}</div>
             <div>Énergie: {dots(gameState.valentin.energie)} | Moral: {dots(gameState.valentin.moral)} | Santé: {dots(gameState.valentin.sante)}</div>
-            <div style={{ color: '#fbbf24' }}>Crédits: {gameState.valentin.credits}</div>
+            <div style={{ color: '#fbbf24' }}>Crédits: {gameState.valentin.credits ?? 1400}</div>
           </div>
         )}
       </div>
