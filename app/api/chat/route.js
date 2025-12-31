@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { SYSTEM_PROMPT } from '../../../lib/prompt';
+import { buildContextForClaude } from '../../../lib/contextBuilder';
+import { processInteractions, generateFallbackInteractions, extractPnjFromNarratif } from '../../../lib/interactionTracker';
 
 // Configuration pour le streaming
 export const dynamic = 'force-dynamic';
@@ -119,9 +121,6 @@ function extractJSON(content) {
 // VALIDATION ET MERGE DU STATE
 // ============================================================================
 
-/**
- * Fusionne le nouveau state avec l'existant sans écraser avec undefined/null
- */
 function mergeStateField(existing, updates) {
   if (updates === undefined || updates === null) return existing;
   if (typeof updates !== 'object' || Array.isArray(updates)) return updates;
@@ -136,9 +135,6 @@ function mergeStateField(existing, updates) {
   return result;
 }
 
-/**
- * Valide et fusionne le state complet de Claude avec l'état existant
- */
 function validateAndMergeState(existingState, newState) {
   if (!newState) return null;
   
@@ -180,23 +176,6 @@ async function loadGameState(partieId) {
     partie: partie.data, valentin: valentin.data, ia: ia.data, contexte: contexte.data,
     pnj: pnj.data || [], arcs: arcs.data || [], historique: historique.data || [],
     aVenir: aVenir.data || [], lieux: lieux.data || [], horsChamp: horsChamp.data || []
-  };
-}
-
-async function loadConversationContext(partieId, currentCycle) {
-  const [currentCycleRes, previousCycleRes, cycleResumesRes] = await Promise.all([
-    supabase.from('chat_messages').select('role, content, cycle, created_at')
-      .eq('partie_id', partieId).eq('cycle', currentCycle).order('created_at', { ascending: true }),
-    supabase.from('chat_messages').select('role, content, cycle, created_at')
-      .eq('partie_id', partieId).eq('cycle', currentCycle - 1).order('created_at', { ascending: false }).limit(3),
-    supabase.from('cycle_resumes').select('cycle, jour, date_jeu, resume, evenements_cles')
-      .eq('partie_id', partieId).lt('cycle', currentCycle - 1).order('cycle', { ascending: false }).limit(3)
-  ]);
-
-  return {
-    currentCycleMessages: currentCycleRes.data || [],
-    previousCycleMessages: (previousCycleRes.data || []).reverse(),
-    cycleResumes: (cycleResumesRes.data || []).reverse()
   };
 }
 
@@ -251,51 +230,13 @@ Réponds en JSON uniquement:
 }
 
 // ============================================================================
-// CONSTRUCTION DU CONTEXTE POUR CLAUDE
-// ============================================================================
-
-function buildConversationContext(conversationData, gameState, userMessage) {
-  const { currentCycleMessages, previousCycleMessages, cycleResumes } = conversationData;
-  let context = '';
-
-  if (cycleResumes.length > 0) {
-    context += '=== RÉSUMÉS CYCLES PRÉCÉDENTS ===\n';
-    for (const r of cycleResumes) context += `[Cycle ${r.cycle}] ${r.resume}\n`;
-    context += '\n';
-  }
-
-  context += '=== ÉTAT ACTUEL ===\n';
-  context += JSON.stringify(gameState, null, 1);
-  context += '\n\n';
-
-  if (previousCycleMessages.length > 0) {
-    context += '=== FIN CYCLE PRÉCÉDENT ===\n';
-    for (const m of previousCycleMessages.slice(-2)) {
-      context += `${m.role.toUpperCase()}: ${m.content.slice(0, 300)}\n`;
-    }
-    context += '\n';
-  }
-
-  if (currentCycleMessages.length > 0) {
-    context += '=== CYCLE ACTUEL ===\n';
-    for (const m of currentCycleMessages.slice(-4)) {
-      context += `${m.role.toUpperCase()}: ${m.content}\n\n`;
-    }
-  }
-
-  context += '=== ACTION DU JOUEUR ===\n';
-  context += userMessage;
-
-  return context;
-}
-
-// ============================================================================
 // SAUVEGARDE DE L'ÉTAT
 // ============================================================================
 
 async function saveGameState(partieId, state) {
   const { partie, valentin, ia, contexte, pnj, arcs, historique, aVenir, lieux, horsChamp } = state;
 
+  // Batch 1: Tables uniques (upsert)
   const batch1 = [];
   if (partie) {
     batch1.push(supabase.from('parties').update({
@@ -305,8 +246,12 @@ async function saveGameState(partieId, state) {
   if (valentin) batch1.push(supabase.from('valentin').upsert({ ...valentin, partie_id: partieId }));
   if (ia) batch1.push(supabase.from('ia_personnelle').upsert({ ...ia, partie_id: partieId }));
   if (contexte) batch1.push(supabase.from('contexte').upsert({ ...contexte, partie_id: partieId }));
-  await Promise.all(batch1);
+  
+  if (batch1.length > 0) {
+    await Promise.all(batch1);
+  }
 
+  // Batch 2: Tables avec arrays
   const batch2 = [];
 
   if (pnj && pnj.length > 0) {
@@ -345,7 +290,9 @@ async function saveGameState(partieId, state) {
     if (newHorsChamp.length > 0) batch2.push(supabase.from('hors_champ').insert(newHorsChamp));
   }
 
-  if (batch2.length > 0) await Promise.all(batch2);
+  if (batch2.length > 0) {
+    await Promise.all(batch2);
+  }
 }
 
 // ============================================================================
@@ -356,6 +303,7 @@ async function deleteGame(partieId) {
   await Promise.all([
     supabase.from('chat_messages').delete().eq('partie_id', partieId),
     supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
+    supabase.from('interactions').delete().eq('partie_id', partieId),
     supabase.from('hors_champ').delete().eq('partie_id', partieId),
     supabase.from('lieux').delete().eq('partie_id', partieId),
     supabase.from('a_venir').delete().eq('partie_id', partieId),
@@ -471,10 +419,19 @@ export async function POST(request) {
     const { message, partieId, gameState } = await request.json();
     const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
 
+    // Construire le contexte pour Claude avec le nouveau module
     let contextMessage;
+    let knownPnj = [];
+    
     if (partieId && gameState && gameState.partie) {
-      const conversationData = await loadConversationContext(partieId, currentCycle);
-      contextMessage = buildConversationContext(conversationData, gameState, message);
+      try {
+        const contextResult = await buildContextForClaude(supabase, partieId, gameState, message);
+        contextMessage = contextResult.context;
+        knownPnj = contextResult.pnj || [];
+      } catch (err) {
+        console.error('Erreur buildContextForClaude, fallback basique:', err);
+        contextMessage = `=== ÉTAT ===\n${JSON.stringify(gameState, null, 1)}\n\n=== ACTION ===\n${message}`;
+      }
     } else {
       contextMessage = 'Nouvelle partie. Lance le jeu. Génère tout au lancement.';
     }
@@ -482,6 +439,9 @@ export async function POST(request) {
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
     const encoder = new TextEncoder();
+    
+    // Variables pour le tracking des interactions
+    let pnjForTracking = knownPnj;
 
     (async () => {
       let fullContent = '';
@@ -514,10 +474,10 @@ export async function POST(request) {
           console.log('✓ Réponse complète. Usage:', finalMessage.usage);
         }
 
+        // Parser et valider le JSON
         const rawParsed = extractJSON(fullContent);
         console.log('>>> 2. JSON parsé, rawParsed est null?', rawParsed === null);
 
-        // Valider et fusionner le state avec l'existant
         const validatedState = rawParsed?.state ? validateAndMergeState(gameState, rawParsed.state) : null;
         parsed = rawParsed ? { ...rawParsed, state: validatedState } : null;
 
@@ -535,7 +495,7 @@ export async function POST(request) {
           if (!displayText) displayText = "Une erreur s'est produite lors de la génération. Réessaie.";
         }
 
-        // Envoyer le message final avec les données parsées
+        // Envoyer le message final
         await writer.write(encoder.encode(`data: ${JSON.stringify({ 
           type: 'done', 
           displayText,
@@ -543,19 +503,17 @@ export async function POST(request) {
           heure: parsed?.heure
         })}\n\n`));
 
-        // CORRECTION: Sauvegarder les messages AVANT de signaler "saved"
+        // Sauvegarder les messages SÉQUENTIELLEMENT
         if (partieId) {
           try {
             const saveStart = Date.now();
-            await Promise.all([
-              supabase.from('chat_messages').insert({
-                partie_id: partieId, role: 'user', content: message, cycle: cycleForSave
-              }),
-              supabase.from('chat_messages').insert({
-                partie_id: partieId, role: 'assistant', content: displayText, cycle: cycleForSave
-              })
-            ]);
-            console.log(`>>> 3. Messages saved in ${Date.now() - saveStart}ms`);
+            await supabase.from('chat_messages').insert({
+              partie_id: partieId, role: 'user', content: message, cycle: cycleForSave
+            });
+            await supabase.from('chat_messages').insert({
+              partie_id: partieId, role: 'assistant', content: displayText, cycle: cycleForSave
+            });
+            console.log(`>>> 3. Messages saved sequentially in ${Date.now() - saveStart}ms`);
           } catch (err) {
             console.error('Erreur sauvegarde messages:', err);
           }
@@ -575,7 +533,54 @@ export async function POST(request) {
       
       // === TÂCHES EN ARRIÈRE-PLAN (après fermeture du stream) ===
       
-      // Sauvegarder l'état du jeu (non-bloquant, peut rester async)
+      // Charger les PNJ si pas déjà fait (nouvelle partie)
+      if (partieId && pnjForTracking.length === 0) {
+        try {
+          const { data: pnjData } = await supabase
+            .from('pnj')
+            .select('*')
+            .eq('partie_id', partieId);
+          pnjForTracking = pnjData || [];
+        } catch (err) {
+          console.error('Erreur chargement PNJ pour tracking:', err);
+        }
+      }
+      
+      // Traiter les interactions (sauvegarde + mise à jour PNJ)
+      if (partieId && parsed && pnjForTracking.length > 0) {
+        const narratif = parsed.narratif || '';
+        const interactionsFromClaude = parsed.interactions || [];
+        
+        // Si Claude n'a pas fourni d'interactions, générer des fallback
+        let interactionsToProcess = interactionsFromClaude;
+        if (interactionsToProcess.length === 0 && narratif) {
+          const pnjMentionnes = extractPnjFromNarratif(narratif, pnjForTracking);
+          if (pnjMentionnes.length > 0) {
+            interactionsToProcess = generateFallbackInteractions(narratif, pnjMentionnes, parsed.heure);
+            console.log(`>>> Interactions fallback générées: ${interactionsToProcess.length}`);
+          }
+        }
+        
+        // Sauvegarder et mettre à jour
+        if (interactionsToProcess.length > 0) {
+          processInteractions(
+            supabase,
+            partieId,
+            cycleForSave,
+            parsed.heure,
+            narratif,
+            interactionsToProcess,
+            pnjForTracking
+          ).then(result => {
+            console.log(`>>> Interactions: ${result.interactionsSaved} saved, ${result.pnjUpdated} PNJ updated, ${result.relationsUpdated} relations updated`);
+            if (result.errors.length > 0) {
+              console.error('>>> Interaction errors:', result.errors);
+            }
+          }).catch(err => console.error('Erreur traitement interactions:', err));
+        }
+      }
+      
+      // Sauvegarder l'état du jeu (non-bloquant)
       if (partieId && parsed?.state) {
         saveGameState(partieId, {
           partie: { cycle_actuel: parsed.state.cycle, jour: parsed.state.jour, date_jeu: parsed.state.date_jeu, heure: parsed.heure },
