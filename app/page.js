@@ -49,7 +49,8 @@ export default function Home() {
 
   const handleScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
-    userScrolledUp.current = scrollHeight - scrollTop - clientHeight >= 100;
+    // Si l'utilisateur est à moins de 50px du bas, on considère qu'il est "en bas"
+    userScrolledUp.current = scrollHeight - scrollTop - clientHeight > 50;
   };
 
   const resetScrollBehavior = () => { userScrolledUp.current = false; };
@@ -508,7 +509,7 @@ export default function Home() {
       <div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: 'auto', padding: 16 }}>
         {messages.length === 0 && <div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}><p>Tape "Commencer" pour lancer</p></div>}
         {messages.map((msg, i) => (
-          <div key={i} style={{ marginBottom: 16, textAlign: msg.role === 'user' ? 'right' : 'left' }}>
+          <div key={i} style={{ marginBottom: 16, textAlign: 'left' }}>
             {editingMessageIndex === i ? (
               <div style={{ display: 'inline-block', maxWidth: '80%', padding: 12, borderRadius: 8, background: '#1e3a5f' }}>
                 <textarea value={editedContent} onChange={(e) => setEditedContent(e.target.value)} autoFocus style={{ width: '100%', minHeight: 60, padding: 8, background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize, resize: 'vertical' }} />
@@ -538,7 +539,7 @@ export default function Home() {
                   </div>
                   {msg.streaming && <span style={{ color: '#60a5fa' }}>▋</span>}
                 </div>
-                <div className="message-actions" style={{ position: 'absolute', top: -8, right: msg.role === 'user' ? 0 : 'auto', left: msg.role === 'assistant' ? 0 : 'auto', display: 'flex', gap: 4, opacity: 0, transition: 'opacity 0.2s' }}>
+                <div className="message-actions" style={{ position: 'absolute', top: -8, left: 0, display: 'flex', gap: 4, opacity: 0, transition: 'opacity 0.2s' }}>
                   {msg.role === 'user' && !loading && <button onClick={() => startEditMessage(i)} title="Éditer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>✏️</button>}
                   {msg.role === 'assistant' && i === messages.length - 1 && !loading && !msg.streaming && <button onClick={regenerateLastResponse} title="Regénérer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>🔄</button>}
                 </div>
