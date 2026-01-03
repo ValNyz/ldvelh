@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { SYSTEM_PROMPT } from '../../../lib/prompt';
 import { buildContextForClaude } from '../../../lib/contextBuilder';
-import { processInteractions, generateFallbackInteractions, extractPnjFromNarratif } from '../../../lib/interactionTracker';
+import { updatePnjContact, extractPnjFromNarratif } from '../../../lib/interactionTracker';
 import { extraireFaits, sauvegarderFaits, PROMPT_ADDON_FAITS } from '../../../lib/faitsService';
 
 export const dynamic = 'force-dynamic';
@@ -441,19 +441,39 @@ export async function POST(request) {
 				pnjForTracking = data || [];
 			}
 
-			if (partieId && parsed && pnjForTracking.length > 0) {
-				const narratif = parsed.narratif || '';
-				let interactionsToProcess = parsed.interactions || [];
-				if (interactionsToProcess.length === 0 && narratif) {
-					const pnjMentionnes = extractPnjFromNarratif(narratif, pnjForTracking);
-					if (pnjMentionnes.length > 0) {
-						interactionsToProcess = generateFallbackInteractions(narratif, pnjMentionnes, parsed.heure);
+			// Mise à jour des relations (nouveau système simplifié)
+			if (partieId && parsed?.changements_relation?.length > 0) {
+				for (const change of parsed.changements_relation) {
+					if (!change.pnj || change.delta === undefined) continue;
+
+					const pnj = pnjForTracking.find(p =>
+						p.nom && (
+							p.nom.toLowerCase() === change.pnj.toLowerCase() ||
+							p.nom.split(' ')[0].toLowerCase() === change.pnj.toLowerCase()
+						)
+					);
+
+					if (pnj?.id) {
+						const currentRelation = pnj.relation || 0;
+						const newRelation = Math.max(0, Math.min(10, currentRelation + change.delta));
+
+						await supabase.from('pnj').update({
+							relation: newRelation,
+							updated_at: new Date().toISOString()
+						}).eq('id', pnj.id);
+
+						console.log(`>>> Relation ${pnj.nom}: ${currentRelation} → ${newRelation} (${change.delta > 0 ? '+' : ''}${change.delta}: ${change.raison})`);
 					}
 				}
-				if (interactionsToProcess.length > 0) {
-					processInteractions(supabase, partieId, cycleForSave, parsed.heure, narratif, interactionsToProcess, pnjForTracking)
-						.then(r => console.log(`>>> Interactions: ${r.interactionsSaved} saved, ${r.pnjUpdated} PNJ updated`))
-						.catch(err => console.error('Erreur interactions:', err));
+			}
+
+			// Mise à jour dernier_contact pour PNJ mentionnés dans le narratif
+			if (partieId && parsed?.narratif && pnjForTracking.length > 0) {
+				const pnjMentionnes = extractPnjFromNarratif(parsed.narratif, pnjForTracking);
+				if (pnjMentionnes.length > 0) {
+					updatePnjContact(supabase, partieId, cycleForSave, pnjMentionnes)
+						.then(r => console.log(`>>> Contact: ${r.updated} PNJ mis à jour`))
+						.catch(err => console.error('Erreur updatePnjContact:', err));
 				}
 			}
 
