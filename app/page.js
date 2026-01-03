@@ -69,12 +69,10 @@ export default function Home() {
 		} catch (e) { console.error('Erreur chargement parties:', e); }
 	};
 
-	// Remplacer la fonction normalizeGameState dans page.js
-
 	const normalizeGameState = (rawState) => {
 		if (!rawState) return null;
 
-		// Si ça vient de Supabase (loadGame)
+		// Si ça vient de Supabase (loadGame) - a un partie.id
 		if (rawState.partie && rawState.partie.id) {
 			return {
 				partie: {
@@ -93,21 +91,25 @@ export default function Home() {
 			};
 		}
 
-		// Si ça vient de Claude (réponse API)
-		return {
-			partie: {
-				cycle_actuel: rawState.cycle || 1,
-				jour: rawState.jour,
-				date_jeu: rawState.date_jeu,
-				heure: rawState.heure
-			},
-			valentin: rawState.valentin,
-			ia: rawState.ia,
-			pnj: rawState.pnj || [],
-			arcs: rawState.arcs || [],
-			lieux: rawState.lieux || [],
-			aVenir: rawState.a_venir || []
-		};
+		// Si ça vient de Claude (réponse API) - a un cycle directement
+		if (rawState.cycle !== undefined) {
+			return {
+				partie: {
+					cycle_actuel: rawState.cycle || 1,
+					jour: rawState.jour,
+					date_jeu: rawState.date_jeu,
+					heure: rawState.heure
+				},
+				valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
+				ia: rawState.ia || {},
+				pnj: rawState.pnj || [],
+				arcs: rawState.arcs || [],
+				lieux: rawState.lieux || [],
+				aVenir: rawState.a_venir || []
+			};
+		}
+
+		return null;
 	};
 
 	const loadGame = async (id) => {
@@ -328,6 +330,8 @@ export default function Home() {
 							if (!line.startsWith('data: ')) continue;
 							try {
 								const data = JSON.parse(line.slice(6));
+								console.log(`[CLIENT] Event received: ${data.type}`, Date.now());
+
 								if (data.type === 'chunk') {
 									fullJson += data.content;
 									const display = extractDisplayContent(fullJson);
@@ -340,11 +344,34 @@ export default function Home() {
 										}
 									}
 								} else if (data.type === 'done') {
+									console.log(`[CLIENT] 'done' received, mode: ${data.mode}`);
+
 									setLoading(false);
 									setSaving(true);
 									finalizeMessage(data.displayText || fullJson);
-									if (data.state) setGameState(normalizeGameState({ ...data.state, heure: data.heure }));
+
+									// Mettre à jour le state (toujours renvoyé par le serveur)
+									if (data.state) {
+										const normalized = normalizeGameState({ ...data.state, heure: data.heure });
+										if (normalized) {
+											setGameState(prev => {
+												if (!prev) return normalized;
+												// Merger avec le state existant pour garder les données non renvoyées (pnj, arcs, etc.)
+												return {
+													...prev,
+													partie: { ...prev.partie, ...normalized.partie },
+													valentin: { ...prev.valentin, ...normalized.valentin },
+													ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia,
+													pnj: prev.pnj || [],
+													arcs: prev.arcs || [],
+													lieux: prev.lieux || [],
+													aVenir: prev.aVenir || []
+												};
+											});
+										}
+									}
 								} else if (data.type === 'saved') {
+									console.log(`[CLIENT] 'saved' received, setting saving=false`);
 									setSaving(false);
 								} else if (data.type === 'error') {
 									setError(data.error);
