@@ -117,6 +117,88 @@ async function loadChatMessages(partieId) {
 }
 
 // ============================================================================
+// FONCTIONS ANNEXES
+// ============================================================================
+
+async function genererResumeCycle(supabase, partieId, cycle, jour, dateJeu) {
+	try {
+		// Récupérer tous les messages du cycle
+		const { data: messages } = await supabase
+			.from('chat_messages')
+			.select('role, content')
+			.eq('partie_id', partieId)
+			.eq('cycle', cycle)
+			.order('created_at', { ascending: true });
+
+		if (!messages || messages.length === 0) return;
+
+		// Récupérer les transactions du cycle
+		const { data: transactions } = await supabase
+			.from('finances')
+			.select('montant, description')
+			.eq('partie_id', partieId)
+			.eq('cycle', cycle);
+
+		// Construire le contexte pour le résumé
+		const conversation = messages
+			.map(m => `${m.role === 'user' ? 'VALENTIN' : 'MJ'}: ${m.content}`)
+			.join('\n\n');
+
+		const depenses = transactions
+			?.map(t => `${t.montant > 0 ? '+' : ''}${t.montant} crédits: ${t.description}`)
+			.join('\n') || 'Aucune transaction';
+
+		const prompt = `Tu es un assistant qui résume des sessions de jeu de rôle.
+
+Voici la conversation complète du Cycle ${cycle} (${jour}, ${dateJeu}) :
+
+${conversation}
+
+---
+TRANSACTIONS DU CYCLE :
+${depenses}
+
+---
+Génère un résumé JSON de cette journée :
+
+{
+  "resume": "Résumé narratif de la journée en 3-5 phrases. Ce qui s'est passé, qui Valentin a rencontré, les décisions importantes.",
+  "evenements_cles": ["événement 1", "événement 2", "événement 3"],
+  "relations_modifiees": [
+    {"pnj": "Nom", "evolution": "description courte du changement"}, ...
+  ]
+}
+
+Réponds UNIQUEMENT avec le JSON, sans backticks.`;
+
+		const response = await anthropic.messages.create({
+			model: 'claude-sonnet-4-20250514',
+			max_tokens: 1024,
+			messages: [{ role: 'user', content: prompt }]
+		});
+
+		const content = response.content[0]?.text;
+		const parsed = JSON.parse(content);
+
+		// Sauvegarder le résumé
+		await supabase.from('cycle_resumes').insert({
+			partie_id: partieId,
+			cycle: cycle,
+			jour: jour,
+			date_jeu: dateJeu,
+			resume: parsed.resume,
+			evenements_cles: parsed.evenements_cles || [],
+			relations_modifiees: parsed.relations_modifiees || []
+		});
+
+		console.log(`[BG] Résumé cycle ${cycle} généré`);
+
+	} catch (err) {
+		console.error(`[BG] Erreur génération résumé cycle ${cycle}:`, err);
+	}
+}
+
+// ============================================================================
 // TRAITEMENT MODE INIT
 // ============================================================================
 
@@ -513,7 +595,8 @@ async function applyDeltas(supabase, partieId, parsed, pnjList, cycle, heure) {
 				pnj_frequents: parsed.nouveau_lieu.pnj_frequents || [],
 				cycles_visites: [cycle]
 			});
-			results.lieu = parsed.nouveau_lieu.nom;
+
+			results.lieu = parsed.nouveau_lieu;
 		}
 	}
 
@@ -666,15 +749,84 @@ export async function DELETE(request) {
 	try {
 		const { partieId, fromIndex } = await request.json();
 		if (!partieId) return Response.json({ error: 'partieId manquant' }, { status: 400 });
+
 		const { data: allMessages } = await supabase.from('chat_messages')
 			.select('id, created_at').eq('partie_id', partieId).order('created_at', { ascending: true });
+
 		if (!allMessages || fromIndex >= allMessages.length) return Response.json({ success: true });
-		const messagesToDelete = allMessages.slice(fromIndex).map(m => m.id);
-		if (messagesToDelete.length > 0) {
-			await supabase.from('chat_messages').delete().in('id', messagesToDelete);
+
+		const messagesToDelete = allMessages.slice(fromIndex);
+		const firstDeletedAt = messagesToDelete[0]?.created_at;
+
+		// Trouver le cycle du dernier message restant
+		const remainingMessages = allMessages.slice(0, fromIndex);
+		const lastRemainingCycle = remainingMessages.length > 0
+			? remainingMessages[remainingMessages.length - 1].cycle
+			: 1;
+
+		if (messagesToDelete.length > 0 && firstDeletedAt) {
+			// Supprimer les messages
+			await supabase.from('chat_messages').delete().in('id', messagesToDelete.map(m => m.id));
+
+			// Supprimer les transactions créées après ce point
+			await supabase.from('finances').delete()
+				.eq('partie_id', partieId)
+				.gte('created_at', firstDeletedAt);
+
+			// Supprimer les faits créés après ce point
+			await supabase.from('faits').delete()
+				.eq('partie_id', partieId)
+				.gte('created_at', firstDeletedAt);
+
+			// Récupérer les infos du cycle cible AVANT suppression des résumés
+			let jourCible = null;
+			let dateCible = null;
+
+			if (lastRemainingCycle < partie.cycle_actuel) {
+				// Chercher dans cycle_resumes
+				const { data: resumeCycle } = await supabase
+					.from('cycle_resumes')
+					.select('jour, date_jeu')
+					.eq('partie_id', partieId)
+					.eq('cycle', lastRemainingCycle)
+					.maybeSingle();
+
+				if (resumeCycle) {
+					jourCible = resumeCycle.jour;
+					dateCible = resumeCycle.date_jeu;
+				}
+			}
+
+			// Supprimer les résumés des cycles supprimés
+			await supabase.from('cycle_resumes').delete()
+				.eq('partie_id', partieId)
+				.gte('cycle', firstDeletedCycle);
+
+			// Mettre à jour le cycle actuel si on revient en arrière
+			const { data: partie } = await supabase
+				.from('parties')
+				.select('cycle_actuel')
+				.eq('id', partieId)
+				.single();
+
+			if (partie && partie.cycle_actuel > lastRemainingCycle) {
+				await supabase.from('parties').update({
+					cycle_actuel: lastRemainingCycle,
+					jour: jourCible,        // null si pas trouvé
+					date_jeu: dateCible,    // null si pas trouvé
+					pending_full_state: false
+				}).eq('id', partieId);
+			}
+
+			// Recalculer le solde
+			const nouveauSolde = await calculerSolde(supabase, partieId);
+			await supabase.from('valentin').update({ credits: nouveauSolde }).eq('partie_id', partieId);
 		}
+
 		return Response.json({ success: true, deleted: messagesToDelete.length });
-	} catch (e) { return Response.json({ error: e.message }, { status: 500 }); }
+	} catch (e) {
+		return Response.json({ error: e.message }, { status: 500 });
+	}
 }
 
 // ============================================================================
@@ -872,7 +1024,8 @@ export async function POST(request) {
 							...(deltaResults.valentin || {}),
 							credits,
 							inventaire
-						}
+						},
+						nouveau_lieu: deltaResults.lieu || null
 					};
 				}
 
@@ -943,6 +1096,27 @@ export async function POST(request) {
 						console.error('[BG] Erreur faits:', err);
 					}
 				}
+
+				// Générer résumé si fin de cycle
+				if (parsed.nouveau_cycle === true) {
+					const { data: partie } = await supabase
+						.from('parties')
+						.select('cycle_actuel, jour, date_jeu')
+						.eq('id', partieId)
+						.single();
+
+					if (partie) {
+						// Lancer en arrière-plan sans attendre
+						await genererResumeCycle(
+							supabase,
+							partieId,
+							partie.cycle_actuel,
+							partie.jour,
+							partie.date_jeu
+						).catch(err => console.error('[BG] Erreur résumé:', err));
+					}
+				}
+
 			}
 
 			console.log(`========== BACKGROUND END: ${Date.now() - bgStart}ms ==========\n`);
