@@ -422,6 +422,19 @@ export default function Home() {
 										if (normalized) {
 											setGameState(prev => {
 												if (!prev) return normalized;
+
+												// Construire le nouveau tableau de lieux
+												let nouveauxLieux = prev.lieux || [];
+												if (data.state?.nouveau_lieu) {
+													// Vérifier qu'il n'existe pas déjà (par nom)
+													const existe = nouveauxLieux.some(
+														l => l.nom.toLowerCase() === data.state.nouveau_lieu.nom.toLowerCase()
+													);
+													if (!existe) {
+														nouveauxLieux = [...nouveauxLieux, data.state.nouveau_lieu];
+													}
+												}
+
 												// Merger avec le state existant pour garder les données non renvoyées (pnj, arcs, etc.)
 												return {
 													...prev,
@@ -430,7 +443,7 @@ export default function Home() {
 													ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia,
 													pnj: prev.pnj || [],
 													arcs: prev.arcs || [],
-													lieux: prev.lieux || [],
+													lieux: nouveauxLieux,
 													aVenir: prev.aVenir || []
 												};
 											});
