@@ -2,13 +2,84 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 
+function InputArea({ onSend, disabled, fontSize }) {
+	const [input, setInput] = useState('');
+	const textareaRef = useRef(null);
+
+	useEffect(() => {
+		if (textareaRef.current) {
+			textareaRef.current.style.height = 'auto';
+			textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+		}
+	}, [input]);
+
+	const handleSend = () => {
+		if (!input.trim() || disabled) return;
+		onSend(input.trim());
+		setInput('');
+	};
+
+	return (
+		<div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
+			<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+				<textarea
+					ref={textareaRef}
+					value={input}
+					onChange={(e) => setInput(e.target.value)}
+					onKeyDown={(e) => {
+						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+							e.preventDefault();
+							handleSend();
+						}
+					}}
+					placeholder="Ton action... (Ctrl+Entrée)"
+					disabled={disabled}
+					style={{
+						flex: 1,
+						padding: '8px 16px',
+						background: '#374151',
+						border: '1px solid #4b5563',
+						borderRadius: 4,
+						color: '#fff',
+						outline: 'none',
+						fontSize,
+						resize: 'none',
+						minHeight: 44,
+						maxHeight: 200,
+						fontFamily: 'inherit',
+						overflow: 'hidden'
+					}}
+				/>
+				<button
+					onClick={handleSend}
+					disabled={disabled}
+					style={{
+						padding: '12px 24px',
+						background: '#2563eb',
+						border: 'none',
+						borderRadius: 4,
+						color: '#fff',
+						cursor: 'pointer',
+						opacity: disabled ? 0.5 : 1,
+						height: 44
+					}}
+				>
+					Envoyer
+				</button>
+			</div>
+			<div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+				Entrée = nouvelle ligne • Ctrl+Entrée = envoyer
+			</div>
+		</div>
+	);
+}
+
 export default function Home() {
 	const [parties, setParties] = useState([]);
 	const [partieId, setPartieId] = useState(null);
 	const [partieName, setPartieName] = useState('');
 	const [gameState, setGameState] = useState(null);
 	const [messages, setMessages] = useState([]);
-	const [input, setInput] = useState('');
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [loadingGame, setLoadingGame] = useState(false);
@@ -28,7 +99,6 @@ export default function Home() {
 	const messagesContainerRef = useRef(null);
 	const abortControllerRef = useRef(null);
 	const userScrolledUp = useRef(false);
-	const textareaRef = useRef(null);
 
 	useEffect(() => { setIsClient(true); }, []);
 	useEffect(() => { loadParties(); }, []);
@@ -41,12 +111,6 @@ export default function Home() {
 	useEffect(() => {
 		if (!userScrolledUp.current) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 	}, [messages]);
-	useEffect(() => {
-		if (textareaRef.current) {
-			textareaRef.current.style.height = 'auto';
-			textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
-		}
-	}, [input]);
 
 	const handleScroll = (e) => {
 		const { scrollTop, scrollHeight, clientHeight } = e.target;
@@ -240,16 +304,16 @@ export default function Home() {
 		await sendMessageInternal(userMsg, prevMsgs, currState);
 	};
 
-	const sendMessage = async () => {
-		if (!input.trim() || loading || saving) return;
-		const userMsg = input.trim(), currMsgs = [...messages], currState = gameState;
-		setInput('');
+	const handleSendMessage = async (userMsg) => {
+		if (loading || saving) return;
+		const currMsgs = [...messages], currState = gameState;
 		setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
 		setLoading(true);
 		setError('');
 		resetScrollBehavior();
 		await sendMessageInternal(userMsg, currMsgs, currState);
 	};
+
 
 	const sendMessageInternal = async (userMessage, previousMessages, currentGameState) => {
 		abortControllerRef.current = new AbortController();
@@ -583,21 +647,11 @@ export default function Home() {
 				<div ref={messagesEndRef} />
 			</div>
 
-			<div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
-				<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-					<textarea
-						ref={textareaRef}
-						value={input}
-						onChange={(e) => setInput(e.target.value)}
-						onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendMessage(); } }}
-						placeholder="Ton action... (Ctrl+Entrée)"
-						disabled={loading}
-						style={{ flex: 1, padding: '8px 16px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize, resize: 'none', minHeight: 44, maxHeight: 200, fontFamily: 'inherit', overflow: 'hidden' }}
-					/>
-					<button onClick={sendMessage} disabled={loading} style={{ padding: '12px 24px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', opacity: loading ? 0.5 : 1, height: 44 }}>Envoyer</button>
-				</div>
-				<div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>Entrée = nouvelle ligne • Ctrl+Entrée = envoyer</div>
-			</div>
+			<InputArea
+				onSend={handleSendMessage}
+				disabled={loading || saving}
+				fontSize={fontSize}
+			/>
 
 			<style jsx>{`.message-container:hover .message-actions { opacity: 1 !important; }`}</style>
 		</div>
