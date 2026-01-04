@@ -144,6 +144,7 @@ export default function Home() {
 					jour: rawState.partie.jour,
 					date_jeu: rawState.partie.date_jeu,
 					heure: rawState.partie.heure,
+					lieu_actuel: rawState.partie.lieu_actuel,
 					options: rawState.partie.options
 				},
 				valentin: rawState.valentin,
@@ -162,7 +163,8 @@ export default function Home() {
 					cycle_actuel: rawState.cycle || 1,
 					jour: rawState.jour,
 					date_jeu: rawState.date_jeu,
-					heure: rawState.heure
+					heure: rawState.heure,
+					lieu_actuel: rawState.lieu_actuel
 				},
 				valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
 				ia: rawState.ia || {},
@@ -517,8 +519,18 @@ export default function Home() {
 				</div>
 				{gameState?.valentin && (
 					<div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>
-						<div style={{ color: '#4ade80' }}>Cycle {gameState.partie?.cycle_actuel || 1} | {gameState.partie?.jour || '-'} {faitsEnabled && <span style={{ color: '#60a5fa' }}>📝</span>}</div>
-						<div>Énergie: {dots(gameState.valentin.energie)} | Moral: {dots(gameState.valentin.moral)} | Santé: {dots(gameState.valentin.sante)}</div>
+						<div style={{ color: '#4ade80' }}>
+							Cycle {gameState.partie?.cycle_actuel || 1} | {gameState.partie?.jour || '-'} {gameState.partie?.date_jeu || '-'}
+							{gameState.partie?.lieu_actuel && (
+								<span style={{ color: '#93c5fd', marginLeft: 8 }}>
+									📍 {gameState.partie.lieu_actuel}
+								</span>
+							)}
+							{faitsEnabled && <span style={{ color: '#60a5fa', marginLeft: 8 }}>📝</span>}
+						</div>
+						<div>
+							Énergie: {dots(gameState.valentin.energie)} | Moral: {dots(gameState.valentin.moral)} | Santé: {dots(gameState.valentin.sante)}
+						</div>
 						<div style={{ color: '#fbbf24' }}>Crédits: {gameState.valentin.credits ?? 1400}</div>
 					</div>
 				)}

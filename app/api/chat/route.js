@@ -130,6 +130,7 @@ async function processInitMode(supabase, partieId, init, heure) {
 			jour: init.jour || 'Lundi',
 			date_jeu: init.date_jeu,
 			heure: heure,
+			lieu_actuel: init.lieu_actuel || null,
 			pending_full_state: false
 		}).eq('id', partieId)
 	);
@@ -268,12 +269,14 @@ async function processNewCycleMode(supabase, partieId, parsed, pnjList) {
 				jour: parsed.nouveau_jour.jour,
 				date_jeu: parsed.nouveau_jour.date_jeu,
 				heure: parsed.heure,
+				lieu_actuel: parsed.lieu_actuel || null,
 				pending_full_state: false
 			}).eq('id', partieId)
 		);
 	} else {
 		updates.push(
 			supabase.from('parties').update({
+				lieu_actuel: parsed.lieu_actuel || null,
 				pending_full_state: false
 			}).eq('id', partieId)
 		);
@@ -398,7 +401,8 @@ async function applyDeltas(supabase, partieId, parsed, pnjList, cycle, heure) {
 		relations: 0,
 		pnj: 0,
 		transactions: 0,
-		competence: null
+		competence: null,
+		lieu: null
 	};
 
 	// 1. Deltas Valentin
@@ -490,7 +494,58 @@ async function applyDeltas(supabase, partieId, parsed, pnjList, cycle, heure) {
 		results.competence = parsed.progression_competence.competence;
 	}
 
-	// 6. Nouveau cycle flag
+	// 6. Nouveau lieu (si découvert)
+	if (parsed.nouveau_lieu?.nom) {
+		const { data: lieuExistant } = await supabase
+			.from('lieux')
+			.select('id')
+			.eq('partie_id', partieId)
+			.ilike('nom', parsed.nouveau_lieu.nom)
+			.maybeSingle();
+
+		if (!lieuExistant) {
+			await supabase.from('lieux').insert({
+				partie_id: partieId,
+				nom: parsed.nouveau_lieu.nom,
+				type: parsed.nouveau_lieu.type || 'autre',
+				secteur: parsed.nouveau_lieu.secteur || null,
+				description: parsed.nouveau_lieu.description || null,
+				pnj_frequents: parsed.nouveau_lieu.pnj_frequents || [],
+				cycles_visites: [cycle]
+			});
+			results.lieu = parsed.nouveau_lieu.nom;
+		}
+	}
+
+	// 7. Mise à jour lieu actuel + tracking visite
+	if (parsed.lieu_actuel) {
+		// Mettre à jour parties
+		await supabase.from('parties').update({
+			lieu_actuel: parsed.lieu_actuel,
+			heure: heure
+		}).eq('id', partieId);
+
+		// Tracker la visite (si lieu existe et pas nouveau)
+		if (!parsed.nouveau_lieu || parsed.nouveau_lieu.nom !== parsed.lieu_actuel) {
+			const { data: lieu } = await supabase
+				.from('lieux')
+				.select('id, cycles_visites')
+				.eq('partie_id', partieId)
+				.ilike('nom', parsed.lieu_actuel)
+				.maybeSingle();
+
+			if (lieu) {
+				const cyclesVisites = lieu.cycles_visites || [];
+				if (!cyclesVisites.includes(cycle)) {
+					await supabase.from('lieux').update({
+						cycles_visites: [...cyclesVisites, cycle]
+					}).eq('id', lieu.id);
+				}
+			}
+		}
+	}
+
+	// 8. Nouveau cycle flag
 	if (parsed.nouveau_cycle === true) {
 		await supabase.from('parties').update({
 			pending_full_state: true
@@ -759,6 +814,7 @@ export async function POST(request) {
 						cycle: parsed.init.cycle || 1,
 						jour: parsed.init.jour,
 						date_jeu: parsed.init.date_jeu,
+						lieu_actuel: parsed.init.lieu_actuel || null,
 						valentin: {
 							energie: 3,
 							moral: 3,
@@ -780,6 +836,7 @@ export async function POST(request) {
 						cycle: parsed.nouveau_jour.cycle,
 						jour: parsed.nouveau_jour.jour,
 						date_jeu: parsed.nouveau_jour.date_jeu,
+						lieu_actuel: parsed.lieu_actuel || null,
 						valentin: parsed.reveil_valentin ? {
 							energie: parsed.reveil_valentin.energie,
 							moral: parsed.reveil_valentin.moral,
@@ -798,7 +855,7 @@ export async function POST(request) {
 					// Récupérer le cycle actuel et les crédits/inventaire
 					const [partieData, credits, inventaire] = await Promise.all([
 						supabase.from('parties')
-							.select('cycle_actuel, jour, date_jeu')
+							.select('cycle_actuel, jour, date_jeu, lieu_actuel')
 							.eq('id', partieId)
 							.single()
 							.then(r => r.data),
@@ -810,6 +867,7 @@ export async function POST(request) {
 						cycle: partieData?.cycle_actuel || cycleForSave,
 						jour: partieData?.jour,
 						date_jeu: partieData?.date_jeu,
+						lieu_actuel: parsed.lieu_actuel || partieData?.lieu_actuel,
 						valentin: {
 							...(deltaResults.valentin || {}),
 							credits,
