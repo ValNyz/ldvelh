@@ -240,36 +240,73 @@ export default function Home() {
 	const submitEdit = async () => {
 		if (!editedContent.trim() || loading) return;
 		const idx = editingMessageIndex, content = editedContent.trim();
-		const prevMsgs = [...messages].slice(0, idx), currState = gameState;
+		const prevMsgs = [...messages].slice(0, idx);
+
 		setEditingMessageIndex(null);
 		setEditedContent('');
 		setLoading(true);
 		setError('');
 		resetScrollBehavior();
 		setMessages([...prevMsgs, { role: 'user', content }]);
+
+		let restoredState = gameState;
+
 		if (partieId) {
-			try { await fetch('/api/chat', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partieId, fromIndex: idx }) }); }
+			try {
+				const res = await fetch('/api/chat', {
+					method: 'DELETE',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ partieId, fromIndex: idx })
+				});
+				const data = await res.json();
+
+				// Utiliser l'état restauré par le rollback
+				if (data.state) {
+					restoredState = normalizeGameState(data.state);
+					setGameState(restoredState);
+				}
+			}
 			catch (e) { console.error('Erreur suppression:', e); }
 		}
-		await sendMessageInternal(content, prevMsgs, currState);
+
+		await sendMessageInternal(content, prevMsgs, restoredState);
 	};
 
 	const regenerateLastResponse = async () => {
 		if (loading || messages.length < 2) return;
-		const currMsgs = [...messages], currState = gameState;
+		const currMsgs = [...messages];
 		let lastUserIdx = currMsgs.length - 1;
 		while (lastUserIdx >= 0 && currMsgs[lastUserIdx].role !== 'user') lastUserIdx--;
 		if (lastUserIdx < 0) return;
-		const userMsg = currMsgs[lastUserIdx].content, prevMsgs = currMsgs.slice(0, lastUserIdx);
+
+		const userMsg = currMsgs[lastUserIdx].content;
+		const prevMsgs = currMsgs.slice(0, lastUserIdx);
+
 		setMessages([...prevMsgs, { role: 'user', content: userMsg }]);
 		setLoading(true);
 		setError('');
 		resetScrollBehavior();
+
+		let restoredState = gameState;
+
 		if (partieId) {
-			try { await fetch('/api/chat', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partieId, fromIndex: lastUserIdx }) }); }
+			try {
+				const res = await fetch('/api/chat', {
+					method: 'DELETE',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ partieId, fromIndex: lastUserIdx })
+				});
+				const data = await res.json();
+
+				if (data.state) {
+					restoredState = normalizeGameState(data.state);
+					setGameState(restoredState);
+				}
+			}
 			catch (e) { console.error('Erreur suppression:', e); }
 		}
-		await sendMessageInternal(userMsg, prevMsgs, currState);
+
+		await sendMessageInternal(userMsg, prevMsgs, restoredState);
 	};
 
 	const handleSendMessage = async (userMsg) => {
