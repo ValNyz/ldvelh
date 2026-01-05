@@ -133,6 +133,7 @@ export default function Home() {
 		} catch (e) { console.error('Erreur chargement parties:', e); }
 	};
 
+	// Normalise le gameState depuis différentes sources (Supabase ou Claude)
 	const normalizeGameState = (rawState) => {
 		if (!rawState) return null;
 
@@ -318,7 +319,6 @@ export default function Home() {
 		await sendMessageInternal(userMsg, currMsgs, currState);
 	};
 
-
 	const sendMessageInternal = async (userMessage, previousMessages, currentGameState) => {
 		abortControllerRef.current = new AbortController();
 
@@ -398,7 +398,6 @@ export default function Home() {
 							if (!line.startsWith('data: ')) continue;
 							try {
 								const data = JSON.parse(line.slice(6));
-								console.log(`[CLIENT] Event received: ${data.type}`, Date.now());
 
 								if (data.type === 'chunk') {
 									fullJson += data.content;
@@ -412,13 +411,10 @@ export default function Home() {
 										}
 									}
 								} else if (data.type === 'done') {
-									console.log(`[CLIENT] 'done' received, mode: ${data.mode}`);
-
 									setLoading(false);
 									setSaving(true);
 									finalizeMessage(data.displayText || fullJson);
 
-									// Mettre à jour le state (toujours renvoyé par le serveur)
 									if (data.state) {
 										const normalized = normalizeGameState({ ...data.state, heure: data.heure });
 										if (normalized) {
@@ -428,17 +424,13 @@ export default function Home() {
 												// === FUSION DES PNJ ===
 												let nouveauxPnj = [...(prev.pnj || [])];
 
-												// Ajouter les PNJ créés
 												if (data.state.entites?.pnj_crees?.length > 0) {
 													for (const pnj of data.state.entites.pnj_crees) {
 														const existe = nouveauxPnj.some(p => p.id === pnj.id);
-														if (!existe) {
-															nouveauxPnj.push(pnj);
-														}
+														if (!existe) nouveauxPnj.push(pnj);
 													}
 												}
 
-												// Appliquer les modifications
 												if (data.state.entites?.pnj_modifies?.length > 0) {
 													for (const pnjModifie of data.state.entites.pnj_modifies) {
 														const index = nouveauxPnj.findIndex(p =>
@@ -451,21 +443,16 @@ export default function Home() {
 													}
 												}
 
-
 												// === FUSION DES LIEUX ===
 												let nouveauxLieux = [...(prev.lieux || [])];
 
-												// Ajouter les lieux créés
 												if (data.state.entites?.lieux_crees?.length > 0) {
 													for (const lieu of data.state.entites.lieux_crees) {
 														const existe = nouveauxLieux.some(l => l.id === lieu.id);
-														if (!existe) {
-															nouveauxLieux.push(lieu);
-														}
+														if (!existe) nouveauxLieux.push(lieu);
 													}
 												}
 
-												// Appliquer les modifications
 												if (data.state.entites?.lieux_modifies?.length > 0) {
 													for (const lieuModifie of data.state.entites.lieux_modifies) {
 														const index = nouveauxLieux.findIndex(l => l.id === lieuModifie.id);
@@ -475,13 +462,12 @@ export default function Home() {
 													}
 												}
 
-												// Merger avec le state existant pour garder les données non renvoyées (pnj, arcs, etc.)
 												return {
 													...prev,
 													partie: { ...prev.partie, ...normalized.partie },
 													valentin: { ...prev.valentin, ...normalized.valentin },
 													ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia,
-													pnj: nouveauxPnj || [],
+													pnj: nouveauxPnj,
 													arcs: prev.arcs || [],
 													lieux: nouveauxLieux,
 													aVenir: prev.aVenir || []
@@ -490,7 +476,6 @@ export default function Home() {
 										}
 									}
 								} else if (data.type === 'saved') {
-									console.log(`[CLIENT] 'saved' received, setting saving=false`);
 									setSaving(false);
 								} else if (data.type === 'error') {
 									setError(data.error);
@@ -522,8 +507,9 @@ export default function Home() {
 	};
 
 	const formatDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-	const dots = (n, max = 5) => '●'.repeat(Math.min(Math.max(n || 0, 0), max)) + '○'.repeat(Math.max(0, max - (n || 0)));
+	const dots = (n, max = 5) => '●'.repeat(Math.min(Math.max(Math.round(n) || 0, 0), max)) + '○'.repeat(Math.max(0, max - Math.round(n || 0)));
 
+	// === ÉCRAN LISTE DES PARTIES ===
 	if (!partieId) {
 		return (
 			<div style={{ padding: 20, maxWidth: 600, margin: '0 auto' }}>
@@ -559,8 +545,10 @@ export default function Home() {
 
 	if (loadingGame) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><p style={{ color: '#6b7280' }}>Chargement...</p></div>;
 
+	// === ÉCRAN JEU ===
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+			{/* HEADER */}
 			<div style={{ background: '#1f2937', padding: 12, borderBottom: '1px solid #374151' }}>
 				<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 					<h1 style={{ fontSize: 18, color: '#60a5fa' }}>{partieName}</h1>
@@ -574,6 +562,7 @@ export default function Home() {
 					<div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>
 						<div style={{ color: '#4ade80' }}>
 							Cycle {gameState.partie?.cycle_actuel || 1} | {gameState.partie?.jour || '-'} {gameState.partie?.date_jeu || '-'}
+							{gameState.partie?.heure && <span style={{ marginLeft: 8 }}>🕐 {gameState.partie.heure}</span>}
 							{gameState.partie?.lieu_actuel && (
 								<span style={{ color: '#93c5fd', marginLeft: 8 }}>
 									📍 {gameState.partie.lieu_actuel}
@@ -584,11 +573,19 @@ export default function Home() {
 						<div>
 							Énergie: {dots(gameState.valentin.energie)} | Moral: {dots(gameState.valentin.moral)} | Santé: {dots(gameState.valentin.sante)}
 						</div>
-						<div style={{ color: '#fbbf24' }}>Crédits: {gameState.valentin.credits ?? 1400}</div>
+						<div style={{ color: '#fbbf24' }}>
+							Crédits: {gameState.valentin.credits ?? 1400}
+							{gameState.partie?.pnjs_presents?.length > 0 && (
+								<span style={{ color: '#a78bfa', marginLeft: 12 }}>
+									👥 {gameState.partie.pnjs_presents.join(', ')}
+								</span>
+							)}
+						</div>
 					</div>
 				)}
 			</div>
 
+			{/* SETTINGS PANEL */}
 			{showSettings && (
 				<div style={{ background: '#1f2937', padding: 16, borderBottom: '1px solid #374151' }}>
 					<h3 style={{ marginBottom: 12, fontSize: 14, color: '#9ca3af' }}>Paramètres</h3>
@@ -629,12 +626,14 @@ export default function Home() {
 				</div>
 			)}
 
+			{/* DEBUG STATE */}
 			{showState && gameState && (
 				<div style={{ background: '#1f2937', padding: 12, maxHeight: 200, overflow: 'auto', borderBottom: '1px solid #374151' }}>
 					<pre style={{ fontSize: 10, color: '#9ca3af' }}>{JSON.stringify(gameState, null, 2)}</pre>
 				</div>
 			)}
 
+			{/* MESSAGES */}
 			<div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: 'auto', padding: 16 }}>
 				{messages.length === 0 && <div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}><p>Tape "Commencer" pour lancer</p></div>}
 				{messages.map((msg, i) => (
