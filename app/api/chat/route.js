@@ -27,6 +27,10 @@ const supabase = createClient(
 	process.env.NEXT_PUBLIC_SUPABASE_URL,
 	process.env.SUPABASE_SERVICE_KEY
 );
+//
+// Constantes pour l'intérêt romantique
+const AGE_MIN_ROMANCE = 25;
+const AGE_MAX_ROMANCE = 45;
 
 // ============================================================================
 // PARSING JSON
@@ -307,22 +311,46 @@ async function processInitMode(partieId, parsed, cycle) {
 				type: 'situe_dans'
 			});
 		}
+
+		// Relations "frequente" pour les PNJ fréquents
+		for (const freq of (lieu.pnjs_frequents || [])) {
+			operations.push({
+				op: 'CREER_RELATION',
+				source: freq.pnj,
+				cible: lieu.nom,
+				type: 'frequente',
+				proprietes: {
+					regularite: freq.regularite || 'parfois',
+					periode: freq.periode || 'aléatoire'
+				}
+			});
+		}
 	}
 
 	// 6. Créer les PNJ initiaux
 	for (const pnj of (parsed.pnj_initiaux || [])) {
+		// Déterminer si intérêt romantique potentiel
+		const sexe = (pnj.sexe || '').toUpperCase();
+		const age = pnj.age || 0;
+		const interetRomantique = (
+			sexe === 'F' &&
+			age >= AGE_MIN_ROMANCE &&
+			age <= AGE_MAX_ROMANCE
+		);
+
 		operations.push({
 			op: 'CREER_ENTITE',
 			type: 'personnage',
 			nom: pnj.nom,
 			alias: [pnj.nom.split(' ')[0]], // Prénom comme alias
 			proprietes: {
+				sexe: sexe,
 				age: pnj.age,
 				espece: pnj.espece || 'humain',
 				metier: pnj.metier,
 				physique: pnj.physique,
 				traits: pnj.traits || [],
-				interet_romantique: pnj.nom.includes('Justine')
+				interet_romantique: interetRomantique
 			}
 		});
 
@@ -332,16 +360,44 @@ async function processInitMode(partieId, parsed, cycle) {
 			source: 'Valentin',
 			cible: pnj.nom,
 			type: 'connait',
-			proprietes: { niveau: 0, etape_romantique: 0 }
+			proprietes: {
+				niveau: 0,
+				// etape_romantique seulement si intérêt potentiel
+				...(interetRomantique && { etape_romantique: 0 })
+			}
 		});
 
-		// Lieu de travail si connu
+		// Lieu de domicile si connu
 		if (pnj.domicile) {
 			operations.push({
 				op: 'CREER_RELATION',
 				source: pnj.nom,
 				cible: pnj.domicile,
 				type: 'habite'
+			});
+		}
+
+		// Créer les arcs personnels du PNJ comme entités
+		for (const arcTitre of (pnj.arcs || [])) {
+			operations.push({
+				op: 'CREER_ENTITE',
+				type: 'arc_narratif',
+				nom: arcTitre,
+				proprietes: {
+					type_arc: 'pnj_personnel',
+					description: `Arc personnel de ${pnj.nom}`,
+					progression: 0,
+					etat: 'actif'
+				}
+			});
+
+			// Lier le PNJ à son arc
+			operations.push({
+				op: 'CREER_RELATION',
+				source: pnj.nom,
+				cible: arcTitre,
+				type: 'implique_dans',
+				proprietes: { role: 'protagoniste' }
 			});
 		}
 	}
@@ -546,24 +602,35 @@ async function createNewGame() {
 }
 
 async function deleteGame(partieId) {
-	// Supprimer dans l'ordre des dépendances
+	// 1. Récupérer les IDs des événements pour supprimer les participants
+	const { data: evenements } = await supabase
+		.from('kg_evenements')
+		.select('id')
+		.eq('partie_id', partieId);
+
+	const evenementIds = (evenements || []).map(e => e.id);
+
+	// 2. Supprimer les participants d'événements
+	if (evenementIds.length > 0) {
+		await supabase
+			.from('kg_evenement_participants')
+			.delete()
+			.in('evenement_id', evenementIds);
+	}
+
+	// 3. Supprimer les tables principales (en parallèle)
 	await Promise.all([
 		supabase.from('chat_messages').delete().eq('partie_id', partieId),
 		supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
 		supabase.from('scenes').delete().eq('partie_id', partieId),
-		supabase.from('kg_extraction_logs').delete().eq('partie_id', partieId)
+		supabase.from('kg_extraction_logs').delete().eq('partie_id', partieId),
+		supabase.from('kg_evenements').delete().eq('partie_id', partieId),
+		supabase.from('kg_etats').delete().eq('partie_id', partieId),
+		supabase.from('kg_relations').delete().eq('partie_id', partieId),
+		supabase.from('kg_entites').delete().eq('partie_id', partieId)
 	]);
 
-	// KG tables (order matters for foreign keys)
-	await supabase.from('kg_evenement_participants').delete()
-		.in('evenement_id',
-			supabase.from('kg_evenements').select('id').eq('partie_id', partieId)
-		);
-	await supabase.from('kg_evenements').delete().eq('partie_id', partieId);
-	await supabase.from('kg_etats').delete().eq('partie_id', partieId);
-	await supabase.from('kg_relations').delete().eq('partie_id', partieId);
-	await supabase.from('kg_entites').delete().eq('partie_id', partieId);
-
+	// 4. Supprimer la partie
 	await supabase.from('parties').delete().eq('id', partieId);
 }
 
@@ -783,6 +850,8 @@ export async function POST(request) {
 
 
 				console.log(`\n========== BACKGROUND TASKS (${promptMode}) ==========`);
+				const bgStart = Date.now();
+
 				// Extraction KG en background (après envoi au client)
 				if (partieId && parsed && promptMode === 'light') {
 					extractionBackground(partieId, displayText, parsed, currentCycle, sceneEnCours?.id)
