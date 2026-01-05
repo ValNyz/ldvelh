@@ -802,11 +802,12 @@ export async function POST(request) {
 			try {
 				console.log(`[STREAM] Context:`, contextMessage);
 				console.log(`[STREAM] Start streaming (${promptMode} mode)...`);
+				console.log(`[CONTEXT] Heure dans partie:`, gameState?.partie?.heure);
 				const streamStart = Date.now();
 
 				const streamResponse = await anthropic.messages.stream({
 					model: 'claude-sonnet-4-20250514',
-					temperature: 0.65,
+					temperature: 0.8,
 					max_tokens: maxTokens,
 					system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
 					messages: [{ role: 'user', content: contextMessage }]
@@ -823,6 +824,7 @@ export async function POST(request) {
 				console.log(`[STREAM] Complete: ${Date.now() - streamStart}ms`);
 
 				// Parser le JSON
+				console.log(`[STREAM] Parsed:`, JSON.stringify(fullContent, null, 2));
 				parsed = extractJSON(fullContent);
 				console.log(`[STREAM] Parsed:`, JSON.stringify(parsed, null, 2));
 
