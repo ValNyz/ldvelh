@@ -1,10 +1,26 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
-import { SYSTEM_PROMPT_INIT, SYSTEM_PROMPT_NEWCYCLE, SYSTEM_PROMPT_LIGHT } from '../../../lib/prompt';
-import { buildContextForClaude } from '../../../lib/contextBuilder';
-import { extractPnjFromNarratif, updatePnjContact } from '../../../lib/interactionTracker';
-import { extraireFaits, sauvegarderFaits } from '../../../lib/faitsService';
-import { insererTransactions, calculerSolde, calculerInventaire } from '../../../lib/financeService';
+import { SYSTEM_PROMPT_INIT, SYSTEM_PROMPT_LIGHT } from '../../../lib/prompt';
+import { buildContext, buildContextInit } from '../../../lib/contextBuilder';
+import {
+	getProtagoniste,
+	getStatsValentin,
+	getInventaire,
+	updateStatsValentin,
+	creerTransaction,
+	appliquerOperations,
+	trouverEntite,
+	rollbackKG
+} from '../../../lib/kgService';
+import { extraireEtAppliquer, doitExtraire } from '../../../lib/kgExtractor';
+import {
+	getSceneEnCours,
+	creerScene,
+	fermerScene,
+	ajouterPnjImpliques,
+	doitAnalyserIntermediaire,
+	marquerAnalysee
+} from '../../../lib/sceneService';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,9 +29,13 @@ const supabase = createClient(
 	process.env.NEXT_PUBLIC_SUPABASE_URL,
 	process.env.SUPABASE_SERVICE_KEY
 );
+//
+// Constantes pour l'intérêt romantique
+const AGE_MIN_ROMANCE = 25;
+const AGE_MAX_ROMANCE = 45;
 
 // ============================================================================
-// FONCTIONS DE RÉPARATION JSON
+// PARSING JSON
 // ============================================================================
 
 function tryFixJSON(jsonStr) {
@@ -25,10 +45,14 @@ function tryFixJSON(jsonStr) {
 	if (fixed.startsWith('```')) fixed = fixed.slice(3);
 	if (fixed.endsWith('```')) fixed = fixed.slice(0, -3);
 	fixed = fixed.trim();
+
 	const firstBrace = fixed.indexOf('{');
 	if (firstBrace > 0) fixed = fixed.slice(firstBrace);
 	else if (firstBrace === -1) return null;
+
 	try { return JSON.parse(fixed); } catch (e) { }
+
+	// Tenter réparation
 	let lastValidIndex = -1, braceCount = 0, inString = false, escapeNext = false;
 	for (let i = 0; i < fixed.length; i++) {
 		const char = fixed[i];
@@ -40,28 +64,15 @@ function tryFixJSON(jsonStr) {
 			if (char === '}') { braceCount--; if (braceCount === 0) lastValidIndex = i; }
 		}
 	}
+
 	if (lastValidIndex > 0) {
 		try { return JSON.parse(fixed.slice(0, lastValidIndex + 1)); } catch (e) { }
 	}
-	let openBraces = 0, openBrackets = 0;
-	inString = false; escapeNext = false;
-	for (let i = 0; i < fixed.length; i++) {
-		const char = fixed[i];
-		if (escapeNext) { escapeNext = false; continue; }
-		if (char === '\\' && inString) { escapeNext = true; continue; }
-		if (char === '"') { inString = !inString; continue; }
-		if (!inString) {
-			if (char === '{') openBraces++;
-			if (char === '}') openBraces--;
-			if (char === '[') openBrackets++;
-			if (char === ']') openBrackets--;
-		}
-	}
+
+	// Fermer les accolades manquantes
 	if (inString) fixed += '"';
-	while (openBrackets > 0) { fixed += ']'; openBrackets--; }
-	while (openBraces > 0) { fixed += '}'; openBraces--; }
-	try { return JSON.parse(fixed); } catch (e) { }
-	fixed = fixed.replace(/,(\s*[}\]])/g, '$1').replace(/:\s*([}\]])/g, ': null$1').replace(/:\s*,/g, ': null,');
+	while (braceCount > 0) { fixed += '}'; braceCount--; }
+
 	try { return JSON.parse(fixed); } catch (e) { return null; }
 }
 
@@ -85,612 +96,548 @@ function extractJSON(content) {
 }
 
 // ============================================================================
-// CHARGEMENT DES DONNÉES
+// CHARGEMENT ÉTAT (depuis KG)
 // ============================================================================
 
 async function loadGameState(partieId) {
-	const [partie, valentin, ia, pnj, arcs, lieux, aVenir] = await Promise.all([
-		supabase.from('parties').select('*').eq('id', partieId).single(),
-		supabase.from('valentin').select('*').eq('partie_id', partieId).single(),
-		supabase.from('ia_personnelle').select('*').eq('partie_id', partieId).single(),
-		supabase.from('pnj').select('*').eq('partie_id', partieId),
-		supabase.from('arcs').select('*').eq('partie_id', partieId),
-		supabase.from('lieux').select('*').eq('partie_id', partieId),
-		supabase.from('a_venir').select('*').eq('partie_id', partieId).eq('realise', false)
+	const [partie, protagoniste, stats, inventaire] = await Promise.all([
+		supabase.from('parties').select('*').eq('id', partieId).single().then(r => r.data),
+		getProtagoniste(supabase, partieId),
+		getStatsValentin(supabase, partieId),
+		getInventaire(supabase, partieId)
 	]);
 
+	// Récupérer l'IA
+	const { data: iaData } = await supabase
+		.from('kg_entites')
+		.select('nom, proprietes')
+		.eq('partie_id', partieId)
+		.eq('type', 'ia')
+		.single();
+
 	return {
-		partie: partie.data,
-		valentin: valentin.data,
-		ia: ia.data,
-		pnj: pnj.data || [],
-		arcs: arcs.data || [],
-		lieux: lieux.data || [],
-		aVenir: aVenir.data || []
+		partie,
+		valentin: {
+			...protagoniste?.proprietes,  // D'abord les propriétés statiques (compétences, traits...)
+			...stats,                     // ENSUITE les stats (écrase credits, energie, etc.)
+			inventaire: inventaire.map(i => i.objet_nom)
+		},
+		ia: iaData ? { nom: iaData.nom, ...iaData.proprietes } : null
 	};
 }
 
 async function loadChatMessages(partieId) {
-	const { data } = await supabase.from('chat_messages').select('role, content, cycle, created_at')
-		.eq('partie_id', partieId).order('created_at', { ascending: true });
+	const { data } = await supabase.from('chat_messages')
+		.select('role, content, cycle, scene_id, created_at')
+		.eq('partie_id', partieId)
+		.order('created_at', { ascending: true });
 	return data || [];
 }
 
 // ============================================================================
-// FONCTIONS ANNEXES
+// GESTION DES SCÈNES
 // ============================================================================
 
-async function genererResumeCycle(supabase, partieId, cycle, jour, dateJeu) {
+async function gererChangementScene(partieId, cycle, ancienLieu, nouveauLieu, heure, pnjsPresents) {
+	const sceneEnCours = await getSceneEnCours(supabase, partieId);
+
+	if (sceneEnCours && ancienLieu && nouveauLieu &&
+		ancienLieu.toLowerCase() !== nouveauLieu.toLowerCase()) {
+		console.log(`[SCENE] Changement: ${ancienLieu} → ${nouveauLieu}`);
+
+		// Fermer l'ancienne scène
+		await fermerScene(supabase, sceneEnCours.id, heure, pnjsPresents);
+
+		// Extraction KG en background sur la scène terminée
+		extraireSceneEnBackground(partieId, sceneEnCours.id, cycle);
+
+		// Créer la nouvelle scène
+		const nouvelleScene = await creerScene(supabase, partieId, cycle, nouveauLieu, heure);
+		return nouvelleScene;
+	}
+
+	if (!sceneEnCours && nouveauLieu) {
+		console.log(`[SCENE] Création première scène: ${nouveauLieu}`);
+		return await creerScene(supabase, partieId, cycle, nouveauLieu, heure);
+	}
+
+	return sceneEnCours;
+}
+
+async function extraireSceneEnBackground(partieId, sceneId, cycle) {
 	try {
-		// Récupérer tous les messages du cycle
+		// Récupérer les messages de la scène
 		const { data: messages } = await supabase
 			.from('chat_messages')
 			.select('role, content')
-			.eq('partie_id', partieId)
-			.eq('cycle', cycle)
-			.order('created_at', { ascending: true });
+			.eq('scene_id', sceneId)
+			.order('created_at');
 
-		if (!messages || messages.length === 0) return;
+		if (!messages?.length) return;
 
-		// Récupérer les transactions du cycle
-		const { data: transactions } = await supabase
-			.from('finances')
-			.select('montant, description')
-			.eq('partie_id', partieId)
-			.eq('cycle', cycle);
-
-		// Construire le contexte pour le résumé
-		const conversation = messages
-			.map(m => `${m.role === 'user' ? 'VALENTIN' : 'MJ'}: ${m.content}`)
+		// Concaténer les narratifs
+		const narratif = messages
+			.filter(m => m.role === 'assistant')
+			.map(m => m.content)
 			.join('\n\n');
 
-		const depenses = transactions
-			?.map(t => `${t.montant > 0 ? '+' : ''}${t.montant} crédits: ${t.description}`)
-			.join('\n') || 'Aucune transaction';
+		if (narratif.trim()) {
+			const result = await extraireEtAppliquer(supabase, partieId, narratif, cycle, sceneId);
 
-		const prompt = `Tu es un assistant qui résume des sessions de jeu de rôle.
-
-Voici la conversation complète du Cycle ${cycle} (${jour}, ${dateJeu}) :
-
-${conversation}
-
----
-TRANSACTIONS DU CYCLE :
-${depenses}
-
----
-Génère un résumé JSON de cette journée :
-
-{
-  "resume": "Résumé narratif de la journée en 3-5 phrases. Ce qui s'est passé, qui Valentin a rencontré, les décisions importantes.",
-  "evenements_cles": ["événement 1", "événement 2", "événement 3"],
-  "relations_modifiees": [
-    {"pnj": "Nom", "evolution": "description courte du changement"}, ...
-  ]
-}
-
-Réponds UNIQUEMENT avec le JSON, sans backticks.`;
-
-		const response = await anthropic.messages.create({
-			model: 'claude-sonnet-4-20250514',
-			max_tokens: 1024,
-			messages: [{ role: 'user', content: prompt }]
-		});
-
-		const content = response.content[0]?.text;
-		const parsed = JSON.parse(content);
-
-		// Sauvegarder le résumé
-		await supabase.from('cycle_resumes').insert({
-			partie_id: partieId,
-			cycle: cycle,
-			jour: jour,
-			date_jeu: dateJeu,
-			resume: parsed.resume,
-			evenements_cles: parsed.evenements_cles || [],
-			relations_modifiees: parsed.relations_modifiees || []
-		});
-
-		console.log(`[BG] Résumé cycle ${cycle} généré`);
-
+			if (result.success && result.resume) {
+				await marquerAnalysee(supabase, sceneId, result.resume);
+			}
+		}
 	} catch (err) {
-		console.error(`[BG] Erreur génération résumé cycle ${cycle}:`, err);
+		console.error('[SCENE] Erreur extraction background:', err);
 	}
 }
 
 // ============================================================================
-// TRAITEMENT MODE INIT
+// TRAITEMENT MODE INIT (création KG)
 // ============================================================================
 
-async function processInitMode(supabase, partieId, init, heure) {
-	const updates = [];
+async function processInitMode(partieId, parsed, cycle) {
+	console.log('[INIT] Création du Knowledge Graph initial');
 
-	// 1. Mise à jour partie
-	updates.push(
-		supabase.from('parties').update({
-			cycle_actuel: init.cycle || 1,
-			jour: init.jour || 'Lundi',
-			date_jeu: init.date_jeu,
-			heure: heure,
-			lieu_actuel: init.lieu_actuel || null,
-			pending_full_state: false
-		}).eq('id', partieId)
-	);
+	const operations = [];
 
-	// 2. Mise à jour Valentin
-	if (init.valentin) {
-		const valentinUpdate = {};
-		if (init.valentin.raison_depart) valentinUpdate.raison_depart = init.valentin.raison_depart;
-		if (init.valentin.poste) valentinUpdate.poste = init.valentin.poste;
-		if (init.valentin.hobbies_supplementaires?.length > 0) {
-			const { data: current } = await supabase.from('valentin').select('hobbies').eq('partie_id', partieId).single();
-			const existingHobbies = current?.hobbies || ['Cuisine'];
-			valentinUpdate.hobbies = [...existingHobbies, ...init.valentin.hobbies_supplementaires];
-		}
-		if (Object.keys(valentinUpdate).length > 0) {
-			updates.push(supabase.from('valentin').update(valentinUpdate).eq('partie_id', partieId));
-		}
-	}
-
-	// 3. Mise à jour IA
-	if (init.ia?.nom) {
-		updates.push(supabase.from('ia_personnelle').update({ nom: init.ia.nom }).eq('partie_id', partieId));
-	}
-
-	// 4. PNJ initiaux
-	if (init.pnj_initiaux?.length > 0) {
-		for (const pnj of init.pnj_initiaux) {
-			const { data: existing } = await supabase
-				.from('pnj')
-				.select('id')
-				.eq('partie_id', partieId)
-				.ilike('nom', pnj.nom)
-				.single();
-
-			if (existing) {
-				updates.push(
-					supabase.from('pnj').update({
-						metier: pnj.metier,
-						traits: pnj.traits || [],
-						arc: pnj.arc,
-						domicile: pnj.domicile,
-						est_initial: true
-					}).eq('id', existing.id)
-				);
-			} else {
-				updates.push(
-					supabase.from('pnj').insert({
-						partie_id: partieId,
-						nom: pnj.nom,
-						metier: pnj.metier,
-						physique: pnj.physique || null,
-						traits: pnj.traits || [],
-						arc: pnj.arc,
-						domicile: pnj.domicile,
-						relation: 0,
-						disposition: 'neutre',
-						stat_social: 3,
-						stat_travail: 3,
-						stat_sante: 3,
-						est_initial: true,
-						dernier_contact: 1
-					})
-				);
+	// 1. Créer le protagoniste (Valentin)
+	operations.push({
+		op: 'CREER_ENTITE',
+		type: 'protagoniste',
+		nom: 'Valentin',
+		alias: ['Valentin Nyzam'],
+		proprietes: {
+			physique: '1m78, brun dégarni, barbe, implants rétiniens',
+			traits: ['introverti', 'maladroit en amour', 'curieux', 'romantique malgré lui'],
+			raison_depart: parsed.valentin?.raison_depart || null,
+			poste: parsed.valentin?.poste || null,
+			hobbies: parsed.valentin?.hobbies || ['cuisine'],
+			competences: {
+				informatique: 5, systemes: 4, recherche: 4,
+				social: 2, cuisine: 3, bricolage: 3,
+				observation: 3, culture: 3, sang_froid: 3,
+				pedagogie: 3, physique: 3, administration: 3, jeux: 3,
+				discretion: 2, negociation: 2, empathie: 2,
+				art: 2, commerce: 2, leadership: 2, xenologie: 2,
+				medical: 1, pilotage: 1, mensonge: 1, survie: 1,
+				intimidation: 1, seduction: 1, droit: 1, botanique: 1
 			}
 		}
+	});
+
+	// 2. Créer l'IA
+	if (parsed.ia?.nom) {
+		operations.push({
+			op: 'CREER_ENTITE',
+			type: 'ia',
+			nom: parsed.ia.nom,
+			proprietes: {
+				traits: ['sarcastique', 'pragmatique'],
+				voix: 'grave, sensuelle'
+			}
+		});
+
+		operations.push({
+			op: 'CREER_RELATION',
+			source: parsed.ia.nom,
+			cible: 'Valentin',
+			type: 'assiste'
+		});
 	}
 
-	// 5. Lieux initiaux
-	if (init.lieux_initiaux?.length > 0) {
-		const lieuxToInsert = init.lieux_initiaux.map(l => ({
-			partie_id: partieId,
-			nom: l.nom,
-			type: l.type,
-			description: l.description
-		}));
-		updates.push(supabase.from('lieux').insert(lieuxToInsert));
+	// 3. Créer le monde (station/base)
+	if (parsed.monde) {
+		operations.push({
+			op: 'CREER_ENTITE',
+			type: 'lieu',
+			nom: parsed.monde.nom,
+			proprietes: {
+				niveau: 'zone',
+				type_lieu: parsed.monde.type,
+				ambiance: parsed.monde.ambiance,
+				population: parsed.monde.population,
+				orbite: parsed.monde.orbite
+			}
+		});
 	}
 
-	// 6. Arcs potentiels
-	if (init.arcs_potentiels?.length > 0) {
-		const arcsToInsert = init.arcs_potentiels.map(a => ({
-			partie_id: partieId,
-			nom: a.nom,
-			type: a.type,
-			progression: 0,
-			etat: 'actif'
-		}));
-		updates.push(supabase.from('arcs').insert(arcsToInsert));
-	}
+	// 4. Créer l'employeur
+	if (parsed.employeur) {
+		operations.push({
+			op: 'CREER_ENTITE',
+			type: 'organisation',
+			nom: parsed.employeur.nom,
+			proprietes: {
+				type_org: 'entreprise',
+				domaine: parsed.employeur.type
+			}
+		});
 
-	// 7. Monde (stocker comme faits)
-	if (init.monde) {
-		const faitsMonde = [
-			{ partie_id: partieId, sujet_type: 'monde', sujet_nom: init.monde.lieu_nom, categorie: 'etat', fait: `Type: ${init.monde.lieu_type}`, importance: 5, cycle_creation: 1, source: 'narrateur', valentin_sait: true, certitude: 'certain' },
-			{ partie_id: partieId, sujet_type: 'monde', sujet_nom: init.monde.lieu_nom, categorie: 'etat', fait: `Position: ${init.monde.lieu_orbite}`, importance: 4, cycle_creation: 1, source: 'narrateur', valentin_sait: true, certitude: 'certain' },
-			{ partie_id: partieId, sujet_type: 'monde', sujet_nom: init.monde.lieu_nom, categorie: 'etat', fait: `Population: ${init.monde.lieu_population}`, importance: 3, cycle_creation: 1, source: 'narrateur', valentin_sait: true, certitude: 'certain' },
-			{ partie_id: partieId, sujet_type: 'monde', sujet_nom: init.monde.lieu_nom, categorie: 'trait', fait: `Ambiance: ${init.monde.lieu_ambiance}`, importance: 4, cycle_creation: 1, source: 'narrateur', valentin_sait: true, certitude: 'certain' }
-		];
-		updates.push(supabase.from('faits').insert(faitsMonde));
-	}
+		operations.push({
+			op: 'CREER_RELATION',
+			source: 'Valentin',
+			cible: parsed.employeur.nom,
+			type: 'employe_de',
+			proprietes: { poste: parsed.valentin?.poste }
+		});
 
-	// 8. Employeur
-	if (init.employeur) {
-		updates.push(
-			supabase.from('faits').insert({
-				partie_id: partieId,
-				sujet_type: 'monde',
-				sujet_nom: init.employeur.nom,
-				categorie: 'etat',
-				fait: `Employeur de Valentin. Type: ${init.employeur.type}`,
-				importance: 5,
-				cycle_creation: 1,
-				source: 'narrateur',
-				valentin_sait: true,
-				certitude: 'certain'
-			})
-		);
-	}
-
-	await Promise.all(updates);
-}
-
-// ============================================================================
-// TRAITEMENT MODE NEWCYCLE
-// ============================================================================
-
-async function processNewCycleMode(supabase, partieId, parsed, pnjList) {
-	const updates = [];
-	const cycle = parsed.nouveau_jour?.cycle || 1;
-
-	// 1. Nouveau jour
-	if (parsed.nouveau_jour) {
-		updates.push(
-			supabase.from('parties').update({
-				cycle_actuel: parsed.nouveau_jour.cycle,
-				jour: parsed.nouveau_jour.jour,
-				date_jeu: parsed.nouveau_jour.date_jeu,
-				heure: parsed.heure,
-				lieu_actuel: parsed.lieu_actuel || null,
-				pending_full_state: false
-			}).eq('id', partieId)
-		);
-	} else {
-		updates.push(
-			supabase.from('parties').update({
-				lieu_actuel: parsed.lieu_actuel || null,
-				pending_full_state: false
-			}).eq('id', partieId)
-		);
-	}
-
-	// 2. Réveil Valentin (valeurs absolues)
-	if (parsed.reveil_valentin) {
-		const rv = parsed.reveil_valentin;
-		const valentinUpdate = { updated_at: new Date().toISOString() };
-
-		if (rv.energie !== undefined) valentinUpdate.energie = rv.energie;
-		if (rv.moral !== undefined) valentinUpdate.moral = rv.moral;
-		if (rv.sante !== undefined) valentinUpdate.sante = rv.sante;
-
-		updates.push(
-			supabase.from('valentin').update(valentinUpdate).eq('partie_id', partieId)
-		);
-
-		if (rv.evenement_nuit) {
-			updates.push(
-				supabase.from('faits').insert({
-					partie_id: partieId,
-					sujet_type: 'valentin',
-					sujet_nom: 'Valentin',
-					categorie: 'evenement',
-					fait: rv.evenement_nuit,
-					importance: 2,
-					cycle_creation: cycle,
-					source: 'narrateur',
-					valentin_sait: true,
-					certitude: 'certain'
-				})
-			);
+		if (parsed.monde?.nom) {
+			operations.push({
+				op: 'CREER_RELATION',
+				source: parsed.employeur.nom,
+				cible: parsed.monde.nom,
+				type: 'siege_de'
+			});
 		}
 	}
 
-	// 3. Évolutions PNJ
-	if (parsed.evolutions_pnj?.length > 0) {
-		for (const ev of parsed.evolutions_pnj) {
-			const pnj = pnjList.find(p => p.nom.toLowerCase() === ev.nom.toLowerCase());
-			if (pnj?.id) {
-				const pnjUpdate = { updated_at: new Date().toISOString() };
-				if (ev.stat_social !== undefined) pnjUpdate.stat_social = ev.stat_social;
-				if (ev.stat_travail !== undefined) pnjUpdate.stat_travail = ev.stat_travail;
-				if (ev.stat_sante !== undefined) pnjUpdate.stat_sante = ev.stat_sante;
-				if (ev.disposition) pnjUpdate.disposition = ev.disposition;
+	// 5. Créer les lieux initiaux
+	for (const lieu of (parsed.lieux_initiaux || [])) {
+		operations.push({
+			op: 'CREER_ENTITE',
+			type: 'lieu',
+			nom: lieu.nom,
+			proprietes: {
+				niveau: 'lieu',
+				type_lieu: lieu.type,
+				ambiance: lieu.description,
+				horaires: lieu.horaires
+			}
+		});
 
-				updates.push(supabase.from('pnj').update(pnjUpdate).eq('id', pnj.id));
+		// Lier au secteur ou à la station
+		const parent = lieu.secteur || parsed.monde?.nom;
+		if (parent) {
+			operations.push({
+				op: 'CREER_RELATION',
+				source: lieu.nom,
+				cible: parent,
+				type: 'situe_dans'
+			});
+		}
 
-				if (ev.evenement_horschamp) {
-					updates.push(
-						supabase.from('faits').insert({
-							partie_id: partieId,
-							sujet_type: 'pnj',
-							sujet_id: pnj.id,
-							sujet_nom: ev.nom,
-							categorie: 'evenement',
-							fait: ev.evenement_horschamp,
-							importance: 3,
-							cycle_creation: cycle,
-							source: 'narrateur',
-							valentin_sait: false,
-							certitude: 'certain'
-						})
-					);
+		// Relations "frequente" pour les PNJ fréquents
+		for (const freq of (lieu.pnjs_frequents || [])) {
+			operations.push({
+				op: 'CREER_RELATION',
+				source: freq.pnj,
+				cible: lieu.nom,
+				type: 'frequente',
+				proprietes: {
+					regularite: freq.regularite || 'parfois',
+					periode: freq.periode || 'aléatoire'
 				}
+			});
+		}
+	}
+
+	// 6. Créer les PNJ initiaux
+	for (const pnj of (parsed.pnj_initiaux || [])) {
+		// Déterminer si intérêt romantique potentiel
+		const sexe = (pnj.sexe || '').toUpperCase();
+		const age = pnj.age || 0;
+		const interetRomantique = (
+			sexe === 'F' &&
+			age >= AGE_MIN_ROMANCE &&
+			age <= AGE_MAX_ROMANCE
+		);
+
+		operations.push({
+			op: 'CREER_ENTITE',
+			type: 'personnage',
+			nom: pnj.nom,
+			alias: [pnj.nom.split(' ')[0]], // Prénom comme alias
+			proprietes: {
+				sexe: sexe,
+				age: pnj.age,
+				espece: pnj.espece || 'humain',
+				metier: pnj.metier,
+				physique: pnj.physique,
+				traits: pnj.traits || [],
+				interet_romantique: interetRomantique
 			}
-		}
-	}
+		});
 
-	// 4. Progression arcs
-	if (parsed.progression_arcs?.length > 0) {
-		for (const prog of parsed.progression_arcs) {
-			const { data: arc } = await supabase
-				.from('arcs')
-				.select('id')
-				.eq('partie_id', partieId)
-				.ilike('nom', `%${prog.nom}%`)
-				.single();
-
-			if (arc?.id) {
-				updates.push(
-					supabase.from('arcs').update({ progression: prog.progression }).eq('id', arc.id)
-				);
+		// Relation initiale avec Valentin (niveau 0)
+		operations.push({
+			op: 'CREER_RELATION',
+			source: 'Valentin',
+			cible: pnj.nom,
+			type: 'connait',
+			proprietes: {
+				niveau: 0,
+				// etape_romantique seulement si intérêt potentiel
+				...(interetRomantique && { etape_romantique: 0 })
 			}
+		});
+
+		// Lieu de domicile si connu
+		if (pnj.domicile) {
+			operations.push({
+				op: 'CREER_RELATION',
+				source: pnj.nom,
+				cible: pnj.domicile,
+				type: 'habite'
+			});
 		}
-	}
 
-	// 5. Nouveaux lieux
-	if (parsed.nouveaux_lieux?.length > 0) {
-		const lieuxToInsert = parsed.nouveaux_lieux.map(l => ({
-			partie_id: partieId,
-			nom: l.nom,
-			type: l.type,
-			description: l.description
-		}));
-		updates.push(supabase.from('lieux').insert(lieuxToInsert));
-	}
-
-	// 6. Événements à venir
-	if (parsed.evenements_a_venir?.length > 0) {
-		const evToInsert = parsed.evenements_a_venir.map(ev => ({
-			partie_id: partieId,
-			cycle_prevu: ev.cycle_prevu,
-			evenement: ev.evenement,
-			pnj_impliques: ev.pnj_impliques || [],
-			realise: false
-		}));
-		updates.push(supabase.from('a_venir').insert(evToInsert));
-	}
-
-	await Promise.all(updates);
-}
-
-// ============================================================================
-// APPLICATION DES DELTAS (mode light)
-// ============================================================================
-
-async function applyDeltas(supabase, partieId, parsed, pnjList, cycle, heure) {
-	const results = {
-		valentin: null,
-		relations: 0,
-		pnj: 0,
-		transactions: 0,
-		competence: null,
-		lieu: null
-	};
-
-	// 1. Deltas Valentin
-	if (parsed.deltas_valentin) {
-		const { data: current } = await supabase
-			.from('valentin')
-			.select('energie, moral, sante')
-			.eq('partie_id', partieId)
-			.single();
-
-		if (current) {
-			const d = parsed.deltas_valentin;
-			const newValues = {
-				energie: Math.max(1, Math.min(5, (current.energie || 3) + (d.energie || 0))),
-				moral: Math.max(1, Math.min(5, (current.moral || 3) + (d.moral || 0))),
-				sante: Math.max(1, Math.min(5, (current.sante || 5) + (d.sante || 0))),
-				updated_at: new Date().toISOString()
-			};
-
-			await supabase.from('valentin').update(newValues).eq('partie_id', partieId);
-
-			results.valentin = {
-				energie: newValues.energie,
-				moral: newValues.moral,
-				sante: newValues.sante
-			};
-		}
-	}
-
-	// 2. Changements de relation + disposition
-	if (parsed.changements_relation?.length > 0) {
-		for (const change of parsed.changements_relation) {
-			if (!change.pnj) continue;
-
-			const pnj = pnjList.find(p =>
-				p.nom && (
-					p.nom.toLowerCase() === change.pnj.toLowerCase() ||
-					p.nom.split(' ')[0].toLowerCase() === change.pnj.toLowerCase()
-				)
-			);
-
-			if (pnj?.id) {
-				const currentRelation = pnj.relation || 0;
-				const newRelation = Math.max(0, Math.min(10, currentRelation + (change.delta || 0)));
-
-				const updateData = {
-					relation: newRelation,
-					updated_at: new Date().toISOString()
-				};
-
-				if (change.disposition) {
-					updateData.disposition = change.disposition;
+		// Créer les arcs personnels du PNJ comme entités
+		for (const arcTitre of (pnj.arcs || [])) {
+			operations.push({
+				op: 'CREER_ENTITE',
+				type: 'arc_narratif',
+				nom: arcTitre,
+				proprietes: {
+					type_arc: 'pnj_personnel',
+					description: `Arc personnel de ${pnj.nom}`,
+					progression: 0,
+					etat: 'actif'
 				}
-
-				await supabase.from('pnj').update(updateData).eq('id', pnj.id);
-				results.relations++;
-			}
-		}
-	}
-
-	// 3. Nouveaux PNJ
-	if (parsed.nouveaux_pnj?.length > 0) {
-		const toInsert = parsed.nouveaux_pnj.map(p => ({
-			partie_id: partieId,
-			nom: p.nom,
-			metier: p.metier || null,
-			physique: p.physique || null,
-			traits: p.traits || [],
-			relation: 0,
-			disposition: 'neutre',
-			stat_social: 3,
-			stat_travail: 3,
-			stat_sante: 3,
-			dernier_contact: cycle
-		}));
-
-		await supabase.from('pnj').insert(toInsert);
-		results.pnj = toInsert.length;
-	}
-
-	// 4. Transactions
-	if (parsed.transactions?.length > 0) {
-		const txResult = await insererTransactions(supabase, partieId, cycle, heure, parsed.transactions);
-		results.transactions = txResult.inserted;
-	}
-
-	// 5. Progression compétence
-	if (parsed.progression_competence?.competence) {
-		results.competence = parsed.progression_competence.competence;
-	}
-
-	// 6. Nouveau lieu (si découvert)
-	if (parsed.nouveau_lieu?.nom) {
-		const { data: lieuExistant } = await supabase
-			.from('lieux')
-			.select('id')
-			.eq('partie_id', partieId)
-			.ilike('nom', parsed.nouveau_lieu.nom)
-			.maybeSingle();
-
-		if (!lieuExistant) {
-			await supabase.from('lieux').insert({
-				partie_id: partieId,
-				nom: parsed.nouveau_lieu.nom,
-				type: parsed.nouveau_lieu.type || 'autre',
-				secteur: parsed.nouveau_lieu.secteur || null,
-				description: parsed.nouveau_lieu.description || null,
-				pnj_frequents: parsed.nouveau_lieu.pnj_frequents || [],
-				cycles_visites: [cycle]
 			});
 
-			results.lieu = parsed.nouveau_lieu;
+			// Lier le PNJ à son arc
+			operations.push({
+				op: 'CREER_RELATION',
+				source: pnj.nom,
+				cible: arcTitre,
+				type: 'implique_dans',
+				proprietes: { role: 'protagoniste' }
+			});
 		}
 	}
 
-	// 7. Mise à jour lieu actuel + tracking visite
-	if (parsed.lieu_actuel) {
-		// Mettre à jour parties
-		await supabase.from('parties').update({
-			lieu_actuel: parsed.lieu_actuel,
-			heure: heure
-		}).eq('id', partieId);
-
-		// Tracker la visite (si lieu existe et pas nouveau)
-		if (!parsed.nouveau_lieu || parsed.nouveau_lieu.nom !== parsed.lieu_actuel) {
-			const { data: lieu } = await supabase
-				.from('lieux')
-				.select('id, cycles_visites')
-				.eq('partie_id', partieId)
-				.ilike('nom', parsed.lieu_actuel)
-				.maybeSingle();
-
-			if (lieu) {
-				const cyclesVisites = lieu.cycles_visites || [];
-				if (!cyclesVisites.includes(cycle)) {
-					await supabase.from('lieux').update({
-						cycles_visites: [...cyclesVisites, cycle]
-					}).eq('id', lieu.id);
-				}
+	// 7. Créer les arcs narratifs
+	for (const arc of (parsed.arcs_potentiels || [])) {
+		operations.push({
+			op: 'CREER_ENTITE',
+			type: 'arc_narratif',
+			nom: arc.nom,
+			proprietes: {
+				type_arc: arc.type,
+				description: arc.description,
+				obstacles: arc.obstacles || [],
+				progression: 0,
+				etat: 'actif'
 			}
+		});
+
+		// Lier les PNJ impliqués
+		for (const pnjNom of (arc.pnjs_impliques || [])) {
+			operations.push({
+				op: 'CREER_RELATION',
+				source: pnjNom,
+				cible: arc.nom,
+				type: 'implique_dans'
+			});
 		}
 	}
 
-	// 8. Nouveau cycle flag
-	if (parsed.nouveau_cycle === true) {
-		await supabase.from('parties').update({
-			pending_full_state: true
-		}).eq('id', partieId);
+	// 8. États initiaux de Valentin
+	const valentinId = await trouverEntite(supabase, partieId, 'Valentin', 'protagoniste');
+
+	// Appliquer toutes les opérations
+	const resultats = await appliquerOperations(supabase, partieId, operations, cycle);
+	console.log(`[INIT] ${resultats.entites_creees} entités, ${resultats.relations_creees} relations`);
+
+	// États initiaux (après création des entités)
+	const protagoniste = await getProtagoniste(supabase, partieId);
+	if (protagoniste) {
+		for (const [attr, val] of [['energie', '3'], ['moral', '3'], ['sante', '5'], ['credits', '1400']]) {
+			await supabase.rpc('kg_set_etat', {
+				p_partie_id: partieId,
+				p_entite_id: protagoniste.id,
+				p_attribut: attr,
+				p_valeur: val,
+				p_cycle: cycle,
+				p_details: null,
+				p_certitude: 'certain',
+				p_verite: true
+			});
+		}
 	}
 
-	return results;
+	// États initiaux des PNJ (stats)
+	for (const pnj of (parsed.pnj_initiaux || [])) {
+		const pnjId = await trouverEntite(supabase, partieId, pnj.nom, 'personnage');
+		if (pnjId) {
+			await supabase.rpc('kg_set_etat', {
+				p_partie_id: partieId,
+				p_entite_id: pnjId,
+				p_attribut: 'disposition',
+				p_valeur: 'neutre',
+				p_cycle: cycle,
+				p_details: null,
+				p_certitude: 'certain',
+				p_verite: true
+			});
+		}
+	}
+
+	// Mettre à jour la partie
+	await supabase.from('parties').update({
+		cycle_actuel: parsed.cycle || 1,
+		jour: parsed.jour,
+		date_jeu: parsed.date_jeu,
+		heure: parsed.heure,
+		lieu_actuel: parsed.lieu_actuel
+	}).eq('id', partieId);
+
+	// Créer la première scène
+	if (parsed.lieu_actuel) {
+		await creerScene(supabase, partieId, 1, parsed.lieu_actuel, parsed.heure);
+	}
+
+	return resultats;
+}
+
+// ============================================================================
+// TRAITEMENT MODE LIGHT
+// ============================================================================
+
+async function processLightMode(partieId, parsed, cycle, sceneEnCours) {
+	const resultats = {
+		stats_updated: false,
+		transactions: 0,
+		scene_changed: false
+	};
+
+	// 1. Deltas Valentin (stats)
+	if (parsed.deltas_valentin) {
+		const d = parsed.deltas_valentin;
+		if (d.energie || d.moral || d.sante) {
+			await updateStatsValentin(supabase, partieId, cycle, d);
+			resultats.stats_updated = true;
+		}
+	}
+
+	// 2. Transactions
+	if (parsed.transactions?.length > 0) {
+		for (const tx of parsed.transactions) {
+			await creerTransaction(supabase, partieId, cycle, {
+				type: tx.type,
+				montant: tx.montant,
+				description: tx.description,
+				objet: tx.objet,
+				quantite: tx.quantite,
+				heure: parsed.heure
+			});
+			resultats.transactions++;
+		}
+	}
+
+	// 3. Changement de lieu = changement de scène
+	const ancienLieu = sceneEnCours?.lieu;
+	const nouveauLieu = parsed.lieu_actuel;
+
+	if (nouveauLieu && ancienLieu && nouveauLieu.toLowerCase() !== ancienLieu.toLowerCase()) {
+		await gererChangementScene(partieId, cycle, ancienLieu, nouveauLieu, parsed.heure, parsed.pnjs_presents);
+		resultats.scene_changed = true;
+	}
+
+	// 4. Mise à jour partie
+	await supabase.from('parties').update({
+		heure: parsed.heure,
+		lieu_actuel: parsed.lieu_actuel || ancienLieu,
+		pnjs_presents: parsed.pnjs_presents || []
+	}).eq('id', partieId);
+
+	// 5. Ajouter PNJ à la scène
+	if (parsed.pnjs_presents?.length > 0 && sceneEnCours?.id) {
+		await ajouterPnjImpliques(supabase, sceneEnCours.id, parsed.pnjs_presents);
+	}
+
+	// 6. Nouveau cycle
+	if (parsed.nouveau_cycle) {
+		await supabase.from('parties').update({
+			cycle_actuel: cycle + 1,
+			jour: parsed.nouveau_jour?.jour,
+			date_jeu: parsed.nouveau_jour?.date_jeu
+		}).eq('id', partieId);
+
+		// Fermer la scène en cours
+		if (sceneEnCours?.id) {
+			await fermerScene(supabase, sceneEnCours.id, parsed.heure, parsed.pnjs_presents);
+			extraireSceneEnBackground(partieId, sceneEnCours.id, cycle);
+		}
+	}
+
+	return resultats;
+}
+
+// ============================================================================
+// EXTRACTION KG EN BACKGROUND
+// ============================================================================
+
+async function extractionBackground(partieId, narratif, parsed, cycle, sceneId) {
+	// Vérifier si extraction nécessaire
+	if (!doitExtraire(narratif, parsed)) {
+		console.log('[KG] Extraction non nécessaire');
+		return;
+	}
+
+	console.log('[KG] Lancement extraction background...');
+
+	try {
+		const result = await extraireEtAppliquer(supabase, partieId, narratif, cycle, sceneId);
+
+		if (result.success) {
+			console.log(`[KG] Extraction OK: ${result.metrics.nb_operations} ops`);
+		} else {
+			console.warn('[KG] Extraction avec erreurs:', result.metrics.erreurs);
+		}
+	} catch (err) {
+		console.error('[KG] Erreur extraction:', err);
+	}
 }
 
 // ============================================================================
 // GESTION PARTIES
 // ============================================================================
 
+async function createNewGame() {
+	const { data: partie, error } = await supabase.from('parties').insert({
+		nom: 'Nouvelle partie',
+		cycle_actuel: 1,
+		active: true
+	}).select().single();
+
+	if (error) throw error;
+	return partie.id;
+}
+
 async function deleteGame(partieId) {
+	// 1. Récupérer les IDs des événements pour supprimer les participants
+	const { data: evenements } = await supabase
+		.from('kg_evenements')
+		.select('id')
+		.eq('partie_id', partieId);
+
+	const evenementIds = (evenements || []).map(e => e.id);
+
+	// 2. Supprimer les participants d'événements
+	if (evenementIds.length > 0) {
+		await supabase
+			.from('kg_evenement_participants')
+			.delete()
+			.in('evenement_id', evenementIds);
+	}
+
+	// 3. Supprimer les tables principales (en parallèle)
 	await Promise.all([
 		supabase.from('chat_messages').delete().eq('partie_id', partieId),
 		supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
-		supabase.from('faits').delete().eq('partie_id', partieId),
-		supabase.from('finances').delete().eq('partie_id', partieId),
-		supabase.from('lieux').delete().eq('partie_id', partieId),
-		supabase.from('a_venir').delete().eq('partie_id', partieId),
-		supabase.from('arcs').delete().eq('partie_id', partieId),
-		supabase.from('pnj').delete().eq('partie_id', partieId),
-		supabase.from('ia_personnelle').delete().eq('partie_id', partieId),
-		supabase.from('valentin').delete().eq('partie_id', partieId)
+		supabase.from('scenes').delete().eq('partie_id', partieId),
+		supabase.from('kg_extraction_logs').delete().eq('partie_id', partieId),
+		supabase.from('kg_evenements').delete().eq('partie_id', partieId),
+		supabase.from('kg_etats').delete().eq('partie_id', partieId),
+		supabase.from('kg_relations').delete().eq('partie_id', partieId),
+		supabase.from('kg_entites').delete().eq('partie_id', partieId)
 	]);
+
+	// 4. Supprimer la partie
 	await supabase.from('parties').delete().eq('id', partieId);
-}
-
-async function createNewGame() {
-	const { data: partie, error } = await supabase
-		.from('parties')
-		.insert({
-			nom: 'Nouvelle partie',
-			cycle_actuel: 1,
-			active: true,
-			pending_full_state: false,
-			options: { faits_enabled: true }
-		})
-		.select()
-		.single();
-	if (error) throw error;
-
-	await Promise.all([
-		supabase.from('valentin').insert({ partie_id: partie.id }),
-		supabase.from('ia_personnelle').insert({ partie_id: partie.id }),
-		supabase.from('pnj').insert({
-			partie_id: partie.id,
-			nom: 'Justine Lépicier',
-			age: 32,
-			physique: '1m54, 72kg, courbes prononcées, poitrine volumineuse, blonde en désordre, yeux bleus fatigués, cernes',
-			relation: 0,
-			disposition: 'neutre',
-			stat_social: 4,
-			stat_travail: 2,
-			stat_sante: 2,
-			etape_romantique: 0,
-			est_initial: true
-		})
-	]);
-
-	return partie.id;
 }
 
 // ============================================================================
@@ -703,26 +650,36 @@ export async function GET(request) {
 	const partieId = searchParams.get('partieId');
 
 	if (action === 'load' && partieId) {
+		console.log('[LOAD] Chargement partie:', partieId);
 		const state = await loadGameState(partieId);
+		console.log('[LOAD] State chargé:', JSON.stringify(state?.valentin, null, 2));
+
 		const messages = await loadChatMessages(partieId);
 		return Response.json({ state, messages });
 	}
+
 	if (action === 'list') {
 		const { data } = await supabase.from('parties')
-			.select('id, nom, cycle_actuel, updated_at, created_at, options, pending_full_state')
-			.eq('active', true).order('updated_at', { ascending: false });
+			.select('id, nom, cycle_actuel, updated_at, created_at')
+			.eq('active', true)
+			.order('updated_at', { ascending: false });
 		return Response.json({ parties: data });
 	}
+
 	if (action === 'new') {
 		try {
 			const partieId = await createNewGame();
 			return Response.json({ partieId });
-		} catch (e) { return Response.json({ error: e.message }, { status: 500 }); }
+		} catch (e) {
+			return Response.json({ error: e.message }, { status: 500 });
+		}
 	}
+
 	if (action === 'delete' && partieId) {
 		await deleteGame(partieId);
 		return Response.json({ success: true });
 	}
+
 	if (action === 'rename' && partieId) {
 		const newName = searchParams.get('name');
 		if (newName) {
@@ -731,13 +688,7 @@ export async function GET(request) {
 		}
 		return Response.json({ error: 'Nom manquant' }, { status: 400 });
 	}
-	if (action === 'toggle-faits' && partieId) {
-		const enabled = searchParams.get('enabled') === 'true';
-		const { data: current } = await supabase.from('parties').select('options').eq('id', partieId).single();
-		const newOptions = { ...(current?.options || {}), faits_enabled: enabled };
-		await supabase.from('parties').update({ options: newOptions }).eq('id', partieId);
-		return Response.json({ success: true, faits_enabled: enabled });
-	}
+
 	return Response.json({ error: 'Action non reconnue' });
 }
 
@@ -751,80 +702,54 @@ export async function DELETE(request) {
 		if (!partieId) return Response.json({ error: 'partieId manquant' }, { status: 400 });
 
 		const { data: allMessages } = await supabase.from('chat_messages')
-			.select('id, created_at').eq('partie_id', partieId).order('created_at', { ascending: true });
+			.select('id, created_at, cycle, state_snapshot')
+			.eq('partie_id', partieId)
+			.order('created_at', { ascending: true });
 
-		if (!allMessages || fromIndex >= allMessages.length) return Response.json({ success: true });
-
-		const messagesToDelete = allMessages.slice(fromIndex);
-		const firstDeletedAt = messagesToDelete[0]?.created_at;
-
-		// Trouver le cycle du dernier message restant
-		const remainingMessages = allMessages.slice(0, fromIndex);
-		const lastRemainingCycle = remainingMessages.length > 0
-			? remainingMessages[remainingMessages.length - 1].cycle
-			: 1;
-
-		if (messagesToDelete.length > 0 && firstDeletedAt) {
-			// Supprimer les messages
-			await supabase.from('chat_messages').delete().in('id', messagesToDelete.map(m => m.id));
-
-			// Supprimer les transactions créées après ce point
-			await supabase.from('finances').delete()
-				.eq('partie_id', partieId)
-				.gte('created_at', firstDeletedAt);
-
-			// Supprimer les faits créés après ce point
-			await supabase.from('faits').delete()
-				.eq('partie_id', partieId)
-				.gte('created_at', firstDeletedAt);
-
-			// Récupérer les infos du cycle cible AVANT suppression des résumés
-			let jourCible = null;
-			let dateCible = null;
-
-			if (lastRemainingCycle < partie.cycle_actuel) {
-				// Chercher dans cycle_resumes
-				const { data: resumeCycle } = await supabase
-					.from('cycle_resumes')
-					.select('jour, date_jeu')
-					.eq('partie_id', partieId)
-					.eq('cycle', lastRemainingCycle)
-					.maybeSingle();
-
-				if (resumeCycle) {
-					jourCible = resumeCycle.jour;
-					dateCible = resumeCycle.date_jeu;
-				}
-			}
-
-			// Supprimer les résumés des cycles supprimés
-			await supabase.from('cycle_resumes').delete()
-				.eq('partie_id', partieId)
-				.gte('cycle', firstDeletedCycle);
-
-			// Mettre à jour le cycle actuel si on revient en arrière
-			const { data: partie } = await supabase
-				.from('parties')
-				.select('cycle_actuel')
-				.eq('id', partieId)
-				.single();
-
-			if (partie && partie.cycle_actuel > lastRemainingCycle) {
-				await supabase.from('parties').update({
-					cycle_actuel: lastRemainingCycle,
-					jour: jourCible,        // null si pas trouvé
-					date_jeu: dateCible,    // null si pas trouvé
-					pending_full_state: false
-				}).eq('id', partieId);
-			}
-
-			// Recalculer le solde
-			const nouveauSolde = await calculerSolde(supabase, partieId);
-			await supabase.from('valentin').update({ credits: nouveauSolde }).eq('partie_id', partieId);
+		if (!allMessages || fromIndex >= allMessages.length) {
+			return Response.json({ success: true });
 		}
 
-		return Response.json({ success: true, deleted: messagesToDelete.length });
+		const rollbackTimestamp = allMessages[fromIndex].created_at;
+
+		// Récupérer le snapshot du message à éditer
+		const snapshot = allMessages[fromIndex].state_snapshot;
+
+		// Restaurer l'état parties depuis le snapshot
+		if (snapshot) {
+			await supabase
+				.from('parties')
+				.update({
+					cycle_actuel: snapshot.cycle_actuel,
+					jour: snapshot.jour,
+					date_jeu: snapshot.date_jeu,
+					heure: snapshot.heure,
+					lieu_actuel: snapshot.lieu_actuel,
+					pnjs_presents: snapshot.pnjs_presents
+				})
+				.eq('id', partieId);
+		}
+
+		// Rollback le KG
+		await rollbackKG(supabase, partieId, rollbackTimestamp);
+
+		// Supprimer les messages
+		const messagesToDelete = allMessages.slice(fromIndex);
+		if (messagesToDelete.length > 0) {
+			await supabase.from('chat_messages')
+				.delete()
+				.in('id', messagesToDelete.map(m => m.id));
+		}
+
+		const newState = await loadGameState(partieId);
+
+		return Response.json({
+			success: true,
+			deleted: messagesToDelete.length,
+			state: newState
+		});
 	} catch (e) {
+		console.error('[DELETE] Erreur:', e);
 		return Response.json({ error: e.message }, { status: 500 });
 	}
 }
@@ -836,300 +761,221 @@ export async function DELETE(request) {
 export async function POST(request) {
 	try {
 		const { message, partieId, gameState } = await request.json();
-		const currentCycle = gameState?.partie?.cycle_actuel || gameState?.cycle || 1;
+		const currentCycle = gameState?.partie?.cycle_actuel || 1;
 
-		// Déterminer le mode (INIT, NEWCYCLE ou LIGHT)
+		// Déterminer le mode
 		let promptMode = 'light';
-		let faitsEnabled = true;
+		let sceneEnCours = null;
 
 		if (!gameState || !gameState.partie) {
 			promptMode = 'init';
 			console.log('[MODE] INIT - Lancement de partie');
-		} else if (partieId) {
-			const { data: partieData } = await supabase
-				.from('parties')
-				.select('pending_full_state, options')
-				.eq('id', partieId)
-				.single();
-
-			faitsEnabled = partieData?.options?.faits_enabled !== false;
-
-			if (partieData?.pending_full_state) {
-				promptMode = 'newcycle';
-				console.log('[MODE] NEWCYCLE - Nouveau cycle');
-			} else {
-				console.log('[MODE] LIGHT - Message normal');
-			}
+		} else {
+			console.log('[MODE] LIGHT - Message normal');
+			sceneEnCours = await getSceneEnCours(supabase, partieId);
 		}
 
 		// Construire le contexte
-		let contextMessage, knownPnj = [];
-		if (partieId && gameState?.partie) {
-			try {
-				const contextResult = await buildContextForClaude(supabase, partieId, gameState, message, null, { faitsEnabled });
-				contextMessage = contextResult.context;
-				knownPnj = contextResult.pnj || [];
-			} catch (err) {
-				console.error('Erreur buildContextForClaude:', err);
-				contextMessage = `=== ÉTAT ===\n${JSON.stringify(gameState, null, 1)}\n\n=== ACTION ===\n${message}`;
-			}
+		let contextMessage;
+		if (promptMode === 'init') {
+			contextMessage = buildContextInit();
 		} else {
-			contextMessage = 'Nouvelle partie. Lance le jeu. Génère tout au lancement.';
+			const result = await buildContext(supabase, partieId, gameState, message);
+			contextMessage = result.context;
+			sceneEnCours = result.sceneEnCours || sceneEnCours;
 		}
 
-		// Sélectionner le prompt selon le mode
-		let systemPrompt, maxTokens;
-		switch (promptMode) {
-			case 'init':
-				systemPrompt = SYSTEM_PROMPT_INIT;
-				maxTokens = 8192;
-				break;
-			case 'newcycle':
-				systemPrompt = SYSTEM_PROMPT_NEWCYCLE;
-				maxTokens = 4096;
-				break;
-			default:
-				systemPrompt = SYSTEM_PROMPT_LIGHT;
-				maxTokens = 4096;
-		}
+		// Sélectionner le prompt
+		const systemPrompt = promptMode === 'init' ? SYSTEM_PROMPT_INIT : SYSTEM_PROMPT_LIGHT;
+		const maxTokens = promptMode === 'init' ? 8192 : 4096;
 
+		// Stream
 		const { readable, writable } = new TransformStream();
 		const writer = writable.getWriter();
 		const encoder = new TextEncoder();
-		let pnjForTracking = knownPnj;
 
 		(async () => {
-			let fullContent = '', parsed = null, displayText = '', cycleForSave = currentCycle;
+			let fullContent = '';
+			let parsed = null;
+			let displayText = '';
 
 			try {
+				console.log(`[STREAM] Context:`, contextMessage);
 				console.log(`[STREAM] Start streaming (${promptMode} mode)...`);
+				console.log(`[CONTEXT] Heure dans partie:`, gameState?.partie?.heure);
 				const streamStart = Date.now();
 
 				const streamResponse = await anthropic.messages.stream({
 					model: 'claude-sonnet-4-20250514',
+					temperature: 0.8,
 					max_tokens: maxTokens,
-					system: systemPrompt,
+					system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
 					messages: [{ role: 'user', content: contextMessage }]
 				});
 
 				for await (const event of streamResponse) {
 					if (event.type === 'content_block_delta' && event.delta?.text) {
 						fullContent += event.delta.text;
-						await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', content: event.delta.text })}\n\n`));
+						await writer.write(encoder.encode(
+							`data: ${JSON.stringify({ type: 'chunk', content: event.delta.text })}\n\n`
+						));
 					}
 				}
-				console.log(`[STREAM] Streaming complete: ${Date.now() - streamStart}ms`);
+				console.log(`[STREAM] Complete: ${Date.now() - streamStart}ms`);
 
 				// Parser le JSON
+				console.log(`[STREAM] Parsed:`, JSON.stringify(fullContent, null, 2));
 				parsed = extractJSON(fullContent);
+				console.log(`[STREAM] Parsed:`, JSON.stringify(parsed, null, 2));
 
 				// Construire le texte d'affichage
 				if (parsed) {
 					displayText = '';
-					const narratif = parsed.narratif || '';
-
-					// Ajouter l'heure seulement si le narratif ne commence pas déjà par elle
-					if (parsed.heure && !narratif.trim().startsWith(`[${parsed.heure}]`)) {
-						displayText += `[${parsed.heure}] `;
-					}
-
-					displayText += narratif;
-
+					if (parsed.heure) displayText += `[${parsed.heure}] `;
+					displayText += parsed.narratif || '';
 					if (parsed.choix?.length > 0) {
 						displayText += '\n\n' + parsed.choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
 					}
-
-					if (parsed.nouveau_jour?.cycle) {
-						cycleForSave = parsed.nouveau_jour.cycle;
-					}
 				} else {
-					displayText = fullContent.replace(/```json[\s\S]*?```/g, '').replace(/\{[\s\S]*\}$/g, '').trim() || "Erreur de génération.";
+					displayText = fullContent.replace(/```json[\s\S]*?```/g, '').trim() || 'Erreur de génération.';
 				}
 
-				// Sauvegarder les messages
-				if (partieId) {
-					await supabase.from('chat_messages').insert({ partie_id: partieId, role: 'user', content: message, cycle: cycleForSave });
-					await supabase.from('chat_messages').insert({ partie_id: partieId, role: 'assistant', content: displayText, cycle: cycleForSave });
-				}
-
-				// Charger PNJ si nécessaire
-				if (partieId && pnjForTracking.length === 0) {
-					const { data } = await supabase.from('pnj').select('*').eq('partie_id', partieId);
-					pnjForTracking = data || [];
-				}
-
-				// Construire le state pour le client selon le mode
+				// Construire le state pour le client
 				let stateForClient = null;
+				let sceneIdPourSauvegarde = sceneEnCours?.id || null;
 
-				if (promptMode === 'init' && parsed?.init) {
-					stateForClient = {
-						cycle: parsed.init.cycle || 1,
-						jour: parsed.init.jour,
-						date_jeu: parsed.init.date_jeu,
-						lieu_actuel: parsed.init.lieu_actuel || null,
-						valentin: {
-							energie: 3,
-							moral: 3,
-							sante: 5,
-							credits: 1400,
-							inventaire: [],
-							poste: parsed.init.valentin?.poste || null,
-							raison_depart: parsed.init.valentin?.raison_depart || null
-						},
-						ia: parsed.init.ia?.nom ? { nom: parsed.init.ia.nom } : null
-					};
-				} else if (promptMode === 'newcycle' && parsed?.nouveau_jour) {
-					const [credits, inventaire] = await Promise.all([
-						calculerSolde(supabase, partieId),
-						calculerInventaire(supabase, partieId)
-					]);
+				if (promptMode === 'init' && parsed && partieId) {
+					await processInitMode(partieId, parsed, 1);
+
+					// Récupérer la scène créée
+					const { data: nouvelleScene } = await supabase
+						.from('scenes')
+						.select('id')
+						.eq('partie_id', partieId)
+						.eq('statut', 'en_cours')
+						.order('created_at', { ascending: false })
+						.limit(1)
+						.maybeSingle();
+					sceneIdPourSauvegarde = nouvelleScene?.id || null;
 
 					stateForClient = {
-						cycle: parsed.nouveau_jour.cycle,
-						jour: parsed.nouveau_jour.jour,
-						date_jeu: parsed.nouveau_jour.date_jeu,
-						lieu_actuel: parsed.lieu_actuel || null,
-						valentin: parsed.reveil_valentin ? {
-							energie: parsed.reveil_valentin.energie,
-							moral: parsed.reveil_valentin.moral,
-							sante: parsed.reveil_valentin.sante,
-							credits,
-							inventaire
-						} : { credits, inventaire }
+						cycle: parsed.cycle || 1,
+						jour: parsed.jour,
+						date_jeu: parsed.date_jeu,
+						heure: parsed.heure,
+						lieu_actuel: parsed.lieu_actuel,
+						pnjs_presents: parsed.pnjs_presents || [],
+						valentin: { energie: 3, moral: 3, sante: 5, credits: 1400 }
 					};
+
 				} else if (promptMode === 'light' && parsed && partieId) {
-					// Mode LIGHT : appliquer les deltas et récupérer les valeurs finales
-					const deltaResults = await applyDeltas(
-						supabase, partieId, parsed, pnjForTracking, cycleForSave, parsed.heure
-					);
-					console.log(`[STREAM] Apply deltas:`, deltaResults);
+					const lightResults = await processLightMode(partieId, parsed, currentCycle, sceneEnCours);
+					console.log(`[STREAM] Light Mode process ended:`, lightResults);
 
-					// Récupérer le cycle actuel et les crédits/inventaire
-					const [partieData, credits, inventaire] = await Promise.all([
-						supabase.from('parties')
-							.select('cycle_actuel, jour, date_jeu, lieu_actuel')
+					// Si changement de scène, récupérer la nouvelle
+					if (lightResults.scene_changed || !sceneIdPourSauvegarde) {
+						const { data: nouvelleScene } = await supabase
+							.from('scenes')
+							.select('id')
+							.eq('partie_id', partieId)
+							.eq('statut', 'en_cours')
+							.order('created_at', { ascending: false })
+							.limit(1)
+							.maybeSingle();
+						sceneIdPourSauvegarde = nouvelleScene?.id || null;
+					}
+
+					// UNE SEULE requête combinée : partie + stats + inventaire
+					const [partieData, stats, inventaire] = await Promise.all([
+						supabase
+							.from('parties')
+							.select('jour, date_jeu')
 							.eq('id', partieId)
 							.single()
 							.then(r => r.data),
-						calculerSolde(supabase, partieId),
-						calculerInventaire(supabase, partieId)
+						getStatsValentin(supabase, partieId),
+						getInventaire(supabase, partieId)
 					]);
 
 					stateForClient = {
-						cycle: partieData?.cycle_actuel || cycleForSave,
-						jour: partieData?.jour,
-						date_jeu: partieData?.date_jeu,
-						lieu_actuel: parsed.lieu_actuel || partieData?.lieu_actuel,
+						cycle: parsed.nouveau_cycle ? currentCycle + 1 : currentCycle,
+						jour: parsed.nouveau_jour?.jour || partieData?.jour,
+						date_jeu: parsed.nouveau_jour?.date_jeu || partieData?.date_jeu,
+						heure: parsed.heure,
+						lieu_actuel: parsed.lieu_actuel,
+						pnjs_presents: parsed.pnjs_presents || [],
 						valentin: {
-							...(deltaResults.valentin || {}),
-							credits,
-							inventaire
-						},
-						nouveau_lieu: deltaResults.lieu || null
+							...stats,
+							inventaire: inventaire.map(i => i.objet_nom)
+						}
 					};
 				}
 
-				// Envoyer le 'done' avec le state final
-				await writer.write(encoder.encode(`data: ${JSON.stringify({
-					type: 'done',
-					displayText,
-					heure: parsed?.heure,
-					mode: promptMode,
-					state: stateForClient
-				})}\n\n`));
-
-				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
-
-			} catch (error) {
-				console.error('Streaming error:', error);
-				try {
-					await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
-				} catch (e) { }
-			} finally {
-				try { await writer.close(); } catch (e) { }
-			}
-
-			// === TÂCHES EN ARRIÈRE-PLAN (après fermeture du stream) ===
-			console.log(`\n========== BACKGROUND TASKS (${promptMode}) ==========`);
-			const bgStart = Date.now();
-
-			if (partieId && parsed) {
-
-				// MODE INIT : sauvegarder les données initiales
-				if (promptMode === 'init' && parsed.init) {
-					const t0 = Date.now();
-					await processInitMode(supabase, partieId, parsed.init, parsed.heure);
-					console.log(`[BG] Process INIT: ${Date.now() - t0}ms`);
-				}
-
-				// MODE NEWCYCLE : sauvegarder les données du nouveau cycle
-				else if (promptMode === 'newcycle') {
-					const t0 = Date.now();
-					await processNewCycleMode(supabase, partieId, parsed, pnjForTracking);
-					console.log(`[BG] Process NEWCYCLE: ${Date.now() - t0}ms`);
-				}
-
-				// MODE LIGHT : deltas déjà appliqués avant l'envoi du 'done'
-
-				// Mise à jour dernier_contact (tous les modes)
-				if (parsed.narratif && pnjForTracking.length > 0) {
-					const pnjMentionnes = extractPnjFromNarratif(parsed.narratif, pnjForTracking);
-					if (pnjMentionnes.length > 0) {
-						await updatePnjContact(supabase, partieId, cycleForSave, pnjMentionnes);
-					}
-				}
-
-				// Faits (tous les modes)
-				if (faitsEnabled) {
-					try {
-						const extraction = extraireFaits(parsed, cycleForSave);
-						if (extraction.nouveaux.length > 0 || extraction.modifies.length > 0) {
-							if (promptMode === 'init' || parsed.nouveaux_pnj?.length > 0) {
-								const { data } = await supabase.from('pnj').select('*').eq('partie_id', partieId);
-								pnjForTracking = data || [];
-							}
-							const pnjMap = new Map(pnjForTracking.map(p => [p.nom.toLowerCase(), p.id]));
-							const resultats = await sauvegarderFaits(supabase, partieId, extraction, pnjMap);
-							console.log(`[BG] Faits: +${resultats.ajoutes}, ~${resultats.invalides}`);
-						}
-					} catch (err) {
-						console.error('[BG] Erreur faits:', err);
-					}
-				}
-
-				// Générer résumé si fin de cycle
-				if (parsed.nouveau_cycle === true) {
-					const { data: partie } = await supabase
+				// Sauvegarder les messages APRÈS le traitement
+				if (partieId) {
+					// Snapshot de l'état AVANT ce message (pour rollback)
+					const { data: partieAvant } = await supabase
 						.from('parties')
-						.select('cycle_actuel, jour, date_jeu')
+						.select('cycle_actuel, jour, date_jeu, heure, lieu_actuel, pnjs_presents')
 						.eq('id', partieId)
 						.single();
 
-					if (partie) {
-						// Lancer en arrière-plan sans attendre
-						await genererResumeCycle(
-							supabase,
-							partieId,
-							partie.cycle_actuel,
-							partie.jour,
-							partie.date_jeu
-						).catch(err => console.error('[BG] Erreur résumé:', err));
-					}
+					await supabase.from('chat_messages').insert([
+						{
+							partie_id: partieId,
+							scene_id: sceneIdPourSauvegarde,
+							role: 'user',
+							content: message,
+							cycle: currentCycle,
+							state_snapshot: partieAvant
+						},
+						{
+							partie_id: partieId,
+							scene_id: sceneIdPourSauvegarde,
+							role: 'assistant',
+							content: displayText,
+							cycle: currentCycle,
+							state_snapshot: null
+						}
+					]);
 				}
 
-			}
+				// Envoyer done
+				await writer.write(encoder.encode(
+					`data: ${JSON.stringify({ type: 'done', displayText, state: stateForClient })}\n\n`
+				));
 
-			console.log(`========== BACKGROUND END: ${Date.now() - bgStart}ms ==========\n`);
+				console.log(`\n========== BACKGROUND TASKS (${promptMode}) ==========`);
+				const bgStart = Date.now();
+
+				// Extraction KG en background (après envoi au client)
+				if (partieId && parsed && promptMode === 'light') {
+					extractionBackground(partieId, displayText, parsed, currentCycle, sceneEnCours?.id)
+						.catch(err => console.error('[BG] Erreur:', err));
+				}
+
+				await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'saved' })}\n\n`));
+
+				console.log(`========== BACKGROUND END: ${Date.now() - bgStart}ms ==========\n`);
+
+			} catch (error) {
+				console.error('Streaming error:', error);
+				await writer.write(encoder.encode(
+					`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`
+				));
+			} finally {
+				await writer.close();
+			}
 		})();
 
 		return new Response(readable, {
 			headers: {
 				'Content-Type': 'text/event-stream',
 				'Cache-Control': 'no-cache, no-transform',
-				'Connection': 'keep-alive',
-				'X-Accel-Buffering': 'no'
+				'Connection': 'keep-alive'
 			}
 		});
+
 	} catch (e) {
 		console.error('Erreur POST:', e);
 		return Response.json({ error: e.message }, { status: 500 });
