@@ -19,7 +19,6 @@ CREATE TABLE parties (
   lieu_actuel TEXT,
   pnjs_presents TEXT[],
   active BOOLEAN DEFAULT true,
-  pending_newcycle BOOLEAN DEFAULT false,
   options JSONB DEFAULT '{"faits_enabled": true}',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
