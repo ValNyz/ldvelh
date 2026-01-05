@@ -1004,7 +1004,11 @@ export async function POST(request) {
 				const streamResponse = await anthropic.messages.stream({
 					model: 'claude-sonnet-4-20250514',
 					max_tokens: maxTokens,
-					system: systemPrompt,
+					system: [{
+						type: 'text',
+						text: systemPrompt,
+						cache_control: { type: 'ephemeral' }
+					}],
 					messages: [{ role: 'user', content: contextMessage }]
 				});
 
