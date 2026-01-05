@@ -878,6 +878,13 @@ export async function DELETE(request) {
 			let jourCible = null;
 			let dateCible = null;
 
+			// Mettre à jour le cycle actuel si on revient en arrière
+			const { data: partie } = await supabase
+				.from('parties')
+				.select('cycle_actuel')
+				.eq('id', partieId)
+				.single();
+
 			if (lastRemainingCycle < partie.cycle_actuel) {
 				// Chercher dans cycle_resumes
 				const { data: resumeCycle } = await supabase
@@ -896,14 +903,7 @@ export async function DELETE(request) {
 			// Supprimer les résumés des cycles supprimés
 			await supabase.from('cycle_resumes').delete()
 				.eq('partie_id', partieId)
-				.gte('cycle', firstDeletedCycle);
-
-			// Mettre à jour le cycle actuel si on revient en arrière
-			const { data: partie } = await supabase
-				.from('parties')
-				.select('cycle_actuel')
-				.eq('id', partieId)
-				.single();
+				.gte('cycle', lastRemainingCycle + 1);
 
 			if (partie && partie.cycle_actuel > lastRemainingCycle) {
 				await supabase.from('parties').update({
@@ -998,6 +998,7 @@ export async function POST(request) {
 			let fullContent = '', parsed = null, displayText = '', cycleForSave = currentCycle;
 
 			try {
+				console.log(`[STREAM] Send context:`, JSON.stringify(contextMessage, null, 2));
 				console.log(`[STREAM] Start streaming (${promptMode} mode)...`);
 				const streamStart = Date.now();
 
