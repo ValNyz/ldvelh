@@ -9,7 +9,8 @@ import {
 	updateStatsValentin,
 	creerTransaction,
 	appliquerOperations,
-	trouverEntite
+	trouverEntite,
+	rollbackKG
 } from '../../../lib/kgService';
 import { extraireEtAppliquer, doitExtraire } from '../../../lib/kgExtractor';
 import {
@@ -17,7 +18,8 @@ import {
 	creerScene,
 	fermerScene,
 	ajouterPnjImpliques,
-	doitAnalyserIntermediaire
+	doitAnalyserIntermediaire,
+	marquerAnalysee
 } from '../../../lib/sceneService';
 
 export const dynamic = 'force-dynamic';
@@ -116,8 +118,8 @@ async function loadGameState(partieId) {
 	return {
 		partie,
 		valentin: {
-			...stats,
-			...protagoniste?.proprietes,
+			...protagoniste?.proprietes,  // D'abord les propriétés statiques (compétences, traits...)
+			...stats,                     // ENSUITE les stats (écrase credits, energie, etc.)
 			inventaire: inventaire.map(i => i.objet_nom)
 		},
 		ia: iaData ? { nom: iaData.nom, ...iaData.proprietes } : null
@@ -180,7 +182,11 @@ async function extraireSceneEnBackground(partieId, sceneId, cycle) {
 			.join('\n\n');
 
 		if (narratif.trim()) {
-			await extraireEtAppliquer(supabase, partieId, narratif, cycle, sceneId);
+			const result = await extraireEtAppliquer(supabase, partieId, narratif, cycle, sceneId);
+
+			if (result.success && result.resume) {
+				await marquerAnalysee(supabase, sceneId, result.resume);
+			}
 		}
 	} catch (err) {
 		console.error('[SCENE] Erreur extraction background:', err);
@@ -644,7 +650,10 @@ export async function GET(request) {
 	const partieId = searchParams.get('partieId');
 
 	if (action === 'load' && partieId) {
+		console.log('[LOAD] Chargement partie:', partieId);
 		const state = await loadGameState(partieId);
+		console.log('[LOAD] State chargé:', JSON.stringify(state?.valentin, null, 2));
+
 		const messages = await loadChatMessages(partieId);
 		return Response.json({ state, messages });
 	}
@@ -693,7 +702,7 @@ export async function DELETE(request) {
 		if (!partieId) return Response.json({ error: 'partieId manquant' }, { status: 400 });
 
 		const { data: allMessages } = await supabase.from('chat_messages')
-			.select('id, created_at, cycle')
+			.select('id, created_at, cycle, state_snapshot')
 			.eq('partie_id', partieId)
 			.order('created_at', { ascending: true });
 
@@ -701,16 +710,46 @@ export async function DELETE(request) {
 			return Response.json({ success: true });
 		}
 
-		const messagesToDelete = allMessages.slice(fromIndex);
+		const rollbackTimestamp = allMessages[fromIndex].created_at;
 
+		// Récupérer le snapshot du message à éditer
+		const snapshot = allMessages[fromIndex].state_snapshot;
+
+		// Restaurer l'état parties depuis le snapshot
+		if (snapshot) {
+			await supabase
+				.from('parties')
+				.update({
+					cycle_actuel: snapshot.cycle_actuel,
+					jour: snapshot.jour,
+					date_jeu: snapshot.date_jeu,
+					heure: snapshot.heure,
+					lieu_actuel: snapshot.lieu_actuel,
+					pnjs_presents: snapshot.pnjs_presents
+				})
+				.eq('id', partieId);
+		}
+
+		// Rollback le KG
+		await rollbackKG(supabase, partieId, rollbackTimestamp);
+
+		// Supprimer les messages
+		const messagesToDelete = allMessages.slice(fromIndex);
 		if (messagesToDelete.length > 0) {
 			await supabase.from('chat_messages')
 				.delete()
 				.in('id', messagesToDelete.map(m => m.id));
 		}
 
-		return Response.json({ success: true, deleted: messagesToDelete.length });
+		const newState = await loadGameState(partieId);
+
+		return Response.json({
+			success: true,
+			deleted: messagesToDelete.length,
+			state: newState
+		});
 	} catch (e) {
+		console.error('[DELETE] Erreur:', e);
 		return Response.json({ error: e.message }, { status: 500 });
 	}
 }
@@ -761,7 +800,7 @@ export async function POST(request) {
 			let displayText = '';
 
 			try {
-				console.log(`[STREAM] Context:`, JSON.stringify(contextMessage, null, 2));
+				console.log(`[STREAM] Context:`, contextMessage);
 				console.log(`[STREAM] Start streaming (${promptMode} mode)...`);
 				const streamStart = Date.now();
 
@@ -799,12 +838,46 @@ export async function POST(request) {
 					displayText = fullContent.replace(/```json[\s\S]*?```/g, '').trim() || 'Erreur de génération.';
 				}
 
-				// Sauvegarder les messages
+				// Sauvegarder les messages avec snapshot
 				if (partieId) {
-					const sceneId = sceneEnCours?.id || null;
+					let sceneIdPourSauvegarde = sceneEnCours?.id || null;
+
+					if (!sceneIdPourSauvegarde) {
+						const { data: nouvelleScene } = await supabase
+							.from('scenes')
+							.select('id')
+							.eq('partie_id', partieId)
+							.eq('statut', 'en_cours')
+							.order('created_at', { ascending: false })
+							.limit(1)
+							.maybeSingle();
+						sceneIdPourSauvegarde = nouvelleScene?.id || null;
+					}
+
+					// Snapshot de l'état AVANT ce message
+					const { data: partieAvant } = await supabase
+						.from('parties')
+						.select('cycle_actuel, jour, date_jeu, heure, lieu_actuel, pnjs_presents')
+						.eq('id', partieId)
+						.single();
+
 					await supabase.from('chat_messages').insert([
-						{ partie_id: partieId, scene_id: sceneId, role: 'user', content: message, cycle: currentCycle },
-						{ partie_id: partieId, scene_id: sceneId, role: 'assistant', content: displayText, cycle: currentCycle }
+						{
+							partie_id: partieId,
+							scene_id: sceneIdPourSauvegarde,
+							role: 'user',
+							content: message,
+							cycle: currentCycle,
+							state_snapshot: partieAvant  // Snapshot
+						},
+						{
+							partie_id: partieId,
+							scene_id: sceneIdPourSauvegarde,
+							role: 'assistant',
+							content: displayText,
+							cycle: currentCycle,
+							state_snapshot: null
+						}
 					]);
 				}
 
