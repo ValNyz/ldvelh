@@ -35,33 +35,19 @@ function InputArea({ onSend, disabled, fontSize }) {
 					placeholder="Ton action... (Ctrl+Entrée)"
 					disabled={disabled}
 					style={{
-						flex: 1,
-						padding: '8px 16px',
-						background: '#374151',
-						border: '1px solid #4b5563',
-						borderRadius: 4,
-						color: '#fff',
-						outline: 'none',
-						fontSize,
-						resize: 'none',
-						minHeight: 44,
-						maxHeight: 200,
-						fontFamily: 'inherit',
-						overflow: 'hidden'
+						flex: 1, padding: '8px 16px', background: '#374151',
+						border: '1px solid #4b5563', borderRadius: 4, color: '#fff',
+						outline: 'none', fontSize, resize: 'none', minHeight: 44,
+						maxHeight: 200, fontFamily: 'inherit', overflow: 'hidden'
 					}}
 				/>
 				<button
 					onClick={handleSend}
 					disabled={disabled}
 					style={{
-						padding: '12px 24px',
-						background: '#2563eb',
-						border: 'none',
-						borderRadius: 4,
-						color: '#fff',
-						cursor: 'pointer',
-						opacity: disabled ? 0.5 : 1,
-						height: 44
+						padding: '12px 24px', background: '#2563eb', border: 'none',
+						borderRadius: 4, color: '#fff', cursor: 'pointer',
+						opacity: disabled ? 0.5 : 1, height: 44
 					}}
 				>
 					Envoyer
@@ -93,7 +79,6 @@ export default function Home() {
 	const [editedContent, setEditedContent] = useState('');
 	const [fontSize, setFontSize] = useState(14);
 	const [isClient, setIsClient] = useState(false);
-	const [faitsEnabled, setFaitsEnabled] = useState(true);
 
 	const messagesEndRef = useRef(null);
 	const messagesContainerRef = useRef(null);
@@ -133,11 +118,12 @@ export default function Home() {
 		} catch (e) { console.error('Erreur chargement parties:', e); }
 	};
 
+	// Normalise le gameState depuis différentes sources
 	const normalizeGameState = (rawState) => {
 		if (!rawState) return null;
 
-		// Si ça vient de Supabase (loadGame) - a un partie.id
-		if (rawState.partie && rawState.partie.id) {
+		// Depuis loadGame (Supabase)
+		if (rawState.partie) {
 			return {
 				partie: {
 					cycle_actuel: rawState.partie.cycle_actuel || 1,
@@ -145,18 +131,14 @@ export default function Home() {
 					date_jeu: rawState.partie.date_jeu,
 					heure: rawState.partie.heure,
 					lieu_actuel: rawState.partie.lieu_actuel,
-					options: rawState.partie.options
+					pnjs_presents: rawState.partie.pnjs_presents || []
 				},
-				valentin: rawState.valentin,
-				ia: rawState.ia,
-				pnj: rawState.pnj || [],
-				arcs: rawState.arcs || [],
-				lieux: rawState.lieux || [],
-				aVenir: rawState.aVenir || []
+				valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
+				ia: rawState.ia || {}
 			};
 		}
 
-		// Si ça vient de Claude (réponse API) - a un cycle directement
+		// Depuis Claude (réponse API avec cycle à la racine)
 		if (rawState.cycle !== undefined) {
 			return {
 				partie: {
@@ -164,14 +146,11 @@ export default function Home() {
 					jour: rawState.jour,
 					date_jeu: rawState.date_jeu,
 					heure: rawState.heure,
-					lieu_actuel: rawState.lieu_actuel
+					lieu_actuel: rawState.lieu_actuel,
+					pnjs_presents: rawState.pnjs_presents || []
 				},
 				valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
-				ia: rawState.ia || {},
-				pnj: rawState.pnj || [],
-				arcs: rawState.arcs || [],
-				lieux: rawState.lieux || [],
-				aVenir: rawState.a_venir || []
+				ia: rawState.ia || {}
 			};
 		}
 
@@ -185,12 +164,11 @@ export default function Home() {
 			const res = await fetch(`/api/chat?action=load&partieId=${id}`);
 			const data = await res.json();
 			if (data.error) { setError(data.error); return; }
+
 			setPartieId(id);
 			if (data.state) {
 				setGameState(normalizeGameState(data.state));
 				setPartieName(data.state.partie?.nom || 'Partie sans nom');
-				const options = data.state.partie?.options || { faits_enabled: true };
-				setFaitsEnabled(options.faits_enabled !== false);
 			}
 			setMessages(data.messages?.map(m => ({ role: m.role, content: m.content })) || []);
 		} catch (e) {
@@ -210,7 +188,6 @@ export default function Home() {
 				setPartieName('Nouvelle partie');
 				setGameState(null);
 				setMessages([]);
-				setFaitsEnabled(true);
 				loadParties();
 			} else setError(data.error || 'Erreur création');
 		} catch (e) { setError('Erreur création'); }
@@ -235,17 +212,6 @@ export default function Home() {
 			setEditingName(false);
 			setNewName('');
 		} catch (e) { setError('Erreur renommage'); }
-	};
-
-	const toggleFaits = async () => {
-		const newValue = !faitsEnabled;
-		try {
-			await fetch(`/api/chat?action=toggle-faits&partieId=${partieId}&enabled=${newValue}`);
-			setFaitsEnabled(newValue);
-		} catch (e) {
-			console.error('Erreur toggle faits:', e);
-			setError('Erreur changement option');
-		}
 	};
 
 	const cancelRequest = () => {
@@ -274,36 +240,73 @@ export default function Home() {
 	const submitEdit = async () => {
 		if (!editedContent.trim() || loading) return;
 		const idx = editingMessageIndex, content = editedContent.trim();
-		const prevMsgs = [...messages].slice(0, idx), currState = gameState;
+		const prevMsgs = [...messages].slice(0, idx);
+
 		setEditingMessageIndex(null);
 		setEditedContent('');
 		setLoading(true);
 		setError('');
 		resetScrollBehavior();
 		setMessages([...prevMsgs, { role: 'user', content }]);
+
+		let restoredState = gameState;
+
 		if (partieId) {
-			try { await fetch('/api/chat', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partieId, fromIndex: idx }) }); }
+			try {
+				const res = await fetch('/api/chat', {
+					method: 'DELETE',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ partieId, fromIndex: idx })
+				});
+				const data = await res.json();
+
+				// Utiliser l'état restauré par le rollback
+				if (data.state) {
+					restoredState = normalizeGameState(data.state);
+					setGameState(restoredState);
+				}
+			}
 			catch (e) { console.error('Erreur suppression:', e); }
 		}
-		await sendMessageInternal(content, prevMsgs, currState);
+
+		await sendMessageInternal(content, prevMsgs, restoredState);
 	};
 
 	const regenerateLastResponse = async () => {
 		if (loading || messages.length < 2) return;
-		const currMsgs = [...messages], currState = gameState;
+		const currMsgs = [...messages];
 		let lastUserIdx = currMsgs.length - 1;
 		while (lastUserIdx >= 0 && currMsgs[lastUserIdx].role !== 'user') lastUserIdx--;
 		if (lastUserIdx < 0) return;
-		const userMsg = currMsgs[lastUserIdx].content, prevMsgs = currMsgs.slice(0, lastUserIdx);
+
+		const userMsg = currMsgs[lastUserIdx].content;
+		const prevMsgs = currMsgs.slice(0, lastUserIdx);
+
 		setMessages([...prevMsgs, { role: 'user', content: userMsg }]);
 		setLoading(true);
 		setError('');
 		resetScrollBehavior();
+
+		let restoredState = gameState;
+
 		if (partieId) {
-			try { await fetch('/api/chat', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partieId, fromIndex: lastUserIdx }) }); }
+			try {
+				const res = await fetch('/api/chat', {
+					method: 'DELETE',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ partieId, fromIndex: lastUserIdx })
+				});
+				const data = await res.json();
+
+				if (data.state) {
+					restoredState = normalizeGameState(data.state);
+					setGameState(restoredState);
+				}
+			}
 			catch (e) { console.error('Erreur suppression:', e); }
 		}
-		await sendMessageInternal(userMsg, prevMsgs, currState);
+
+		await sendMessageInternal(userMsg, prevMsgs, restoredState);
 	};
 
 	const handleSendMessage = async (userMsg) => {
@@ -316,10 +319,10 @@ export default function Home() {
 		await sendMessageInternal(userMsg, currMsgs, currState);
 	};
 
-
 	const sendMessageInternal = async (userMessage, previousMessages, currentGameState) => {
 		abortControllerRef.current = new AbortController();
 
+		// Extraction du narratif depuis JSON streamé
 		const extractNarratif = (jsonStr) => {
 			const m = jsonStr.match(/"narratif"\s*:\s*"/);
 			if (!m) return null;
@@ -333,22 +336,23 @@ export default function Home() {
 					else if (n === '\\') { narratif += '\\'; i += 2; }
 					else if (n === 't') { narratif += '\t'; i += 2; }
 					else if (n === 'r') { narratif += '\r'; i += 2; }
-					else if (n === 'u' && i + 5 < jsonStr.length) {
-						const hex = jsonStr.slice(i + 2, i + 6);
-						if (/^[0-9a-fA-F]{4}$/.test(hex)) { narratif += String.fromCharCode(parseInt(hex, 16)); i += 6; }
-						else { narratif += '\\u'; i += 2; }
-					} else { narratif += c; i++; }
+					else { narratif += c; i++; }
 				} else if (c === '"') { break; }
 				else { narratif += c; i++; }
 			}
 			return narratif || null;
 		};
 
-		const extractHeure = (jsonStr) => { const m = jsonStr.match(/"heure"\s*:\s*"([^"]+)"/); return m ? m[1] : null; };
+		const extractHeure = (jsonStr) => {
+			const m = jsonStr.match(/"heure"\s*:\s*"([^"]+)"/);
+			return m ? m[1] : null;
+		};
+
 		const extractChoix = (jsonStr) => {
 			const match = jsonStr.match(/"choix"\s*:\s*\[([\s\S]*?)\]/);
 			if (!match) return null;
-			try { const arr = JSON.parse(`[${match[1]}]`); return arr.length > 0 ? arr : null; } catch (e) { return null; }
+			try { const arr = JSON.parse(`[${match[1]}]`); return arr.length > 0 ? arr : null; }
+			catch (e) { return null; }
 		};
 
 		const extractDisplayContent = (content) => {
@@ -365,11 +369,7 @@ export default function Home() {
 				}
 				return null;
 			}
-			let display = content;
-			const jsonIdx = content.lastIndexOf('\n{');
-			if (jsonIdx > 0) display = content.slice(0, jsonIdx).trim();
-			display = display.replace(/\[(\d{2}h\d{2})\]\s*\[\1\]/g, '[$1]');
-			return display || null;
+			return content || null;
 		};
 
 		const finalizeMessage = (content) => {
@@ -387,16 +387,17 @@ export default function Home() {
 			if (res.headers.get('content-type')?.includes('text/event-stream')) {
 				const reader = res.body.getReader(), decoder = new TextDecoder();
 				let fullJson = '', assistantAdded = false;
+
 				try {
 					while (true) {
 						const { done, value } = await reader.read();
 						if (done) break;
 						const text = decoder.decode(value, { stream: true });
+
 						for (const line of text.split('\n')) {
 							if (!line.startsWith('data: ')) continue;
 							try {
 								const data = JSON.parse(line.slice(6));
-								console.log(`[CLIENT] Event received: ${data.type}`, Date.now());
 
 								if (data.type === 'chunk') {
 									fullJson += data.content;
@@ -406,51 +407,33 @@ export default function Home() {
 											setMessages([...previousMessages, { role: 'user', content: userMessage }, { role: 'assistant', content: display, streaming: true }]);
 											assistantAdded = true;
 										} else {
-											setMessages(prev => { const n = [...prev]; n[n.length - 1] = { role: 'assistant', content: display, streaming: true }; return n; });
+											setMessages(prev => {
+												const n = [...prev];
+												n[n.length - 1] = { role: 'assistant', content: display, streaming: true };
+												return n;
+											});
 										}
 									}
 								} else if (data.type === 'done') {
-									console.log(`[CLIENT] 'done' received, mode: ${data.mode}`);
-
 									setLoading(false);
 									setSaving(true);
 									finalizeMessage(data.displayText || fullJson);
 
-									// Mettre à jour le state (toujours renvoyé par le serveur)
 									if (data.state) {
-										const normalized = normalizeGameState({ ...data.state, heure: data.heure });
+										const normalized = normalizeGameState(data.state);
 										if (normalized) {
 											setGameState(prev => {
 												if (!prev) return normalized;
-
-												// Construire le nouveau tableau de lieux
-												let nouveauxLieux = prev.lieux || [];
-												if (data.state?.nouveau_lieu) {
-													// Vérifier qu'il n'existe pas déjà (par nom)
-													const existe = nouveauxLieux.some(
-														l => l.nom.toLowerCase() === data.state.nouveau_lieu.nom.toLowerCase()
-													);
-													if (!existe) {
-														nouveauxLieux = [...nouveauxLieux, data.state.nouveau_lieu];
-													}
-												}
-
-												// Merger avec le state existant pour garder les données non renvoyées (pnj, arcs, etc.)
 												return {
 													...prev,
 													partie: { ...prev.partie, ...normalized.partie },
 													valentin: { ...prev.valentin, ...normalized.valentin },
-													ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia,
-													pnj: prev.pnj || [],
-													arcs: prev.arcs || [],
-													lieux: nouveauxLieux,
-													aVenir: prev.aVenir || []
+													ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia
 												};
 											});
 										}
 									}
 								} else if (data.type === 'saved') {
-									console.log(`[CLIENT] 'saved' received, setting saving=false`);
 									setSaving(false);
 								} else if (data.type === 'error') {
 									setError(data.error);
@@ -470,7 +453,7 @@ export default function Home() {
 				if (data.error) { setError(data.error); return; }
 				if (data.displayText) {
 					finalizeMessage(data.displayText);
-					if (data.state) setGameState(normalizeGameState({ ...data.state, heure: data.heure }));
+					if (data.state) setGameState(normalizeGameState(data.state));
 				} else if (data.content) finalizeMessage(data.content);
 			}
 		} catch (e) {
@@ -482,8 +465,9 @@ export default function Home() {
 	};
 
 	const formatDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-	const dots = (n, max = 5) => '●'.repeat(Math.min(Math.max(n || 0, 0), max)) + '○'.repeat(Math.max(0, max - (n || 0)));
+	const dots = (n, max = 5) => '●'.repeat(Math.min(Math.max(Math.round(n) || 0, 0), max)) + '○'.repeat(Math.max(0, max - Math.round(n || 0)));
 
+	// === ÉCRAN LISTE DES PARTIES ===
 	if (!partieId) {
 		return (
 			<div style={{ padding: 20, maxWidth: 600, margin: '0 auto' }}>
@@ -499,8 +483,7 @@ export default function Home() {
 						<div onClick={() => loadGame(p.id)} style={{ cursor: 'pointer', flex: 1 }}>
 							<strong>{p.nom}</strong>
 							<div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-								Cycle {p.cycle_actuel || 0} • {formatDate(p.updated_at)}
-								{p.options?.faits_enabled === false && <span style={{ marginLeft: 8, color: '#f59e0b' }}>📝 off</span>}
+								Cycle {p.cycle_actuel || 1} • {formatDate(p.updated_at)}
 							</div>
 						</div>
 						{confirmDelete === p.id ? (
@@ -519,8 +502,10 @@ export default function Home() {
 
 	if (loadingGame) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><p style={{ color: '#6b7280' }}>Chargement...</p></div>;
 
+	// === ÉCRAN JEU ===
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+			{/* HEADER */}
 			<div style={{ background: '#1f2937', padding: 12, borderBottom: '1px solid #374151' }}>
 				<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 					<h1 style={{ fontSize: 18, color: '#60a5fa' }}>{partieName}</h1>
@@ -530,28 +515,43 @@ export default function Home() {
 						<button onClick={() => { setPartieId(null); setMessages([]); setGameState(null); loadParties(); }} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>Quitter</button>
 					</div>
 				</div>
+
+				{/* Stats bar */}
 				{gameState?.valentin && (
 					<div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>
 						<div style={{ color: '#4ade80' }}>
 							Cycle {gameState.partie?.cycle_actuel || 1} | {gameState.partie?.jour || '-'} {gameState.partie?.date_jeu || '-'}
+							{gameState.partie?.heure && <span style={{ marginLeft: 8 }}>🕐 {gameState.partie.heure}</span>}
+						</div>
+						<div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
+							<span>Énergie: {dots(gameState.valentin.energie)}</span>
+							<span>Moral: {dots(gameState.valentin.moral)}</span>
+							<span>Santé: {dots(gameState.valentin.sante)}</span>
+						</div>
+						<div style={{ marginTop: 4 }}>
+							<span style={{ color: '#fbbf24' }}>💰 {gameState.valentin.credits ?? 1400} cr</span>
 							{gameState.partie?.lieu_actuel && (
-								<span style={{ color: '#93c5fd', marginLeft: 8 }}>
-									📍 {gameState.partie.lieu_actuel}
-								</span>
+								<span style={{ color: '#93c5fd', marginLeft: 12 }}>📍 {gameState.partie.lieu_actuel}</span>
 							)}
-							{faitsEnabled && <span style={{ color: '#60a5fa', marginLeft: 8 }}>📝</span>}
+							{gameState.partie?.pnjs_presents?.length > 0 && (
+								<span style={{ color: '#a78bfa', marginLeft: 12 }}>👥 {gameState.partie.pnjs_presents.join(', ')}</span>
+							)}
 						</div>
-						<div>
-							Énergie: {dots(gameState.valentin.energie)} | Moral: {dots(gameState.valentin.moral)} | Santé: {dots(gameState.valentin.sante)}
-						</div>
-						<div style={{ color: '#fbbf24' }}>Crédits: {gameState.valentin.credits ?? 1400}</div>
+						{gameState.valentin.inventaire?.length > 0 && (
+							<div style={{ color: '#6b7280', marginTop: 4, fontSize: 11 }}>
+								🎒 {gameState.valentin.inventaire.join(', ')}
+							</div>
+						)}
 					</div>
 				)}
 			</div>
 
+			{/* SETTINGS PANEL */}
 			{showSettings && (
 				<div style={{ background: '#1f2937', padding: 16, borderBottom: '1px solid #374151' }}>
 					<h3 style={{ marginBottom: 12, fontSize: 14, color: '#9ca3af' }}>Paramètres</h3>
+
+					{/* Font size */}
 					<div style={{ marginBottom: 16 }}>
 						<label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 8 }}>Taille police</label>
 						<div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -560,16 +560,8 @@ export default function Home() {
 							<button onClick={() => changeFontSize(2)} disabled={fontSize >= 24} style={{ width: 32, height: 32, background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 18, opacity: fontSize >= 24 ? 0.5 : 1 }}>+</button>
 						</div>
 					</div>
-					<div style={{ marginBottom: 16 }}>
-						<label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 8 }}>Système de cohérence (Faits)</label>
-						<div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-							<button onClick={toggleFaits} style={{ padding: '8px 16px', background: faitsEnabled ? '#166534' : '#374151', border: faitsEnabled ? '1px solid #22c55e' : '1px solid #4b5563', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-								<span style={{ width: 8, height: 8, borderRadius: '50%', background: faitsEnabled ? '#22c55e' : '#6b7280' }} />
-								{faitsEnabled ? 'Activé' : 'Désactivé'}
-							</button>
-							<span style={{ fontSize: 11, color: '#6b7280' }}>{faitsEnabled ? 'Claude mémorise les faits' : 'Mémoire désactivée'}</span>
-						</div>
-					</div>
+
+					{/* Rename */}
 					<div style={{ marginBottom: 12 }}>
 						<label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nom partie</label>
 						{editingName ? (
@@ -585,18 +577,27 @@ export default function Home() {
 							</div>
 						)}
 					</div>
+
+					{/* Delete */}
 					<button onClick={() => { if (confirm('Supprimer cette partie ?')) { deleteGame(partieId); setPartieId(null); setMessages([]); setGameState(null); setShowSettings(false); } }} style={{ padding: '8px 16px', background: '#dc2626', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>🗑️ Supprimer</button>
 				</div>
 			)}
 
+			{/* DEBUG STATE */}
 			{showState && gameState && (
 				<div style={{ background: '#1f2937', padding: 12, maxHeight: 200, overflow: 'auto', borderBottom: '1px solid #374151' }}>
 					<pre style={{ fontSize: 10, color: '#9ca3af' }}>{JSON.stringify(gameState, null, 2)}</pre>
 				</div>
 			)}
 
+			{/* MESSAGES */}
 			<div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-				{messages.length === 0 && <div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}><p>Tape "Commencer" pour lancer</p></div>}
+				{messages.length === 0 && (
+					<div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}>
+						<p>Tape "Commencer" pour lancer l'aventure</p>
+					</div>
+				)}
+
 				{messages.map((msg, i) => (
 					<div key={i} style={{
 						marginBottom: 16,
@@ -612,10 +613,7 @@ export default function Home() {
 								</div>
 							</div>
 						) : (
-							<div style={{
-								maxWidth: msg.role === 'user' ? '80%' : '95%',
-								position: 'relative'
-							}} className="message-container">
+							<div style={{ maxWidth: msg.role === 'user' ? '80%' : '95%', position: 'relative' }} className="message-container">
 								<div style={{
 									padding: 12,
 									borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
@@ -630,33 +628,35 @@ export default function Home() {
 											ul: ({ children }) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
 											ol: ({ children }) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
 											li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
-											code: ({ inline, children }) => inline ? <code style={{ background: msg.role === 'user' ? '#1e40af' : '#374151', padding: '2px 6px', borderRadius: 4, fontSize: '0.9em' }}>{children}</code> : <pre style={{ background: msg.role === 'user' ? '#1e40af' : '#374151', padding: 12, borderRadius: 4, overflow: 'auto', margin: '8px 0' }}><code>{children}</code></pre>,
+											code: ({ inline, children }) => inline
+												? <code style={{ background: msg.role === 'user' ? '#1e40af' : '#374151', padding: '2px 6px', borderRadius: 4, fontSize: '0.9em' }}>{children}</code>
+												: <pre style={{ background: msg.role === 'user' ? '#1e40af' : '#374151', padding: 12, borderRadius: 4, overflow: 'auto', margin: '8px 0' }}><code>{children}</code></pre>,
 											blockquote: ({ children }) => <blockquote style={{ borderLeft: '3px solid #60a5fa', paddingLeft: 12, margin: '8px 0', color: '#9ca3af', fontStyle: 'italic' }}>{children}</blockquote>,
-											h1: ({ children }) => <h1 style={{ fontSize: '1.4em', margin: '12px 0 8px', color: msg.role === 'user' ? '#fff' : '#60a5fa' }}>{children}</h1>,
-											h2: ({ children }) => <h2 style={{ fontSize: '1.2em', margin: '10px 0 6px', color: msg.role === 'user' ? '#fff' : '#60a5fa' }}>{children}</h2>,
-											h3: ({ children }) => <h3 style={{ fontSize: '1.1em', margin: '8px 0 4px', color: msg.role === 'user' ? '#fff' : '#60a5fa' }}>{children}</h3>,
-											hr: () => <hr style={{ border: 'none', borderTop: '1px solid #374151', margin: '12px 0' }} />
 										}}>{msg.content}</ReactMarkdown>
 									</div>
 									{msg.streaming && <span style={{ color: '#60a5fa' }}>▋</span>}
 								</div>
+
+								{/* Actions */}
 								<div className="message-actions" style={{
-									position: 'absolute',
-									top: -8,
+									position: 'absolute', top: -8,
 									left: msg.role === 'user' ? 'auto' : 0,
 									right: msg.role === 'user' ? 0 : 'auto',
-									display: 'flex',
-									gap: 4,
-									opacity: 0,
-									transition: 'opacity 0.2s'
+									display: 'flex', gap: 4, opacity: 0, transition: 'opacity 0.2s'
 								}}>
-									{msg.role === 'user' && !loading && <button onClick={() => startEditMessage(i)} title="Éditer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>✏️</button>}
-									{msg.role === 'assistant' && i === messages.length - 1 && !loading && !msg.streaming && <button onClick={regenerateLastResponse} title="Regénérer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>🔄</button>}
+									{msg.role === 'user' && !loading && (
+										<button onClick={() => startEditMessage(i)} title="Éditer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>✏️</button>
+									)}
+									{msg.role === 'assistant' && i === messages.length - 1 && !loading && !msg.streaming && (
+										<button onClick={regenerateLastResponse} title="Regénérer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>🔄</button>
+									)}
 								</div>
 							</div>
 						)}
 					</div>
 				))}
+
+				{/* Loading indicator */}
 				{loading && !messages.some(m => m.streaming) && (
 					<div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6b7280', fontStyle: 'italic' }}>
 						<span>En cours...</span>
@@ -668,15 +668,12 @@ export default function Home() {
 						<button onClick={cancelRequest} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕ Annuler</button>
 					</div>
 				)}
+
 				{error && <div style={{ color: '#f87171', marginTop: 8 }}>{error}</div>}
 				<div ref={messagesEndRef} />
 			</div>
 
-			<InputArea
-				onSend={handleSendMessage}
-				disabled={loading || saving}
-				fontSize={fontSize}
-			/>
+			<InputArea onSend={handleSendMessage} disabled={loading || saving} fontSize={fontSize} />
 
 			<style jsx>{`.message-container:hover .message-actions { opacity: 1 !important; }`}</style>
 		</div>
