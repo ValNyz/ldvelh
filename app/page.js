@@ -145,6 +145,7 @@ export default function Home() {
 					date_jeu: rawState.partie.date_jeu,
 					heure: rawState.partie.heure,
 					lieu_actuel: rawState.partie.lieu_actuel,
+					pnjs_presents: rawState.partie.pnjs_presents || [],
 					options: rawState.partie.options
 				},
 				valentin: rawState.valentin,
@@ -164,7 +165,8 @@ export default function Home() {
 					jour: rawState.jour,
 					date_jeu: rawState.date_jeu,
 					heure: rawState.heure,
-					lieu_actuel: rawState.lieu_actuel
+					lieu_actuel: rawState.lieu_actuel,
+					pnjs_presents: rawState.pnjs_presents || []
 				},
 				valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
 				ia: rawState.ia || {},

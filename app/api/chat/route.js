@@ -392,6 +392,7 @@ async function processInitMode(supabase, partieId, init, heure) {
 			date_jeu: init.date_jeu,
 			heure: heure,
 			lieu_actuel: init.lieu_actuel || null,
+			pnjs_presents: init.pnjs_presents || [],
 			pending_full_state: false
 		}).eq('id', partieId)
 	);
@@ -482,6 +483,7 @@ async function processNewCycleMode(supabase, partieId, parsed, pnjList) {
 				date_jeu: parsed.nouveau_jour.date_jeu,
 				heure: parsed.heure,
 				lieu_actuel: parsed.lieu_actuel || null,
+				pnjs_presents: parsed.pnjs_presents || [],
 				pending_full_state: false
 			}).eq('id', partieId)
 		);
@@ -489,6 +491,7 @@ async function processNewCycleMode(supabase, partieId, parsed, pnjList) {
 		updates.push(
 			supabase.from('parties').update({
 				lieu_actuel: parsed.lieu_actuel || null,
+				pnjs_presents: parsed.pnjs_presents || [],
 				pending_full_state: false
 			}).eq('id', partieId)
 		);
@@ -687,18 +690,19 @@ async function applyDeltas(supabase, partieId, parsed, pnjList, cycle, heure) {
 		results.entites = entitesResult;
 	}
 
-	// Mettre à jour dernier_contact des PNJ présents
-	if (parsed.pnjs_presents?.length > 0) {
-		await updatePnjsPresents(supabase, partieId, parsed.pnjs_presents, cycle, pnjList);
-	}
-
-	// 6. Mise à jour lieu actuel + tracking visite
-	if (parsed.lieu_actuel) {
+	// 6. Mise à jour lieu actuel + pnjs_presents + tracking visite
+	if (parsed.lieu_actuel || parsed.pnjs_presents) {
 		// Mettre à jour parties
 		await supabase.from('parties').update({
 			lieu_actuel: parsed.lieu_actuel,
+			pnjs_presents: parsed.pnjs_presents || [],
 			heure: heure
 		}).eq('id', partieId);
+
+		// Mettre à jour dernier_contact des PNJ présents
+		if (parsed.pnjs_presents?.length > 0) {
+			await updatePnjsPresents(supabase, partieId, parsed.pnjs_presents, cycle, pnjList);
+		}
 
 		// Tracker la visite (si lieu existe et pas nouveau)
 		if (!parsed.nouveau_lieu || parsed.nouveau_lieu.nom !== parsed.lieu_actuel) {
@@ -1059,6 +1063,7 @@ export async function POST(request) {
 						jour: parsed.init.jour,
 						date_jeu: parsed.init.date_jeu,
 						lieu_actuel: parsed.init.lieu_actuel || null,
+						pnjs_presents: parsed.init.pnjs_presents || [],
 						valentin: {
 							energie: 3,
 							moral: 3,
@@ -1081,7 +1086,7 @@ export async function POST(request) {
 						jour: parsed.nouveau_jour.jour,
 						date_jeu: parsed.nouveau_jour.date_jeu,
 						lieu_actuel: parsed.lieu_actuel || null,
-						pnjs_presents: parsed.pnjs_presents || partieData?.pnjs_presents,
+						pnjs_presents: parsed.pnjs_presents || [],
 						valentin: parsed.reveil_valentin ? {
 							energie: parsed.reveil_valentin.energie,
 							moral: parsed.reveil_valentin.moral,
@@ -1124,7 +1129,7 @@ export async function POST(request) {
 						jour: partieData?.jour,
 						date_jeu: partieData?.date_jeu,
 						lieu_actuel: parsed.lieu_actuel || partieData?.lieu_actuel,
-						pnjs_presents: parsed.pnjs_presents || partieData?.pnjs_presents,
+						pnjs_presents: parsed.pnjs_presents || partieData?.pnjs_presents || [],
 						valentin: {
 							...(deltaResults.valentin || {}),
 							credits,
