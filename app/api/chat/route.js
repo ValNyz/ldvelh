@@ -838,11 +838,40 @@ export async function POST(request) {
 					displayText = fullContent.replace(/```json[\s\S]*?```/g, '').trim() || 'Erreur de génération.';
 				}
 
-				// Sauvegarder les messages avec snapshot
-				if (partieId) {
-					let sceneIdPourSauvegarde = sceneEnCours?.id || null;
+				// Construire le state pour le client
+				let stateForClient = null;
+				let sceneIdPourSauvegarde = sceneEnCours?.id || null;
 
-					if (!sceneIdPourSauvegarde) {
+				if (promptMode === 'init' && parsed && partieId) {
+					await processInitMode(partieId, parsed, 1);
+
+					// Récupérer la scène créée
+					const { data: nouvelleScene } = await supabase
+						.from('scenes')
+						.select('id')
+						.eq('partie_id', partieId)
+						.eq('statut', 'en_cours')
+						.order('created_at', { ascending: false })
+						.limit(1)
+						.maybeSingle();
+					sceneIdPourSauvegarde = nouvelleScene?.id || null;
+
+					stateForClient = {
+						cycle: parsed.cycle || 1,
+						jour: parsed.jour,
+						date_jeu: parsed.date_jeu,
+						heure: parsed.heure,
+						lieu_actuel: parsed.lieu_actuel,
+						pnjs_presents: parsed.pnjs_presents || [],
+						valentin: { energie: 3, moral: 3, sante: 5, credits: 1400 }
+					};
+
+				} else if (promptMode === 'light' && parsed && partieId) {
+					const lightResults = await processLightMode(partieId, parsed, currentCycle, sceneEnCours);
+					console.log(`[STREAM] Light Mode process ended:`, lightResults);
+
+					// Si changement de scène, récupérer la nouvelle
+					if (lightResults.scene_changed || !sceneIdPourSauvegarde) {
 						const { data: nouvelleScene } = await supabase
 							.from('scenes')
 							.select('id')
@@ -854,7 +883,35 @@ export async function POST(request) {
 						sceneIdPourSauvegarde = nouvelleScene?.id || null;
 					}
 
-					// Snapshot de l'état AVANT ce message
+					// UNE SEULE requête combinée : partie + stats + inventaire
+					const [partieData, stats, inventaire] = await Promise.all([
+						supabase
+							.from('parties')
+							.select('jour, date_jeu')
+							.eq('id', partieId)
+							.single()
+							.then(r => r.data),
+						getStatsValentin(supabase, partieId),
+						getInventaire(supabase, partieId)
+					]);
+
+					stateForClient = {
+						cycle: parsed.nouveau_cycle ? currentCycle + 1 : currentCycle,
+						jour: parsed.nouveau_jour?.jour || partieData?.jour,
+						date_jeu: parsed.nouveau_jour?.date_jeu || partieData?.date_jeu,
+						heure: parsed.heure,
+						lieu_actuel: parsed.lieu_actuel,
+						pnjs_presents: parsed.pnjs_presents || [],
+						valentin: {
+							...stats,
+							inventaire: inventaire.map(i => i.objet_nom)
+						}
+					};
+				}
+
+				// Sauvegarder les messages APRÈS le traitement
+				if (partieId) {
+					// Snapshot de l'état AVANT ce message (pour rollback)
 					const { data: partieAvant } = await supabase
 						.from('parties')
 						.select('cycle_actuel, jour, date_jeu, heure, lieu_actuel, pnjs_presents')
@@ -868,7 +925,7 @@ export async function POST(request) {
 							role: 'user',
 							content: message,
 							cycle: currentCycle,
-							state_snapshot: partieAvant  // Snapshot
+							state_snapshot: partieAvant
 						},
 						{
 							partie_id: partieId,
@@ -881,46 +938,10 @@ export async function POST(request) {
 					]);
 				}
 
-				// Construire le state pour le client
-				let stateForClient = null;
-
-				if (promptMode === 'init' && parsed && partieId) {
-					await processInitMode(partieId, parsed, 1);
-
-					stateForClient = {
-						cycle: parsed.cycle || 1,
-						jour: parsed.jour,
-						date_jeu: parsed.date_jeu,
-						heure: parsed.heure,
-						lieu_actuel: parsed.lieu_actuel,
-						pnjs_presents: parsed.pnjs_presents || [],
-						valentin: { energie: 3, moral: 3, sante: 5, credits: 1400 }
-					};
-				} else if (promptMode === 'light' && parsed && partieId) {
-					const lightResults = await processLightMode(partieId, parsed, currentCycle, sceneEnCours);
-
-					console.log(`[STREAM] Light Mode process ended:`, lightResults);
-
-					const stats = await getStatsValentin(supabase, partieId);
-					const inventaire = await getInventaire(supabase, partieId);
-
-					stateForClient = {
-						cycle: parsed.nouveau_cycle ? currentCycle + 1 : currentCycle,
-						heure: parsed.heure,
-						lieu_actuel: parsed.lieu_actuel,
-						pnjs_presents: parsed.pnjs_presents || [],
-						valentin: {
-							...stats,
-							inventaire: inventaire.map(i => i.objet_nom)
-						}
-					};
-				}
-
 				// Envoyer done
 				await writer.write(encoder.encode(
 					`data: ${JSON.stringify({ type: 'done', displayText, state: stateForClient })}\n\n`
 				));
-
 
 				console.log(`\n========== BACKGROUND TASKS (${promptMode}) ==========`);
 				const bgStart = Date.now();
