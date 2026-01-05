@@ -423,15 +423,53 @@ export default function Home() {
 											setGameState(prev => {
 												if (!prev) return normalized;
 
-												// Construire le nouveau tableau de lieux
-												let nouveauxLieux = prev.lieux || [];
-												if (data.state?.nouveau_lieu) {
-													// Vérifier qu'il n'existe pas déjà (par nom)
-													const existe = nouveauxLieux.some(
-														l => l.nom.toLowerCase() === data.state.nouveau_lieu.nom.toLowerCase()
-													);
-													if (!existe) {
-														nouveauxLieux = [...nouveauxLieux, data.state.nouveau_lieu];
+												// === FUSION DES PNJ ===
+												let nouveauxPnj = [...(prev.pnj || [])];
+
+												// Ajouter les PNJ créés
+												if (data.state.entites?.pnj_crees?.length > 0) {
+													for (const pnj of data.state.entites.pnj_crees) {
+														const existe = nouveauxPnj.some(p => p.id === pnj.id);
+														if (!existe) {
+															nouveauxPnj.push(pnj);
+														}
+													}
+												}
+
+												// Appliquer les modifications
+												if (data.state.entites?.pnj_modifies?.length > 0) {
+													for (const pnjModifie of data.state.entites.pnj_modifies) {
+														const index = nouveauxPnj.findIndex(p =>
+															p.id === pnjModifie.id ||
+															p.nom.toLowerCase() === pnjModifie.ancien_nom?.toLowerCase()
+														);
+														if (index !== -1) {
+															nouveauxPnj[index] = { ...nouveauxPnj[index], ...pnjModifie };
+														}
+													}
+												}
+
+
+												// === FUSION DES LIEUX ===
+												let nouveauxLieux = [...(prev.lieux || [])];
+
+												// Ajouter les lieux créés
+												if (data.state.entites?.lieux_crees?.length > 0) {
+													for (const lieu of data.state.entites.lieux_crees) {
+														const existe = nouveauxLieux.some(l => l.id === lieu.id);
+														if (!existe) {
+															nouveauxLieux.push(lieu);
+														}
+													}
+												}
+
+												// Appliquer les modifications
+												if (data.state.entites?.lieux_modifies?.length > 0) {
+													for (const lieuModifie of data.state.entites.lieux_modifies) {
+														const index = nouveauxLieux.findIndex(l => l.id === lieuModifie.id);
+														if (index !== -1) {
+															nouveauxLieux[index] = { ...nouveauxLieux[index], ...lieuModifie };
+														}
 													}
 												}
 
@@ -441,7 +479,7 @@ export default function Home() {
 													partie: { ...prev.partie, ...normalized.partie },
 													valentin: { ...prev.valentin, ...normalized.valentin },
 													ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia,
-													pnj: prev.pnj || [],
+													pnj: nouveauxPnj || [],
 													arcs: prev.arcs || [],
 													lieux: nouveauxLieux,
 													aVenir: prev.aVenir || []

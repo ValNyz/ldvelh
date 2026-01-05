@@ -2,7 +2,6 @@ import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@supabase/supabase-js';
 import { SYSTEM_PROMPT_INIT, SYSTEM_PROMPT_NEWCYCLE, SYSTEM_PROMPT_LIGHT } from '../../../lib/prompt';
 import { buildContextForClaude } from '../../../lib/contextBuilder';
-import { extractPnjFromNarratif, updatePnjContact } from '../../../lib/interactionTracker';
 import { extraireFaits, sauvegarderFaits } from '../../../lib/faitsService';
 import { insererTransactions, calculerSolde, calculerInventaire } from '../../../lib/financeService';
 
@@ -198,6 +197,186 @@ Réponds UNIQUEMENT avec le JSON, sans backticks.`;
 	}
 }
 
+async function processEntites(supabase, partieId, entites, cycle) {
+	const results = {
+		pnj_crees: [],
+		pnj_modifies: [],
+		lieux_crees: [],
+		lieux_modifies: [],
+		errors: []
+	};
+
+	if (!entites || entites.length === 0) {
+		return results;
+	}
+
+	for (const entite of entites) {
+		try {
+			if (entite.type === 'pnj') {
+				if (entite.action === 'creer') {
+					// Vérifier que le PNJ n'existe pas déjà
+					const { data: existing } = await supabase
+						.from('pnj')
+						.select('id')
+						.eq('partie_id', partieId)
+						.ilike('nom', entite.nom)
+						.maybeSingle();
+
+					if (!existing) {
+						const { data: inserted } = await supabase.from('pnj').insert({
+							partie_id: partieId,
+							nom: entite.nom,
+							metier: entite.metier || null,
+							physique: entite.physique || null,
+							traits: entite.traits || [],
+							arc: entite.arc || null,
+							domicile: entite.domicile || null,
+							relation: 0,
+							disposition: 'neutre',
+							stat_social: 3,
+							stat_travail: 3,
+							stat_sante: 3,
+							dernier_contact: cycle
+						}).select().single();
+
+						if (inserted) {
+							results.pnj_crees.push(inserted);
+						}
+					}
+				}
+				else if (entite.action === 'modifier') {
+					// Trouver le PNJ par nom actuel
+					const { data: pnj } = await supabase
+						.from('pnj')
+						.select('*')
+						.eq('partie_id', partieId)
+						.ilike('nom', entite.nom)
+						.maybeSingle();
+
+					if (pnj) {
+						const updateData = { updated_at: new Date().toISOString() };
+
+						if (entite.nouveau_nom) updateData.nom = entite.nouveau_nom;
+						if (entite.metier) updateData.metier = entite.metier;
+						if (entite.physique) updateData.physique = entite.physique;
+						if (entite.domicile) updateData.domicile = entite.domicile;
+						if (entite.arc) updateData.arc = entite.arc;
+
+						// Fusion des traits
+						if (entite.traits?.length > 0) {
+							const existingTraits = pnj.traits || [];
+							const newTraits = entite.traits.filter(t => !existingTraits.includes(t));
+							updateData.traits = [...existingTraits, ...newTraits];
+						}
+
+						const { data: updated } = await supabase.from('pnj').update(updateData).eq('id', pnj.id).select().single();
+
+						if (updated) {
+							results.pnj_modifies.push({
+								ancien_nom: pnj.nom,  // Pour matcher côté client
+								...updated
+							});
+						}
+					} else {
+						results.errors.push(`PNJ non trouvé: ${entite.nom}`);
+					}
+				}
+			}
+
+			else if (entite.type === 'lieu') {
+				if (entite.action === 'creer') {
+					const { data: existing } = await supabase
+						.from('lieux')
+						.select('id')
+						.eq('partie_id', partieId)
+						.ilike('nom', entite.nom)
+						.maybeSingle();
+
+					if (!existing) {
+						const { data: inserted } = await supabase.from('lieux').insert({
+							partie_id: partieId,
+							nom: entite.nom,
+							type: entite.type_lieu || 'autre',
+							secteur: entite.secteur || null,
+							description: entite.description || null,
+							pnj_frequents: entite.pnj_frequents || [],
+							horaires: entite.horaires || null,
+							cycles_visites: [cycle]
+						}).select().single();
+
+						if (inserted) {
+							results.lieux_crees.push(inserted);
+						}
+					}
+				}
+				else if (entite.action === 'modifier') {
+					const { data: lieu } = await supabase
+						.from('lieux')
+						.select('*')
+						.eq('partie_id', partieId)
+						.ilike('nom', entite.nom)
+						.maybeSingle();
+
+					if (lieu) {
+						const updateData = { updated_at: new Date().toISOString() };
+
+						if (entite.description) {
+							// Concaténer ou remplacer ? Je suggère concaténer
+							updateData.description = lieu.description
+								? `${lieu.description} ${entite.description}`
+								: entite.description;
+						}
+						if (entite.horaires) updateData.horaires = entite.horaires;
+
+						// Fusion pnj_frequents
+						if (entite.pnj_frequents?.length > 0) {
+							const existing = lieu.pnj_frequents || [];
+							const newPnj = entite.pnj_frequents.filter(p => !existing.includes(p));
+							updateData.pnj_frequents = [...existing, ...newPnj];
+						}
+
+						const { data: updated } = await supabase.from('lieux').update(updateData).eq('id', lieu.id);
+
+						if (updated) {
+							results.lieux_modifies.push(updated);
+						}
+					} else {
+						results.errors.push(`Lieu non trouvé: ${entite.nom}`);
+					}
+				}
+			}
+		} catch (err) {
+			results.errors.push(`Erreur entité ${entite.type}/${entite.nom}: ${err.message}`);
+		}
+	}
+
+	return results;
+}
+
+async function updatePnjsPresents(supabase, partieId, pnjsPresents, cycle, pnjList) {
+	if (!pnjsPresents || pnjsPresents.length === 0) return;
+
+	for (const nomPnj of pnjsPresents) {
+		const pnj = pnjList.find(p =>
+			p.nom.toLowerCase() === nomPnj.toLowerCase() ||
+			p.nom.split(' ')[0].toLowerCase() === nomPnj.toLowerCase()
+		);
+
+		if (pnj?.id) {
+			const cyclesVus = Array.isArray(pnj.cycles_vus) ? [...pnj.cycles_vus] : [];
+			if (!cyclesVus.includes(cycle)) {
+				cyclesVus.push(cycle);
+			}
+
+			await supabase.from('pnj').update({
+				dernier_contact: cycle,
+				cycles_vus: cyclesVus,
+				updated_at: new Date().toISOString()
+			}).eq('id', pnj.id);
+		}
+	}
+}
+
 // ============================================================================
 // TRAITEMENT MODE INIT
 // ============================================================================
@@ -237,58 +416,9 @@ async function processInitMode(supabase, partieId, init, heure) {
 		updates.push(supabase.from('ia_personnelle').update({ nom: init.ia.nom }).eq('partie_id', partieId));
 	}
 
-	// 4. PNJ initiaux
-	if (init.pnj_initiaux?.length > 0) {
-		for (const pnj of init.pnj_initiaux) {
-			const { data: existing } = await supabase
-				.from('pnj')
-				.select('id')
-				.eq('partie_id', partieId)
-				.ilike('nom', pnj.nom)
-				.single();
-
-			if (existing) {
-				updates.push(
-					supabase.from('pnj').update({
-						metier: pnj.metier,
-						traits: pnj.traits || [],
-						arc: pnj.arc,
-						domicile: pnj.domicile,
-						est_initial: true
-					}).eq('id', existing.id)
-				);
-			} else {
-				updates.push(
-					supabase.from('pnj').insert({
-						partie_id: partieId,
-						nom: pnj.nom,
-						metier: pnj.metier,
-						physique: pnj.physique || null,
-						traits: pnj.traits || [],
-						arc: pnj.arc,
-						domicile: pnj.domicile,
-						relation: 0,
-						disposition: 'neutre',
-						stat_social: 3,
-						stat_travail: 3,
-						stat_sante: 3,
-						est_initial: true,
-						dernier_contact: 1
-					})
-				);
-			}
-		}
-	}
-
-	// 5. Lieux initiaux
-	if (init.lieux_initiaux?.length > 0) {
-		const lieuxToInsert = init.lieux_initiaux.map(l => ({
-			partie_id: partieId,
-			nom: l.nom,
-			type: l.type,
-			description: l.description
-		}));
-		updates.push(supabase.from('lieux').insert(lieuxToInsert));
+	// 4. et 5. Traiter les entités (PNJ et lieux)
+	if (init.entites?.length > 0) {
+		await processEntites(supabase, partieId, init.entites, 1);
 	}
 
 	// 6. Arcs potentiels
@@ -447,15 +577,9 @@ async function processNewCycleMode(supabase, partieId, parsed, pnjList) {
 		}
 	}
 
-	// 5. Nouveaux lieux
-	if (parsed.nouveaux_lieux?.length > 0) {
-		const lieuxToInsert = parsed.nouveaux_lieux.map(l => ({
-			partie_id: partieId,
-			nom: l.nom,
-			type: l.type,
-			description: l.description
-		}));
-		updates.push(supabase.from('lieux').insert(lieuxToInsert));
+	// 5. Traiter les entités
+	if (parsed.entites?.length > 0) {
+		await processEntites(supabase, partieId, parsed.entites, parsed.nouveau_jour?.cycle || 1);
 	}
 
 	// 6. Événements à venir
@@ -545,62 +669,30 @@ async function applyDeltas(supabase, partieId, parsed, pnjList, cycle, heure) {
 		}
 	}
 
-	// 3. Nouveaux PNJ
-	if (parsed.nouveaux_pnj?.length > 0) {
-		const toInsert = parsed.nouveaux_pnj.map(p => ({
-			partie_id: partieId,
-			nom: p.nom,
-			metier: p.metier || null,
-			physique: p.physique || null,
-			traits: p.traits || [],
-			relation: 0,
-			disposition: 'neutre',
-			stat_social: 3,
-			stat_travail: 3,
-			stat_sante: 3,
-			dernier_contact: cycle
-		}));
 
-		await supabase.from('pnj').insert(toInsert);
-		results.pnj = toInsert.length;
-	}
-
-	// 4. Transactions
+	// 3. Transactions
 	if (parsed.transactions?.length > 0) {
 		const txResult = await insererTransactions(supabase, partieId, cycle, heure, parsed.transactions);
 		results.transactions = txResult.inserted;
 	}
 
-	// 5. Progression compétence
+	// 4. Progression compétence
 	if (parsed.progression_competence?.competence) {
 		results.competence = parsed.progression_competence.competence;
 	}
 
-	// 6. Nouveau lieu (si découvert)
-	if (parsed.nouveau_lieu?.nom) {
-		const { data: lieuExistant } = await supabase
-			.from('lieux')
-			.select('id')
-			.eq('partie_id', partieId)
-			.ilike('nom', parsed.nouveau_lieu.nom)
-			.maybeSingle();
-
-		if (!lieuExistant) {
-			await supabase.from('lieux').insert({
-				partie_id: partieId,
-				nom: parsed.nouveau_lieu.nom,
-				type: parsed.nouveau_lieu.type || 'autre',
-				secteur: parsed.nouveau_lieu.secteur || null,
-				description: parsed.nouveau_lieu.description || null,
-				pnj_frequents: parsed.nouveau_lieu.pnj_frequents || [],
-				cycles_visites: [cycle]
-			});
-
-			results.lieu = parsed.nouveau_lieu;
-		}
+	// 5. Traiter les entités
+	if (parsed.entites?.length > 0) {
+		const entitesResult = await processEntites(supabase, partieId, parsed.entites, cycle);
+		results.entites = entitesResult;
 	}
 
-	// 7. Mise à jour lieu actuel + tracking visite
+	// Mettre à jour dernier_contact des PNJ présents
+	if (parsed.pnjs_presents?.length > 0) {
+		await updatePnjsPresents(supabase, partieId, parsed.pnjs_presents, cycle, pnjList);
+	}
+
+	// 6. Mise à jour lieu actuel + tracking visite
 	if (parsed.lieu_actuel) {
 		// Mettre à jour parties
 		await supabase.from('parties').update({
@@ -628,7 +720,7 @@ async function applyDeltas(supabase, partieId, parsed, pnjList, cycle, heure) {
 		}
 	}
 
-	// 8. Nouveau cycle flag
+	// 7. Nouveau cycle flag
 	if (parsed.nouveau_cycle === true) {
 		await supabase.from('parties').update({
 			pending_full_state: true
@@ -989,6 +1081,7 @@ export async function POST(request) {
 						jour: parsed.nouveau_jour.jour,
 						date_jeu: parsed.nouveau_jour.date_jeu,
 						lieu_actuel: parsed.lieu_actuel || null,
+						pnjs_presents: parsed.pnjs_presents || partieData?.pnjs_presents,
 						valentin: parsed.reveil_valentin ? {
 							energie: parsed.reveil_valentin.energie,
 							moral: parsed.reveil_valentin.moral,
@@ -1004,10 +1097,21 @@ export async function POST(request) {
 					);
 					console.log(`[STREAM] Apply deltas:`, deltaResults);
 
+					// Traiter les entités
+					let entitesResult = { pnj_crees: [], pnj_modifies: [], lieux_crees: [], lieux_modifies: [] };
+					if (parsed.entites?.length > 0) {
+						entitesResult = await processEntites(supabase, partieId, parsed.entites, cycleForSave);
+					}
+
+					// Mettre à jour dernier_contact des PNJ présents
+					if (parsed.pnjs_presents?.length > 0) {
+						await updatePnjsPresents(supabase, partieId, parsed.pnjs_presents, cycleForSave, pnjForTracking);
+					}
+
 					// Récupérer le cycle actuel et les crédits/inventaire
 					const [partieData, credits, inventaire] = await Promise.all([
 						supabase.from('parties')
-							.select('cycle_actuel, jour, date_jeu, lieu_actuel')
+							.select('cycle_actuel, jour, date_jeu, lieu_actuel, pnjs_presents')
 							.eq('id', partieId)
 							.single()
 							.then(r => r.data),
@@ -1020,12 +1124,18 @@ export async function POST(request) {
 						jour: partieData?.jour,
 						date_jeu: partieData?.date_jeu,
 						lieu_actuel: parsed.lieu_actuel || partieData?.lieu_actuel,
+						pnjs_presents: parsed.pnjs_presents || partieData?.pnjs_presents,
 						valentin: {
 							...(deltaResults.valentin || {}),
 							credits,
 							inventaire
 						},
-						nouveau_lieu: deltaResults.lieu || null
+						entites: {
+							pnj_crees: entitesResult.pnj_crees,
+							pnj_modifies: entitesResult.pnj_modifies,
+							lieux_crees: entitesResult.lieux_crees,
+							lieux_modifies: entitesResult.lieux_modifies
+						}
 					};
 				}
 
@@ -1070,14 +1180,6 @@ export async function POST(request) {
 				}
 
 				// MODE LIGHT : deltas déjà appliqués avant l'envoi du 'done'
-
-				// Mise à jour dernier_contact (tous les modes)
-				if (parsed.narratif && pnjForTracking.length > 0) {
-					const pnjMentionnes = extractPnjFromNarratif(parsed.narratif, pnjForTracking);
-					if (pnjMentionnes.length > 0) {
-						await updatePnjContact(supabase, partieId, cycleForSave, pnjMentionnes);
-					}
-				}
 
 				// Faits (tous les modes)
 				if (faitsEnabled) {
