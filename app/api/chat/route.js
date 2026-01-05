@@ -1003,6 +1003,7 @@ export async function POST(request) {
 
 				const streamResponse = await anthropic.messages.stream({
 					model: 'claude-sonnet-4-20250514',
+					temperature: 0.65,
 					max_tokens: maxTokens,
 					system: [{
 						type: 'text',
@@ -1022,6 +1023,7 @@ export async function POST(request) {
 
 				// Parser le JSON
 				parsed = extractJSON(fullContent);
+				console.log(`[STREAM] Log response:`, JSON.stringify(parsed, null, 2));
 
 				// Construire le texte d'affichage
 				if (parsed) {
@@ -1077,7 +1079,9 @@ export async function POST(request) {
 							poste: parsed.init.valentin?.poste || null,
 							raison_depart: parsed.init.valentin?.raison_depart || null
 						},
-						ia: parsed.init.ia?.nom ? { nom: parsed.init.ia.nom } : null
+						ia: parsed.init.ia?.nom ? { nom: parsed.init.ia.nom } : null,
+						entites: parsed.entites
+
 					};
 				} else if (promptMode === 'newcycle' && parsed?.nouveau_jour) {
 					const [credits, inventaire] = await Promise.all([
@@ -1097,7 +1101,8 @@ export async function POST(request) {
 							sante: parsed.reveil_valentin.sante,
 							credits,
 							inventaire
-						} : { credits, inventaire }
+						} : { credits, inventaire },
+						entites: parsed.entites
 					};
 				} else if (promptMode === 'light' && parsed && partieId) {
 					// Mode LIGHT : appliquer les deltas et récupérer les valeurs finales
@@ -1105,17 +1110,6 @@ export async function POST(request) {
 						supabase, partieId, parsed, pnjForTracking, cycleForSave, parsed.heure
 					);
 					console.log(`[STREAM] Apply deltas:`, deltaResults);
-
-					// Traiter les entités
-					let entitesResult = { pnj_crees: [], pnj_modifies: [], lieux_crees: [], lieux_modifies: [] };
-					if (parsed.entites?.length > 0) {
-						entitesResult = await processEntites(supabase, partieId, parsed.entites, cycleForSave);
-					}
-
-					// Mettre à jour dernier_contact des PNJ présents
-					if (parsed.pnjs_presents?.length > 0) {
-						await updatePnjsPresents(supabase, partieId, parsed.pnjs_presents, cycleForSave, pnjForTracking);
-					}
 
 					// Récupérer le cycle actuel et les crédits/inventaire
 					const [partieData, credits, inventaire] = await Promise.all([
@@ -1139,12 +1133,7 @@ export async function POST(request) {
 							credits,
 							inventaire
 						},
-						entites: {
-							pnj_crees: entitesResult.pnj_crees,
-							pnj_modifies: entitesResult.pnj_modifies,
-							lieux_crees: entitesResult.lieux_crees,
-							lieux_modifies: entitesResult.lieux_modifies
-						}
+						entites: deltaResults.entites
 					};
 				}
 
