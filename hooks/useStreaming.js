@@ -108,14 +108,12 @@ export function useStreaming({ onChunk, onDone, onSaved, onError }) {
 
 						switch (data.type) {
 							case 'chunk':
-								fullJson += data.content;
-								const display = extractDisplayContent(fullJson);
-								if (display) {
-									onChunk?.(display, fullJson);
-								}
+								// On l'affiche directement (remplace le contenu précédent)
+								onChunk?.(data.content, fullJson);
 								break;
 
 							case 'done':
+								// Le displayText final remplace tout
 								onDone?.(data.displayText || fullJson, data.state);
 								break;
 
