@@ -3,7 +3,11 @@ import './globals.css';
 export const metadata = {
 	title: 'LDVELH - Chroniques de l\'Exil Stellaire',
 	description: 'Jeu de rôle solo SF narratif',
-	viewport: 'width=device-width, initial-scale=1',
+};
+
+export const viewport = {
+	width: 'device-width',
+	initialScale: 1,
 	themeColor: '#111827',
 };
 
