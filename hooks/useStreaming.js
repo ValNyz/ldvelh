@@ -1,67 +1,6 @@
 import { useRef, useCallback } from 'react';
 
 /**
- * Extraction du narratif depuis JSON streamé
- */
-function extractNarratif(jsonStr) {
-	const m = jsonStr.match(/"narratif"\s*:\s*"/);
-	if (!m) return null;
-	let narratif = '', i = m.index + m[0].length;
-	while (i < jsonStr.length) {
-		const c = jsonStr[i];
-		if (c === '\\' && i + 1 < jsonStr.length) {
-			const n = jsonStr[i + 1];
-			if (n === 'n') { narratif += '\n'; i += 2; }
-			else if (n === '"') { narratif += '"'; i += 2; }
-			else if (n === '\\') { narratif += '\\'; i += 2; }
-			else if (n === 't') { narratif += '\t'; i += 2; }
-			else if (n === 'r') { narratif += '\r'; i += 2; }
-			else { narratif += c; i++; }
-		} else if (c === '"') { break; }
-		else { narratif += c; i++; }
-	}
-	return narratif || null;
-}
-
-function extractHeure(jsonStr) {
-	const m = jsonStr.match(/"heure"\s*:\s*"([^"]+)"/);
-	return m ? m[1] : null;
-}
-
-function extractChoix(jsonStr) {
-	const match = jsonStr.match(/"choix"\s*:\s*\[([\s\S]*?)\]/);
-	if (!match) return null;
-	try {
-		const arr = JSON.parse(`[${match[1]}]`);
-		return arr.length > 0 ? arr : null;
-	} catch (e) {
-		return null;
-	}
-}
-
-/**
- * Construit le contenu à afficher depuis le JSON streamé
- */
-export function extractDisplayContent(content) {
-	const trimmed = content.trim();
-	if (trimmed.startsWith('{')) {
-		const narratif = extractNarratif(content);
-		const heure = extractHeure(content);
-		const choix = extractChoix(content);
-		if (narratif) {
-			let display = narratif.replace(/^\[?\d{2}h\d{2}\]?\s*[-–—:]?\s*/i, '');
-			if (heure) display = `[${heure}] ${display}`;
-			if (choix?.length > 0) {
-				display += '\n\n' + choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
-			}
-			return display;
-		}
-		return null;
-	}
-	return content || null;
-}
-
-/**
  * Hook pour gérer le streaming SSE
  */
 export function useStreaming({ onChunk, onDone, onSaved, onError }) {
