@@ -9,6 +9,8 @@ import { supabase } from '../../../lib/supabase.js';
 // Prompts
 import { SYSTEM_PROMPT_INIT, SYSTEM_PROMPT_LIGHT } from '../../../lib/prompt.js';
 
+import { generateAndFormatConstraints } from '../../../lib/diversity/diversityConstraints.js';
+
 // Context
 import { buildContext, buildContextInit } from '../../../lib/context/contextBuilder.js';
 
@@ -46,7 +48,7 @@ export const dynamic = 'force-dynamic';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const MODEL = 'claude-sonnet-4-20250514';
+const MODEL = 'claude-sonnet-4-5';
 
 // ============================================================================
 // GET HANDLER
@@ -180,7 +182,20 @@ async function handlePostAsync(request, sseWriter) {
 			: (await buildContext(supabase, partieId, gameState, message)).context;
 
 		// Configuration du prompt
-		const systemPrompt = isInitMode ? SYSTEM_PROMPT_INIT : SYSTEM_PROMPT_LIGHT;
+		// const systemPrompt = isInitMode ? SYSTEM_PROMPT_INIT : SYSTEM_PROMPT_LIGHT;
+		// remplacé par :
+		let systemPrompt;
+		if (isInitMode) {
+			// Générer les contraintes de diversité
+			const { promptText: diversityText } = generateAndFormatConstraints();
+
+			// Injecter les contraintes dans le prompt
+			systemPrompt = SYSTEM_PROMPT_INIT + diversityText;
+
+			console.log('[INIT] Contraintes de diversité générées');
+		} else {
+			systemPrompt = SYSTEM_PROMPT_LIGHT;
+		}
 		const maxTokens = isInitMode ? 8192 : 4096;
 
 		// Variables pour le traitement post-stream
