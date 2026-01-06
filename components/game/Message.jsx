@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { IconButton } from '../ui/Button';
+import EntityTooltip from './EntityTooltip';
+import { formatTooltip } from '../../lib/kg/knowledgeService';
 
 /**
  * Composant Message unique
@@ -14,7 +15,8 @@ export default function Message({
 	isLoading,
 	fontSize,
 	onEdit,
-	onRegenerate
+	onRegenerate,
+	tooltipMap  // NOUVEAU
 }) {
 	const [showActions, setShowActions] = useState(false);
 	const isUser = message.role === 'user';
@@ -38,7 +40,11 @@ export default function Message({
           `}
 				>
 					<div style={{ fontSize }}>
-						<MarkdownContent content={message.content} isUser={isUser} />
+						<MarkdownContent
+							content={message.content}
+							isUser={isUser}
+							tooltipMap={tooltipMap}  // NOUVEAU
+						/>
 					</div>
 
 					{/* Curseur de streaming */}
@@ -77,53 +83,82 @@ export default function Message({
 }
 
 /**
- * Rendu Markdown personnalisé
+ * Rendu Markdown personnalisé avec tooltips
  */
-function MarkdownContent({ content, isUser }) {
+function MarkdownContent({ content, isUser, tooltipMap }) {
+	const components = useMemo(() => ({
+		p: ({ children }) => (
+			<p className="mb-2 last:mb-0">{children}</p>
+		),
+		strong: ({ children }) => {
+			// NOUVEAU : Tooltip sur les éléments en gras
+			const text = extractText(children);
+			const entityData = tooltipMap?.get(text.toLowerCase());
+			const tooltipData = entityData ? formatTooltip(entityData) : null;
+
+			if (tooltipData && !isUser) {
+				return (
+					<EntityTooltip data={tooltipData}>
+						<strong className="text-blue-400">{children}</strong>
+					</EntityTooltip>
+				);
+			}
+
+			return (
+				<strong className={isUser ? 'text-white' : 'text-blue-400'}>
+					{children}
+				</strong>
+			);
+		},
+		em: ({ children }) => (
+			<em className={isUser ? 'text-blue-100' : 'text-purple-300'}>
+				{children}
+			</em>
+		),
+		ul: ({ children }) => (
+			<ul className="list-disc list-inside my-2 space-y-1">{children}</ul>
+		),
+		ol: ({ children }) => (
+			<ol className="list-decimal list-inside my-2 space-y-1">{children}</ol>
+		),
+		li: ({ children }) => (
+			<li className="ml-2">{children}</li>
+		),
+		code: ({ inline, children }) => inline ? (
+			<code className={`px-1.5 py-0.5 rounded text-sm ${isUser ? 'bg-blue-700' : 'bg-gray-700'}`}>
+				{children}
+			</code>
+		) : (
+			<pre className={`p-3 rounded my-2 overflow-x-auto ${isUser ? 'bg-blue-700' : 'bg-gray-700'}`}>
+				<code className="text-sm">{children}</code>
+			</pre>
+		),
+		blockquote: ({ children }) => (
+			<blockquote className="border-l-2 border-blue-400 pl-3 my-2 text-gray-400 italic">
+				{children}
+			</blockquote>
+		),
+	}), [isUser, tooltipMap]);
+
 	return (
-		<ReactMarkdown
-			components={{
-				p: ({ children }) => (
-					<p className="mb-2 last:mb-0">{children}</p>
-				),
-				strong: ({ children }) => (
-					<strong className={isUser ? 'text-white' : 'text-blue-400'}>
-						{children}
-					</strong>
-				),
-				em: ({ children }) => (
-					<em className={isUser ? 'text-blue-100' : 'text-purple-300'}>
-						{children}
-					</em>
-				),
-				ul: ({ children }) => (
-					<ul className="list-disc list-inside my-2 space-y-1">{children}</ul>
-				),
-				ol: ({ children }) => (
-					<ol className="list-decimal list-inside my-2 space-y-1">{children}</ol>
-				),
-				li: ({ children }) => (
-					<li className="ml-2">{children}</li>
-				),
-				code: ({ inline, children }) => inline ? (
-					<code className={`px-1.5 py-0.5 rounded text-sm ${isUser ? 'bg-blue-700' : 'bg-gray-700'}`}>
-						{children}
-					</code>
-				) : (
-					<pre className={`p-3 rounded my-2 overflow-x-auto ${isUser ? 'bg-blue-700' : 'bg-gray-700'}`}>
-						<code className="text-sm">{children}</code>
-					</pre>
-				),
-				blockquote: ({ children }) => (
-					<blockquote className="border-l-2 border-blue-400 pl-3 my-2 text-gray-400 italic">
-						{children}
-					</blockquote>
-				),
-			}}
-		>
+		<ReactMarkdown components={components}>
 			{content}
 		</ReactMarkdown>
 	);
+}
+
+/**
+ * Extrait le texte brut des children React
+ */
+function extractText(children) {
+	if (typeof children === 'string') return children;
+	if (Array.isArray(children)) {
+		return children.map(extractText).join('');
+	}
+	if (children?.props?.children) {
+		return extractText(children.props.children);
+	}
+	return '';
 }
 
 /**

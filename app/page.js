@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useGameState, useParties } from '../hooks/useGameState';
 import { useStreaming, extractDisplayContent } from '../hooks/useStreaming';
 import { useGamePreferences } from '../hooks/useLocalStorage';
+import { useTooltips } from '../hooks/useTooltips';
 
 // Components
 import PartiesList from '../components/game/PartiesList';
@@ -36,6 +37,9 @@ export default function Home() {
 
 	// Préférences
 	const { fontSize, increaseFontSize, decreaseFontSize } = useGamePreferences();
+
+	// Tooltips
+	const { tooltipMap, refresh: refreshTooltips } = useTooltips(partieId);
 
 	// UI State
 	const [showSettings, setShowSettings] = useState(false);
@@ -79,6 +83,16 @@ export default function Home() {
 	useEffect(() => {
 		loadParties();
 	}, [loadParties]);
+
+	// Rafraîchir tooltips après un message assistant
+	useEffect(() => {
+		const lastMsg = messages[messages.length - 1];
+		if (lastMsg?.role === 'assistant' && !lastMsg.streaming && !loading && !saving) {
+			// Délai pour laisser le temps à l'extraction Haiku
+			const timer = setTimeout(refreshTooltips, 1500);
+			return () => clearTimeout(timer);
+		}
+	}, [messages, loading, saving, refreshTooltips]);
 
 	// ============================================================
 	// ACTIONS PARTIES
@@ -319,6 +333,7 @@ export default function Home() {
 				onCancel={handleCancel}
 				onClearError={clearError}
 				onRetry={handleRegenerate}
+				tooltipMap={tooltipMap}
 			/>
 
 			{/* Input */}
