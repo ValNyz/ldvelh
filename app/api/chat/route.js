@@ -26,14 +26,14 @@ import { processLightMode, extractionBackground } from '../../../lib/game/lightP
 import {
 	loadGameState,
 	loadChatMessages,
-	buildClientStateFromInit,
+	formatInventaireForClient,
 	buildClientStateFromLight,
 	createStateSnapshot,
 	restoreStateSnapshot
 } from '../../../lib/game/gameState.js';
 
 // KG
-import { rollbackKG } from '../../../lib/kg/kgService.js';
+import { getInventaire, rollbackKG } from '../../../lib/kg/kgService.js';
 
 // API helpers
 import { SSEWriter, streamClaudeResponse } from '../../../lib/api/streamHandler.js';
@@ -213,6 +213,10 @@ async function handlePostAsync(request, sseWriter) {
 				if (isInitMode && parsed && partieId) {
 					const initResult = await processInitMode(supabase, partieId, parsed, 1);
 
+					// FIX: Charger l'inventaire depuis la BDD après création
+					const inventaireRaw = await getInventaire(supabase, partieId);
+					const inventaire = formatInventaireForClient(inventaireRaw);
+
 					// Envoyer au client un état "monde créé" sans narratif
 					await sseWriter.sendDone(null, {
 						monde_cree: true,
@@ -220,6 +224,7 @@ async function handlePostAsync(request, sseWriter) {
 						ia_nom: initResult.ia_nom,
 						lieu_depart: initResult.lieu_depart,
 						credits: initResult.credits,
+						inventaire: inventaire,  // FIX: Ajouter l'inventaire
 						// Passer les données complètes pour affichage
 						evenement_arrivee: parsed.evenement_arrivee
 					});

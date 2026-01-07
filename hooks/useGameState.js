@@ -97,8 +97,9 @@ function mergeValentin(prev, next) {
 		moral: next.moral ?? prev.moral,
 		sante: next.sante ?? prev.sante,
 		credits: next.credits ?? prev.credits,
-		// L'inventaire vient de la BDD, c'est la source de vérité
-		inventaire: next.inventaire?.length ? next.inventaire : prev.inventaire
+		// FIX: L'inventaire vient de la BDD, utilise le nouveau s'il est défini (même si vide)
+		// Avant: next.inventaire?.length ? next.inventaire : prev.inventaire
+		inventaire: next.inventaire !== undefined ? next.inventaire : (prev.inventaire || [])
 	};
 }
 
