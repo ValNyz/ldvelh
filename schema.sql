@@ -24,46 +24,28 @@ CREATE TABLE parties (
 );
 
 -- ============================================================================
--- TABLE: scenes
--- ============================================================================
-
-CREATE TABLE scenes (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  partie_id UUID NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
-  cycle INTEGER NOT NULL,
-  lieu CHARACTER VARYING(255) NOT NULL,
-  numero INTEGER NOT NULL,
-  heure_debut CHARACTER VARYING(10),
-  heure_fin CHARACTER VARYING(10),
-  resume TEXT,
-  resume_intermediaire TEXT[],
-  dernier_message_resume_id UUID,
-  pnj_impliques TEXT[],
-  statut CHARACTER VARYING(20) DEFAULT 'en_cours',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
-);
-
-CREATE INDEX idx_scenes_partie_cycle ON scenes(partie_id, cycle);
-CREATE INDEX idx_scenes_statut ON scenes(partie_id, statut);
-
--- ============================================================================
 -- TABLE: chat_messages
 -- ============================================================================
 
 CREATE TABLE chat_messages (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   partie_id UUID NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
-  scene_id UUID REFERENCES scenes(id),
   role CHARACTER VARYING(20) NOT NULL,
   content TEXT NOT NULL,
   cycle INTEGER,
+  lieu TEXT,
+  pnjs_presents TEXT[],
+  resume TEXT,
   state_snapshot JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
 CREATE INDEX idx_messages_partie ON chat_messages(partie_id);
-CREATE INDEX idx_messages_scene ON chat_messages(scene_id);
 CREATE INDEX idx_messages_cycle ON chat_messages(partie_id, cycle);
+CREATE INDEX idx_messages_cycle_resume ON chat_messages(partie_id, cycle) 
+  WHERE resume IS NOT NULL;
+CREATE INDEX idx_messages_lieu ON chat_messages(partie_id, lieu) 
+  WHERE lieu IS NOT NULL;
 
 -- ============================================================================
 -- TABLE: cycle_resumes
@@ -236,7 +218,6 @@ CREATE TABLE kg_extraction_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   partie_id UUID NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
   cycle INTEGER NOT NULL,
-  scene_id UUID REFERENCES scenes(id) ON DELETE SET NULL,
   duree_ms INTEGER,
   nb_operations INTEGER DEFAULT 0,
   nb_entites_creees INTEGER DEFAULT 0,
