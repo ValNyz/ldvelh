@@ -17,7 +17,7 @@ import { buildContext, buildContextInit } from '../../../lib/context/contextBuil
 
 // Game processors
 import { processInitMode } from '../../../lib/game/initProcessor.js';
-import { processLightMode, extractionBackground, ensureSceneExists } from '../../../lib/game/lightProcessor.js';
+import { processLightMode, extractionBackground } from '../../../lib/game/lightProcessor.js';
 import {
 	loadGameState,
 	loadChatMessages,
@@ -31,12 +31,8 @@ import {
 // KG
 import { rollbackKG } from '../../../lib/kg/kgService.js';
 
-// Scene
-import { getSceneEnCours } from '../../../lib/scene/sceneService.js';
-
 // API helpers
 import { SSEWriter, streamClaudeResponse } from '../../../lib/api/streamHandler.js';
-import { parseAndValidate } from '../../../lib/api/responseParser.js';
 
 // Errors
 import { errorToResponse, LDVELHError } from '../../../lib/errors.js';
@@ -157,11 +153,6 @@ async function handlePostAsync(request, sseWriter) {
 
 		console.log(`[POST] Mode: ${promptMode}, Cycle: ${currentCycle}`);
 
-		let sceneEnCours = null;
-		if (!isInitMode) {
-			sceneEnCours = await getSceneEnCours(supabase, partieId);
-		}
-
 		const contextMessage = isInitMode
 			? buildContextInit()
 			: (await buildContext(supabase, partieId, gameState, message)).context;
@@ -170,7 +161,6 @@ async function handlePostAsync(request, sseWriter) {
 		if (isInitMode) {
 			const { promptText: diversityText } = generateAndFormatConstraints();
 			systemPrompt = SYSTEM_PROMPT_INIT + diversityText;
-			console.log('[INIT] Contraintes de diversité générées');
 		} else {
 			systemPrompt = SYSTEM_PROMPT_LIGHT;
 		}
@@ -178,7 +168,6 @@ async function handlePostAsync(request, sseWriter) {
 
 		let finalParsed = null;
 		let finalDisplayText = '';
-		let sceneIdPourSauvegarde = sceneEnCours?.id || null;
 
 		await streamClaudeResponse({
 			anthropic,
@@ -196,27 +185,11 @@ async function handlePostAsync(request, sseWriter) {
 				let stateForClient = null;
 
 				if (isInitMode && parsed && partieId) {
-					// === MODE INIT ===
 					const initResult = await processInitMode(supabase, partieId, parsed, 1);
-					sceneIdPourSauvegarde = initResult.sceneId;
 					stateForClient = buildClientStateFromInit(parsed);
 
 				} else if (!isInitMode && parsed && partieId) {
-					// === MODE LIGHT ===
-					// processLightMode ne traite plus que les scènes et la mise à jour partie
-					const lightResult = await processLightMode(
-						supabase,
-						partieId,
-						parsed,
-						currentCycle,
-						sceneEnCours
-					);
-
-					if (lightResult.scene_changed || !sceneIdPourSauvegarde) {
-						sceneIdPourSauvegarde = lightResult.sceneId;
-					}
-
-					// Le state client est construit depuis la BDD (pas depuis le JSON Sonnet)
+					await processLightMode(supabase, partieId, parsed, currentCycle);
 					stateForClient = await buildClientStateFromLight(
 						supabase,
 						partieId,
@@ -229,34 +202,18 @@ async function handlePostAsync(request, sseWriter) {
 
 				// === SAUVEGARDE ===
 				if (partieId) {
-					await saveMessages(
-						supabase,
-						partieId,
-						sceneIdPourSauvegarde,
-						message,
-						displayText,
-						currentCycle
-					);
+					const lieu = parsed?.lieu_actuel || gameState?.partie?.lieu_actuel;
+					const pnjsPresents = parsed?.pnjs_presents || [];
+					await saveMessages(supabase, partieId, message, displayText, currentCycle, lieu, pnjsPresents);
 				}
 
-				// === EXTRACTION BACKGROUND (5 extracteurs parallèles) ===
-				console.log('[POST] Lancement extraction background...');
-				const bgStart = Date.now();
-
+				// === EXTRACTION BACKGROUND ===
 				if (!isInitMode && parsed && partieId) {
-					// L'extraction est maintenant TOUJOURS lancée (plus de doitExtraire)
-					extractionBackground(
-						supabase,
-						partieId,
-						displayText,
-						parsed,
-						currentCycle,
-						sceneIdPourSauvegarde
-					).catch(err => console.error('[BG] Erreur extraction:', err));
+					extractionBackground(supabase, partieId, displayText, parsed, currentCycle)
+						.catch(err => console.error('[BG] Erreur extraction:', err));
 				}
 
 				await sseWriter.sendSaved();
-				console.log(`[POST] Background lancé en ${Date.now() - bgStart}ms`);
 			}
 		});
 
@@ -341,7 +298,6 @@ async function handleDelete(partieId) {
 	await Promise.all([
 		supabase.from('chat_messages').delete().eq('partie_id', partieId),
 		supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
-		supabase.from('scenes').delete().eq('partie_id', partieId),
 		supabase.from('kg_extraction_logs').delete().eq('partie_id', partieId),
 		supabase.from('kg_evenements').delete().eq('partie_id', partieId),
 		supabase.from('kg_etats').delete().eq('partie_id', partieId),
@@ -372,25 +328,28 @@ async function handleRename(partieId, newName) {
 // HELPERS
 // ============================================================================
 
-async function saveMessages(supabase, partieId, sceneId, userMessage, assistantMessage, cycle) {
+async function saveMessages(supabase, partieId, userMessage, assistantMessage, cycle, lieu, pnjsPresents) {
 	const snapshot = await createStateSnapshot(supabase, partieId);
 
 	await supabase.from('chat_messages').insert([
 		{
 			partie_id: partieId,
-			scene_id: sceneId,
 			role: 'user',
 			content: userMessage,
 			cycle,
+			lieu,
+			pnjs_presents: pnjsPresents || [],
 			state_snapshot: snapshot
 		},
 		{
 			partie_id: partieId,
-			scene_id: sceneId,
 			role: 'assistant',
 			content: assistantMessage,
 			cycle,
+			lieu,
+			pnjs_presents: pnjsPresents || [],
 			state_snapshot: null
+			// resume sera ajouté en background par l'extracteur
 		}
 	]);
 }
