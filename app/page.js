@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 
 // Hooks
 import { useGameState, useParties } from '../hooks/useGameState';
-import { useStreaming, extractDisplayContent } from '../hooks/useStreaming';
+import { useStreaming } from '../hooks/useStreaming';
 import { useGamePreferences } from '../hooks/useLocalStorage';
 import { useTooltips } from '../hooks/useTooltips';
 
