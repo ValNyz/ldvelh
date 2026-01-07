@@ -6,6 +6,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { supabase } from '../../../lib/supabase.js';
 
+import { MODELS, API_CONFIG } from '../../../lib/constants.js';
+
 // Prompts
 import { SYSTEM_PROMPT_INIT, SYSTEM_PROMPT_LIGHT } from '../../../lib/prompt.js';
 
@@ -47,8 +49,6 @@ import { errorToResponse, LDVELHError } from '../../../lib/errors.js';
 export const dynamic = 'force-dynamic';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-const MODEL = 'claude-sonnet-4-5';
 
 // ============================================================================
 // GET HANDLER
@@ -196,7 +196,7 @@ async function handlePostAsync(request, sseWriter) {
 		} else {
 			systemPrompt = SYSTEM_PROMPT_LIGHT;
 		}
-		const maxTokens = isInitMode ? 8192 : 4096;
+		const maxTokens = isInitMode ? API_CONFIG.MAX_TOKENS_INIT : API_CONFIG.MAX_TOKENS_LIGHT;
 
 		// Variables pour le traitement post-stream
 		let finalParsed = null;
@@ -206,7 +206,7 @@ async function handlePostAsync(request, sseWriter) {
 		// Stream la réponse Claude
 		await streamClaudeResponse({
 			anthropic,
-			model: MODEL,
+			model: MODELS.MAIN,
 			systemPrompt,
 			userMessage: contextMessage,
 			maxTokens,

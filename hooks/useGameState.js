@@ -1,31 +1,46 @@
 import { useState, useCallback } from 'react';
-import { normalizeGameState } from '../lib/game/gameState'
+import { normalizeGameState } from '../lib/game/gameState.js';
 
-/**
- * Hook principal pour la gestion de l'état du jeu
- */
+// ============================================================================
+// HOOK PRINCIPAL
+// ============================================================================
+
 export function useGameState() {
 	const [partieId, setPartieId] = useState(null);
 	const [partieName, setPartieName] = useState('');
-	const [gameState, setGameState] = useState(null);
+	const [gameState, setGameStateRaw] = useState(null);
 	const [messages, setMessages] = useState([]);
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState(null);
 
+	/**
+	 * Met à jour le gameState avec fusion intelligente
+	 * Utilisé après chaque réponse du serveur
+	 */
 	const updateGameState = useCallback((newState) => {
 		const normalized = normalizeGameState(newState);
-		if (normalized) {
-			setGameState(prev => {
-				if (!prev) return normalized;
-				return {
-					...prev,
-					partie: { ...prev.partie, ...normalized.partie },
-					valentin: { ...prev.valentin, ...normalized.valentin },
-					ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia
-				};
-			});
-		}
+		if (!normalized) return;
+
+		setGameStateRaw(prev => {
+			if (!prev) return normalized;
+
+			// Fusion intelligente
+			return {
+				partie: { ...prev.partie, ...normalized.partie },
+				valentin: mergeValentin(prev.valentin, normalized.valentin),
+				ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia
+			};
+		});
+	}, []);
+
+	/**
+	 * Remplace complètement le gameState (pour le chargement initial)
+	 * Évite la fusion avec un ancien state
+	 */
+	const replaceGameState = useCallback((newState) => {
+		const normalized = normalizeGameState(newState);
+		setGameStateRaw(normalized);
 	}, []);
 
 	const clearError = useCallback(() => setError(null), []);
@@ -33,7 +48,7 @@ export function useGameState() {
 	const resetGame = useCallback(() => {
 		setPartieId(null);
 		setPartieName('');
-		setGameState(null);
+		setGameStateRaw(null);
 		setMessages([]);
 		setError(null);
 	}, []);
@@ -52,6 +67,7 @@ export function useGameState() {
 		setPartieId,
 		setPartieName,
 		setGameState: updateGameState,
+		replaceGameState,
 		setMessages,
 		setLoading,
 		setSaving,
@@ -64,9 +80,32 @@ export function useGameState() {
 	};
 }
 
+// ============================================================================
+// HELPERS
+// ============================================================================
+
 /**
- * Hook pour les opérations API des parties
+ * Fusionne les données de Valentin de manière intelligente
+ * L'inventaire est toujours remplacé (source de vérité = BDD)
  */
+function mergeValentin(prev, next) {
+	if (!prev) return next;
+	if (!next) return prev;
+
+	return {
+		energie: next.energie ?? prev.energie,
+		moral: next.moral ?? prev.moral,
+		sante: next.sante ?? prev.sante,
+		credits: next.credits ?? prev.credits,
+		// L'inventaire vient de la BDD, c'est la source de vérité
+		inventaire: next.inventaire?.length ? next.inventaire : prev.inventaire
+	};
+}
+
+// ============================================================================
+// HOOK PARTIES
+// ============================================================================
+
 export function useParties() {
 	const [parties, setParties] = useState([]);
 	const [loadingList, setLoadingList] = useState(false);
