@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import EntityTooltip from './EntityTooltip';
-import { formatTooltip } from '../../lib/kg/knowledgeService';
+import { formatTooltip, fuzzyMatchEntity } from '../../lib/kg/knowledgeService';
 
 /**
  * Composant Message unique
@@ -93,7 +93,7 @@ function MarkdownContent({ content, isUser, tooltipMap }) {
 		strong: ({ children }) => {
 			// NOUVEAU : Tooltip sur les éléments en gras
 			const text = extractText(children);
-			const entityData = tooltipMap?.get(text.toLowerCase());
+			const entityData = tooltipMap ? fuzzyMatchEntity(text, tooltipMap, 70) : null;
 			const tooltipData = entityData ? formatTooltip(entityData) : null;
 
 			if (tooltipData && !isUser) {

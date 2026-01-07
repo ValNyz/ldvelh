@@ -80,11 +80,11 @@ export default function EntityTooltip({ children, data, className = '' }) {
 							</div>
 						)}
 
-						{/* Infos (max 3 lignes) */}
+						{/* Infos (toutes, avec scroll si besoin) */}
 						{infos?.length > 0 && (
-							<div className="mt-1.5 text-xs text-gray-400 space-y-0.5">
+							<div className="mt-1.5 text-xs text-gray-400 space-y-0.5 max-h-32 overflow-y-auto">
 								{infos.map((info, i) => (
-									<div key={i}>• {info}</div>
+									<div key={i} className="leading-tight">• {info}</div>
 								))}
 							</div>
 						)}
