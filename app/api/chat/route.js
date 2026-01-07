@@ -1,6 +1,5 @@
 /**
  * API Route principale pour LDVELH
- * Orchestrateur léger qui délègue aux modules spécialisés
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -63,20 +62,15 @@ export async function GET(request) {
 		switch (action) {
 			case 'load':
 				return await handleLoad(partieId);
-
 			case 'list':
 				return await handleList();
-
 			case 'new':
 				return await handleNew();
-
 			case 'delete':
 				return await handleDelete(partieId);
-
 			case 'rename':
 				const newName = searchParams.get('name');
 				return await handleRename(partieId, newName);
-
 			default:
 				return Response.json({ error: 'Action non reconnue' }, { status: 400 });
 		}
@@ -97,7 +91,6 @@ export async function DELETE(request) {
 			return Response.json({ error: 'partieId manquant' }, { status: 400 });
 		}
 
-		// Récupérer tous les messages
 		const { data: allMessages } = await supabase
 			.from('chat_messages')
 			.select('id, created_at, cycle, state_snapshot')
@@ -111,15 +104,12 @@ export async function DELETE(request) {
 		const rollbackTimestamp = allMessages[fromIndex].created_at;
 		const snapshot = allMessages[fromIndex].state_snapshot;
 
-		// Restaurer l'état depuis le snapshot
 		if (snapshot) {
 			await restoreStateSnapshot(supabase, partieId, snapshot);
 		}
 
-		// Rollback le KG
 		await rollbackKG(supabase, partieId, rollbackTimestamp);
 
-		// Supprimer les messages
 		const messagesToDelete = allMessages.slice(fromIndex);
 		if (messagesToDelete.length > 0) {
 			await supabase
@@ -128,7 +118,6 @@ export async function DELETE(request) {
 				.in('id', messagesToDelete.map(m => m.id));
 		}
 
-		// Charger le nouvel état
 		const newState = await loadGameState(supabase, partieId);
 
 		return Response.json({
@@ -149,7 +138,6 @@ export async function DELETE(request) {
 export async function POST(request) {
 	const sseWriter = new SSEWriter();
 
-	// Lancer le traitement async
 	handlePostAsync(request, sseWriter).catch(async (e) => {
 		console.error('[POST] Erreur non catchée:', e);
 		await sseWriter.sendError(e.message, null, false);
@@ -164,46 +152,34 @@ async function handlePostAsync(request, sseWriter) {
 		const { message, partieId, gameState } = await request.json();
 		const currentCycle = gameState?.partie?.cycle_actuel || 1;
 
-		// Déterminer le mode
 		const isInitMode = !gameState || !gameState.partie;
 		const promptMode = isInitMode ? 'init' : 'light';
 
 		console.log(`[POST] Mode: ${promptMode}, Cycle: ${currentCycle}`);
 
-		// Récupérer la scène en cours (mode light)
 		let sceneEnCours = null;
 		if (!isInitMode) {
 			sceneEnCours = await getSceneEnCours(supabase, partieId);
 		}
 
-		// Construire le contexte
 		const contextMessage = isInitMode
 			? buildContextInit()
 			: (await buildContext(supabase, partieId, gameState, message)).context;
 
-		// Configuration du prompt
-		// const systemPrompt = isInitMode ? SYSTEM_PROMPT_INIT : SYSTEM_PROMPT_LIGHT;
-		// remplacé par :
 		let systemPrompt;
 		if (isInitMode) {
-			// Générer les contraintes de diversité
 			const { promptText: diversityText } = generateAndFormatConstraints();
-
-			// Injecter les contraintes dans le prompt
 			systemPrompt = SYSTEM_PROMPT_INIT + diversityText;
-
 			console.log('[INIT] Contraintes de diversité générées');
 		} else {
 			systemPrompt = SYSTEM_PROMPT_LIGHT;
 		}
 		const maxTokens = isInitMode ? API_CONFIG.MAX_TOKENS_INIT : API_CONFIG.MAX_TOKENS_LIGHT;
 
-		// Variables pour le traitement post-stream
 		let finalParsed = null;
 		let finalDisplayText = '';
 		let sceneIdPourSauvegarde = sceneEnCours?.id || null;
 
-		// Stream la réponse Claude
 		await streamClaudeResponse({
 			anthropic,
 			model: MODELS.MAIN,
@@ -217,7 +193,6 @@ async function handlePostAsync(request, sseWriter) {
 				finalParsed = parsed;
 				finalDisplayText = displayText;
 
-				// Traitement selon le mode
 				let stateForClient = null;
 
 				if (isInitMode && parsed && partieId) {
@@ -228,6 +203,7 @@ async function handlePostAsync(request, sseWriter) {
 
 				} else if (!isInitMode && parsed && partieId) {
 					// === MODE LIGHT ===
+					// processLightMode ne traite plus que les scènes et la mise à jour partie
 					const lightResult = await processLightMode(
 						supabase,
 						partieId,
@@ -236,12 +212,11 @@ async function handlePostAsync(request, sseWriter) {
 						sceneEnCours
 					);
 
-					// Mettre à jour l'ID de scène si changement
 					if (lightResult.scene_changed || !sceneIdPourSauvegarde) {
 						sceneIdPourSauvegarde = lightResult.sceneId;
 					}
 
-					// Construire le state client
+					// Le state client est construit depuis la BDD (pas depuis le JSON Sonnet)
 					stateForClient = await buildClientStateFromLight(
 						supabase,
 						partieId,
@@ -250,7 +225,6 @@ async function handlePostAsync(request, sseWriter) {
 					);
 				}
 
-				// Envoyer done au client
 				await sseWriter.sendDone(displayText, stateForClient);
 
 				// === SAUVEGARDE ===
@@ -265,24 +239,24 @@ async function handlePostAsync(request, sseWriter) {
 					);
 				}
 
-				// === TÂCHES BACKGROUND ===
-				console.log('[POST] Lancement tâches background...');
+				// === EXTRACTION BACKGROUND (5 extracteurs parallèles) ===
+				console.log('[POST] Lancement extraction background...');
 				const bgStart = Date.now();
 
-				// Extraction KG (mode light uniquement)
 				if (!isInitMode && parsed && partieId) {
+					// L'extraction est maintenant TOUJOURS lancée (plus de doitExtraire)
 					extractionBackground(
 						supabase,
 						partieId,
 						displayText,
 						parsed,
 						currentCycle,
-						sceneEnCours?.id
+						sceneIdPourSauvegarde
 					).catch(err => console.error('[BG] Erreur extraction:', err));
 				}
 
 				await sseWriter.sendSaved();
-				console.log(`[POST] Background terminé: ${Date.now() - bgStart}ms`);
+				console.log(`[POST] Background lancé en ${Date.now() - bgStart}ms`);
 			}
 		});
 
@@ -299,7 +273,7 @@ async function handlePostAsync(request, sseWriter) {
 }
 
 // ============================================================================
-// HANDLERS GET
+// HANDLERS GET (INCHANGÉS)
 // ============================================================================
 
 async function handleLoad(partieId) {
@@ -350,7 +324,6 @@ async function handleDelete(partieId) {
 		return Response.json({ error: 'partieId manquant' }, { status: 400 });
 	}
 
-	// Récupérer les IDs des événements
 	const { data: evenements } = await supabase
 		.from('kg_evenements')
 		.select('id')
@@ -358,7 +331,6 @@ async function handleDelete(partieId) {
 
 	const evenementIds = (evenements || []).map(e => e.id);
 
-	// Supprimer les participants
 	if (evenementIds.length > 0) {
 		await supabase
 			.from('kg_evenement_participants')
@@ -366,7 +338,6 @@ async function handleDelete(partieId) {
 			.in('evenement_id', evenementIds);
 	}
 
-	// Supprimer les tables (parallèle)
 	await Promise.all([
 		supabase.from('chat_messages').delete().eq('partie_id', partieId),
 		supabase.from('cycle_resumes').delete().eq('partie_id', partieId),
@@ -374,11 +345,11 @@ async function handleDelete(partieId) {
 		supabase.from('kg_extraction_logs').delete().eq('partie_id', partieId),
 		supabase.from('kg_evenements').delete().eq('partie_id', partieId),
 		supabase.from('kg_etats').delete().eq('partie_id', partieId),
+		supabase.from('kg_connaissances').delete().eq('partie_id', partieId),
 		supabase.from('kg_relations').delete().eq('partie_id', partieId),
 		supabase.from('kg_entites').delete().eq('partie_id', partieId)
 	]);
 
-	// Supprimer la partie
 	await supabase.from('parties').delete().eq('id', partieId);
 
 	return Response.json({ success: true });
@@ -402,7 +373,6 @@ async function handleRename(partieId, newName) {
 // ============================================================================
 
 async function saveMessages(supabase, partieId, sceneId, userMessage, assistantMessage, cycle) {
-	// Snapshot avant ce message (pour rollback)
 	const snapshot = await createStateSnapshot(supabase, partieId);
 
 	await supabase.from('chat_messages').insert([
