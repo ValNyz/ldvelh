@@ -22,6 +22,7 @@ export default function Home() {
 		partieId, setPartieId,
 		partieName, setPartieName,
 		gameState, setGameState,
+		replaceGameState,
 		messages, setMessages,
 		loading, setLoading,
 		saving, setSaving,
@@ -105,7 +106,7 @@ export default function Home() {
 			const data = await loadPartie(id);
 			setPartieId(id);
 			if (data.state) {
-				setGameState(data.state);
+				replaceGameState(data.state);
 				setPartieName(data.state.partie?.nom || 'Partie sans nom');
 			}
 			setMessages(data.messages?.map(m => ({ role: m.role, content: m.content })) || []);
@@ -123,7 +124,7 @@ export default function Home() {
 			const id = await createPartie();
 			setPartieId(id);
 			setPartieName('Nouvelle partie');
-			setGameState(null);
+			replaceGameState(null);
 			setMessages([]);
 			loadParties();
 		} catch (e) {
