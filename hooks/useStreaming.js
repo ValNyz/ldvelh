@@ -1,14 +1,16 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState } from 'react';
 
 /**
  * Hook pour gérer le streaming SSE
  */
-export function useStreaming({ onChunk, onDone, onSaved, onError }) {
+export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) {
 	const abortControllerRef = useRef(null);
+	const [rawJson, setRawJson] = useState('');
 
 	const startStream = useCallback(async (url, body) => {
 		abortControllerRef.current = new AbortController();
 		let fullJson = '';
+		setRawJson('');
 
 		try {
 			const res = await fetch(url, {
@@ -19,7 +21,6 @@ export function useStreaming({ onChunk, onDone, onSaved, onError }) {
 			});
 
 			if (!res.headers.get('content-type')?.includes('text/event-stream')) {
-				// Réponse non-streaming
 				const data = await res.json();
 				if (data.error) {
 					onError?.(data.error, data.details);
@@ -29,7 +30,6 @@ export function useStreaming({ onChunk, onDone, onSaved, onError }) {
 				return { success: true, data };
 			}
 
-			// Streaming SSE
 			const reader = res.body.getReader();
 			const decoder = new TextDecoder();
 
@@ -44,16 +44,21 @@ export function useStreaming({ onChunk, onDone, onSaved, onError }) {
 
 					try {
 						const data = JSON.parse(line.slice(6));
+						console.log('[Stream] Event reçu:', data.type, '| keys:', Object.keys(data));
 
 						switch (data.type) {
 							case 'chunk':
-								// On l'affiche directement (remplace le contenu précédent)
-								onChunk?.(data.content, fullJson);
+								onChunk?.(data.content);
+								break;
+
+							case 'progress':
+								fullJson = data.rawJson || fullJson;
+								setRawJson(fullJson);
+								onProgress?.(fullJson);
 								break;
 
 							case 'done':
-								// Le displayText final remplace tout
-								onDone?.(data.displayText || fullJson, data.state);
+								onDone?.(data.displayText, data.state);
 								break;
 
 							case 'saved':
@@ -63,6 +68,13 @@ export function useStreaming({ onChunk, onDone, onSaved, onError }) {
 							case 'error':
 								onError?.(data.error, data.details);
 								break;
+
+							case 'warning':
+								console.warn('[Stream] Warning:', data.message);
+								break;
+
+							default:
+								console.log('[Stream] Type inconnu:', data.type);
 						}
 					} catch (e) {
 						// Ignorer les lignes mal formées
@@ -81,7 +93,7 @@ export function useStreaming({ onChunk, onDone, onSaved, onError }) {
 		} finally {
 			abortControllerRef.current = null;
 		}
-	}, [onChunk, onDone, onSaved, onError]);
+	}, [onChunk, onProgress, onDone, onSaved, onError]);
 
 	const cancel = useCallback(() => {
 		if (abortControllerRef.current) {
@@ -96,5 +108,5 @@ export function useStreaming({ onChunk, onDone, onSaved, onError }) {
 		return abortControllerRef.current !== null;
 	}, []);
 
-	return { startStream, cancel, isStreaming };
+	return { startStream, cancel, isStreaming, rawJson };
 }

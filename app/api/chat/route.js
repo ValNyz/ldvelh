@@ -1,5 +1,10 @@
 /**
  * API Route principale pour LDVELH
+ * 
+ * Gère 3 modes :
+ * - INIT (World Builder) : Crée le monde, pas de narratif
+ * - FIRST LIGHT : Premier narratif basé sur l'événement d'arrivée
+ * - LIGHT : Narratif normal
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -13,7 +18,7 @@ import { SYSTEM_PROMPT_INIT, SYSTEM_PROMPT_LIGHT } from '../../../lib/prompt.js'
 import { generateAndFormatConstraints } from '../../../lib/diversity/diversityConstraints.js';
 
 // Context
-import { buildContext, buildContextInit } from '../../../lib/context/contextBuilder.js';
+import { buildContext, buildContextInit, marquerArriveeRealisee } from '../../../lib/context/contextBuilder.js';
 
 // Game processors
 import { processInitMode } from '../../../lib/game/initProcessor.js';
@@ -21,7 +26,6 @@ import { processLightMode, extractionBackground } from '../../../lib/game/lightP
 import {
 	loadGameState,
 	loadChatMessages,
-	normalizeGameState,
 	buildClientStateFromInit,
 	buildClientStateFromLight,
 	createStateSnapshot,
@@ -148,26 +152,49 @@ async function handlePostAsync(request, sseWriter) {
 		const { message, partieId, gameState } = await request.json();
 		const currentCycle = gameState?.partie?.cycle_actuel || 1;
 
+		// =====================================================================
+		// DÉTERMINER LE MODE
+		// =====================================================================
 		const isInitMode = !gameState || !gameState.partie;
-		const promptMode = isInitMode ? 'init' : 'light';
 
-		console.log(`[POST] Mode: ${promptMode}, Cycle: ${currentCycle}`);
+		let promptMode, contextMessage, systemPrompt, maxTokens;
+		let contextData = null;
 
-		const contextMessage = isInitMode
-			? buildContextInit()
-			: (await buildContext(supabase, partieId, gameState, message)).context;
-
-		let systemPrompt;
 		if (isInitMode) {
+			// =================================================================
+			// MODE INIT (World Builder)
+			// =================================================================
+			promptMode = 'init';
+			contextMessage = buildContextInit();
 			const { promptText: diversityText } = generateAndFormatConstraints();
 			systemPrompt = SYSTEM_PROMPT_INIT + diversityText;
-		} else {
-			systemPrompt = SYSTEM_PROMPT_LIGHT;
-		}
-		const maxTokens = isInitMode ? API_CONFIG.MAX_TOKENS_INIT : API_CONFIG.MAX_TOKENS_LIGHT;
+			maxTokens = API_CONFIG.MAX_TOKENS_INIT;
 
-		let finalParsed = null;
-		let finalDisplayText = '';
+			console.log('[POST] Mode: INIT (World Builder)');
+
+		} else {
+			// =================================================================
+			// MODE LIGHT (normal ou premier)
+			// Le contexte détecte automatiquement si c'est le premier light
+			// =================================================================
+			contextData = await buildContext(supabase, partieId, gameState, message || '');
+
+			if (contextData.isFirstLight) {
+				promptMode = 'first_light';
+				console.log('[POST] Mode: FIRST LIGHT (Premier narratif)');
+			} else {
+				promptMode = 'light';
+				console.log(`[POST] Mode: LIGHT, Cycle: ${currentCycle}`);
+			}
+
+			contextMessage = contextData.context;
+			systemPrompt = SYSTEM_PROMPT_LIGHT;
+			maxTokens = API_CONFIG.MAX_TOKENS_LIGHT;
+		}
+
+		// =====================================================================
+		// APPEL CLAUDE
+		// =====================================================================
 
 		await streamClaudeResponse({
 			anthropic,
@@ -175,45 +202,100 @@ async function handlePostAsync(request, sseWriter) {
 			systemPrompt,
 			userMessage: contextMessage,
 			maxTokens,
-			mode: promptMode,
+			mode: promptMode === 'first_light' ? 'light' : promptMode, // Pour le parser
 			sseWriter,
 
 			onComplete: async (parsed, displayText, fullJson) => {
-				finalParsed = parsed;
-				finalDisplayText = displayText;
 
-				let stateForClient = null;
-
+				// =============================================================
+				// MODE INIT : Pas de narratif, juste le monde
+				// =============================================================
 				if (isInitMode && parsed && partieId) {
 					const initResult = await processInitMode(supabase, partieId, parsed, 1);
-					stateForClient = buildClientStateFromInit(parsed);
 
-				} else if (!isInitMode && parsed && partieId) {
+					// Envoyer au client un état "monde créé" sans narratif
+					await sseWriter.sendDone(null, {
+						monde_cree: true,
+						monde: initResult.monde,
+						ia_nom: initResult.ia_nom,
+						lieu_depart: initResult.lieu_depart,
+						credits: initResult.credits,
+						// Passer les données complètes pour affichage
+						evenement_arrivee: parsed.evenement_arrivee
+					});
+
+					// Pas de sauvegarde de message (pas de narratif)
+					await sseWriter.sendSaved();
+					return;
+				}
+
+				// =============================================================
+				// MODE FIRST LIGHT : Premier narratif
+				// =============================================================
+				if (promptMode === 'first_light' && parsed && partieId) {
+					// Traiter comme un light normal
 					await processLightMode(supabase, partieId, parsed, currentCycle);
-					stateForClient = await buildClientStateFromLight(
+
+					// Marquer l'événement d'arrivée comme réalisé
+					await marquerArriveeRealisee(supabase, partieId);
+
+					// Construire l'état client
+					const stateForClient = await buildClientStateFromLight(
 						supabase,
 						partieId,
 						parsed,
 						currentCycle
 					);
+
+					await sseWriter.sendDone(displayText, stateForClient);
+
+					// Sauvegarder le premier message avec action spéciale
+					const lieu = parsed?.lieu_actuel || gameState?.partie?.lieu_actuel;
+					const pnjsPresents = parsed?.pnjs_presents || [];
+					await saveMessages(
+						supabase,
+						partieId,
+						'__ARRIVEE__', // Action spéciale pour le premier message
+						displayText,
+						currentCycle,
+						lieu,
+						pnjsPresents
+					);
+
+					// Extraction background
+					extractionBackground(supabase, partieId, displayText, parsed, currentCycle)
+						.catch(err => console.error('[BG] Erreur extraction:', err));
+
+					await sseWriter.sendSaved();
+					return;
 				}
 
-				await sseWriter.sendDone(displayText, stateForClient);
+				// =============================================================
+				// MODE LIGHT NORMAL
+				// =============================================================
+				if (!isInitMode && parsed && partieId) {
+					await processLightMode(supabase, partieId, parsed, currentCycle);
 
-				// === SAUVEGARDE ===
-				if (partieId) {
+					const stateForClient = await buildClientStateFromLight(
+						supabase,
+						partieId,
+						parsed,
+						currentCycle
+					);
+
+					await sseWriter.sendDone(displayText, stateForClient);
+
+					// Sauvegarder les messages
 					const lieu = parsed?.lieu_actuel || gameState?.partie?.lieu_actuel;
 					const pnjsPresents = parsed?.pnjs_presents || [];
 					await saveMessages(supabase, partieId, message, displayText, currentCycle, lieu, pnjsPresents);
-				}
 
-				// === EXTRACTION BACKGROUND ===
-				if (!isInitMode && parsed && partieId) {
+					// Extraction background
 					extractionBackground(supabase, partieId, displayText, parsed, currentCycle)
 						.catch(err => console.error('[BG] Erreur extraction:', err));
-				}
 
-				await sseWriter.sendSaved();
+					await sseWriter.sendSaved();
+				}
 			}
 		});
 
@@ -230,7 +312,7 @@ async function handlePostAsync(request, sseWriter) {
 }
 
 // ============================================================================
-// HANDLERS GET (INCHANGÉS)
+// HANDLERS GET
 // ============================================================================
 
 async function handleLoad(partieId) {
@@ -349,7 +431,6 @@ async function saveMessages(supabase, partieId, userMessage, assistantMessage, c
 			lieu,
 			pnjs_presents: pnjsPresents || [],
 			state_snapshot: null
-			// resume sera ajouté en background par l'extracteur
 		}
 	]);
 }
