@@ -1,255 +1,316 @@
 'use client';
-import { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
 
-function InputArea({ onSend, disabled, fontSize }) {
-	const [input, setInput] = useState('');
-	const textareaRef = useRef(null);
+import { useState, useEffect, useCallback } from 'react';
 
-	useEffect(() => {
-		if (textareaRef.current) {
-			textareaRef.current.style.height = 'auto';
-			textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
-		}
-	}, [input]);
+// Hooks
+import { useGameState, useParties } from '../hooks/useGameState';
+import { useStreaming } from '../hooks/useStreaming';
+import { useGamePreferences } from '../hooks/useLocalStorage';
+import { useTooltips } from '../hooks/useTooltips';
 
-	const handleSend = () => {
-		if (!input.trim() || disabled) return;
-		onSend(input.trim());
-		setInput('');
-	};
+// Components
+import PartiesList from '../components/game/PartiesList';
+import GameHeader from '../components/game/GameHeader';
+import SettingsPanel, { DebugStatePanel } from '../components/game/SettingsPanel';
+import MessageList from '../components/game/MessageList';
+import InputArea from '../components/game/InputArea';
+import WorldGenerationScreen from '../components/game/WorldGenerationScreen';
+import { ConfirmModal } from '../components/ui/Modal';
 
-	return (
-		<div style={{ padding: 16, background: '#1f2937', borderTop: '1px solid #374151' }}>
-			<div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-				<textarea
-					ref={textareaRef}
-					value={input}
-					onChange={(e) => setInput(e.target.value)}
-					onKeyDown={(e) => {
-						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-							e.preventDefault();
-							handleSend();
-						}
-					}}
-					placeholder="Ton action... (Ctrl+Entrée)"
-					disabled={disabled}
-					style={{
-						flex: 1, padding: '8px 16px', background: '#374151',
-						border: '1px solid #4b5563', borderRadius: 4, color: '#fff',
-						outline: 'none', fontSize, resize: 'none', minHeight: 44,
-						maxHeight: 200, fontFamily: 'inherit', overflow: 'hidden'
-					}}
-				/>
-				<button
-					onClick={handleSend}
-					disabled={disabled}
-					style={{
-						padding: '12px 24px', background: '#2563eb', border: 'none',
-						borderRadius: 4, color: '#fff', cursor: 'pointer',
-						opacity: disabled ? 0.5 : 1, height: 44
-					}}
-				>
-					Envoyer
-				</button>
-			</div>
-			<div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-				Entrée = nouvelle ligne • Ctrl+Entrée = envoyer
-			</div>
-		</div>
-	);
-}
+// ============================================================================
+// PHASES DU JEU
+// ============================================================================
+const GAME_PHASE = {
+	LIST: 'list',                    // Liste des parties
+	GENERATING_WORLD: 'generating',  // Génération du monde en cours
+	WORLD_READY: 'world_ready',      // Monde créé, en attente de "Commencer"
+	STARTING_ADVENTURE: 'starting',  // Premier narratif en cours
+	PLAYING: 'playing'               // Jeu normal
+};
 
 export default function Home() {
-	const [parties, setParties] = useState([]);
-	const [partieId, setPartieId] = useState(null);
-	const [partieName, setPartieName] = useState('');
-	const [gameState, setGameState] = useState(null);
-	const [messages, setMessages] = useState([]);
-	const [loading, setLoading] = useState(false);
-	const [saving, setSaving] = useState(false);
-	const [loadingGame, setLoadingGame] = useState(false);
-	const [error, setError] = useState('');
-	const [showState, setShowState] = useState(false);
+	// État du jeu
+	const {
+		partieId, setPartieId,
+		partieName, setPartieName,
+		gameState, setGameState,
+		replaceGameState,
+		messages, setMessages,
+		loading, setLoading,
+		saving, setSaving,
+		error, setError,
+		clearError, resetGame
+	} = useGameState();
+
+	// Gestion des parties
+	const {
+		parties, loadParties, createPartie, deletePartie, renamePartie, loadPartie
+	} = useParties();
+
+	// Préférences
+	const { fontSize, increaseFontSize, decreaseFontSize } = useGamePreferences();
+
+	// Tooltips
+	const { tooltipMap, refresh: refreshTooltips } = useTooltips(partieId);
+
+	// UI State
 	const [showSettings, setShowSettings] = useState(false);
-	const [editingName, setEditingName] = useState(false);
-	const [newName, setNewName] = useState('');
-	const [confirmDelete, setConfirmDelete] = useState(null);
-	const [editingMessageIndex, setEditingMessageIndex] = useState(null);
-	const [editedContent, setEditedContent] = useState('');
-	const [fontSize, setFontSize] = useState(14);
-	const [isClient, setIsClient] = useState(false);
+	const [showState, setShowState] = useState(false);
+	const [editingIndex, setEditingIndex] = useState(null);
+	const [loadingGame, setLoadingGame] = useState(false);
+	const [confirmDeleteModal, setConfirmDeleteModal] = useState(false);
 
-	const messagesEndRef = useRef(null);
-	const messagesContainerRef = useRef(null);
-	const abortControllerRef = useRef(null);
-	const userScrolledUp = useRef(false);
+	// Phase du jeu et données de génération
+	const [gamePhase, setGamePhase] = useState(GAME_PHASE.LIST);
+	const [worldGenProgress, setWorldGenProgress] = useState('');
+	const [worldGenPhase, setWorldGenPhase] = useState('generating'); // 'generating' | 'populating'
+	const [worldData, setWorldData] = useState(null);
 
-	useEffect(() => { setIsClient(true); }, []);
-	useEffect(() => { loadParties(); }, []);
+	// Streaming avec callbacks
+	const { startStream, cancel: cancelStream, rawJson } = useStreaming({
+		onChunk: (display) => {
+			// Mode LIGHT : afficher le narratif en streaming
+			setMessages(prev => {
+				const newMsgs = [...prev];
+				if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].streaming) {
+					newMsgs[newMsgs.length - 1] = { role: 'assistant', content: display, streaming: true };
+				} else {
+					newMsgs.push({ role: 'assistant', content: display, streaming: true });
+				}
+				return newMsgs;
+			});
+		},
+		onProgress: (rawJson) => {
+			// Mode INIT : mettre à jour la progression
+			setWorldGenProgress(rawJson);
+		},
+		onPhase: (phase, message) => {
+			// Changement de phase (ex: generating → populating)
+			setWorldGenPhase(phase);
+		},
+		onDone: (displayText, state) => {
+			setLoading(false);
+			setSaving(true);
+
+			// Mode INIT : monde créé
+			if (state?.monde_cree) {
+				setWorldData(state);
+				setGamePhase(GAME_PHASE.WORLD_READY);
+				// Mettre à jour le gameState avec les infos de base
+				if (state.evenement_arrivee) {
+					setGameState({
+						partie: {
+							cycle_actuel: state.evenement_arrivee.cycle || 1,
+							jour: state.evenement_arrivee.jour,
+							date_jeu: state.evenement_arrivee.date_jeu,
+							heure: state.evenement_arrivee.heure,
+							lieu_actuel: state.evenement_arrivee.lieu_actuel || state.lieu_depart,
+							pnjs_presents: []
+						},
+						valentin: {
+							credits: state.credits,
+							inventaire: state.inventaire || []  // FIX: Ajouter l'inventaire
+						},
+						ia: state.ia_nom ? { nom: state.ia_nom } : null
+					});
+				}
+				return;
+			}
+
+			// Mode LIGHT : afficher le narratif final
+			if (displayText) {
+				setMessages(prev => {
+					const newMsgs = [...prev];
+					if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].streaming) {
+						newMsgs[newMsgs.length - 1] = { role: 'assistant', content: displayText };
+					} else if (displayText) {
+						newMsgs.push({ role: 'assistant', content: displayText });
+					}
+					return newMsgs;
+				});
+			}
+
+			if (state) {
+				setGameState(state);
+			}
+
+			// Passer en mode jeu si on était en train de démarrer
+			if (gamePhase === GAME_PHASE.STARTING_ADVENTURE) {
+				setGamePhase(GAME_PHASE.PLAYING);
+			}
+		},
+		onSaved: () => setSaving(false),
+		onError: (msg, details) => {
+			setLoading(false);
+			setError({ message: msg, details, recoverable: true });
+		}
+	});
+
+	// Charger les parties au démarrage
 	useEffect(() => {
-		if (isClient) {
-			const saved = localStorage.getItem('ldvelh-fontsize');
-			if (saved) setFontSize(parseInt(saved, 10));
-		}
-	}, [isClient]);
+		loadParties();
+	}, [loadParties]);
+
+	// Rafraîchir tooltips après un message assistant
 	useEffect(() => {
-		if (!userScrolledUp.current) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-	}, [messages]);
-
-	const handleScroll = (e) => {
-		const { scrollTop, scrollHeight, clientHeight } = e.target;
-		userScrolledUp.current = scrollHeight - scrollTop - clientHeight > 50;
-	};
-
-	const resetScrollBehavior = () => { userScrolledUp.current = false; };
-
-	const changeFontSize = (delta) => {
-		const newSize = Math.min(24, Math.max(10, fontSize + delta));
-		setFontSize(newSize);
-		if (isClient) localStorage.setItem('ldvelh-fontsize', newSize.toString());
-	};
-
-	const loadParties = async () => {
-		try {
-			const res = await fetch('/api/chat?action=list');
-			const data = await res.json();
-			setParties(data.parties || []);
-		} catch (e) { console.error('Erreur chargement parties:', e); }
-	};
-
-	// Normalise le gameState depuis différentes sources
-	const normalizeGameState = (rawState) => {
-		if (!rawState) return null;
-
-		// Depuis loadGame (Supabase)
-		if (rawState.partie) {
-			return {
-				partie: {
-					cycle_actuel: rawState.partie.cycle_actuel || 1,
-					jour: rawState.partie.jour,
-					date_jeu: rawState.partie.date_jeu,
-					heure: rawState.partie.heure,
-					lieu_actuel: rawState.partie.lieu_actuel,
-					pnjs_presents: rawState.partie.pnjs_presents || []
-				},
-				valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
-				ia: rawState.ia || {}
-			};
+		const lastMsg = messages[messages.length - 1];
+		if (lastMsg?.role === 'assistant' && !lastMsg.streaming && !loading && !saving) {
+			const timer = setTimeout(refreshTooltips, 1500);
+			return () => clearTimeout(timer);
 		}
+	}, [messages, loading, saving, refreshTooltips]);
 
-		// Depuis Claude (réponse API avec cycle à la racine)
-		if (rawState.cycle !== undefined) {
-			return {
-				partie: {
-					cycle_actuel: rawState.cycle || 1,
-					jour: rawState.jour,
-					date_jeu: rawState.date_jeu,
-					heure: rawState.heure,
-					lieu_actuel: rawState.lieu_actuel,
-					pnjs_presents: rawState.pnjs_presents || []
-				},
-				valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
-				ia: rawState.ia || {}
-			};
-		}
+	// ============================================================
+	// ACTIONS PARTIES
+	// ============================================================
 
-		return null;
-	};
-
-	const loadGame = async (id) => {
+	const handleSelectPartie = useCallback(async (id) => {
 		setLoadingGame(true);
-		setError('');
+		setError(null);
 		try {
-			const res = await fetch(`/api/chat?action=load&partieId=${id}`);
-			const data = await res.json();
-			if (data.error) { setError(data.error); return; }
-
+			const data = await loadPartie(id);
 			setPartieId(id);
 			if (data.state) {
-				setGameState(normalizeGameState(data.state));
+				replaceGameState(data.state);
 				setPartieName(data.state.partie?.nom || 'Partie sans nom');
 			}
 			setMessages(data.messages?.map(m => ({ role: m.role, content: m.content })) || []);
+
+			// Si pas de messages, vérifier si le monde est déjà créé
+			if (!data.messages?.length && data.state?.partie?.lieu_actuel) {
+				// Monde créé mais pas encore commencé
+				setWorldData({ monde_cree: true, lieu_depart: data.state.partie.lieu_actuel });
+				setGamePhase(GAME_PHASE.WORLD_READY);
+			} else if (data.messages?.length > 0) {
+				setGamePhase(GAME_PHASE.PLAYING);
+			} else {
+				// Partie vide, lancer la génération
+				setGamePhase(GAME_PHASE.GENERATING_WORLD);
+				generateWorld(id);
+			}
 		} catch (e) {
-			console.error('Load game error:', e);
-			setError('Erreur lors du chargement');
-		} finally { setLoadingGame(false); }
-	};
-
-	const newGame = async () => {
-		setLoadingGame(true);
-		setError('');
-		try {
-			const res = await fetch('/api/chat?action=new');
-			const data = await res.json();
-			if (data.partieId) {
-				setPartieId(data.partieId);
-				setPartieName('Nouvelle partie');
-				setGameState(null);
-				setMessages([]);
-				loadParties();
-			} else setError(data.error || 'Erreur création');
-		} catch (e) { setError('Erreur création'); }
-		finally { setLoadingGame(false); }
-	};
-
-	const deleteGame = async (id) => {
-		try {
-			const res = await fetch(`/api/chat?action=delete&partieId=${id}`);
-			const data = await res.json();
-			if (data.error) { setError(data.error); return; }
-			setConfirmDelete(null);
-			loadParties();
-		} catch (e) { setError('Erreur suppression'); }
-	};
-
-	const renameGame = async () => {
-		if (!newName.trim()) return;
-		try {
-			await fetch(`/api/chat?action=rename&partieId=${partieId}&name=${encodeURIComponent(newName.trim())}`);
-			setPartieName(newName.trim());
-			setEditingName(false);
-			setNewName('');
-		} catch (e) { setError('Erreur renommage'); }
-	};
-
-	const cancelRequest = () => {
-		if (abortControllerRef.current) {
-			abortControllerRef.current.abort();
-			abortControllerRef.current = null;
-			setLoading(false);
-			setMessages(prev => {
-				const n = [...prev];
-				if (n.length > 0 && n[n.length - 1].streaming) {
-					n[n.length - 1] = { ...n[n.length - 1], streaming: false, content: n[n.length - 1].content + '\n\n*(Annulé)*' };
-				}
-				return n;
-			});
+			setError({ message: e.message });
+		} finally {
+			setLoadingGame(false);
 		}
-	};
+	}, [loadPartie, setPartieId, replaceGameState, setPartieName, setMessages, setError]);
 
-	const startEditMessage = (index) => {
-		if (messages[index].role !== 'user') return;
-		setEditingMessageIndex(index);
-		setEditedContent(messages[index].content);
-	};
+	const handleNewPartie = useCallback(async () => {
+		setLoadingGame(true);
+		setError(null);
+		try {
+			const id = await createPartie();
+			setPartieId(id);
+			setPartieName('Nouvelle partie');
+			replaceGameState(null);
+			setMessages([]);
+			setWorldGenProgress('');
+			setWorldData(null);
+			loadParties();
 
-	const cancelEdit = () => { setEditingMessageIndex(null); setEditedContent(''); };
+			// Lancer directement la génération du monde
+			setGamePhase(GAME_PHASE.GENERATING_WORLD);
+			setLoadingGame(false);
+			generateWorld(id);
+		} catch (e) {
+			setError({ message: e.message });
+			setLoadingGame(false);
+		}
+	}, [createPartie, setPartieId, setPartieName, replaceGameState, setMessages, setError, loadParties]);
 
-	const submitEdit = async () => {
-		if (!editedContent.trim() || loading) return;
-		const idx = editingMessageIndex, content = editedContent.trim();
-		const prevMsgs = [...messages].slice(0, idx);
-
-		setEditingMessageIndex(null);
-		setEditedContent('');
+	// Génération du monde (mode INIT)
+	const generateWorld = useCallback(async (id) => {
 		setLoading(true);
-		setError('');
-		resetScrollBehavior();
-		setMessages([...prevMsgs, { role: 'user', content }]);
+		setError(null);
+		setWorldGenProgress('');
 
-		let restoredState = gameState;
+		await startStream('/api/chat', {
+			message: null,
+			partieId: id,
+			gameState: null // Pas de gameState = mode INIT
+		});
+	}, [startStream, setLoading, setError]);
+
+	// Commencer l'aventure (premier LIGHT)
+	const handleStartAdventure = useCallback(async () => {
+		setGamePhase(GAME_PHASE.STARTING_ADVENTURE);
+		setLoading(true);
+		setError(null);
+
+		// Ajouter un message système pour le premier narratif
+		setMessages([]);
+
+		await startStream('/api/chat', {
+			message: '__ARRIVEE__',
+			partieId,
+			gameState // Le gameState contient maintenant les infos du monde
+		});
+	}, [partieId, gameState, startStream, setLoading, setError, setMessages]);
+
+	const handleDeletePartie = useCallback(async (id) => {
+		try {
+			await deletePartie(id || partieId);
+			if (id === partieId || !id) {
+				resetGame();
+				setShowSettings(false);
+				setGamePhase(GAME_PHASE.LIST);
+				setWorldData(null);
+			}
+			loadParties();
+			setConfirmDeleteModal(false);
+		} catch (e) {
+			setError({ message: e.message });
+		}
+	}, [deletePartie, partieId, resetGame, loadParties, setError]);
+
+	const handleRenamePartie = useCallback(async (newName) => {
+		await renamePartie(partieId, newName);
+		setPartieName(newName);
+	}, [partieId, renamePartie, setPartieName]);
+
+	const handleQuit = useCallback(() => {
+		resetGame();
+		setGamePhase(GAME_PHASE.LIST);
+		setWorldData(null);
+		setWorldGenProgress('');
+		loadParties();
+	}, [resetGame, loadParties]);
+
+	// ============================================================
+	// ACTIONS MESSAGES
+	// ============================================================
+
+	const sendMessage = useCallback(async (userMessage, previousMessages, currentGameState) => {
+		setLoading(true);
+		setError(null);
+
+		setMessages([...previousMessages, { role: 'user', content: userMessage }]);
+
+		await startStream('/api/chat', {
+			message: userMessage,
+			partieId,
+			gameState: currentGameState
+		});
+	}, [partieId, setLoading, setError, setMessages, startStream]);
+
+	const handleSend = useCallback((msg) => {
+		if (loading || saving) return;
+		sendMessage(msg, messages, gameState);
+	}, [loading, saving, messages, gameState, sendMessage]);
+
+	const handleEdit = useCallback((index) => {
+		if (messages[index].role !== 'user') return;
+		setEditingIndex(index);
+	}, [messages]);
+
+	const handleCancelEdit = useCallback(() => {
+		setEditingIndex(null);
+	}, []);
+
+	const handleSubmitEdit = useCallback(async (content) => {
+		const idx = editingIndex;
+		const prevMsgs = messages.slice(0, idx);
+		setEditingIndex(null);
 
 		if (partieId) {
 			try {
@@ -259,35 +320,26 @@ export default function Home() {
 					body: JSON.stringify({ partieId, fromIndex: idx })
 				});
 				const data = await res.json();
-
-				// Utiliser l'état restauré par le rollback
 				if (data.state) {
-					restoredState = normalizeGameState(data.state);
-					setGameState(restoredState);
+					setGameState(data.state);
 				}
+			} catch (e) {
+				console.error('Erreur rollback:', e);
 			}
-			catch (e) { console.error('Erreur suppression:', e); }
 		}
 
-		await sendMessageInternal(content, prevMsgs, restoredState);
-	};
+		sendMessage(content, prevMsgs, gameState);
+	}, [editingIndex, messages, partieId, gameState, setGameState, sendMessage]);
 
-	const regenerateLastResponse = async () => {
+	const handleRegenerate = useCallback(async () => {
 		if (loading || messages.length < 2) return;
-		const currMsgs = [...messages];
-		let lastUserIdx = currMsgs.length - 1;
-		while (lastUserIdx >= 0 && currMsgs[lastUserIdx].role !== 'user') lastUserIdx--;
+
+		let lastUserIdx = messages.length - 1;
+		while (lastUserIdx >= 0 && messages[lastUserIdx].role !== 'user') lastUserIdx--;
 		if (lastUserIdx < 0) return;
 
-		const userMsg = currMsgs[lastUserIdx].content;
-		const prevMsgs = currMsgs.slice(0, lastUserIdx);
-
-		setMessages([...prevMsgs, { role: 'user', content: userMsg }]);
-		setLoading(true);
-		setError('');
-		resetScrollBehavior();
-
-		let restoredState = gameState;
+		const userMsg = messages[lastUserIdx].content;
+		const prevMsgs = messages.slice(0, lastUserIdx);
 
 		if (partieId) {
 			try {
@@ -297,385 +349,147 @@ export default function Home() {
 					body: JSON.stringify({ partieId, fromIndex: lastUserIdx })
 				});
 				const data = await res.json();
-
 				if (data.state) {
-					restoredState = normalizeGameState(data.state);
-					setGameState(restoredState);
+					setGameState(data.state);
 				}
+			} catch (e) {
+				console.error('Erreur rollback:', e);
 			}
-			catch (e) { console.error('Erreur suppression:', e); }
 		}
 
-		await sendMessageInternal(userMsg, prevMsgs, restoredState);
-	};
+		sendMessage(userMsg, prevMsgs, gameState);
+	}, [loading, messages, partieId, gameState, setGameState, sendMessage]);
 
-	const handleSendMessage = async (userMsg) => {
-		if (loading || saving) return;
-		const currMsgs = [...messages], currState = gameState;
-		setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-		setLoading(true);
-		setError('');
-		resetScrollBehavior();
-		await sendMessageInternal(userMsg, currMsgs, currState);
-	};
-
-	const sendMessageInternal = async (userMessage, previousMessages, currentGameState) => {
-		abortControllerRef.current = new AbortController();
-
-		// Extraction du narratif depuis JSON streamé
-		const extractNarratif = (jsonStr) => {
-			const m = jsonStr.match(/"narratif"\s*:\s*"/);
-			if (!m) return null;
-			let narratif = '', i = m.index + m[0].length;
-			while (i < jsonStr.length) {
-				const c = jsonStr[i];
-				if (c === '\\' && i + 1 < jsonStr.length) {
-					const n = jsonStr[i + 1];
-					if (n === 'n') { narratif += '\n'; i += 2; }
-					else if (n === '"') { narratif += '"'; i += 2; }
-					else if (n === '\\') { narratif += '\\'; i += 2; }
-					else if (n === 't') { narratif += '\t'; i += 2; }
-					else if (n === 'r') { narratif += '\r'; i += 2; }
-					else { narratif += c; i++; }
-				} else if (c === '"') { break; }
-				else { narratif += c; i++; }
-			}
-			return narratif || null;
-		};
-
-		const extractHeure = (jsonStr) => {
-			const m = jsonStr.match(/"heure"\s*:\s*"([^"]+)"/);
-			return m ? m[1] : null;
-		};
-
-		const extractChoix = (jsonStr) => {
-			const match = jsonStr.match(/"choix"\s*:\s*\[([\s\S]*?)\]/);
-			if (!match) return null;
-			try { const arr = JSON.parse(`[${match[1]}]`); return arr.length > 0 ? arr : null; }
-			catch (e) { return null; }
-		};
-
-		const extractDisplayContent = (content) => {
-			const trimmed = content.trim();
-			if (trimmed.startsWith('{')) {
-				const narratif = extractNarratif(content);
-				const heure = extractHeure(content);
-				const choix = extractChoix(content);
-				if (narratif) {
-					let display = narratif.replace(/^\[?\d{2}h\d{2}\]?\s*[-–—:]?\s*/i, '');
-					if (heure) display = `[${heure}] ${display}`;
-					if (choix?.length > 0) display += '\n\n' + choix.map((c, i) => `${i + 1}. ${c}`).join('\n');
-					return display;
-				}
-				return null;
-			}
-			return content || null;
-		};
-
-		const finalizeMessage = (content) => {
-			setMessages([...previousMessages, { role: 'user', content: userMessage }, { role: 'assistant', content }]);
-		};
-
-		try {
-			const res = await fetch('/api/chat', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ message: userMessage, partieId, gameState: currentGameState }),
-				signal: abortControllerRef.current.signal
-			});
-
-			if (res.headers.get('content-type')?.includes('text/event-stream')) {
-				const reader = res.body.getReader(), decoder = new TextDecoder();
-				let fullJson = '', assistantAdded = false;
-
-				try {
-					while (true) {
-						const { done, value } = await reader.read();
-						if (done) break;
-						const text = decoder.decode(value, { stream: true });
-
-						for (const line of text.split('\n')) {
-							if (!line.startsWith('data: ')) continue;
-							try {
-								const data = JSON.parse(line.slice(6));
-
-								if (data.type === 'chunk') {
-									fullJson += data.content;
-									const display = extractDisplayContent(fullJson);
-									if (display) {
-										if (!assistantAdded) {
-											setMessages([...previousMessages, { role: 'user', content: userMessage }, { role: 'assistant', content: display, streaming: true }]);
-											assistantAdded = true;
-										} else {
-											setMessages(prev => {
-												const n = [...prev];
-												n[n.length - 1] = { role: 'assistant', content: display, streaming: true };
-												return n;
-											});
-										}
-									}
-								} else if (data.type === 'done') {
-									setLoading(false);
-									setSaving(true);
-									finalizeMessage(data.displayText || fullJson);
-
-									if (data.state) {
-										const normalized = normalizeGameState(data.state);
-										if (normalized) {
-											setGameState(prev => {
-												if (!prev) return normalized;
-												return {
-													...prev,
-													partie: { ...prev.partie, ...normalized.partie },
-													valentin: { ...prev.valentin, ...normalized.valentin },
-													ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia
-												};
-											});
-										}
-									}
-								} else if (data.type === 'saved') {
-									setSaving(false);
-								} else if (data.type === 'error') {
-									setError(data.error);
-									if (fullJson) finalizeMessage(extractDisplayContent(fullJson) || fullJson);
-								}
-							} catch (e) { }
-						}
-					}
-				} catch (e) {
-					if (e.name !== 'AbortError') {
-						const display = extractDisplayContent(fullJson);
-						if (display || fullJson) finalizeMessage(display || fullJson);
-					}
-				}
-			} else {
-				const data = await res.json();
-				if (data.error) { setError(data.error); return; }
-				if (data.displayText) {
-					finalizeMessage(data.displayText);
-					if (data.state) setGameState(normalizeGameState(data.state));
-				} else if (data.content) finalizeMessage(data.content);
-			}
-		} catch (e) {
-			if (e.name !== 'AbortError') setError(e.message);
-		} finally {
+	const handleCancel = useCallback(() => {
+		if (cancelStream()) {
 			setLoading(false);
-			abortControllerRef.current = null;
+			setMessages(prev => {
+				const newMsgs = [...prev];
+				if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].streaming) {
+					newMsgs[newMsgs.length - 1] = {
+						...newMsgs[newMsgs.length - 1],
+						streaming: false,
+						content: newMsgs[newMsgs.length - 1].content + '\n\n*(Annulé)*'
+					};
+				}
+				return newMsgs;
+			});
 		}
-	};
+	}, [cancelStream, setLoading, setMessages]);
 
-	const formatDate = (d) => d ? new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
-	const dots = (n, max = 5) => '●'.repeat(Math.min(Math.max(Math.round(n) || 0, 0), max)) + '○'.repeat(Math.max(0, max - Math.round(n || 0)));
+	// ============================================================
+	// RENDU
+	// ============================================================
 
-	// === ÉCRAN LISTE DES PARTIES ===
-	if (!partieId) {
+	// Page sélection des parties
+	if (gamePhase === GAME_PHASE.LIST || !partieId) {
 		return (
-			<div style={{ padding: 20, maxWidth: 600, margin: '0 auto' }}>
-				<h1 style={{ color: '#60a5fa', marginBottom: 20 }}>LDVELH</h1>
-				<button onClick={newGame} disabled={loadingGame} style={{ padding: '10px 20px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', marginBottom: 20, cursor: 'pointer', opacity: loadingGame ? 0.5 : 1 }}>
-					{loadingGame ? 'Création...' : '+ Nouvelle partie'}
-				</button>
-				{error && <div style={{ color: '#f87171', marginBottom: 10 }}>{error}</div>}
-				<h2 style={{ marginBottom: 10 }}>Parties existantes :</h2>
-				{parties.length === 0 && <p style={{ color: '#6b7280' }}>Aucune partie sauvegardée</p>}
-				{parties.map(p => (
-					<div key={p.id} style={{ padding: 12, background: '#1f2937', marginBottom: 10, borderRadius: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-						<div onClick={() => loadGame(p.id)} style={{ cursor: 'pointer', flex: 1 }}>
-							<strong>{p.nom}</strong>
-							<div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-								Cycle {p.cycle_actuel || 1} • {formatDate(p.updated_at)}
-							</div>
-						</div>
-						{confirmDelete === p.id ? (
-							<div style={{ display: 'flex', gap: 8 }}>
-								<button onClick={() => deleteGame(p.id)} style={{ padding: '4px 8px', background: '#dc2626', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>Confirmer</button>
-								<button onClick={() => setConfirmDelete(null)} style={{ padding: '4px 8px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>Annuler</button>
-							</div>
-						) : (
-							<button onClick={(e) => { e.stopPropagation(); setConfirmDelete(p.id); }} style={{ padding: '4px 8px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕</button>
-						)}
-					</div>
-				))}
+			<PartiesList
+				parties={parties}
+				loading={loadingGame}
+				error={error?.message}
+				onSelect={handleSelectPartie}
+				onNew={handleNewPartie}
+				onDelete={handleDeletePartie}
+			/>
+		);
+	}
+
+	// Chargement initial
+	if (loadingGame) {
+		return (
+			<div className="min-h-screen bg-gray-900 flex items-center justify-center">
+				<div className="text-gray-400 flex items-center gap-3">
+					<svg className="animate-spin h-6 w-6" fill="none" viewBox="0 0 24 24">
+						<circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+						<path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+					</svg>
+					Chargement...
+				</div>
 			</div>
 		);
 	}
 
-	if (loadingGame) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><p style={{ color: '#6b7280' }}>Chargement...</p></div>;
+	// Écran de génération du monde
+	if (gamePhase === GAME_PHASE.GENERATING_WORLD || gamePhase === GAME_PHASE.WORLD_READY) {
+		return (
+			<WorldGenerationScreen
+				isGenerating={gamePhase === GAME_PHASE.GENERATING_WORLD}
+				partialJson={worldGenProgress}
+				worldData={worldData}
+				onStartAdventure={handleStartAdventure}
+				error={error?.message}
+			/>
+		);
+	}
 
-	// === ÉCRAN JEU ===
+	// Écran de démarrage de l'aventure (premier narratif en cours)
+	if (gamePhase === GAME_PHASE.STARTING_ADVENTURE && messages.length === 0) {
+		return (
+			<div className="min-h-screen bg-gray-900 flex items-center justify-center">
+				<div className="text-center space-y-4">
+					<div className="relative">
+						<div className="w-16 h-16 border-4 border-gray-700 rounded-full mx-auto" />
+						<div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-16 border-4 border-purple-500 rounded-full border-t-transparent animate-spin" />
+					</div>
+					<p className="text-gray-400">Début de l'aventure...</p>
+				</div>
+			</div>
+		);
+	}
+
+	// Page de jeu normale
 	return (
-		<div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-			{/* HEADER */}
-			<div style={{ background: '#1f2937', padding: 12, borderBottom: '1px solid #374151' }}>
-				<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-					<h1 style={{ fontSize: 18, color: '#60a5fa' }}>{partieName}</h1>
-					<div style={{ display: 'flex', gap: 8 }}>
-						<button onClick={() => setShowSettings(!showSettings)} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>⚙️</button>
-						<button onClick={() => setShowState(!showState)} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>{showState ? 'Masquer' : 'État'}</button>
-						<button onClick={() => { setPartieId(null); setMessages([]); setGameState(null); loadParties(); }} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer' }}>Quitter</button>
-					</div>
-				</div>
+		<div className="h-screen flex flex-col bg-gray-900 text-white">
+			<GameHeader
+				partieName={partieName}
+				gameState={gameState}
+				onRename={handleRenamePartie}
+				onShowSettings={() => setShowSettings(!showSettings)}
+				onShowState={() => setShowState(!showState)}
+				onQuit={handleQuit}
+			/>
 
-				{/* Stats bar */}
-				{gameState?.valentin && (
-					<div style={{ fontFamily: 'monospace', fontSize: 12, marginTop: 8 }}>
-						<div style={{ color: '#4ade80' }}>
-							Cycle {gameState.partie?.cycle_actuel || 1} | {gameState.partie?.jour || '-'} {gameState.partie?.date_jeu || '-'}
-							{gameState.partie?.heure && <span style={{ marginLeft: 8 }}>🕐 {gameState.partie.heure}</span>}
-						</div>
-						<div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
-							<span>Énergie: {dots(gameState.valentin.energie)}</span>
-							<span>Moral: {dots(gameState.valentin.moral)}</span>
-							<span>Santé: {dots(gameState.valentin.sante)}</span>
-						</div>
-						<div style={{ marginTop: 4 }}>
-							<span style={{ color: '#fbbf24' }}>💰 {gameState.valentin.credits ?? 1400} cr</span>
-							{gameState.partie?.lieu_actuel && (
-								<span style={{ color: '#93c5fd', marginLeft: 12 }}>📍 {gameState.partie.lieu_actuel}</span>
-							)}
-							{gameState.partie?.pnjs_presents?.length > 0 && (
-								<span style={{ color: '#a78bfa', marginLeft: 12 }}>👥 {gameState.partie.pnjs_presents.join(', ')}</span>
-							)}
-						</div>
-						{gameState.valentin.inventaire?.length > 0 && (
-							<div style={{ color: '#6b7280', marginTop: 4, fontSize: 11 }}>
-								🎒 {gameState.valentin.inventaire.join(', ')}
-							</div>
-						)}
-					</div>
-				)}
-			</div>
+			<SettingsPanel
+				isOpen={showSettings}
+				fontSize={fontSize}
+				onFontSizeChange={(delta) => delta > 0 ? increaseFontSize() : decreaseFontSize()}
+				onDelete={() => setConfirmDeleteModal(true)}
+				onClose={() => setShowSettings(false)}
+			/>
+			<DebugStatePanel isOpen={showState} gameState={gameState} />
 
-			{/* SETTINGS PANEL */}
-			{showSettings && (
-				<div style={{ background: '#1f2937', padding: 16, borderBottom: '1px solid #374151' }}>
-					<h3 style={{ marginBottom: 12, fontSize: 14, color: '#9ca3af' }}>Paramètres</h3>
+			<MessageList
+				messages={messages}
+				loading={loading}
+				saving={saving}
+				error={error}
+				fontSize={fontSize}
+				editingIndex={editingIndex}
+				onEdit={handleEdit}
+				onCancelEdit={handleCancelEdit}
+				onSubmitEdit={handleSubmitEdit}
+				onRegenerate={handleRegenerate}
+				onCancel={handleCancel}
+				onClearError={clearError}
+				onRetry={handleRegenerate}
+				tooltipMap={tooltipMap}
+			/>
 
-					{/* Font size */}
-					<div style={{ marginBottom: 16 }}>
-						<label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 8 }}>Taille police</label>
-						<div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-							<button onClick={() => changeFontSize(-2)} disabled={fontSize <= 10} style={{ width: 32, height: 32, background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 18, opacity: fontSize <= 10 ? 0.5 : 1 }}>−</button>
-							<span style={{ color: '#fff', minWidth: 40, textAlign: 'center' }}>{fontSize}px</span>
-							<button onClick={() => changeFontSize(2)} disabled={fontSize >= 24} style={{ width: 32, height: 32, background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 18, opacity: fontSize >= 24 ? 0.5 : 1 }}>+</button>
-						</div>
-					</div>
+			<InputArea
+				onSend={handleSend}
+				disabled={loading || saving}
+				fontSize={fontSize}
+			/>
 
-					{/* Rename */}
-					<div style={{ marginBottom: 12 }}>
-						<label style={{ fontSize: 12, color: '#6b7280', display: 'block', marginBottom: 4 }}>Nom partie</label>
-						{editingName ? (
-							<div style={{ display: 'flex', gap: 8 }}>
-								<input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && renameGame()} placeholder={partieName} autoFocus style={{ flex: 1, padding: '6px 12px', background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize: 14 }} />
-								<button onClick={renameGame} style={{ padding: '6px 12px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>OK</button>
-								<button onClick={() => { setEditingName(false); setNewName(''); }} style={{ padding: '6px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕</button>
-							</div>
-						) : (
-							<div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-								<span style={{ color: '#fff' }}>{partieName}</span>
-								<button onClick={() => { setEditingName(true); setNewName(partieName); }} style={{ padding: '4px 8px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 12 }}>✏️</button>
-							</div>
-						)}
-					</div>
-
-					{/* Delete */}
-					<button onClick={() => { if (confirm('Supprimer cette partie ?')) { deleteGame(partieId); setPartieId(null); setMessages([]); setGameState(null); setShowSettings(false); } }} style={{ padding: '8px 16px', background: '#dc2626', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>🗑️ Supprimer</button>
-				</div>
-			)}
-
-			{/* DEBUG STATE */}
-			{showState && gameState && (
-				<div style={{ background: '#1f2937', padding: 12, maxHeight: 200, overflow: 'auto', borderBottom: '1px solid #374151' }}>
-					<pre style={{ fontSize: 10, color: '#9ca3af' }}>{JSON.stringify(gameState, null, 2)}</pre>
-				</div>
-			)}
-
-			{/* MESSAGES */}
-			<div ref={messagesContainerRef} onScroll={handleScroll} style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-				{messages.length === 0 && (
-					<div style={{ textAlign: 'center', color: '#6b7280', marginTop: 40 }}>
-						<p>Tape "Commencer" pour lancer l'aventure</p>
-					</div>
-				)}
-
-				{messages.map((msg, i) => (
-					<div key={i} style={{
-						marginBottom: 16,
-						display: 'flex',
-						justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
-					}}>
-						{editingMessageIndex === i ? (
-							<div style={{ maxWidth: '80%', padding: 12, borderRadius: 8, background: '#1e3a5f' }}>
-								<textarea value={editedContent} onChange={(e) => setEditedContent(e.target.value)} autoFocus style={{ width: '100%', minHeight: 60, padding: 8, background: '#374151', border: '1px solid #4b5563', borderRadius: 4, color: '#fff', outline: 'none', fontSize, resize: 'vertical' }} />
-								<div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-									<button onClick={cancelEdit} style={{ padding: '4px 12px', background: '#374151', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>Annuler</button>
-									<button onClick={submitEdit} style={{ padding: '4px 12px', background: '#2563eb', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>Envoyer</button>
-								</div>
-							</div>
-						) : (
-							<div style={{ maxWidth: msg.role === 'user' ? '80%' : '95%', position: 'relative' }} className="message-container">
-								<div style={{
-									padding: 12,
-									borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-									background: msg.role === 'user' ? '#2563eb' : '#1f2937',
-									textAlign: 'left'
-								}}>
-									<div className="markdown-content" style={{ fontSize }}>
-										<ReactMarkdown components={{
-											p: ({ children }) => <p style={{ margin: '0 0 8px 0' }}>{children}</p>,
-											strong: ({ children }) => <strong style={{ color: msg.role === 'user' ? '#fff' : '#60a5fa' }}>{children}</strong>,
-											em: ({ children }) => <em style={{ color: msg.role === 'user' ? '#e0e7ff' : '#a5b4fc' }}>{children}</em>,
-											ul: ({ children }) => <ul style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ul>,
-											ol: ({ children }) => <ol style={{ margin: '8px 0', paddingLeft: 20 }}>{children}</ol>,
-											li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
-											code: ({ inline, children }) => inline
-												? <code style={{ background: msg.role === 'user' ? '#1e40af' : '#374151', padding: '2px 6px', borderRadius: 4, fontSize: '0.9em' }}>{children}</code>
-												: <pre style={{ background: msg.role === 'user' ? '#1e40af' : '#374151', padding: 12, borderRadius: 4, overflow: 'auto', margin: '8px 0' }}><code>{children}</code></pre>,
-											blockquote: ({ children }) => <blockquote style={{ borderLeft: '3px solid #60a5fa', paddingLeft: 12, margin: '8px 0', color: '#9ca3af', fontStyle: 'italic' }}>{children}</blockquote>,
-										}}>{msg.content}</ReactMarkdown>
-									</div>
-									{msg.streaming && <span style={{ color: '#60a5fa' }}>▋</span>}
-								</div>
-
-								{/* Actions */}
-								<div className="message-actions" style={{
-									position: 'absolute', top: -8,
-									left: msg.role === 'user' ? 'auto' : 0,
-									right: msg.role === 'user' ? 0 : 'auto',
-									display: 'flex', gap: 4, opacity: 0, transition: 'opacity 0.2s'
-								}}>
-									{msg.role === 'user' && !loading && (
-										<button onClick={() => startEditMessage(i)} title="Éditer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>✏️</button>
-									)}
-									{msg.role === 'assistant' && i === messages.length - 1 && !loading && !msg.streaming && (
-										<button onClick={regenerateLastResponse} title="Regénérer" style={{ padding: '2px 6px', background: '#374151', border: 'none', borderRadius: 4, color: '#9ca3af', cursor: 'pointer', fontSize: 10 }}>🔄</button>
-									)}
-								</div>
-							</div>
-						)}
-					</div>
-				))}
-
-				{/* Loading indicator */}
-				{loading && !messages.some(m => m.streaming) && (
-					<div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6b7280', fontStyle: 'italic' }}>
-						<span>En cours...</span>
-						<button onClick={cancelRequest} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕ Annuler</button>
-					</div>
-				)}
-				{loading && messages.some(m => m.streaming) && (
-					<div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
-						<button onClick={cancelRequest} style={{ padding: '4px 12px', background: '#7f1d1d', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', fontSize: 12 }}>✕ Annuler</button>
-					</div>
-				)}
-
-				{error && <div style={{ color: '#f87171', marginTop: 8 }}>{error}</div>}
-				<div ref={messagesEndRef} />
-			</div>
-
-			<InputArea onSend={handleSendMessage} disabled={loading || saving} fontSize={fontSize} />
-
-			<style jsx>{`.message-container:hover .message-actions { opacity: 1 !important; }`}</style>
+			<ConfirmModal
+				isOpen={confirmDeleteModal}
+				onClose={() => setConfirmDeleteModal(false)}
+				onConfirm={() => handleDeletePartie()}
+				title="Supprimer la partie"
+				message="Es-tu sûr de vouloir supprimer cette partie ? Cette action est irréversible."
+				confirmText="Supprimer"
+			/>
 		</div>
 	);
 }
