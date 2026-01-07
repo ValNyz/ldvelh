@@ -1,45 +1,5 @@
 import { useState, useCallback } from 'react';
-
-/**
- * Normalise le gameState depuis différentes sources (Supabase ou Claude)
- */
-function normalizeGameState(rawState) {
-	if (!rawState) return null;
-
-	// Depuis loadGame (Supabase)
-	if (rawState.partie) {
-		return {
-			partie: {
-				cycle_actuel: rawState.partie.cycle_actuel || 1,
-				jour: rawState.partie.jour,
-				date_jeu: rawState.partie.date_jeu,
-				heure: rawState.partie.heure,
-				lieu_actuel: rawState.partie.lieu_actuel,
-				pnjs_presents: rawState.partie.pnjs_presents || []
-			},
-			valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
-			ia: rawState.ia || {}
-		};
-	}
-
-	// Depuis Claude (réponse API avec cycle à la racine)
-	if (rawState.cycle !== undefined) {
-		return {
-			partie: {
-				cycle_actuel: rawState.cycle || 1,
-				jour: rawState.jour,
-				date_jeu: rawState.date_jeu,
-				heure: rawState.heure,
-				lieu_actuel: rawState.lieu_actuel,
-				pnjs_presents: rawState.pnjs_presents || []
-			},
-			valentin: rawState.valentin || { energie: 3, moral: 3, sante: 5, credits: 1400, inventaire: [] },
-			ia: rawState.ia || {}
-		};
-	}
-
-	return null;
-}
+import { normalizeGameState } from '../lib/game/gameState'
 
 /**
  * Hook principal pour la gestion de l'état du jeu
