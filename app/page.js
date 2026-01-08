@@ -170,25 +170,44 @@ export default function Home() {
 		try {
 			const data = await loadPartie(id);
 			setPartieId(id);
+
+			// Charger le state
 			if (data.state) {
 				replaceGameState(data.state);
 				setPartieName(data.state.partie?.nom || 'Partie sans nom');
 			}
-			setMessages(data.messages?.map(m => ({ role: m.role, content: m.content })) || []);
 
-			// Si pas de messages, vérifier si le monde est déjà créé
-			if (!data.messages?.length && data.state?.partie?.lieu_actuel) {
-				// Monde créé mais pas encore commencé
-				setWorldData({ monde_cree: true, lieu_depart: data.state.partie.lieu_actuel });
-				setGamePhase(GAME_PHASE.WORLD_READY);
-			} else if (data.messages?.length > 0) {
+			// Transformer les messages une seule fois
+			const loadedMessages = (data.messages || []).map(m => ({
+				role: m.role,
+				content: m.content
+			}));
+
+			setMessages(loadedMessages);
+
+			// Déterminer la phase selon la PRIORITÉ :
+			// 1. S'il y a des messages → PLAYING (toujours, peu importe le reste)
+			// 2. Sinon, si le monde est créé → WORLD_READY
+			// 3. Sinon → générer le monde
+
+			if (loadedMessages.length > 0) {
+				// Partie en cours avec historique
 				setGamePhase(GAME_PHASE.PLAYING);
+			} else if (data.state?.partie?.lieu_actuel) {
+				// Monde créé mais aventure pas encore commencée
+				setWorldData({
+					monde_cree: true,
+					lieu_depart: data.state.partie.lieu_actuel,
+					inventaire: data.state?.valentin?.inventaire || []
+				});
+				setGamePhase(GAME_PHASE.WORLD_READY);
 			} else {
-				// Partie vide, lancer la génération
+				// Partie vierge, lancer la génération du monde
 				setGamePhase(GAME_PHASE.GENERATING_WORLD);
 				generateWorld(id);
 			}
 		} catch (e) {
+			console.error('[LOAD] Erreur:', e);
 			setError({ message: e.message });
 		} finally {
 			setLoadingGame(false);
