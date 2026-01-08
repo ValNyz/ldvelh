@@ -192,6 +192,7 @@ async function handlePostAsync(request, sseWriter) {
 			maxTokens = API_CONFIG.MAX_TOKENS_LIGHT;
 		}
 
+		console.log('[BEFORE_STREAM] Context message:', contextMessage);
 		// =====================================================================
 		// APPEL CLAUDE
 		// =====================================================================
