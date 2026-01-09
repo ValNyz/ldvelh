@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { normalizeGameState } from '../lib/game/gameState.js';
+import { gamesApi } from '../lib/api.js';
 
 // ============================================================================
 // HOOK PRINCIPAL
@@ -97,14 +98,12 @@ function mergeValentin(prev, next) {
 		moral: next.moral ?? prev.moral,
 		sante: next.sante ?? prev.sante,
 		credits: next.credits ?? prev.credits,
-		// FIX: L'inventaire vient de la BDD, utilise le nouveau s'il est défini (même si vide)
-		// Avant: next.inventaire?.length ? next.inventaire : prev.inventaire
 		inventaire: next.inventaire !== undefined ? next.inventaire : (prev.inventaire || [])
 	};
 }
 
 // ============================================================================
-// HOOK PARTIES
+// HOOK PARTIES - Utilise gamesApi
 // ============================================================================
 
 export function useParties() {
@@ -114,8 +113,7 @@ export function useParties() {
 	const loadParties = useCallback(async () => {
 		setLoadingList(true);
 		try {
-			const res = await fetch('/api/chat?action=list');
-			const data = await res.json();
+			const data = await gamesApi.list();
 			setParties(data.parties || []);
 		} catch (e) {
 			console.error('Erreur chargement parties:', e);
@@ -125,26 +123,22 @@ export function useParties() {
 	}, []);
 
 	const createPartie = useCallback(async () => {
-		const res = await fetch('/api/chat?action=new');
-		const data = await res.json();
+		const data = await gamesApi.create();
 		if (data.error) throw new Error(data.error);
-		return data.partieId;
+		return data.gameId;
 	}, []);
 
 	const deletePartie = useCallback(async (id) => {
-		const res = await fetch(`/api/chat?action=delete&partieId=${id}`);
-		const data = await res.json();
-		if (data.error) throw new Error(data.error);
+		await gamesApi.delete(id);
 		return true;
 	}, []);
 
 	const renamePartie = useCallback(async (id, newName) => {
-		await fetch(`/api/chat?action=rename&partieId=${id}&name=${encodeURIComponent(newName)}`);
+		await gamesApi.rename(id, newName);
 	}, []);
 
 	const loadPartie = useCallback(async (id) => {
-		const res = await fetch(`/api/chat?action=load&partieId=${id}`);
-		const data = await res.json();
+		const data = await gamesApi.load(id);
 		if (data.error) throw new Error(data.error);
 		return data;
 	}, []);
