@@ -30,7 +30,8 @@ export function useGameState() {
 			return {
 				partie: { ...prev.partie, ...normalized.partie },
 				valentin: mergeValentin(prev.valentin, normalized.valentin),
-				ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia
+				ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia,
+				monde_cree: normalized.monde_cree ?? prev.monde_cree ?? false
 			};
 		});
 	}, []);

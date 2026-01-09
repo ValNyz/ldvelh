@@ -41,7 +41,8 @@ export function normalizeGameState(state) {
 		return {
 			partie: state.partie || null,
 			valentin: state.valentin || { ...STATS_DEFAUT, inventaire: [] },
-			ia: state.ia || null
+			ia: state.ia || null,
+			monde_cree: state.monde_cree || false
 		};
 	}
 
@@ -50,7 +51,8 @@ export function normalizeGameState(state) {
 	return {
 		partie: extractPartieFields(state),
 		valentin: extractValentinFields(state),
-		ia: null
+		ia: state.ia || null,
+		monde_cree: state.monde_cree || false
 	};
 }
 
@@ -69,7 +71,8 @@ export function mergeGameStates(prev, next) {
 	return {
 		partie: mergeObjects(prev.partie, next.partie),
 		valentin: mergeValentin(prev.valentin, next.valentin),
-		ia: mergeObjects(prev.ia, next.ia)
+		ia: mergeObjects(prev.ia, next.ia),
+		monde_cree: next.monde_cree ?? prev.monde_cree ?? false
 	};
 }
 
