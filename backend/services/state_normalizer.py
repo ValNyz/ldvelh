@@ -8,12 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 from decimal import Decimal
 
-
-# =============================================================================
-# CONSTANTS
-# =============================================================================
-
-STATS_DEFAUT = {"energie": 3.0, "moral": 3.0, "sante": 4.0, "credits": 1400}
+from config import STATS_DEFAUT
 
 
 # =============================================================================
