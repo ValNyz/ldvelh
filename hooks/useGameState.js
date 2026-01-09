@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { normalizeGameState } from '../lib/game/gameState.js';
+import { normalizeGameState } from '../lib/js/game/gameState.js';
 
 // ============================================================================
 // HOOK PRINCIPAL

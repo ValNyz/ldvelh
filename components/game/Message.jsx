@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import EntityTooltip from './EntityTooltip';
-import { formatTooltip, fuzzyMatchEntity } from '../../lib/kg/knowledgeService';
+import { formatTooltip, fuzzyMatchEntity } from '../../lib/js/kg/knowledgeService';
 
 /**
  * Composant Message unique
