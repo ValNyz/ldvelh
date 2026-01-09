@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import EntityTooltip from './EntityTooltip';
-import { formatTooltip, fuzzyMatchEntity } from '../../lib/js/kg/knowledgeService';
+// import { formatTooltip, fuzzyMatchEntity } from '../../lib/js/kg/knowledgeService';
 
 /**
  * Composant Message unique
@@ -90,26 +90,26 @@ function MarkdownContent({ content, isUser, tooltipMap }) {
 		p: ({ children }) => (
 			<p className="mb-2 last:mb-0">{children}</p>
 		),
-		strong: ({ children }) => {
-			// NOUVEAU : Tooltip sur les éléments en gras
-			const text = extractText(children);
-			const entityData = tooltipMap ? fuzzyMatchEntity(text, tooltipMap, 70) : null;
-			const tooltipData = entityData ? formatTooltip(entityData) : null;
-
-			if (tooltipData && !isUser) {
-				return (
-					<EntityTooltip data={tooltipData}>
-						<strong className="text-blue-400">{children}</strong>
-					</EntityTooltip>
-				);
-			}
-
-			return (
-				<strong className={isUser ? 'text-white' : 'text-blue-400'}>
-					{children}
-				</strong>
-			);
-		},
+		// strong: ({ children }) => {
+		// 	// NOUVEAU : Tooltip sur les éléments en gras
+		// 	const text = extractText(children);
+		// 	const entityData = tooltipMap ? fuzzyMatchEntity(text, tooltipMap, 70) : null;
+		// 	const tooltipData = entityData ? formatTooltip(entityData) : null;
+		//
+		// 	if (tooltipData && !isUser) {
+		// 		return (
+		// 			<EntityTooltip data={tooltipData}>
+		// 				<strong className="text-blue-400">{children}</strong>
+		// 			</EntityTooltip>
+		// 		);
+		// 	}
+		//
+		// 	return (
+		// 		<strong className={isUser ? 'text-white' : 'text-blue-400'}>
+		// 			{children}
+		// 		</strong>
+		// 	);
+		// },
 		em: ({ children }) => (
 			<em className={isUser ? 'text-blue-100' : 'text-purple-300'}>
 				{children}

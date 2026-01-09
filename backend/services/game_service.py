@@ -1,245 +1,306 @@
 """
 LDVELH - Game Service
-Logique métier du jeu
+Logique métier pour la gestion des parties
 """
 
 from uuid import UUID
-
+from typing import Optional
 import asyncpg
-from kg.context_builder import ContextBuilder
-from kg.specialized_populator import WorldPopulator
-from schema import NarrationContext, NarrationOutput, WorldGeneration
 
-from config import STATS_VALENTIN_DEFAUT
-from kg.populator import KnowledgeGraphPopulator
+from services.state_normalizer import (
+    normalize_game_state,
+    game_state_to_dict,
+    STATS_DEFAUT,
+)
 
 
 class GameService:
-    """Service principal pour la gestion du jeu"""
+    """Service pour la gestion des parties"""
 
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
     # =========================================================================
-    # GESTION DES PARTIES
+    # CRUD PARTIES
     # =========================================================================
 
-    async def create_game(self, name: str = "Nouvelle partie") -> UUID:
+    async def list_games(self) -> list[dict]:
+        """Liste toutes les parties"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT id, name, status, current_cycle, narrative_day,
+                       created_at, updated_at
+                FROM games
+                WHERE status = 'active'
+                ORDER BY updated_at DESC
+            """)
+
+        return [
+            {
+                "id": str(row["id"]),
+                "nom": row["name"],
+                "cycle_actuel": row["current_cycle"],
+                "jour": row["narrative_day"],
+                "status": row["status"],
+                "created_at": row["created_at"].isoformat()
+                if row["created_at"]
+                else None,
+                "updated_at": row["updated_at"].isoformat()
+                if row["updated_at"]
+                else None,
+            }
+            for row in rows
+        ]
+
+    async def create_game(self) -> UUID:
         """Crée une nouvelle partie"""
         async with self.pool.acquire() as conn:
-            game_id = await conn.fetchval(
-                """INSERT INTO games (name, active) 
-                   VALUES ($1, true) 
-                   RETURNING id""",
-                name,
+            row = await conn.fetchrow(
+                """
+                INSERT INTO games (name, current_cycle, energy, morale, health, credits)
+                VALUES ('Nouvelle partie', 0, $1, $2, $3, $4)
+                RETURNING id
+            """,
+                STATS_DEFAUT["energie"],
+                STATS_DEFAUT["moral"],
+                STATS_DEFAUT["sante"],
+                STATS_DEFAUT["credits"],
             )
-            return game_id
 
-    async def list_games(self) -> list[dict]:
-        """Liste les parties actives"""
+        return row["id"]
+
+    async def delete_game(self, game_id: UUID) -> None:
+        """Supprime une partie"""
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                """SELECT id, name, created_at, updated_at
-                   FROM games
-                   WHERE active = true
-                   ORDER BY updated_at DESC"""
-            )
-            return [dict(r) for r in rows]
+            await conn.execute("DELETE FROM games WHERE id = $1", game_id)
 
-    async def delete_game(self, game_id: UUID) -> bool:
-        """Supprime une partie (soft delete)"""
-        async with self.pool.acquire() as conn:
-            await conn.execute("UPDATE games SET active = false WHERE id = $1", game_id)
-            return True
-
-    async def rename_game(self, game_id: UUID, new_name: str) -> bool:
+    async def rename_game(self, game_id: UUID, name: str) -> None:
         """Renomme une partie"""
         async with self.pool.acquire() as conn:
             await conn.execute(
-                "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
-                new_name,
-                game_id,
+                "UPDATE games SET name = $1 WHERE id = $2", name, game_id
             )
-            return True
 
     # =========================================================================
-    # CHARGEMENT ÉTAT
+    # LOAD GAME STATE (NORMALISÉ)
     # =========================================================================
 
     async def load_game_state(self, game_id: UUID) -> dict:
-        """Charge l'état complet d'une partie"""
+        """
+        Charge l'état complet d'une partie.
+        Retourne un état déjà normalisé pour le frontend.
+        """
         async with self.pool.acquire() as conn:
-            # Vérifier que la partie existe
-            game = await conn.fetchrow(
-                "SELECT name, created_at FROM games WHERE id = $1 AND active = true",
-                game_id,
-            )
-            if not game:
-                raise ValueError(f"Partie {game_id} non trouvée")
-
-            # Récupérer le dernier cycle
-            last_summary = await conn.fetchrow(
-                """SELECT cycle, day, date, summary
-                   FROM cycle_summaries
-                   WHERE game_id = $1
-                   ORDER BY cycle DESC
-                   LIMIT 1""",
+            # Charger la partie
+            game_row = await conn.fetchrow(
+                """
+                SELECT id, name, status, current_cycle, narrative_day,
+                       universe_date, current_time, current_location, npcs_present,
+                       energy, morale, health, credits,
+                       created_at, updated_at
+                FROM games
+                WHERE id = $1
+            """,
                 game_id,
             )
 
-            # Récupérer le dernier message pour l'état courant
-            last_msg = await conn.fetchrow(
-                """SELECT cycle, state_snapshot
-                   FROM chat_messages
-                   WHERE game_id = $1
-                   ORDER BY created_at DESC
-                   LIMIT 1""",
+            if not game_row:
+                raise ValueError(f"Game {game_id} not found")
+
+            # Charger l'inventaire
+            inv_rows = await conn.fetch(
+                """
+                SELECT id, name, category, quantity, location, condition,
+                       base_value, lent_to
+                FROM inventory
+                WHERE game_id = $1 AND removed_cycle IS NULL
+                ORDER BY name
+            """,
                 game_id,
             )
 
-            current_cycle = 1
-            current_day = 1
-            current_date = None
-            current_time = "8h00"
-            current_location = None
-            npcs_present = []
-
-            if last_msg and last_msg["state_snapshot"]:
-                snapshot = last_msg["state_snapshot"]
-                current_cycle = snapshot.get("cycle", 1)
-                current_time = snapshot.get("time", "08h00")
-                current_location = snapshot.get("location")
-                npcs_present = snapshot.get("npcs_present", [])
-
-            if last_summary:
-                current_day = last_summary["day"] or current_cycle
-                current_date = last_summary["date"]
-
-            # Récupérer les stats du protagoniste
-            protagonist_stats = await self._get_protagonist_stats(conn, game_id)
-
-            # Récupérer l'inventaire
-            inventory = await self._get_inventory(conn, game_id)
-
-            # Récupérer l'IA
-            ia_info = await self._get_ia_info(conn, game_id)
-
-            # Vérifier si le monde est créé
-            world_exists = await conn.fetchval(
-                """SELECT EXISTS(
-                    SELECT 1 FROM entities 
-                    WHERE game_id = $1 AND type = 'protagonist'
-                )""",
+            # Charger les messages
+            msg_rows = await conn.fetch(
+                """
+                SELECT role, content, cycle, created_at
+                FROM chat_messages
+                WHERE game_id = $1
+                ORDER BY created_at ASC
+            """,
                 game_id,
             )
 
-            return {
-                "partie": {
-                    "cycle_actuel": current_cycle,
-                    "jour": current_day,
-                    "date_jeu": current_date,
-                    "heure": current_time,
-                    "lieu_actuel": current_location,
-                    "pnjs_presents": npcs_present,
-                    "nom": game["name"],
-                },
-                "valentin": {**protagonist_stats, "inventaire": inventory},
-                "ia": ia_info,
-                "monde_cree": world_exists,
+            # Charger l'IA (si elle existe dans les entités)
+            ia_row = await conn.fetchrow(
+                """
+                SELECT name, properties
+                FROM entities
+                WHERE game_id = $1 AND type = 'ia'
+                LIMIT 1
+            """,
+                game_id,
+            )
+
+        # Construire les données brutes
+        partie_data = {
+            "id": game_row["id"],
+            "nom": game_row["name"],
+            "status": game_row["status"],
+            "cycle_actuel": game_row["current_cycle"],
+            "jour": game_row["narrative_day"],
+            "date_jeu": game_row["universe_date"],
+            "heure": game_row["current_time"],
+            "lieu_actuel": game_row["current_location"],
+            "pnjs_presents": game_row["npcs_present"] or [],
+            "created_at": game_row["created_at"],
+            "updated_at": game_row["updated_at"],
+        }
+
+        valentin_data = {
+            "energie": game_row["energy"],
+            "moral": game_row["morale"],
+            "sante": game_row["health"],
+            "credits": game_row["credits"],
+            "inventaire": [
+                {
+                    "id": row["id"],
+                    "nom": row["name"],
+                    "categorie": row["category"],
+                    "quantite": row["quantity"],
+                    "localisation": row["location"],
+                    "etat": row["condition"],
+                    "valeur_neuve": row["base_value"],
+                    "prete_a": row["lent_to"],
+                }
+                for row in inv_rows
+            ],
+        }
+
+        ia_data = None
+        if ia_row:
+            props = ia_row["properties"] or {}
+            ia_data = {
+                "nom": ia_row["name"],
+                "personnalite": props.get("personnalite"),
+                "relation": props.get("relation"),
             }
 
-    async def load_chat_messages(self, game_id: UUID) -> list[dict]:
-        """Charge les messages d'une partie"""
-        async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                """SELECT role, content, cycle, summary, created_at
-                   FROM chat_messages
-                   WHERE game_id = $1
-                   ORDER BY created_at ASC""",
-                game_id,
-            )
-            return [dict(r) for r in rows]
+        # Normaliser avec Pydantic
+        state = normalize_game_state(
+            partie_data=partie_data,
+            valentin_data=valentin_data,
+            ia_data=ia_data,
+        )
 
-    # =========================================================================
-    # TRAITEMENT INIT (World Builder)
-    # =========================================================================
-
-    async def process_init(self, game_id: UUID, world_gen: WorldGeneration) -> dict:
-        """Traite la génération du monde initial"""
-        populator = WorldPopulator(self.pool, game_id)
-
-        async with self.pool.acquire() as conn:
-            # Le WorldPopulator crée tout
-            await populator.populate(world_gen)
-
-            # Mettre à jour le nom de la partie
-            await conn.execute(
-                "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
-                world_gen.world.name,
-                game_id,
-            )
+        # Formater les messages
+        messages = [
+            {
+                "role": row["role"],
+                "content": row["content"],
+                "cycle": row["cycle"],
+            }
+            for row in msg_rows
+        ]
 
         return {
-            "monde": world_gen.world.name,
-            "ia_nom": world_gen.personal_ai.name,
-            "lieu_depart": world_gen.arrival_event.arrival_location_ref,
-            "credits": world_gen.protagonist.initial_credits,
+            "state": game_state_to_dict(state),
+            "messages": messages,
+            # Raccourcis pour compatibilité
+            "partie": state.partie.model_dump() if state.partie else None,
+            "valentin": state.valentin.model_dump(),
+            "ia": state.ia.model_dump() if state.ia else None,
         }
 
     # =========================================================================
-    # TRAITEMENT LIGHT (Narration)
+    # UPDATE GAME STATE
     # =========================================================================
 
-    async def process_light(
-        self, game_id: UUID, narration: NarrationOutput, current_cycle: int
-    ) -> dict:
-        """Traite une réponse narrative"""
+    async def update_game_state(
+        self,
+        game_id: UUID,
+        cycle: Optional[int] = None,
+        day: Optional[int] = None,
+        date: Optional[str] = None,
+        time: Optional[str] = None,
+        location: Optional[str] = None,
+        npcs_present: Optional[list[str]] = None,
+        energy: Optional[float] = None,
+        morale: Optional[float] = None,
+        health: Optional[float] = None,
+        credits: Optional[int] = None,
+    ) -> None:
+        """Met à jour l'état d'une partie"""
+
+        # Construire la query dynamiquement
+        updates = []
+        params = []
+        param_idx = 1
+
+        if cycle is not None:
+            updates.append(f"current_cycle = ${param_idx}")
+            params.append(cycle)
+            param_idx += 1
+
+        if day is not None:
+            updates.append(f"narrative_day = ${param_idx}")
+            params.append(day)
+            param_idx += 1
+
+        if date is not None:
+            updates.append(f"universe_date = ${param_idx}")
+            params.append(date)
+            param_idx += 1
+
+        if time is not None:
+            updates.append(f"current_time = ${param_idx}")
+            params.append(time)
+            param_idx += 1
+
+        if location is not None:
+            updates.append(f"current_location = ${param_idx}")
+            params.append(location)
+            param_idx += 1
+
+        if npcs_present is not None:
+            updates.append(f"npcs_present = ${param_idx}")
+            params.append(npcs_present)
+            param_idx += 1
+
+        if energy is not None:
+            updates.append(f"energy = ${param_idx}")
+            params.append(energy)
+            param_idx += 1
+
+        if morale is not None:
+            updates.append(f"morale = ${param_idx}")
+            params.append(morale)
+            param_idx += 1
+
+        if health is not None:
+            updates.append(f"health = ${param_idx}")
+            params.append(health)
+            param_idx += 1
+
+        if credits is not None:
+            updates.append(f"credits = ${param_idx}")
+            params.append(credits)
+            param_idx += 1
+
+        if not updates:
+            return
+
+        params.append(game_id)
+        query = f"""
+            UPDATE games
+            SET {", ".join(updates)}, updated_at = NOW()
+            WHERE id = ${param_idx}
+        """
+
         async with self.pool.acquire() as conn:
-            # Gérer la transition de jour
-            new_cycle = current_cycle
-            new_day = None
-            new_date = None
-
-            if narration.day_transition:
-                new_cycle = narration.day_transition.new_cycle
-                new_day = narration.day_transition.new_day
-                new_date = narration.day_transition.new_date
-
-                # Sauvegarder le résumé du cycle précédent
-                await conn.execute(
-                    """INSERT INTO cycle_summaries (game_id, cycle, day, date, summary)
-                       VALUES ($1, $2, $3, $4, $5)
-                       ON CONFLICT (game_id, cycle) DO UPDATE SET
-                         day = EXCLUDED.day,
-                         date = EXCLUDED.date,
-                         summary = EXCLUDED.summary""",
-                    game_id,
-                    current_cycle,
-                    new_day - 1 if new_day else None,
-                    None,
-                    narration.day_transition.night_summary,
-                )
-
-            # Créer le snapshot d'état
-            state_snapshot = {
-                "cycle": new_cycle,
-                "time": narration.time.new_time,
-                "location": narration.current_location,
-                "npcs_present": narration.npcs_present,
-            }
-
-            return {
-                "cycle": new_cycle,
-                "day": new_day,
-                "date": new_date,
-                "time": narration.time.new_time,
-                "location": narration.current_location,
-                "npcs_present": narration.npcs_present,
-                "state_snapshot": state_snapshot,
-            }
+            await conn.execute(query, *params)
 
     # =========================================================================
-    # SAUVEGARDE MESSAGES
+    # MESSAGES
     # =========================================================================
 
     async def save_messages(
@@ -248,176 +309,140 @@ class GameService:
         user_message: str,
         assistant_message: str,
         cycle: int,
-        state_snapshot: dict,
-        summary: str | None = None,
-    ) -> None:
-        """Sauvegarde les messages user et assistant"""
+        state_snapshot: Optional[dict] = None,
+    ) -> tuple[UUID, UUID]:
+        """Sauvegarde une paire de messages user/assistant"""
+
         async with self.pool.acquire() as conn:
-            await conn.executemany(
-                """INSERT INTO chat_messages 
-                   (game_id, role, content, cycle, summary, state_snapshot)
-                   VALUES ($1, $2, $3, $4, $5, $6)""",
-                [
-                    (game_id, "user", user_message, cycle, None, state_snapshot),
-                    (game_id, "assistant", assistant_message, cycle, summary, None),
-                ],
+            user_id = await conn.fetchval(
+                """
+                INSERT INTO chat_messages (game_id, role, content, cycle)
+                VALUES ($1, 'user', $2, $3)
+                RETURNING id
+            """,
+                game_id,
+                user_message,
+                cycle,
             )
 
-            # Mettre à jour le timestamp de la partie
-            await conn.execute(
-                "UPDATE games SET updated_at = NOW() WHERE id = $1", game_id
+            assistant_id = await conn.fetchval(
+                """
+                INSERT INTO chat_messages (game_id, role, content, cycle, state_snapshot)
+                VALUES ($1, 'assistant', $2, $3, $4)
+                RETURNING id
+            """,
+                game_id,
+                assistant_message,
+                cycle,
+                state_snapshot,
             )
+
+        return user_id, assistant_id
+
+    # =========================================================================
+    # PROCESS NARRATION (retourne état normalisé)
+    # =========================================================================
+
+    async def process_narration(
+        self,
+        game_id: UUID,
+        narration_output: dict,
+    ) -> dict:
+        """
+        Traite la sortie du narrateur et met à jour l'état.
+        Retourne un état normalisé pour le frontend.
+        """
+        # Extraire les données de la narration
+        time = narration_output.get("time") or narration_output.get("heure")
+        location = narration_output.get("current_location") or narration_output.get(
+            "lieu"
+        )
+        npcs = (
+            narration_output.get("npcs_present")
+            or narration_output.get("pnjs_presents")
+            or []
+        )
+
+        day_transition = narration_output.get("day_transition")
+
+        # Charger l'état actuel
+        async with self.pool.acquire() as conn:
+            current = await conn.fetchrow(
+                "SELECT current_cycle, narrative_day, universe_date FROM games WHERE id = $1",
+                game_id,
+            )
+
+        new_cycle = current["current_cycle"] + 1
+        new_day = current["narrative_day"]
+        new_date = current["universe_date"]
+
+        if day_transition:
+            new_day = day_transition.get("new_day", new_day + 1)
+            new_date = day_transition.get("new_date", new_date)
+
+        # Mettre à jour
+        await self.update_game_state(
+            game_id=game_id,
+            cycle=new_cycle,
+            day=new_day,
+            date=new_date,
+            time=time,
+            location=location,
+            npcs_present=npcs,
+        )
+
+        # Recharger et retourner l'état normalisé
+        state = await self.load_game_state(game_id)
+
+        return {
+            "cycle": new_cycle,
+            "time": time,
+            "location": location,
+            "npcs_present": npcs,
+            "day": new_day if day_transition else None,
+            "date": new_date if day_transition else None,
+            "state": state["state"],
+            "state_snapshot": {
+                "cycle": new_cycle,
+                "time": time,
+                "location": location,
+            },
+        }
 
     # =========================================================================
     # ROLLBACK
     # =========================================================================
 
-    async def rollback_to_message(self, game_id: UUID, message_index: int) -> dict:
-        """Rollback à un message spécifique"""
+    async def rollback_to_message(self, game_id: UUID, from_index: int) -> dict:
+        """
+        Rollback à un index de message spécifique.
+        Supprime tous les messages après cet index.
+        """
         async with self.pool.acquire() as conn:
-            # Récupérer tous les messages
+            # Récupérer tous les messages ordonnés
             messages = await conn.fetch(
-                """SELECT id, created_at, cycle, state_snapshot
-                   FROM chat_messages
-                   WHERE game_id = $1
-                   ORDER BY created_at ASC""",
+                """
+                SELECT id, created_at
+                FROM chat_messages
+                WHERE game_id = $1
+                ORDER BY created_at ASC
+            """,
                 game_id,
             )
 
-            if message_index >= len(messages):
-                return {"success": True, "deleted": 0}
+            if from_index >= len(messages):
+                return {"deleted": 0}
 
-            target_msg = messages[message_index]
+            # IDs à supprimer
+            ids_to_delete = [m["id"] for m in messages[from_index:]]
 
-            # Utiliser le populator pour le rollback
-            populator = KnowledgeGraphPopulator(self.pool, game_id)
-            await populator.load_registry(conn)
+            if ids_to_delete:
+                await conn.execute(
+                    """
+                    DELETE FROM chat_messages
+                    WHERE id = ANY($1)
+                """,
+                    ids_to_delete,
+                )
 
-            stats = await populator.rollback_to_message(
-                conn, target_msg["id"], include_message=False
-            )
-
-            return {"success": True, **stats}
-
-    # =========================================================================
-    # CONTEXT BUILDING
-    # =========================================================================
-
-    async def build_narration_context(
-        self,
-        game_id: UUID,
-        player_input: str,
-        current_cycle: int,
-        current_time: str,
-        current_location: str,
-    ) -> NarrationContext:
-        """Construit le contexte pour le narrateur"""
-        async with self.pool.acquire() as conn:
-            builder = ContextBuilder(game_id)
-            return await builder.build(
-                conn,
-                player_input=player_input,
-                current_cycle=current_cycle,
-                current_time=current_time,
-                current_location_name=current_location,
-            )
-
-    async def get_known_entities(self, game_id: UUID) -> list[str]:
-        """Récupère les noms des entités connues"""
-        async with self.pool.acquire() as conn:
-            builder = ContextBuilder(game_id)
-            return await builder.get_known_entity_names(conn)
-
-    # =========================================================================
-    # HELPERS PRIVÉS
-    # =========================================================================
-
-    async def _get_protagonist_stats(
-        self, conn: asyncpg.Connection, game_id: UUID
-    ) -> dict:
-        """Récupère les stats du protagoniste"""
-        row = await conn.fetchrow(
-            """SELECT e.id
-               FROM entities e
-               WHERE e.game_id = $1 
-               AND e.type = 'protagonist'
-               AND e.removed_cycle IS NULL""",
-            game_id,
-        )
-
-        if not row:
-            return STATS_VALENTIN_DEFAUT.copy()
-
-        attrs = await conn.fetch(
-            """SELECT key, value
-               FROM attributes
-               WHERE entity_id = $1 AND end_cycle IS NULL""",
-            row["id"],
-        )
-
-        attr_dict = {a["key"]: a["value"] for a in attrs}
-
-        return {
-            "energie": float(attr_dict.get("energy", STATS_VALENTIN_DEFAUT["energie"])),
-            "moral": float(attr_dict.get("morale", STATS_VALENTIN_DEFAUT["moral"])),
-            "sante": float(attr_dict.get("health", STATS_VALENTIN_DEFAUT["sante"])),
-            "credits": int(attr_dict.get("credits", STATS_VALENTIN_DEFAUT["credits"])),
-        }
-
-    async def _get_inventory(
-        self, conn: asyncpg.Connection, game_id: UUID
-    ) -> list[dict]:
-        """Récupère l'inventaire du protagoniste"""
-        rows = await conn.fetch(
-            """SELECT e2.id, e2.name, eo.category, ro.quantity,
-                      a.value as emotional
-               FROM entities e
-               JOIN relations r ON r.source_id = e.id
-               JOIN entities e2 ON e2.id = r.target_id
-               JOIN entity_objects eo ON eo.entity_id = e2.id
-               LEFT JOIN relations_ownership ro ON ro.relation_id = r.id
-               LEFT JOIN attributes a ON a.entity_id = e2.id 
-                   AND a.key = 'emotional_significance' AND a.end_cycle IS NULL
-               WHERE e.game_id = $1 
-               AND e.type = 'protagonist' 
-               AND e.removed_cycle IS NULL
-               AND r.type = 'owns' 
-               AND r.end_cycle IS NULL
-               AND e2.removed_cycle IS NULL""",
-            game_id,
-        )
-
-        return [
-            {
-                "id": str(r["id"]),
-                "nom": r["name"],
-                "quantite": r["quantity"] or 1,
-                "categorie": r["category"] or "autre",
-                "emotionnel": bool(r["emotional"]),
-            }
-            for r in rows
-        ]
-
-    async def _get_ia_info(
-        self, conn: asyncpg.Connection, game_id: UUID
-    ) -> dict | None:
-        """Récupère les infos de l'IA personnelle"""
-        row = await conn.fetchrow(
-            """SELECT e.name, ea.traits
-               FROM entities e
-               JOIN entity_ais ea ON ea.entity_id = e.id
-               WHERE e.game_id = $1 
-               AND e.type = 'ai'
-               AND e.removed_cycle IS NULL
-               LIMIT 1""",
-            game_id,
-        )
-
-        if not row:
-            return None
-
-        import json
-
-        traits = json.loads(row["traits"]) if row["traits"] else {}
-
-        return {"nom": row["name"], **traits}
+        return {"deleted": len(ids_to_delete)}
