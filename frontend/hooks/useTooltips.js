@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { tooltipsApi } from '../lib/api';
 
 /**
  * Hook pour charger les données tooltip d'une partie
- * Retourne une Map nom/alias → données formatées pour tooltip
+ * Retourne un objet nom/alias → données formatées pour tooltip
  */
 export function useTooltips(partieId) {
-	const [tooltipMap, setTooltipMap] = useState(new Map());
+	const [tooltipMap, setTooltipMap] = useState({});
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState(null);
 
@@ -18,21 +19,9 @@ export function useTooltips(partieId) {
 		setError(null);
 
 		try {
-			const response = await fetch(`/api/tooltips?partieId=${partieId}`);
-
-			if (!response.ok) {
-				throw new Error('Erreur chargement tooltips');
-			}
-
-			const data = await response.json();
-
-			// Reconstruire la Map depuis le JSON
-			const map = new Map();
-			for (const [key, value] of Object.entries(data.tooltips || {})) {
-				map.set(key, value);
-			}
-
-			setTooltipMap(map);
+			const data = await tooltipsApi.get(partieId);
+			// L'API retourne { tooltips: { nom: {...}, ... } }
+			setTooltipMap(data.tooltips || {});
 		} catch (err) {
 			console.error('[useTooltips] Erreur:', err);
 			setError(err.message);
@@ -59,24 +48,31 @@ export function useTooltips(partieId) {
  * Utilise les données passées en props plutôt qu'un fetch
  */
 export function useTooltipsFromData(tooltipsData) {
-	const [tooltipMap, setTooltipMap] = useState(new Map());
+	const [tooltipMap, setTooltipMap] = useState({});
 
 	useEffect(() => {
 		if (!tooltipsData) {
-			setTooltipMap(new Map());
+			setTooltipMap({});
 			return;
 		}
 
-		const map = new Map();
+		// Si c'est déjà un objet indexé
+		if (!Array.isArray(tooltipsData)) {
+			setTooltipMap(tooltipsData);
+			return;
+		}
+
+		// Si c'est un tableau, construire l'index
+		const map = {};
 
 		for (const entity of tooltipsData) {
 			// Clé principale : nom
-			map.set(entity.entite_nom.toLowerCase(), entity);
+			map[entity.entite_nom.toLowerCase()] = entity;
 
 			// Clés secondaires : alias
 			if (entity.alias?.length > 0) {
 				for (const alias of entity.alias) {
-					map.set(alias.toLowerCase(), entity);
+					map[alias.toLowerCase()] = entity;
 				}
 			}
 		}

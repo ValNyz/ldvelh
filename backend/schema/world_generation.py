@@ -5,17 +5,18 @@ Modèle spécifique pour la génération initiale du monde
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .base import EntityRef, Moment, RelationData, TemporalValidationMixin
+from .core import EntityRef, Moment, TemporalValidationMixin
 from .entities import (
     CharacterData,
     LocationData,
-    NarrativeArcData,
     ObjectData,
     OrganizationData,
     PersonalAIData,
     ProtagonistData,
     WorldData,
 )
+from .relations import RelationData
+from .narrative import NarrativeArcData
 
 # =============================================================================
 # ARRIVAL EVENT
@@ -45,7 +46,10 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     # Meta
     generation_seed_words: list[str] = Field(
-        ..., min_length=3, max_length=6, description="Thematic words guiding this generation"
+        ...,
+        min_length=3,
+        max_length=6,
+        description="Thematic words guiding this generation",
     )
     tone_notes: str = Field(..., max_length=300)
 
@@ -75,7 +79,9 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     @field_validator("characters")
     @classmethod
-    def validate_character_diversity(cls, v: list[CharacterData]) -> list[CharacterData]:
+    def validate_character_diversity(
+        cls, v: list[CharacterData]
+    ) -> list[CharacterData]:
         """Ensure species diversity"""
         species = [c.species.lower() for c in v]
         if species.count("human") == len(species):
@@ -88,7 +94,14 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         """Ensure we have arrival point and residence"""
         types = [loc.location_type.lower() for loc in v]
 
-        residence_types = {"apartment", "quarters", "residence", "housing", "room", "studio"}
+        residence_types = {
+            "apartment",
+            "quarters",
+            "residence",
+            "housing",
+            "room",
+            "studio",
+        }
         arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
 
         has_residence = any(t in residence_types for t in types)
@@ -137,19 +150,30 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         # Check character refs
         for char in self.characters:
             if char.workplace_ref and char.workplace_ref.lower() not in known_names:
-                errors.append(f"Character '{char.name}' workplace_ref '{char.workplace_ref}' not found")
+                errors.append(
+                    f"Character '{char.name}' workplace_ref '{char.workplace_ref}' not found"
+                )
             if char.residence_ref and char.residence_ref.lower() not in known_names:
-                errors.append(f"Character '{char.name}' residence_ref '{char.residence_ref}' not found")
+                errors.append(
+                    f"Character '{char.name}' residence_ref '{char.residence_ref}' not found"
+                )
 
         # Check location parent refs
         for loc in self.locations:
-            if loc.parent_location_ref and loc.parent_location_ref.lower() not in known_names:
-                errors.append(f"Location '{loc.name}' parent_ref '{loc.parent_location_ref}' not found")
+            if (
+                loc.parent_location_ref
+                and loc.parent_location_ref.lower() not in known_names
+            ):
+                errors.append(
+                    f"Location '{loc.name}' parent_ref '{loc.parent_location_ref}' not found"
+                )
 
         # Check organization HQ refs
         for org in self.organizations:
             if org.headquarters_ref and org.headquarters_ref.lower() not in known_names:
-                errors.append(f"Organization '{org.name}' HQ ref '{org.headquarters_ref}' not found")
+                errors.append(
+                    f"Organization '{org.name}' HQ ref '{org.headquarters_ref}' not found"
+                )
 
         # Check relation refs
         for rel in self.initial_relations:
@@ -160,16 +184,22 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
         # Check arrival event refs
         if self.arrival_event.arrival_location_ref.lower() not in known_names:
-            errors.append(f"Arrival location '{self.arrival_event.arrival_location_ref}' not found")
+            errors.append(
+                f"Arrival location '{self.arrival_event.arrival_location_ref}' not found"
+            )
         if self.arrival_event.first_npc_encountered:
             if self.arrival_event.first_npc_encountered.lower() not in known_names:
-                errors.append(f"First NPC '{self.arrival_event.first_npc_encountered}' not found")
+                errors.append(
+                    f"First NPC '{self.arrival_event.first_npc_encountered}' not found"
+                )
 
         # Check narrative arc refs
         for arc in self.narrative_arcs:
             for entity in arc.involved_entities:
                 if entity.lower() not in known_names:
-                    errors.append(f"Arc '{arc.title}' references unknown entity '{entity}'")
+                    errors.append(
+                        f"Arc '{arc.title}' references unknown entity '{entity}'"
+                    )
 
         if errors:
             raise ValueError("Reference validation failed:\n" + "\n".join(errors[:10]))

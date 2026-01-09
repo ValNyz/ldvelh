@@ -6,7 +6,7 @@ Extraction des données narratives en arrière-plan
 from uuid import UUID
 
 import asyncpg
-from kg.specialized_populators import ExtractionPopulator
+from kg.specialized_populator import ExtractionPopulator
 from prompts.extractor_prompt import (
     EXTRACTOR_SYSTEM_PROMPT,
     build_extractor_prompt,
@@ -91,7 +91,9 @@ class ExtractionService:
                     stats = await populator.process_extraction(extraction)
                 else:
                     # Traitement minimal avec les données brutes
-                    stats = await self._process_raw_extraction(populator, conn, extraction_data, cycle)
+                    stats = await self._process_raw_extraction(
+                        populator, conn, extraction_data, cycle
+                    )
 
             return {"success": True, "stats": stats}
 
@@ -99,9 +101,16 @@ class ExtractionService:
             print(f"[EXTRACTION] Error: {e}")
             return {"error": str(e)}
 
-    async def _process_raw_extraction(self, populator: ExtractionPopulator, conn, data: dict, cycle: int) -> dict:
+    async def _process_raw_extraction(
+        self, populator: ExtractionPopulator, conn, data: dict, cycle: int
+    ) -> dict:
         """Traite une extraction brute (non validée)"""
-        stats = {"facts_created": 0, "entities_created": 0, "relations_created": 0, "errors": []}
+        stats = {
+            "facts_created": 0,
+            "entities_created": 0,
+            "relations_created": 0,
+            "errors": [],
+        }
 
         # Traiter les faits
         for fact_data in data.get("facts", []):
@@ -117,7 +126,10 @@ class ExtractionService:
         # Traiter le résumé
         if data.get("segment_summary"):
             await populator.save_cycle_summary(
-                conn, cycle, summary=data["segment_summary"], key_events={"npcs": data.get("key_npcs_present", [])}
+                conn,
+                cycle,
+                summary=data["segment_summary"],
+                key_events={"npcs": data.get("key_npcs_present", [])},
             )
 
         return stats
@@ -165,7 +177,11 @@ async def run_summary_background(
         summary = await llm.summarize_message(narrative_text)
 
         async with pool.acquire() as conn:
-            await conn.execute("UPDATE chat_messages SET summary = $1 WHERE id = $2", summary, message_id)
+            await conn.execute(
+                "UPDATE chat_messages SET summary = $1 WHERE id = $2",
+                summary,
+                message_id,
+            )
 
         print(f"[SUMMARY] Saved for message {message_id}: {summary[:50]}...")
     except Exception as e:

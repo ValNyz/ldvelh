@@ -7,7 +7,7 @@ from uuid import UUID
 
 import asyncpg
 from kg.context_builder import ContextBuilder
-from kg.specialized_populators import WorldPopulator
+from kg.specialized_populator import WorldPopulator
 from schema import NarrationContext, NarrationOutput, WorldGeneration
 
 from config import STATS_VALENTIN_DEFAUT
@@ -55,7 +55,11 @@ class GameService:
     async def rename_game(self, game_id: UUID, new_name: str) -> bool:
         """Renomme une partie"""
         async with self.pool.acquire() as conn:
-            await conn.execute("UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2", new_name, game_id)
+            await conn.execute(
+                "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
+                new_name,
+                game_id,
+            )
             return True
 
     # =========================================================================
@@ -66,7 +70,10 @@ class GameService:
         """Charge l'état complet d'une partie"""
         async with self.pool.acquire() as conn:
             # Vérifier que la partie existe
-            game = await conn.fetchrow("SELECT name, created_at FROM games WHERE id = $1 AND active = true", game_id)
+            game = await conn.fetchrow(
+                "SELECT name, created_at FROM games WHERE id = $1 AND active = true",
+                game_id,
+            )
             if not game:
                 raise ValueError(f"Partie {game_id} non trouvée")
 
@@ -167,7 +174,9 @@ class GameService:
 
             # Mettre à jour le nom de la partie
             await conn.execute(
-                "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2", world_gen.world.name, game_id
+                "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
+                world_gen.world.name,
+                game_id,
             )
 
         return {
@@ -181,7 +190,9 @@ class GameService:
     # TRAITEMENT LIGHT (Narration)
     # =========================================================================
 
-    async def process_light(self, game_id: UUID, narration: NarrationOutput, current_cycle: int) -> dict:
+    async def process_light(
+        self, game_id: UUID, narration: NarrationOutput, current_cycle: int
+    ) -> dict:
         """Traite une réponse narrative"""
         async with self.pool.acquire() as conn:
             # Gérer la transition de jour
@@ -253,7 +264,9 @@ class GameService:
             )
 
             # Mettre à jour le timestamp de la partie
-            await conn.execute("UPDATE games SET updated_at = NOW() WHERE id = $1", game_id)
+            await conn.execute(
+                "UPDATE games SET updated_at = NOW() WHERE id = $1", game_id
+            )
 
     # =========================================================================
     # ROLLBACK
@@ -280,7 +293,9 @@ class GameService:
             populator = KnowledgeGraphPopulator(self.pool, game_id)
             await populator.load_registry(conn)
 
-            stats = await populator.rollback_to_message(conn, target_msg["id"], include_message=False)
+            stats = await populator.rollback_to_message(
+                conn, target_msg["id"], include_message=False
+            )
 
             return {"success": True, **stats}
 
@@ -317,7 +332,9 @@ class GameService:
     # HELPERS PRIVÉS
     # =========================================================================
 
-    async def _get_protagonist_stats(self, conn: asyncpg.Connection, game_id: UUID) -> dict:
+    async def _get_protagonist_stats(
+        self, conn: asyncpg.Connection, game_id: UUID
+    ) -> dict:
         """Récupère les stats du protagoniste"""
         row = await conn.fetchrow(
             """SELECT e.id
@@ -347,7 +364,9 @@ class GameService:
             "credits": int(attr_dict.get("credits", STATS_VALENTIN_DEFAUT["credits"])),
         }
 
-    async def _get_inventory(self, conn: asyncpg.Connection, game_id: UUID) -> list[dict]:
+    async def _get_inventory(
+        self, conn: asyncpg.Connection, game_id: UUID
+    ) -> list[dict]:
         """Récupère l'inventaire du protagoniste"""
         rows = await conn.fetch(
             """SELECT e2.id, e2.name, eo.category, ro.quantity,
@@ -379,7 +398,9 @@ class GameService:
             for r in rows
         ]
 
-    async def _get_ia_info(self, conn: asyncpg.Connection, game_id: UUID) -> dict | None:
+    async def _get_ia_info(
+        self, conn: asyncpg.Connection, game_id: UUID
+    ) -> dict | None:
         """Récupère les infos de l'IA personnelle"""
         row = await conn.fetchrow(
             """SELECT e.name, ea.traits
