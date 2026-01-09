@@ -19,9 +19,9 @@ FIELD_MAX_LENGTHS = {
     "tone_notes": 300,
     # WorldData
     "world.description": 500,
-    "world.atmosphere": 100,
+    "world.atmosphere": 50,
     "world.name": 100,
-    "world.station_type": 100,
+    "world.station_type": 50,
     # ProtagonistData
     "protagonist.departure_story": 400,
     "protagonist.backstory": 600,
@@ -32,6 +32,9 @@ FIELD_MAX_LENGTHS = {
     "personal_ai.personality": 200,
     "personal_ai.speech_pattern": 150,
     # CharacterData
+    "character.pronouns": 20,
+    "character.species": 50,
+    "character.gender": 30,
     "character.physical_description": 300,
     "character.personality": 300,
     "character.backstory": 500,
@@ -680,15 +683,39 @@ def normalize_character(character: dict) -> dict:
 
     # Tronquer pronouns (max 20 chars)
     if "pronouns" in result and isinstance(result["pronouns"], str):
-        if len(result["pronouns"]) > 20:
+        if len(result["pronouns"]) > FIELD_MAX_LENGTHS["character.pronouns"]:
             # Garder juste le pronom principal
             pronouns = result["pronouns"].split(" ")[0].strip()
-            if len(pronouns) > 20:
-                pronouns = pronouns[:20]
+            if len(pronouns) > FIELD_MAX_LENGTHS["character.pronouns"]:
+                pronouns = pronouns[: FIELD_MAX_LENGTHS["character.pronouns"]]
             logger.warning(
                 f"[Normalizer] Troncature pronouns: '{result['pronouns']}' → '{pronouns}'"
             )
             result["pronouns"] = pronouns
+
+    # Tronquer gender (max 30 chars)
+    if "gender" in result and isinstance(result["gender"], str):
+        if len(result["gender"]) > FIELD_MAX_LENGTHS["character.gender"]:
+            # Garder juste le pronom principal
+            gender = result["gender"].split(" ")[0].strip()
+            if len(gender) > FIELD_MAX_LENGTHS["character.gender"]:
+                gender = gender[: FIELD_MAX_LENGTHS["character.gender"]]
+            logger.warning(
+                f"[Normalizer] Troncature gender: '{result['gender']}' → '{gender}'"
+            )
+            result["gender"] = gender
+
+    # Tronquer species (max 50 chars)
+    if "species" in result and isinstance(result["species"], str):
+        if len(result["species"]) > FIELD_MAX_LENGTHS["character.species"]:
+            # Garder juste le pronom principal
+            species = result["species"].split(" ")[0].strip()
+            if len(species) > FIELD_MAX_LENGTHS["character.species"]:
+                species = species[: FIELD_MAX_LENGTHS["character.species"]]
+            logger.warning(
+                f"[Normalizer] Troncature species: '{result['species']}' → '{species}'"
+            )
+            result["species"] = species
 
     # Normaliser les arcs du personnage
     if "arcs" in result and isinstance(result["arcs"], list):
@@ -825,6 +852,13 @@ def normalize_world_generation(data: dict) -> dict:
                 world["atmosphere"],
                 FIELD_MAX_LENGTHS["world.atmosphere"],
                 "world.atmosphere",
+            )
+        result["world"] = world
+        if "station_type" in world:
+            world["station_type"] = truncate_string(
+                world["station_type"],
+                FIELD_MAX_LENGTHS["world.station_type"],
+                "world.station_type",
             )
         result["world"] = world
 

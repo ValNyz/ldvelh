@@ -90,24 +90,24 @@ export default function Home() {
 			if (state?.monde_cree) {
 				setWorldData(state);
 				setGamePhase(GAME_PHASE.WORLD_READY);
+
 				// Mettre à jour le gameState avec les infos de base
-				if (state.evenement_arrivee) {
-					setGameState({
-						partie: {
-							cycle_actuel: state.evenement_arrivee.cycle || 1,
-							jour: state.evenement_arrivee.jour,
-							date_jeu: state.evenement_arrivee.date_jeu,
-							heure: state.evenement_arrivee.heure,
-							lieu_actuel: state.evenement_arrivee.lieu_actuel || state.lieu_depart,
-							pnjs_presents: []
-						},
-						valentin: {
-							credits: state.credits,
-							inventaire: state.inventaire || []
-						},
-						ia: state.ia_nom ? { nom: state.ia_nom } : null
-					});
-				}
+				setGameState({
+					partie: {
+						cycle_actuel: state.evenement_arrivee?.cycle || 1,
+						jour: state.evenement_arrivee?.jour || 1,
+						date_jeu: state.evenement_arrivee?.date_jeu,
+						heure: state.evenement_arrivee?.heure || "08h00",
+						lieu_actuel: state.evenement_arrivee?.lieu_actuel || state.lieu_depart,
+						pnjs_presents: []
+					},
+					valentin: {
+						credits: state.credits,
+						inventaire: state.inventaire || []
+					},
+					ia: state.ia_nom ? { nom: state.ia_nom } : null,
+					monde_cree: true
+				});
 				return;
 			}
 
