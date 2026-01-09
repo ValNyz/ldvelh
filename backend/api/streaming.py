@@ -3,6 +3,7 @@ LDVELH - SSE Streaming
 Gestion du streaming Server-Sent Events
 """
 
+import os
 import asyncio
 import json
 import logging
@@ -101,6 +102,14 @@ class SSEWriter:
         """Envoie un avertissement"""
         logger.warning(f"[SSE:{self._stream_id}] Warning: {message}")
         await self.send(SSEEvent.WARNING, {"message": message, "details": details})
+
+    async def send_debug(self, message: str, data: Any = None) -> None:
+        """Envoie un message de debug (dev only)"""
+        if os.getenv("DEBUG", "false").lower() == "true":
+            logger.debug(f"[SSE:{self._stream_id}] DEBUG: {message}")
+            await self.send(
+                SSEEvent.WARNING, {"message": f"[DEBUG] {message}", "details": data}
+            )
 
     async def close(self) -> None:
         """Ferme la queue"""
@@ -226,3 +235,45 @@ def build_display_text(parsed: dict) -> str:
             text += f"{i}. {choice}\n"
 
     return text.strip()
+
+
+def debug_partial_world_gen(raw_json: str) -> dict:
+    """
+    Extrait les champs visibles d'un JSON de WorldGeneration partiel.
+    Utile pour debug et affichage de progression.
+    """
+    fields_found = {}
+
+    # Liste des champs principaux à chercher
+    markers = [
+        ("world.name", '"name":'),
+        ("world.station_type", '"station_type":'),
+        ("world.population", '"population":'),
+        ("protagonist.name", '"protagonist"'),
+        ("npcs_count", '"npcs":'),
+        ("locations_count", '"locations":'),
+        ("factions_count", '"factions":'),
+    ]
+
+    for field_name, marker in markers:
+        if marker in raw_json:
+            fields_found[field_name] = True
+
+    # Estimer la progression
+    total_expected = len(markers)
+    found = len(fields_found)
+    progress_pct = int((found / total_expected) * 100)
+
+    # Extraire quelques valeurs si possible
+    import re
+
+    name_match = re.search(r'"name"\s*:\s*"([^"]+)"', raw_json)
+    if name_match:
+        fields_found["world_name"] = name_match.group(1)
+
+    return {
+        "fields_found": list(fields_found.keys()),
+        "progress_percent": progress_pct,
+        "json_length": len(raw_json),
+        "preview": fields_found.get("world_name", "En cours..."),
+    }

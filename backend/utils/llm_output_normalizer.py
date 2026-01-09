@@ -11,8 +11,94 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# LIMITES DES CHAMPS (depuis les schémas Pydantic)
+# =============================================================================
+
+FIELD_MAX_LENGTHS = {
+    # WorldGeneration
+    "tone_notes": 300,
+    # WorldData
+    "world.description": 500,
+    "world.atmosphere": 100,
+    "world.name": 100,
+    "world.station_type": 100,
+    # ProtagonistData
+    "protagonist.departure_story": 400,
+    "protagonist.backstory": 600,
+    "protagonist.personality_traits": 100,  # par item
+    "protagonist.skills": 100,  # par item
+    # PersonalAIData
+    "personal_ai.quirk": 200,
+    "personal_ai.personality": 200,
+    "personal_ai.speech_pattern": 150,
+    # CharacterData
+    "character.physical_description": 300,
+    "character.personality": 300,
+    "character.backstory": 500,
+    "character.secret": 300,
+    # LocationData
+    "location.description": 400,
+    "location.atmosphere": 150,
+    # OrganizationData
+    "organization.description": 400,
+    # ObjectData
+    "object.description": 200,
+    # NarrativeArcData
+    "arc.description": 300,
+    "arc.hook": 200,
+    # ArrivalEventData
+    "arrival_event.initial_mood": 80,
+    "arrival_event.immediate_need": 200,
+    "arrival_event.optional_incident": 300,
+}
+
+LIST_MAX_LENGTHS = {
+    "characters": 8,
+    "locations": 10,
+    "organizations": 5,
+    "inventory": 15,
+    "narrative_arcs": 10,
+    "initial_relations": 30,  # Généreux pour éviter de perdre des relations importantes
+    "immediate_sensory_details": 6,
+}
+
+
+# =============================================================================
+# FONCTIONS DE TRONCATURE
+# =============================================================================
+
+
+def truncate_string(value: str, max_length: int, field_name: str = "") -> str:
+    """Tronque une string si nécessaire."""
+    if not isinstance(value, str):
+        return value
+    if len(value) <= max_length:
+        return value
+
+    truncated = value[: max_length - 3].rsplit(" ", 1)[0] + "..."
+    logger.warning(
+        f"[Normalizer] Troncature {field_name}: {len(value)} → {len(truncated)} chars"
+    )
+    return truncated
+
+
+def truncate_list(items: list, max_length: int, field_name: str = "") -> list:
+    """Tronque une liste si nécessaire."""
+    if not isinstance(items, list):
+        return items
+    if len(items) <= max_length:
+        return items
+
+    logger.warning(
+        f"[Normalizer] Troncature {field_name}: {len(items)} → {max_length} items"
+    )
+    return items[:max_length]
+
+
+# =============================================================================
 # SYNONYMES POUR LES VALEURS D'ENUM
 # =============================================================================
+
 
 RELATION_TYPE_SYNONYMS = {
     # Erreurs courantes
@@ -37,13 +123,18 @@ RELATION_TYPE_SYNONYMS = {
     "in_relationship": "romantic",
     "romantically_involved": "romantic",
     "partner_of": "romantic",
+    "member_of": "employed_by",
     "employed_by": "employed_by",
     "works_for": "employed_by",
     "employee_of": "employed_by",
     "hired_by": "employed_by",
+    "partner_with": "colleague_of",
+    "works_alongside": "colleague_of",
+    "collaborates_with": "colleague_of",  # Collabore avec → collègue
     "colleague_of": "colleague_of",
     "coworker": "colleague_of",
     "works_with": "colleague_of",
+    "leads": "manages",  # Dirige → manages
     "manages": "manages",
     "manager_of": "manages",
     "supervises": "manages",
@@ -63,6 +154,7 @@ RELATION_TYPE_SYNONYMS = {
     "works_at": "works_at",
     "workplace": "works_at",
     "employed_at": "works_at",
+    "assigned_to": "works_at",  # Assigné à un lieu/poste
     "owns": "owns",
     "possesses": "owns",
     "has": "owns",
@@ -224,6 +316,7 @@ ARC_DOMAIN_SYNONYMS = {
     "philosophical": "existential",
     "meaning": "existential",
     "purpose": "existential",
+    "environment": "existential",
 }
 
 MOMENT_SYNONYMS = {
@@ -360,12 +453,24 @@ KEY_SYNONYMS = {
 # =============================================================================
 
 
-def normalize_value(value: Any, synonyms: dict[str, str]) -> Any:
-    """Normalise une valeur selon la table de synonymes."""
+def normalize_value(value: Any, synonyms: dict[str, str], field_name: str = "") -> Any:
+    """Normalise une valeur enum avec fallback."""
     if value is None:
         return None
     key = str(value).lower().strip().replace(" ", "_").replace("-", "_")
-    return synonyms.get(key, value)
+    result = synonyms.get(key)
+
+    if result is None:
+        # Fallback: prendre la première valeur valide
+        valid_values = list(set(synonyms.values()))
+        result = valid_values[0] if valid_values else value
+        logger.warning(
+            f"[Normalizer] Valeur inconnue {field_name}='{value}' → fallback '{result}'"
+        )
+    elif key != result:
+        logger.info(f"[Normalizer] {field_name}: '{value}' → '{result}'")
+
+    return result
 
 
 def normalize_key(key: str) -> str:
@@ -485,6 +590,41 @@ def normalize_arc(arc: dict) -> dict:
             logger.info(f"[Normalizer] arc domain: '{old_val}' → '{new_val}'")
         result["domain"] = new_val
 
+        # Tronquer les champs texte
+    if "description" in result:
+        result["description"] = truncate_string(
+            result["description"],
+            FIELD_MAX_LENGTHS["arc.description"],
+            "arc.description",
+        )
+    if "hook" in result:
+        result["hook"] = truncate_string(
+            result["hook"], FIELD_MAX_LENGTHS["arc.hook"], "arc.hook"
+        )
+
+    return result
+
+
+def normalize_location(loc: dict) -> dict:
+    """Normalise un lieu."""
+    if not isinstance(loc, dict):
+        return loc
+
+    result = dict(loc)
+
+    if "description" in result:
+        result["description"] = truncate_string(
+            result["description"],
+            FIELD_MAX_LENGTHS["location.description"],
+            "location.description",
+        )
+    if "atmosphere" in result:
+        result["atmosphere"] = truncate_string(
+            result["atmosphere"],
+            FIELD_MAX_LENGTHS["location.atmosphere"],
+            "location.atmosphere",
+        )
+
     return result
 
 
@@ -502,6 +642,32 @@ def normalize_arrival_event(event: dict) -> dict:
             logger.info(f"[Normalizer] time_of_day: '{old_val}' → '{new_val}'")
         result["time_of_day"] = new_val
 
+    # Tronquer
+    if "initial_mood" in result:
+        result["initial_mood"] = truncate_string(
+            result["initial_mood"],
+            FIELD_MAX_LENGTHS["arrival_event.initial_mood"],
+            "arrival_event.initial_mood",
+        )
+    if "immediate_need" in result:
+        result["immediate_need"] = truncate_string(
+            result["immediate_need"],
+            FIELD_MAX_LENGTHS["arrival_event.immediate_need"],
+            "arrival_event.immediate_need",
+        )
+    if "optional_incident" in result:
+        result["optional_incident"] = truncate_string(
+            result["optional_incident"],
+            FIELD_MAX_LENGTHS["arrival_event.optional_incident"],
+            "arrival_event.optional_incident",
+        )
+    if "immediate_sensory_details" in result:
+        result["immediate_sensory_details"] = truncate_list(
+            result["immediate_sensory_details"],
+            LIST_MAX_LENGTHS["immediate_sensory_details"],
+            "arrival_event.immediate_sensory_details",
+        )
+
     return result
 
 
@@ -512,11 +678,111 @@ def normalize_character(character: dict) -> dict:
 
     result = dict(character)
 
+    # Tronquer pronouns (max 20 chars)
+    if "pronouns" in result and isinstance(result["pronouns"], str):
+        if len(result["pronouns"]) > 20:
+            # Garder juste le pronom principal
+            pronouns = result["pronouns"].split(" ")[0].strip()
+            if len(pronouns) > 20:
+                pronouns = pronouns[:20]
+            logger.warning(
+                f"[Normalizer] Troncature pronouns: '{result['pronouns']}' → '{pronouns}'"
+            )
+            result["pronouns"] = pronouns
+
     # Normaliser les arcs du personnage
     if "arcs" in result and isinstance(result["arcs"], list):
         result["arcs"] = [normalize_arc(arc) for arc in result["arcs"]]
 
+    # Tronquer les champs texte
+    if "physical_description" in result:
+        result["physical_description"] = truncate_string(
+            result["physical_description"],
+            FIELD_MAX_LENGTHS["character.physical_description"],
+            "character.physical_description",
+        )
+    if "personality" in result:
+        result["personality"] = truncate_string(
+            result["personality"],
+            FIELD_MAX_LENGTHS["character.personality"],
+            "character.personality",
+        )
+    if "backstory" in result:
+        result["backstory"] = truncate_string(
+            result["backstory"],
+            FIELD_MAX_LENGTHS["character.backstory"],
+            "character.backstory",
+        )
+    if "secret" in result:
+        result["secret"] = truncate_string(
+            result["secret"], FIELD_MAX_LENGTHS["character.secret"], "character.secret"
+        )
+
     return result
+
+
+# =============================================================================
+# CRÉATION D'ARRIVAL_EVENT PAR DÉFAUT
+# =============================================================================
+
+
+def create_default_arrival_event(data: dict) -> dict:
+    """
+    Crée un arrival_event par défaut basé sur les données disponibles.
+    Utilisé quand le JSON est tronqué avant arrival_event.
+    """
+    # Trouver un lieu d'arrivée (dock, terminal, etc.)
+    arrival_location = "Station"
+    if "locations" in data and isinstance(data["locations"], list):
+        for loc in data["locations"]:
+            if isinstance(loc, dict):
+                loc_type = loc.get("location_type", "").lower()
+                if any(
+                    t in loc_type
+                    for t in [
+                        "dock",
+                        "terminal",
+                        "port",
+                        "arrival",
+                        "gate",
+                        "bay",
+                        "quai",
+                    ]
+                ):
+                    arrival_location = loc.get("name", arrival_location)
+                    break
+        # Fallback: premier lieu
+        if arrival_location == "Station" and data["locations"]:
+            arrival_location = data["locations"][0].get("name", "Station")
+
+    # Trouver un PNJ potentiel
+    first_npc = None
+    if (
+        "characters" in data
+        and isinstance(data["characters"], list)
+        and data["characters"]
+    ):
+        first_npc = data["characters"][0].get("name")
+
+    logger.warning(
+        f"[Normalizer] Création arrival_event par défaut (location: {arrival_location})"
+    )
+
+    return {
+        "arrival_method": "navette de transport",
+        "arrival_location_ref": arrival_location,
+        "arrival_date": "Lundi 1er Janvier 2850",
+        "time_of_day": "morning",
+        "immediate_sensory_details": [
+            "L'air recyclé de la station",
+            "Le bourdonnement des systèmes",
+            "La lumière artificielle",
+        ],
+        "first_npc_encountered": first_npc,
+        "initial_mood": "Mélange d'appréhension et d'excitation",
+        "immediate_need": "Trouver ses quartiers et s'orienter dans la station",
+        "optional_incident": None,
+    }
 
 
 # =============================================================================
@@ -535,32 +801,120 @@ def normalize_world_generation(data: dict) -> dict:
     result = dict(data)
     corrections = []
 
-    # Normaliser protagonist
-    if "protagonist" in result and isinstance(result["protagonist"], dict):
-        if "departure_reason" in result["protagonist"]:
-            old = result["protagonist"]["departure_reason"]
-            new = normalize_value(old, DEPARTURE_REASON_SYNONYMS)
-            if old != new:
-                corrections.append(f"protagonist.departure_reason: '{old}' → '{new}'")
-            result["protagonist"]["departure_reason"] = new
+    # === Créer arrival_event si manquant ===
+    if "arrival_event" not in result or result["arrival_event"] is None:
+        result["arrival_event"] = create_default_arrival_event(result)
 
-    # Normaliser characters
+    # === Champs racine ===
+    if "tone_notes" in result:
+        result["tone_notes"] = truncate_string(
+            result["tone_notes"], FIELD_MAX_LENGTHS["tone_notes"], "tone_notes"
+        )
+
+    # === World ===
+    if "world" in result and isinstance(result["world"], dict):
+        world = dict(result["world"])
+        if "description" in world:
+            world["description"] = truncate_string(
+                world["description"],
+                FIELD_MAX_LENGTHS["world.description"],
+                "world.description",
+            )
+        if "atmosphere" in world:
+            world["atmosphere"] = truncate_string(
+                world["atmosphere"],
+                FIELD_MAX_LENGTHS["world.atmosphere"],
+                "world.atmosphere",
+            )
+        result["world"] = world
+
+    # === Protagonist ===
+    if "protagonist" in result and isinstance(result["protagonist"], dict):
+        proto = dict(result["protagonist"])
+        if "departure_story" in proto:
+            proto["departure_story"] = truncate_string(
+                proto["departure_story"],
+                FIELD_MAX_LENGTHS["protagonist.departure_story"],
+                "protagonist.departure_story",
+            )
+        if "backstory" in proto:
+            proto["backstory"] = truncate_string(
+                proto["backstory"],
+                FIELD_MAX_LENGTHS["protagonist.backstory"],
+                "protagonist.backstory",
+            )
+        if "departure_reason" in proto:
+            proto["departure_reason"] = normalize_value(
+                proto["departure_reason"],
+                DEPARTURE_REASON_SYNONYMS,
+                "protagonist.departure_reason",
+            )
+        result["protagonist"] = proto
+
+    # === Personal AI ===
+    if "personal_ai" in result and isinstance(result["personal_ai"], dict):
+        ai = dict(result["personal_ai"])
+        if "quirk" in ai:
+            ai["quirk"] = truncate_string(
+                ai["quirk"], FIELD_MAX_LENGTHS["personal_ai.quirk"], "personal_ai.quirk"
+            )
+        if "personality" in ai:
+            ai["personality"] = truncate_string(
+                ai["personality"],
+                FIELD_MAX_LENGTHS["personal_ai.personality"],
+                "personal_ai.personality",
+            )
+        result["personal_ai"] = ai
+
+    # === Characters ===
     if "characters" in result and isinstance(result["characters"], list):
+        result["characters"] = truncate_list(
+            result["characters"], LIST_MAX_LENGTHS["characters"], "characters"
+        )
         result["characters"] = [normalize_character(c) for c in result["characters"]]
 
-    # Normaliser narrative_arcs
+    # === Locations ===
+    if "locations" in result and isinstance(result["locations"], list):
+        result["locations"] = truncate_list(
+            result["locations"], LIST_MAX_LENGTHS["locations"], "locations"
+        )
+        result["locations"] = [normalize_location(loc) for loc in result["locations"]]
+
+    # === Organizations ===
+    if "organizations" in result and isinstance(result["organizations"], list):
+        result["organizations"] = truncate_list(
+            result["organizations"], 5, "organizations"
+        )
+
+    # === Inventory ===
+    if "inventory" in result and isinstance(result["inventory"], list):
+        result["inventory"] = truncate_list(
+            result["inventory"], LIST_MAX_LENGTHS["inventory"], "inventory"
+        )
+
+    # === Narrative Arcs ===
     if "narrative_arcs" in result and isinstance(result["narrative_arcs"], list):
+        result["narrative_arcs"] = truncate_list(
+            result["narrative_arcs"],
+            LIST_MAX_LENGTHS["narrative_arcs"],
+            "narrative_arcs",
+        )
         result["narrative_arcs"] = [
             normalize_arc(arc) for arc in result["narrative_arcs"]
         ]
 
-    # Normaliser initial_relations
+    # === Initial Relations ===
     if "initial_relations" in result and isinstance(result["initial_relations"], list):
+        result["initial_relations"] = truncate_list(
+            result["initial_relations"],
+            LIST_MAX_LENGTHS["initial_relations"],
+            "initial_relations",
+        )
         result["initial_relations"] = [
             normalize_relation(rel) for rel in result["initial_relations"]
         ]
 
-    # Normaliser arrival_event
+    # === Arrival Event ===
     if "arrival_event" in result:
         result["arrival_event"] = normalize_arrival_event(result["arrival_event"])
 
