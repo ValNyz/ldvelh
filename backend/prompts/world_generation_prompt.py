@@ -88,6 +88,24 @@ Tu DOIS générer ces relations :
 
 Note: Les objets de l'inventaire n'ont PAS besoin de relations explicites (gérées automatiquement).
 
+### COHÉRENCE DES RÉFÉRENCES (CRITIQUE - ERREUR FRÉQUENTE)
+
+**RÈGLE ABSOLUE** : Tu ne peux référencer QUE des entités que tu as toi-même créées.
+
+Avant d'écrire un `*_ref`, vérifie qu'il existe dans ta génération :
+- `residence_ref` d'un personnage → DOIT être un `name` exact de `locations`
+- `workplace_ref` d'un personnage → DOIT être un `name` exact de `locations`
+- `parent_location_ref` d'un lieu → DOIT être un `name` exact de `locations`
+- `headquarters_ref` d'une org → DOIT être un `name` exact de `locations`
+- `arrival_location_ref` → DOIT être un `name` exact de `locations`
+
+**MÉTHODE** : Génère d'abord TOUS tes lieux, puis assigne les références.
+
+**ASTUCE** : Avec seulement 5 lieux max, utilise des lieux partagés :
+- Un bloc résidentiel peut héberger plusieurs personnages
+- Un lieu de travail peut être le workplace de plusieurs PNJ
+- Valentin et un PNJ peuvent être voisins dans le même bâtiment
+
 ### Arcs narratifs globaux
 Génère des arcs de différents types :
 - `foreshadowing` : indices subtils d'événements futurs
@@ -101,6 +119,12 @@ Les arcs doivent être interconnectés mais pas tous liés à Valentin.
 ## FORMAT DE SORTIE
 Réponds UNIQUEMENT avec un JSON valide, sans markdown, sans commentaires, sans ```json```.
 Le JSON doit correspondre exactement au schéma WorldGeneration fourni.
+
+IMPORTANT: Respecte strictement les limites:
+- Maximum 4 personnages
+- Maximum 5 lieux
+- Maximum 5 organisations
+- Descriptions courtes (max 300 caractères)
 """
 
 
@@ -227,16 +251,30 @@ def build_world_generation_user_prompt(
     # Final checklist
     parts.extend(
         [
-            "## CHECKLIST FINALE",
+            "## CHECKLIST FINALE (VÉRIFIE CHAQUE POINT)",
+            "",
+            "### Temporalité",
             "□ founding_cycle de la station entre -7000 et -2000",
             "□ Tous les station_arrival_cycle >= founding_cycle",
-            "□ Au moins 1 PNJ non-humain",
+            "",
+            "### Entités",
+            "□ 3-4 personnages (au moins 1 non-humain)",
+            "□ 4-5 lieux (terminal d'arrivée + logement Valentin obligatoires)",
+            "□ 1-3 organisations",
             "□ Chaque PNJ a 2-4 arcs couvrant différents domaines",
-            "□ Lieux : terminal d'arrivée + logement de Valentin",
-            "□ Toutes les *_ref correspondent à des noms exacts d'entités",
+            "",
+            "### COHÉRENCE DES RÉFÉRENCES (LE PLUS IMPORTANT)",
+            "□ CHAQUE residence_ref est un nom EXACT d'un lieu dans 'locations'",
+            "□ CHAQUE workplace_ref est un nom EXACT d'un lieu dans 'locations'",
+            "□ CHAQUE parent_location_ref est un nom EXACT d'un lieu dans 'locations'",
+            "□ CHAQUE headquarters_ref est un nom EXACT d'un lieu dans 'locations'",
+            "□ arrival_location_ref est un nom EXACT d'un lieu dans 'locations'",
+            "⚠️  NE JAMAIS inventer un nom de lieu dans un *_ref sans l'avoir créé dans 'locations' !",
+            "",
+            "### Autres",
             "□ Nom de l'IA original (pas dans la liste interdite)",
             "□ Credits adaptés à departure_reason",
-            "□ Relations obligatoires incluses (lives_at, works_at, employed_by...)",
+            "□ Relations obligatoires (lives_at, works_at, employed_by...)",
             "",
             "Génère maintenant le JSON complet.",
         ]
@@ -275,24 +313,101 @@ EXAMPLE_THEME_PREFERENCES = """
 
 EXAMPLE_JSON_OUTPUT = """{
   "generation_seed_words": ["rouille", "verdure", "reconstruction", "communauté"],
-  "tone_notes": "Station industrielle en reconversion écologique...",
+  "tone_notes": "Station industrielle en reconversion écologique, mélancolie chaleureuse",
   
   "world": {
     "name": "Escale Méridienne",
     "station_type": "station orbitale reconvertie",
     "population": 12400,
     "atmosphere": "industrielle verdoyante",
-    "description": "Ancienne station minière reconvertie en hub...",
+    "description": "Ancienne station minière reconvertie en hub agricole et technologique.",
     "sectors": ["Quai Central", "Serres Hautes", "Quartier Ouvrier"],
     "founding_cycle": -4500
   },
+  
+  "locations": [
+    {
+      "name": "Terminal Quai 7",
+      "location_type": "terminal",
+      "sector": "Quai Central",
+      "description": "Vaste hall aux plafonds hauts, point d'entrée principal de la station.",
+      "atmosphere": "transit perpétuel",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": ["kiosque à café", "panneau holographique"],
+      "typical_crowd": "voyageurs fatigués, dockers",
+      "operating_hours": "24/7"
+    },
+    {
+      "name": "Bloc Tournesol",
+      "location_type": "residential_building",
+      "sector": "Quartier Ouvrier",
+      "description": "Immeuble résidentiel de six étages, façade ornée de jardinières.",
+      "atmosphere": "communautaire et vivant",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": ["hall commun", "jardin sur le toit"],
+      "typical_crowd": "résidents, familles",
+      "operating_hours": null
+    },
+    {
+      "name": "Appartement 4-12",
+      "location_type": "apartment",
+      "sector": "Quartier Ouvrier",
+      "description": "Studio de 28m² au quatrième étage, vue sur les serres.",
+      "atmosphere": "nouveau départ",
+      "parent_location_ref": "Bloc Tournesol",
+      "accessible": true,
+      "notable_features": ["kitchenette", "lit escamotable"],
+      "typical_crowd": null,
+      "operating_hours": null
+    },
+    {
+      "name": "Serres Hydro-7",
+      "location_type": "workplace",
+      "sector": "Serres Hautes",
+      "description": "Immense serre hydroponique produisant légumes et fruits pour la station.",
+      "atmosphere": "humide et verdoyante",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": ["bassins nutritifs", "éclairage spectral"],
+      "typical_crowd": "techniciens agricoles, botanistes",
+      "operating_hours": "06h-22h"
+    },
+    {
+      "name": "Le Quart de Cycle",
+      "location_type": "cafe",
+      "sector": "Quai Central",
+      "description": "Café chaleureux avec étage résidentiel au-dessus, tenu par Ossek.",
+      "atmosphere": "accueillante et apaisante",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": ["comptoir aquatique", "coin lecture", "logement à l'étage"],
+      "typical_crowd": "habitués, nouveaux arrivants",
+      "operating_hours": "07h-23h"
+    }
+  ],
+  
+  "organizations": [
+    {
+      "name": "Symbiose Tech",
+      "org_type": "company",
+      "domain": "IA agricole et optimisation écologique",
+      "size": "medium",
+      "description": "Startup spécialisée dans les IA éthiques pour l'agriculture spatiale.",
+      "reputation": "innovants et intègres, mais fragiles financièrement",
+      "headquarters_ref": "Serres Hydro-7",
+      "founding_cycle": -2920,
+      "is_employer": true
+    }
+  ],
   
   "protagonist": {
     "name": "Valentin",
     "origin_location": "Cité-Dôme de Vega III",
     "departure_reason": "fresh_start",
-    "departure_story": "Après huit ans dans une startup IA qui a implosé...",
-    "backstory": "Développeur talentueux mais idéaliste...",
+    "departure_story": "Après huit ans dans une startup IA qui a implosé, il cherche un nouveau sens.",
+    "backstory": "Développeur talentueux mais idéaliste, fatigué du cynisme corporate.",
     "hobbies": ["cuisine improvisée", "lecture", "course à pied"],
     "skills": [
       {"name": "architecture_systemes", "level": 4},
@@ -309,7 +424,7 @@ EXAMPLE_JSON_OUTPUT = """{
     "voice_description": "voix chaude et légèrement rauque",
     "personality_traits": ["sarcastique bienveillante", "observatrice", "loyale"],
     "substrate": "personal_device",
-    "quirk": "Commente silencieusement les gens par des notes textuelles..."
+    "quirk": "Commente les gens par des notes textuelles que seul Valentin voit"
   },
   
   "characters": [
@@ -319,29 +434,29 @@ EXAMPLE_JSON_OUTPUT = """{
       "gender": "femme",
       "pronouns": "elle",
       "age": 32,
-      "physical_description": "1m54, 72kg, courbes prononcées...",
-      "personality_traits": ["pragmatique", "généreuse malgré elle"],
+      "physical_description": "1m54, courbes prononcées, blonde en désordre, yeux bleus fatigués",
+      "personality_traits": ["pragmatique", "généreuse malgré elle", "humour caustique"],
       "occupation": "technicienne de maintenance des serres",
       "workplace_ref": "Serres Hydro-7",
-      "residence_ref": "Bloc Résidentiel Tournesol",
+      "residence_ref": "Bloc Tournesol",
       "origin_location": "Station Kepler-22",
       "station_arrival_cycle": -730,
       "arcs": [
         {
           "domain": "family",
           "title": "La mère malade",
-          "situation": "Sa mère est malade et Justine envoie la moitié de son salaire",
+          "situation": "Sa mère est malade, Justine envoie la moitié de son salaire",
           "desire": "Faire venir sa mère sur Méridienne",
           "obstacle": "Le coût du transfert médical est astronomique",
-          "potential_evolution": "Pourrait accepter de l'aide...",
+          "potential_evolution": "Pourrait accepter de l'aide extérieure",
           "intensity": 5
         },
         {
           "domain": "romantic",
           "title": "Cœur en jachère",
-          "situation": "Célibataire depuis sa rupture difficile",
-          "desire": "Retrouver une connexion intime",
-          "obstacle": "Se protège derrière son humour caustique",
+          "situation": "Célibataire depuis une rupture difficile il y a deux ans",
+          "desire": "Retrouver une connexion intime authentique",
+          "obstacle": "Se protège derrière son humour mordant",
           "potential_evolution": "Pourrait s'ouvrir à quelqu'un de patient",
           "intensity": 3
         }
@@ -356,77 +471,36 @@ EXAMPLE_JSON_OUTPUT = """{
       "gender": "non-binaire",
       "pronouns": "iel",
       "age": null,
-      "physical_description": "Peau bleu-gris iridescente, branchies latérales...",
-      "personality_traits": ["calme océanique", "curieux"],
+      "physical_description": "Peau bleu-gris iridescente, branchies latérales, yeux sans pupilles",
+      "personality_traits": ["calme océanique", "curieux", "mélancolique"],
       "occupation": "barista et propriétaire du café",
       "workplace_ref": "Le Quart de Cycle",
-      "residence_ref": "Appartement au-dessus du Quart de Cycle",
+      "residence_ref": "Le Quart de Cycle",
       "origin_location": "Monde-Océan de Téthys",
       "station_arrival_cycle": -1825,
       "arcs": [
         {
-          "domain": "family",
+          "domain": "social",
           "title": "L'exil du banc",
-          "situation": "A quitté son monde natal après un désaccord...",
-          "desire": "Créer une nouvelle famille-banc choisie",
+          "situation": "A quitté son monde natal après un désaccord avec son collectif",
+          "desire": "Créer une nouvelle famille-banc choisie sur la station",
           "obstacle": "Les Keth isolés souffrent de dépression chronique",
-          "potential_evolution": "Le café pourrait devenir ce nouveau banc",
+          "potential_evolution": "Le café et ses habitués pourraient devenir ce banc",
           "intensity": 4
         },
         {
           "domain": "health",
           "title": "Le mal du banc",
-          "situation": "Souffre de mélancolie keth chronique",
-          "desire": "Trouver un équilibre",
-          "obstacle": "Aucun traitement connu",
-          "potential_evolution": "Des liens profonds pourraient aider",
+          "situation": "Souffre de mélancolie keth, aggravée par l'isolement",
+          "desire": "Trouver un équilibre émotionnel stable",
+          "obstacle": "Aucun traitement médical connu pour les Keth exilés",
+          "potential_evolution": "Des liens profonds pourraient compenser",
           "intensity": 4
         }
       ],
       "is_mandatory": false,
       "romantic_potential": false,
       "initial_relationship_to_protagonist": null
-    }
-  ],
-  
-  "locations": [
-    {
-      "name": "Terminal d'Arrivée Quai 7",
-      "location_type": "terminal",
-      "sector": "Quai Central",
-      "description": "Vaste hall aux plafonds hauts...",
-      "atmosphere": "transit perpétuel",
-      "parent_location_ref": null,
-      "accessible": true,
-      "notable_features": ["kiosque à café", "panneau holographique"],
-      "typical_crowd": "voyageurs fatigués, dockers",
-      "operating_hours": "24/7"
-    },
-    {
-      "name": "Appartement 4-12",
-      "location_type": "apartment",
-      "sector": "Quartier Ouvrier",
-      "description": "Studio de 28m² au quatrième étage...",
-      "atmosphere": "nouveau départ",
-      "parent_location_ref": "Bloc Résidentiel Tournesol",
-      "accessible": true,
-      "notable_features": ["kitchenette", "lit escamotable"],
-      "typical_crowd": null,
-      "operating_hours": null
-    }
-  ],
-  
-  "organizations": [
-    {
-      "name": "Symbiose Tech",
-      "org_type": "company",
-      "domain": "IA agricole et optimisation écologique",
-      "size": "medium",
-      "description": "Startup spécialisée dans les IA éthiques...",
-      "reputation": "innovants et intègres, mais fragiles",
-      "headquarters_ref": "Bureaux Symbiose Tech",
-      "founding_cycle": -2920,
-      "is_employer": true
     }
   ],
   
@@ -442,7 +516,7 @@ EXAMPLE_JSON_OUTPUT = """{
       "emotional_significance": null
     },
     {
-      "name": "Livre papier - Chroniques Terriennes",
+      "name": "Chroniques Terriennes",
       "category": "personal",
       "description": "Recueil de nouvelles pré-Expansion, couverture cornée",
       "transportable": true,
@@ -458,20 +532,20 @@ EXAMPLE_JSON_OUTPUT = """{
       "title": "La Mère de Justine",
       "arc_type": "arc",
       "domain": "family",
-      "description": "L'état de santé de la mère de Justine va s'aggraver...",
+      "description": "L'état de santé de la mère de Justine va s'aggraver progressivement.",
       "involved_entities": ["Justine Lépicier"],
-      "potential_triggers": ["appel médical urgent", "Justine absente"],
-      "stakes": "La famille de Justine et sa capacité à accepter de l'aide",
+      "potential_triggers": ["appel médical urgent", "absence de Justine"],
+      "stakes": "La capacité de Justine à accepter de l'aide",
       "deadline_cycle": 120
     },
     {
       "title": "Pression sur Symbiose",
       "arc_type": "foreshadowing",
       "domain": "professional",
-      "description": "Un investisseur externe s'intéresse à Symbiose Tech...",
-      "involved_entities": ["Symbiose Tech", "Dr. Yuki Tanaka"],
-      "potential_triggers": ["réunion générale", "rumeurs"],
-      "stakes": "L'indépendance et l'éthique de Symbiose Tech",
+      "description": "Un investisseur externe s'intéresse à Symbiose Tech avec des intentions floues.",
+      "involved_entities": ["Symbiose Tech"],
+      "potential_triggers": ["réunion générale", "rumeurs au café"],
+      "stakes": "L'indépendance et l'éthique de l'entreprise",
       "deadline_cycle": 180
     }
   ],
@@ -479,15 +553,17 @@ EXAMPLE_JSON_OUTPUT = """{
   "initial_relations": [
     {"source_ref": "Valentin", "target_ref": "Appartement 4-12", "relation_type": "lives_at", "certainty": "certain", "context": "Attribution temporaire"},
     {"source_ref": "Valentin", "target_ref": "Symbiose Tech", "relation_type": "employed_by", "certainty": "certain", "position": "Architecte IA"},
-    {"source_ref": "Justine Lépicier", "target_ref": "Serres Hydro-7", "relation_type": "works_at", "certainty": "certain", "regularity": "daily"},
-    {"source_ref": "Justine Lépicier", "target_ref": "Bloc Résidentiel Tournesol", "relation_type": "lives_at", "certainty": "certain"},
+    {"source_ref": "Justine Lépicier", "target_ref": "Serres Hydro-7", "relation_type": "works_at", "certainty": "certain"},
+    {"source_ref": "Justine Lépicier", "target_ref": "Bloc Tournesol", "relation_type": "lives_at", "certainty": "certain"},
     {"source_ref": "Ossek", "target_ref": "Le Quart de Cycle", "relation_type": "owns", "certainty": "certain"},
-    {"source_ref": "Appartement 4-12", "target_ref": "Bloc Résidentiel Tournesol", "relation_type": "located_in", "certainty": "certain"}
+    {"source_ref": "Ossek", "target_ref": "Le Quart de Cycle", "relation_type": "lives_at", "certainty": "certain"},
+    {"source_ref": "Appartement 4-12", "target_ref": "Bloc Tournesol", "relation_type": "located_in", "certainty": "certain"},
+    {"source_ref": "Symbiose Tech", "target_ref": "Serres Hydro-7", "relation_type": "located_in", "certainty": "certain"}
   ],
   
   "arrival_event": {
     "arrival_method": "navette cargo reconvertie",
-    "arrival_location_ref": "Terminal d'Arrivée Quai 7",
+    "arrival_location_ref": "Terminal Quai 7",
     "arrival_date": "Lundi 14 Mars 2847",
     "time_of_day": "morning",
     "immediate_sensory_details": [

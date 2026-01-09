@@ -2,17 +2,21 @@
 
 import { useMemo } from 'react';
 
-// Étapes de génération avec poids pour la barre de progression
+// Étapes de génération alignées avec le schéma WorldGeneration (Python)
+// Ordre basé sur l'ordre de génération dans WorldPopulator.populate()
 const GENERATION_STEPS = [
-	{ key: 'monde', label: 'Création du monde', weight: 15 },
-	{ key: 'employeur', label: 'Employeur', weight: 10 },
-	{ key: 'valentin', label: 'Personnage', weight: 10 },
-	{ key: 'ia', label: 'IA personnelle', weight: 5 },
-	{ key: 'pnj_initiaux', label: 'Personnages', weight: 20 },
-	{ key: 'lieux_initiaux', label: 'Lieux', weight: 15 },
-	{ key: 'inventaire_initial', label: 'Inventaire', weight: 10 },
-	{ key: 'evenement_arrivee', label: 'Événement d\'arrivée', weight: 10 },
-	{ key: 'arcs_potentiels', label: 'Arcs narratifs', weight: 5 }
+	{ key: 'generation_seed_words', label: 'Initialisation', weight: 0 },
+	{ key: 'tone_notes', label: 'Ton narratif', weight: 5 },
+	{ key: 'world', label: 'Création du monde', weight: 10 },
+	{ key: 'protagonist', label: 'Protagoniste', weight: 10 },
+	{ key: 'personal_ai', label: 'IA personnelle', weight: 5 },
+	{ key: 'organizations', label: 'Organisations', weight: 10 },
+	{ key: 'locations', label: 'Lieux', weight: 15 },
+	{ key: 'characters', label: 'Personnages', weight: 15 },
+	{ key: 'inventory', label: 'Inventaire', weight: 10 },
+	{ key: 'initial_relations', label: 'Relations', weight: 5 },
+	{ key: 'narrative_arcs', label: 'Arcs narratifs', weight: 5 },
+	{ key: 'arrival_event', label: 'Événement d\'arrivée', weight: 5 }
 ];
 
 /**
@@ -66,6 +70,17 @@ export default function WorldGenerationScreen({
 	const currentStep = useMemo(() => getCurrentStep(partialJson), [partialJson]);
 	const isComplete = !isGenerating && worldData?.monde_cree;
 
+	// Extraire les données du nouveau schéma
+	const worldName = worldData?.world?.name;
+	const worldType = worldData?.world?.station_type;
+	const worldAtmosphere = worldData?.world?.atmosphere;
+	const worldPopulation = worldData?.world?.population;
+	const aiName = worldData?.personal_ai?.name;
+	const arrivalLocation = worldData?.arrival_event?.arrival_location_ref;
+	const protagonistName = worldData?.protagonist?.name;
+	const characterCount = worldData?.characters?.length || 0;
+	const locationCount = worldData?.locations?.length || 0;
+
 	return (
 		<div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8">
 			<div className="max-w-md w-full space-y-8">
@@ -74,8 +89,8 @@ export default function WorldGenerationScreen({
 					<h1 className="text-3xl font-bold text-white mb-2">
 						{isComplete ? '✨ Monde créé' : 'Création du monde...'}
 					</h1>
-					{worldData?.monde?.nom && (
-						<p className="text-xl text-purple-400">{worldData.monde.nom}</p>
+					{worldName && (
+						<p className="text-xl text-purple-400">{worldName}</p>
 					)}
 				</div>
 
@@ -98,42 +113,68 @@ export default function WorldGenerationScreen({
 				{/* Infos du monde généré */}
 				{isComplete && worldData && (
 					<div className="bg-gray-800 rounded-lg p-6 space-y-4">
-						{worldData.monde?.type && (
+						{worldType && (
 							<div className="flex items-center gap-3">
 								<span className="text-2xl">🛸</span>
 								<div>
 									<p className="text-gray-400 text-sm">Type</p>
-									<p className="text-white">{worldData.monde.type}</p>
+									<p className="text-white">{worldType}</p>
 								</div>
 							</div>
 						)}
-						{worldData.monde?.ambiance && (
+						{worldAtmosphere && (
 							<div className="flex items-start gap-3">
 								<span className="text-2xl">🌌</span>
 								<div>
 									<p className="text-gray-400 text-sm">Ambiance</p>
-									<p className="text-white text-sm">{worldData.monde.ambiance}</p>
+									<p className="text-white text-sm">{worldAtmosphere}</p>
 								</div>
 							</div>
 						)}
-						{worldData.ia_nom && (
+						{worldPopulation && (
+							<div className="flex items-center gap-3">
+								<span className="text-2xl">👥</span>
+								<div>
+									<p className="text-gray-400 text-sm">Population</p>
+									<p className="text-white">{worldPopulation.toLocaleString()} habitants</p>
+								</div>
+							</div>
+						)}
+						{aiName && (
 							<div className="flex items-center gap-3">
 								<span className="text-2xl">🤖</span>
 								<div>
 									<p className="text-gray-400 text-sm">IA personnelle</p>
-									<p className="text-white">{worldData.ia_nom}</p>
+									<p className="text-white">{aiName}</p>
 								</div>
 							</div>
 						)}
-						{worldData.lieu_depart && (
+						{arrivalLocation && (
 							<div className="flex items-center gap-3">
 								<span className="text-2xl">📍</span>
 								<div>
-									<p className="text-gray-400 text-sm">Point de départ</p>
-									<p className="text-white">{worldData.lieu_depart}</p>
+									<p className="text-gray-400 text-sm">Point d'arrivée</p>
+									<p className="text-white">{arrivalLocation}</p>
 								</div>
 							</div>
 						)}
+						{/* Stats de génération */}
+						<div className="pt-4 border-t border-gray-700 flex justify-around text-center">
+							<div>
+								<p className="text-2xl font-bold text-purple-400">{characterCount}</p>
+								<p className="text-xs text-gray-500">Personnages</p>
+							</div>
+							<div>
+								<p className="text-2xl font-bold text-pink-400">{locationCount}</p>
+								<p className="text-xs text-gray-500">Lieux</p>
+							</div>
+							<div>
+								<p className="text-2xl font-bold text-blue-400">
+									{worldData?.inventory?.length || 0}
+								</p>
+								<p className="text-xs text-gray-500">Objets</p>
+							</div>
+						</div>
 					</div>
 				)}
 
@@ -173,6 +214,8 @@ export default function WorldGenerationScreen({
 				{isGenerating && (
 					<p className="text-center text-gray-500 text-sm">
 						Génération du monde en cours, veuillez patienter...
+						<br />
+						Cette étape peut prendre plusieurs minutes...
 					</p>
 				)}
 			</div>

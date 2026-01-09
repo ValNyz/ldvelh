@@ -24,6 +24,7 @@ def parse_json_response(content: str) -> dict | None:
     except json.JSONDecodeError as e:
         print(f"[JSON] Erreur parsing: {e}")
         print(f"[JSON] Contenu (500 premiers chars): {content[:500]}")
+        print(f"[JSON] Contenu (200 derniers chars): ...{content[-200:]}")
         return try_repair_json(content)
 
 
@@ -49,8 +50,11 @@ def clean_json_string(content: str) -> str:
 
 def try_repair_json(content: str) -> dict | None:
     """
-    Tente de réparer un JSON tronqué en fermant les brackets ouverts.
-    Utile pour le streaming où le JSON peut être coupé.
+    Tente de réparer un JSON tronqué.
+    Gère :
+    - Les strings non terminées (coupure au milieu d'une valeur string)
+    - Les brackets non fermés ({, [)
+    - Les backslashes orphelins en fin de string
 
     Returns:
         dict parsé ou None si la réparation échoue
@@ -66,7 +70,7 @@ def try_repair_json(content: str) -> dict | None:
         if char == "\\":
             escape = True
             continue
-        if char == '"' and not escape:
+        if char == '"':
             in_string = not in_string
             continue
         if in_string:
@@ -77,13 +81,81 @@ def try_repair_json(content: str) -> dict | None:
             if brackets and brackets[-1] == char:
                 brackets.pop()
 
-    # Fermer les brackets ouverts
-    repaired = content + "".join(reversed(brackets))
+    # Construire la réparation
+    repair = ""
+
+    # 1. Si on termine sur un backslash, le retirer (échappement incomplet)
+    if content.endswith("\\"):
+        content = content[:-1]
+
+    # 2. Si on est dans une string non terminée, la fermer
+    if in_string:
+        repair += '"'
+        print("[JSON] Réparation: fermeture de string non terminée")
+
+    # 3. Fermer les brackets ouverts
+    if brackets:
+        repair += "".join(reversed(brackets))
+        print(f"[JSON] Réparation: fermeture de {len(brackets)} brackets")
+
+    repaired = content + repair
 
     try:
-        return json.loads(repaired)
-    except json.JSONDecodeError:
-        return None
+        result = json.loads(repaired)
+        print("[JSON] Réparation réussie!")
+        return result
+    except json.JSONDecodeError as e:
+        print(f"[JSON] Échec réparation simple: {e}")
+        # Tenter une stratégie de troncature
+        return _try_truncate_json(content)
+
+
+def _try_truncate_json(content: str) -> dict | None:
+    """
+    Stratégie alternative : tronquer jusqu'au dernier point valide.
+    Cherche un point de coupure propre en reculant dans le contenu.
+    """
+    print("[JSON] Tentative de troncature...")
+
+    # Chercher en reculant jusqu'à 1000 caractères
+    for end_pos in range(len(content) - 1, max(0, len(content) - 1000), -1):
+        truncated = content[:end_pos]
+
+        # Analyser l'état des brackets et strings
+        brackets = []
+        in_string = False
+        escape = False
+
+        for char in truncated:
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char in "{[":
+                brackets.append("}" if char == "{" else "]")
+            elif char in "}]":
+                if brackets and brackets[-1] == char:
+                    brackets.pop()
+
+        # Si on n'est pas dans une string, tenter de fermer proprement
+        if not in_string:
+            repaired = truncated + "".join(reversed(brackets))
+            try:
+                result = json.loads(repaired)
+                print(f"[JSON] Troncature réussie à la position {end_pos}")
+                return result
+            except json.JSONDecodeError:
+                continue
+
+    print("[JSON] Échec de toutes les tentatives de réparation")
+    return None
 
 
 def safe_json_dumps(data: Any, default: str = "{}") -> str:

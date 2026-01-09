@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
 
     # Models
-    model_main: str = "claude-sonnet-4-20250514"
-    model_extraction: str = "claude-sonnet-4-20250514"
-    model_summary: str = "claude-haiku-4-5-20251001"
+    model_main: str = "claude-sonnet-4-5"
+    model_extraction: str = "claude-sonnet-4-5"
+    model_summary: str = "claude-haiku-4-5"
 
     # API Config
-    max_tokens_init: int = 8000
+    max_tokens_init: int = 20000
     max_tokens_light: int = 4000
     max_tokens_extraction: int = 3000
     max_tokens_summary: int = 500

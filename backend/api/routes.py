@@ -216,9 +216,17 @@ async def _handle_chat(
             )
 
             async def on_init_complete(parsed, display_text, raw_json):
+                print(f"[DEBUG] raw_json length: {len(raw_json)}")
+                print(f"[DEBUG] raw_json ends with: ...{raw_json[-100:]}")
+                print(f"[DEBUG] parsed is None: {parsed is None}")
                 if not parsed:
                     await sse_writer.send_error(
-                        "Échec de génération du monde", recoverable=True
+                        "Échec de génération du monde",
+                        recoverable=True,
+                        details={
+                            "raw_length": len(raw_json),
+                            "last_100": raw_json[-100:],
+                        },
                     )
                     return
 

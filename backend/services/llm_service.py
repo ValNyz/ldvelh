@@ -3,7 +3,6 @@ LDVELH - LLM Service
 Gestion des appels à Claude
 """
 
-import json
 from collections.abc import Awaitable, Callable
 
 import anthropic
@@ -11,6 +10,7 @@ from schema.world_generation import WorldGeneration
 
 from api.streaming import SSEWriter, build_display_text, extract_narrative_from_partial
 from config import get_settings
+from utils import parse_json_response
 
 
 class LLMService:
@@ -31,7 +31,8 @@ class LLMService:
         user_message: str,
         sse_writer: SSEWriter,
         is_init_mode: bool = False,
-        on_complete: Callable[[dict | None, str | None, str], Awaitable[None]] | None = None,
+        on_complete: Callable[[dict | None, str | None, str], Awaitable[None]]
+        | None = None,
     ) -> None:
         """
         Stream une réponse narrative depuis Claude.
@@ -44,7 +45,9 @@ class LLMService:
             on_complete: Callback appelé à la fin avec (parsed, display_text, raw_json)
         """
         settings = self.settings
-        max_tokens = settings.max_tokens_init if is_init_mode else settings.max_tokens_light
+        max_tokens = (
+            settings.max_tokens_init if is_init_mode else settings.max_tokens_light
+        )
 
         full_json = ""
         last_sent_display = ""
@@ -55,7 +58,13 @@ class LLMService:
                 model=settings.model_main,
                 max_tokens=max_tokens,
                 temperature=settings.temperature,
-                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+                system=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
                 messages=[{"role": "user", "content": user_message}],
             ) as stream:
                 async for event in stream:
@@ -79,7 +88,7 @@ class LLMService:
                 await sse_writer.send_progress(full_json)
 
             # Parser le JSON final
-            parsed = self._parse_json_response(full_json, is_init_mode)
+            parsed = parse_json_response(full_json)
 
             # Construire le texte d'affichage
             display_text = None
@@ -87,7 +96,9 @@ class LLMService:
                 display_text = build_display_text(parsed)
             elif not is_init_mode:
                 # Fallback: utiliser ce qu'on a extrait
-                display_text = extract_narrative_from_partial(full_json) or "Erreur de génération."
+                display_text = (
+                    extract_narrative_from_partial(full_json) or "Erreur de génération."
+                )
 
             # Callback
             if on_complete:
@@ -95,7 +106,9 @@ class LLMService:
 
         except anthropic.APIError as e:
             print(f"[LLM] Erreur API: {e}")
-            await sse_writer.send_error(f"Erreur API Claude: {e.message}", recoverable=True)
+            await sse_writer.send_error(
+                f"Erreur API Claude: {e.message}", recoverable=True
+            )
             raise
         except Exception as e:
             print(f"[LLM] Erreur: {e}")
@@ -125,7 +138,7 @@ class LLMService:
             )
 
             content = response.content[0].text
-            return self._parse_json_response(content, is_init=False)
+            return parse_json_response(content)
 
         except Exception as e:
             print(f"[LLM] Erreur extraction: {e}")
@@ -135,7 +148,9 @@ class LLMService:
     # RÉSUMÉ (Non-streaming)
     # =========================================================================
 
-    async def summarize_message(self, narrative_text: str, max_length: int = 150) -> str:
+    async def summarize_message(
+        self, narrative_text: str, max_length: int = 150
+    ) -> str:
         """Génère un résumé court d'un message narratif"""
         try:
             response = await self.client.messages.create(
@@ -183,7 +198,7 @@ Résumé (une phrase):""",
             )
 
             content = response.content[0].text
-            parsed = self._parse_json_response(content, is_init=True)
+            parsed = parse_json_response(content)
 
             if parsed:
                 return WorldGeneration.model_validate(parsed)
@@ -191,68 +206,6 @@ Résumé (une phrase):""",
 
         except Exception as e:
             print(f"[LLM] Erreur génération monde: {e}")
-            return None
-
-    # =========================================================================
-    # HELPERS
-    # =========================================================================
-
-    def _parse_json_response(self, content: str, is_init: bool = False) -> dict | None:
-        """Parse une réponse JSON de Claude"""
-        # Nettoyer le contenu
-        content = content.strip()
-
-        # Retirer les backticks markdown si présents
-        if content.startswith("```json"):
-            content = content[7:]
-        elif content.startswith("```"):
-            content = content[3:]
-
-        if content.endswith("```"):
-            content = content[:-3]
-
-        content = content.strip()
-
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError as e:
-            print(f"[LLM] Erreur parsing JSON: {e}")
-            print(f"[LLM] Contenu (500 premiers chars): {content[:500]}")
-
-            # Tenter de réparer le JSON tronqué
-            return self._try_repair_json(content)
-
-    def _try_repair_json(self, content: str) -> dict | None:
-        """Tente de réparer un JSON tronqué"""
-        # Essayer d'ajouter les fermetures manquantes
-        brackets = []
-        in_string = False
-        escape = False
-
-        for char in content:
-            if escape:
-                escape = False
-                continue
-            if char == "\\":
-                escape = True
-                continue
-            if char == '"' and not escape:
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if char in "{[":
-                brackets.append("}" if char == "{" else "]")
-            elif char in "}]":
-                if brackets and brackets[-1] == char:
-                    brackets.pop()
-
-        # Fermer les brackets ouverts
-        repaired = content + "".join(reversed(brackets))
-
-        try:
-            return json.loads(repaired)
-        except:
             return None
 
 
