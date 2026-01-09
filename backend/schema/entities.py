@@ -5,7 +5,14 @@ Modèles pour chaque type d'entité, réutilisables partout
 
 from pydantic import BaseModel, Field, field_validator
 
-from .core import ArcDomain, Cycle, DepartureReason, EntityRef, Skill, TemporalValidationMixin
+from .core import (
+    ArcDomain,
+    Cycle,
+    DepartureReason,
+    EntityRef,
+    Skill,
+    TemporalValidationMixin,
+)
 from .narrative import CharacterArc
 
 # =============================================================================
@@ -22,7 +29,11 @@ class WorldData(BaseModel, TemporalValidationMixin):
     atmosphere: str = Field(..., max_length=50, description="2-3 words")
     description: str = Field(..., max_length=500)
     sectors: list[str] = Field(..., min_length=2, max_length=10)
-    founding_cycle: Cycle = Field(default=-5000, le=-100, description="When station was founded. -5000 = ~13 years ago")
+    founding_cycle: Cycle = Field(
+        default=-5000,
+        le=-100,
+        description="When station was founded. -5000 = ~13 years ago",
+    )
 
 
 # =============================================================================
@@ -93,7 +104,9 @@ class PersonalAIData(BaseModel):
     @classmethod
     def validate_ai_name(cls, v: str) -> str:
         if v.lower() in FORBIDDEN_AI_NAMES:
-            raise ValueError(f"AI name '{v}' is too common/cliché. Choose something original.")
+            raise ValueError(
+                f"AI name '{v}' is too common/cliché. Choose something original."
+            )
         return v
 
 
@@ -117,18 +130,25 @@ class CharacterData(BaseModel, TemporalValidationMixin):
     residence_ref: EntityRef | None = None
     origin_location: str | None = Field(default=None, max_length=100)
     station_arrival_cycle: Cycle = Field(
-        ..., le=1, description="When they arrived. Veterans: -4000 to -2000. Recent: -100 to -1"
+        ...,
+        le=1,
+        description="When they arrived. Veterans: -4000 to -2000. Recent: -100 to -1",
     )
 
     # Multiple arcs per character
     arcs: list[CharacterArc] = Field(
-        ..., min_length=1, max_length=5, description="Multiple life arcs: work, personal, romantic, etc."
+        ...,
+        min_length=1,
+        max_length=5,
+        description="Multiple life arcs: work, personal, romantic, etc.",
     )
 
     # Meta
     is_mandatory: bool = Field(default=False)
     romantic_potential: bool = Field(default=False)
-    initial_relationship_to_protagonist: str | None = Field(default=None, max_length=200)
+    initial_relationship_to_protagonist: str | None = Field(
+        default=None, max_length=200
+    )
 
     @field_validator("arcs")
     @classmethod
@@ -136,7 +156,9 @@ class CharacterData(BaseModel, TemporalValidationMixin):
         """Encourage diverse arc domains"""
         domains = [arc.domain for arc in v]
         if len(v) >= 3 and len(set(domains)) < 2:
-            raise ValueError("Character with 3+ arcs should have at least 2 different domains")
+            raise ValueError(
+                "Character with 3+ arcs should have at least 2 different domains"
+            )
         return v
 
 
@@ -190,7 +212,7 @@ class OrganizationData(BaseModel, TemporalValidationMixin):
     org_type: str = Field(..., max_length=50)
     domain: str = Field(..., max_length=100)
     size: str = Field(..., pattern="^(small|medium|large|station-wide)$")
-    description: str = Field(..., max_length=300)
+    description: str = Field(..., max_length=500)
     reputation: str = Field(..., max_length=150)
     headquarters_ref: EntityRef | None = None
     founding_cycle: Cycle | None = Field(default=None, le=1)
@@ -202,7 +224,9 @@ class OrganizationData(BaseModel, TemporalValidationMixin):
 # =============================================================================
 
 
-def create_minimal_character(name: str, occupation: str, station_arrival_cycle: int, **kwargs) -> CharacterData:
+def create_minimal_character(
+    name: str, occupation: str, station_arrival_cycle: int, **kwargs
+) -> CharacterData:
     """Create a character with minimal required fields + sensible defaults"""
     defaults = {
         "species": "human",
@@ -222,4 +246,9 @@ def create_minimal_character(name: str, occupation: str, station_arrival_cycle: 
         ],
     }
     defaults.update(kwargs)
-    return CharacterData(name=name, occupation=occupation, station_arrival_cycle=station_arrival_cycle, **defaults)
+    return CharacterData(
+        name=name,
+        occupation=occupation,
+        station_arrival_cycle=station_arrival_cycle,
+        **defaults,
+    )

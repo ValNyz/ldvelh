@@ -28,6 +28,11 @@ class ArrivalEventData(BaseModel):
 
     arrival_method: str = Field(..., max_length=100)
     arrival_location_ref: EntityRef
+    arrival_date: str = Field(
+        ...,
+        max_length=50,
+        description="Date d'arrivée dans l'univers, ex: 'Lundi 14 Mars 2847'",
+    )
     time_of_day: Moment
     immediate_sensory_details: list[str] = Field(..., min_length=3, max_length=6)
     first_npc_encountered: EntityRef | None = None

@@ -30,7 +30,8 @@ if TYPE_CHECKING:
 class ContextBuilder:
     """Construit le NarrationContext depuis la base de données"""
 
-    def __init__(self, game_id: UUID):
+    def __init__(self, pool, game_id: UUID):
+        self.pool = pool
         self.game_id = game_id
 
     async def build(

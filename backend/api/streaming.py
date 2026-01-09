@@ -5,12 +5,17 @@ Gestion du streaming Server-Sent Events
 
 import asyncio
 import json
+import logging
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+from uuid import uuid4
 
 from fastapi.responses import StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 
 class SSEEvent(str, Enum):
@@ -34,24 +39,47 @@ class SSEWriter:
 
     _queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     _closed: bool = False
+    _stream_id: str = field(default_factory=lambda: uuid4().hex[:8])
+    _start_time: float = field(default_factory=time.perf_counter)
+    _event_count: int = 0
+    _bytes_sent: int = 0
+
+    def __post_init__(self):
+        logger.info(f"[SSE:{self._stream_id}] Stream créé")
 
     async def send(self, event_type: SSEEvent, data: dict[str, Any]) -> None:
         """Envoie un événement dans la queue"""
         if self._closed:
+            logger.warning(
+                f"[SSE:{self._stream_id}] Tentative d'envoi sur stream fermé"
+            )
             return
 
+        self._event_count += 1
         payload = {"type": event_type.value, **data}
         await self._queue.put(payload)
 
+        # Log pour événements importants
+        if event_type in (SSEEvent.DONE, SSEEvent.ERROR):
+            elapsed = time.perf_counter() - self._start_time
+            logger.info(
+                f"[SSE:{self._stream_id}] {event_type.value.upper()} après {elapsed:.2f}s "
+                f"({self._event_count} événements)"
+            )
+
     async def send_chunk(self, content: str) -> None:
         """Envoie un chunk de texte narratif"""
+        self._bytes_sent += len(content.encode("utf-8"))
         await self.send(SSEEvent.CHUNK, {"content": content})
 
     async def send_progress(self, raw_json: str) -> None:
         """Envoie la progression du JSON (mode init)"""
+        self._bytes_sent += len(raw_json.encode("utf-8"))
         await self.send(SSEEvent.PROGRESS, {"rawJson": raw_json})
 
-    async def send_done(self, display_text: str | None, state: dict | None = None) -> None:
+    async def send_done(
+        self, display_text: str | None, state: dict | None = None
+    ) -> None:
         """Envoie l'événement de fin avec le résultat"""
         await self.send(SSEEvent.DONE, {"displayText": display_text, "state": state})
 
@@ -59,22 +87,38 @@ class SSEWriter:
         """Confirme la sauvegarde"""
         await self.send(SSEEvent.SAVED, {})
 
-    async def send_error(self, error: str, details: Any = None, recoverable: bool = False) -> None:
+    async def send_error(
+        self, error: str, details: Any = None, recoverable: bool = False
+    ) -> None:
         """Envoie une erreur"""
-        await self.send(SSEEvent.ERROR, {"error": error, "details": details, "recoverable": recoverable})
+        logger.error(f"[SSE:{self._stream_id}] Erreur: {error}")
+        await self.send(
+            SSEEvent.ERROR,
+            {"error": error, "details": details, "recoverable": recoverable},
+        )
 
     async def send_warning(self, message: str, details: Any = None) -> None:
         """Envoie un avertissement"""
+        logger.warning(f"[SSE:{self._stream_id}] Warning: {message}")
         await self.send(SSEEvent.WARNING, {"message": message, "details": details})
 
     async def close(self) -> None:
         """Ferme la queue"""
         if not self._closed:
             self._closed = True
+            elapsed = time.perf_counter() - self._start_time
+            logger.info(
+                f"[SSE:{self._stream_id}] Stream fermé - "
+                f"Durée: {elapsed:.2f}s | "
+                f"Événements: {self._event_count} | "
+                f"Données: {self._bytes_sent / 1024:.1f} KB"
+            )
             await self._queue.put(None)  # Signal de fin
 
     async def iterate(self) -> AsyncGenerator[str, None]:
         """Itère sur les événements pour le streaming"""
+        logger.debug(f"[SSE:{self._stream_id}] Début de l'itération")
+
         while True:
             try:
                 payload = await asyncio.wait_for(
@@ -83,20 +127,23 @@ class SSEWriter:
                 )
 
                 if payload is None:  # Signal de fin
+                    logger.debug(f"[SSE:{self._stream_id}] Signal de fin reçu")
                     break
 
                 yield f"data: {json.dumps(payload)}\n\n"
 
             except TimeoutError:
                 # Envoie un keepalive
+                logger.debug(f"[SSE:{self._stream_id}] Keepalive envoyé")
                 yield ": keepalive\n\n"
             except Exception as e:
-                print(f"[SSE] Erreur iteration: {e}")
+                logger.error(f"[SSE:{self._stream_id}] Erreur iteration: {e}")
                 break
 
 
 def create_sse_response(writer: SSEWriter) -> StreamingResponse:
     """Crée une réponse SSE à partir d'un writer"""
+    logger.debug(f"[SSE:{writer._stream_id}] Création de la réponse SSE")
     return StreamingResponse(
         writer.iterate(),
         media_type="text/event-stream",

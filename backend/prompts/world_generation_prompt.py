@@ -77,7 +77,7 @@ Adapte drastiquement l'inventaire au contexte de départ :
 
 ### Relations initiales obligatoires
 Tu DOIS générer ces relations :
-1. Valentin → son logement (lives_at)
+1. Si pas broke : Valentin → son logement (lives_at)
 2. Si employé : Valentin → organisation employeur (employed_by)
 3. Si employé : Valentin → lieu de travail (works_at)
 4. Chaque lieu enfant → lieu parent (located_in)
@@ -132,11 +132,13 @@ def build_world_generation_user_prompt(
         )
 
     parts.extend(
-        "## PERSONNAGE PRINCIPAL",
-        "Nom : Valentin",
-        "Profil : Développeur/architecte IA, la trentaine",
-        "Il arrive sur une nouvelle station spatiale pour commencer une nouvelle vie.",
-        "",
+        [
+            "## PERSONNAGE PRINCIPAL",
+            "Nom : Valentin",
+            "Profil : Développeur/architecte IA, la trentaine",
+            "Il arrive sur une nouvelle station spatiale pour commencer une nouvelle vie.",
+            "",
+        ]
     )
 
     # Employment preference
@@ -172,7 +174,9 @@ def build_world_generation_user_prompt(
     # Mandatory NPCs
     if mandatory_npcs:
         parts.append("## PNJ OBLIGATOIRES")
-        parts.append("Ces personnages DOIVENT être inclus avec les caractéristiques EXACTES spécifiées :")
+        parts.append(
+            "Ces personnages DOIVENT être inclus avec les caractéristiques EXACTES spécifiées :"
+        )
         parts.append("")
 
         for npc in mandatory_npcs:
@@ -184,7 +188,9 @@ def build_world_generation_user_prompt(
             if "species" in npc:
                 parts.append(f"- Espèce : {npc['species']}")
             if "physical_description" in npc:
-                parts.append(f'- Physique IMPOSÉ (NE PAS MODIFIER) : "{npc["physical_description"]}"')
+                parts.append(
+                    f'- Physique IMPOSÉ (NE PAS MODIFIER) : "{npc["physical_description"]}"'
+                )
             if "must_generate" in npc:
                 parts.append(f"- À générer : {', '.join(npc['must_generate'])}")
             if npc.get("romantic_potential"):
@@ -192,7 +198,9 @@ def build_world_generation_user_prompt(
             else:
                 parts.append("- romantic_potential: false")
             parts.append("- is_mandatory: true")
-            parts.append("- Génère 2-4 arcs de vie pour ce personnage (travail, perso, social...)")
+            parts.append(
+                "- Génère 2-4 arcs de vie pour ce personnage (travail, perso, social...)"
+            )
             parts.append("")
 
     # Theme preferences
@@ -480,6 +488,7 @@ EXAMPLE_JSON_OUTPUT = """{
   "arrival_event": {
     "arrival_method": "navette cargo reconvertie",
     "arrival_location_ref": "Terminal d'Arrivée Quai 7",
+    "arrival_date": "Lundi 14 Mars 2847",
     "time_of_day": "morning",
     "immediate_sensory_details": [
       "Odeur de métal recyclé mêlée à celle du café",
@@ -504,6 +513,8 @@ def get_full_generation_prompt(
     return {
         "system": WORLD_GENERATION_SYSTEM_PROMPT,
         "user": build_world_generation_user_prompt(
-            mandatory_npcs=mandatory_npcs, theme_preferences=theme_preferences, employer_preference=employer_preference
+            mandatory_npcs=mandatory_npcs,
+            theme_preferences=theme_preferences,
+            employer_preference=employer_preference,
         ),
     }

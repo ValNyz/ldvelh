@@ -15,6 +15,10 @@ from fastapi.responses import FileResponse
 
 from config import get_settings
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
 # Pool de connexions global
 db_pool: asyncpg.Pool | None = None
 

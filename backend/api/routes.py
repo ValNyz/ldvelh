@@ -8,7 +8,11 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from prompts.narrator_prompt import NARRATOR_SYSTEM_PROMPT, build_narrator_context_prompt
+from utils import normalize_world_generation, normalize_narration_output
+from prompts.narrator_prompt import (
+    NARRATOR_SYSTEM_PROMPT,
+    build_narrator_context_prompt,
+)
 from pydantic import BaseModel
 from schema import NarrationOutput, WorldGeneration
 
@@ -102,7 +106,9 @@ async def delete_game(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
 
 
 @router.patch("/games/{game_id}")
-async def rename_game(game_id: UUID, request: RenameRequest, pool: asyncpg.Pool = Depends(get_pool)):
+async def rename_game(
+    game_id: UUID, request: RenameRequest, pool: asyncpg.Pool = Depends(get_pool)
+):
     """Renomme une partie"""
     service = GameService(pool)
     await service.rename_game(game_id, request.name)
@@ -115,7 +121,9 @@ async def rename_game(game_id: UUID, request: RenameRequest, pool: asyncpg.Pool 
 
 
 @router.post("/games/{game_id}/rollback")
-async def rollback_game(game_id: UUID, request: RollbackRequest, pool: asyncpg.Pool = Depends(get_pool)):
+async def rollback_game(
+    game_id: UUID, request: RollbackRequest, pool: asyncpg.Pool = Depends(get_pool)
+):
     """Rollback à un message spécifique"""
     service = GameService(pool)
     result = await service.rollback_to_message(game_id, request.fromIndex)
@@ -151,7 +159,11 @@ async def chat(
     # Lancer le traitement en background
     asyncio.create_task(
         _handle_chat(
-            request=request, sse_writer=sse_writer, pool=pool, settings=settings, background_tasks=background_tasks
+            request=request,
+            sse_writer=sse_writer,
+            pool=pool,
+            settings=settings,
+            background_tasks=background_tasks,
         )
     )
 
@@ -177,10 +189,17 @@ async def _handle_chat(
         # Déterminer le mode
         is_init_mode = not game_state or not game_state.monde_cree
         is_first_light = (
-            game_state and game_state.monde_cree and game_state.partie and not game_state.partie.get("lieu_actuel")
+            game_state
+            and game_state.monde_cree
+            and game_state.partie
+            and not game_state.partie.get("lieu_actuel")
         )
 
-        current_cycle = game_state.partie.get("cycle_actuel", 1) if game_state and game_state.partie else 1
+        current_cycle = (
+            game_state.partie.get("cycle_actuel", 1)
+            if game_state and game_state.partie
+            else 1
+        )
 
         # =====================================================================
         # MODE INIT (World Builder)
@@ -190,16 +209,22 @@ async def _handle_chat(
 
             prompt = get_full_generation_prompt(
                 mandatory_npcs=None,  # À paramétrer selon besoin
-                theme_preferences=message if message else None,
+                theme_preferences=message
+                if message and not message.startswith("__")
+                else None,
                 employer_preference="employed",
             )
 
             async def on_init_complete(parsed, display_text, raw_json):
                 if not parsed:
-                    await sse_writer.send_error("Échec de génération du monde", recoverable=True)
+                    await sse_writer.send_error(
+                        "Échec de génération du monde", recoverable=True
+                    )
                     return
 
                 try:
+                    # Normaliser AVANT validation Pydantic
+                    parsed = normalize_world_generation(parsed)
                     # Valider avec Pydantic
                     world_gen = WorldGeneration.model_validate(parsed)
 
@@ -240,8 +265,14 @@ async def _handle_chat(
             print(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
 
             # Construire le contexte
-            current_time = game_state.partie.get("heure", "08h00") if game_state.partie else "08h00"
-            current_location = game_state.partie.get("lieu_actuel", "") if game_state.partie else ""
+            current_time = (
+                game_state.partie.get("heure", "08h00")
+                if game_state.partie
+                else "08h00"
+            )
+            current_location = (
+                game_state.partie.get("lieu_actuel", "") if game_state.partie else ""
+            )
 
             # Si first_light, utiliser l'événement d'arrivée comme contexte initial
             if is_first_light:
@@ -276,15 +307,21 @@ async def _handle_chat(
 
             async def on_light_complete(parsed, display_text, raw_json):
                 if not parsed:
-                    await sse_writer.send_error("Échec de génération narrative", recoverable=True)
+                    await sse_writer.send_error(
+                        "Échec de génération narrative", recoverable=True
+                    )
                     return
 
                 try:
+                    # Normaliser AVANT validation Pydantic
+                    parsed = normalize_narration_output(parsed)
                     # Valider avec Pydantic
                     narration = NarrationOutput.model_validate(parsed)
 
                     # Traiter la narration
-                    process_result = await game_service.process_light(game_id, narration, current_cycle)
+                    process_result = await game_service.process_light(
+                        game_id, narration, current_cycle
+                    )
 
                     # Construire l'état pour le client
                     state = await game_service.load_game_state(game_id)

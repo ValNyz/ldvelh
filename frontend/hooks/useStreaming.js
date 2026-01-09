@@ -1,4 +1,5 @@
 import { useRef, useCallback, useState } from 'react';
+import { apiUrl } from '../lib/api';
 
 /**
  * Hook pour gérer le streaming SSE
@@ -13,7 +14,10 @@ export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) 
 		setRawJson('');
 
 		try {
-			const res = await fetch(url, {
+			// Utiliser apiUrl() pour construire l'URL complète du backend
+			const fullUrl = apiUrl(url);
+
+			const res = await fetch(fullUrl, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(body),

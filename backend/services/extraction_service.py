@@ -7,6 +7,7 @@ from uuid import UUID
 
 import asyncpg
 from kg.specialized_populator import ExtractionPopulator
+from utils import normalize_narrative_extraction
 from prompts.extractor_prompt import (
     EXTRACTOR_SYSTEM_PROMPT,
     build_extractor_prompt,
@@ -74,6 +75,8 @@ class ExtractionService:
             if not extraction_data:
                 return {"error": "extraction_failed"}
 
+            # Normaliser AVANT validation Pydantic
+            extraction_data = normalize_narrative_extraction(extraction_data)
             # Valider avec Pydantic
             try:
                 extraction = NarrativeExtraction.model_validate(extraction_data)

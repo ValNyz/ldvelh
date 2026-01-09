@@ -108,6 +108,7 @@ class DepartureReason(str, Enum):
 
 class Moment(str, Enum):
     MORNING = "morning"
+    AFTERNOON = "afternoon"
     NOON = "noon"
     EVENING = "evening"
     NIGHT = "night"
@@ -117,8 +118,12 @@ class Moment(str, Enum):
 # TYPE ALIASES
 # =============================================================================
 
-Cycle = Annotated[int, Field(description="Cycle number. Negative=past, 1=arrival, positive=future")]
-EntityRef = Annotated[str, Field(description="Reference to entity by name (case-insensitive)")]
+Cycle = Annotated[
+    int, Field(description="Cycle number. Negative=past, 1=arrival, positive=future")
+]
+EntityRef = Annotated[
+    str, Field(description="Reference to entity by name (case-insensitive)")
+]
 
 
 # =============================================================================

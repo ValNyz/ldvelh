@@ -8,11 +8,13 @@ from uuid import UUID
 from typing import Optional
 import asyncpg
 
+from config import STATS_DEFAUT
 from services.state_normalizer import (
-    STATS_DEFAUT,
     normalize_game_state,
     game_state_to_dict,
 )
+from kg.specialized_populator import WorldPopulator
+from kg.context_builder import ContextBuilder
 
 
 class GameService:
@@ -248,16 +250,14 @@ class GameService:
 
     async def process_init(self, game_id: UUID, world_gen) -> dict:
         """Peuple le KG avec la génération du monde"""
-        from kg.populator import KGPopulator
-
-        populator = KGPopulator(self.pool, game_id)
-        result = await populator.populate_world(world_gen)
+        populator = WorldPopulator(self.pool, game_id)
+        result = await populator.populate(world_gen)
 
         # Sauvegarder le résumé initial
         async with self.pool.acquire() as conn:
             arrival_event = {
                 "type": "world_generation",
-                "arrival_location": world_gen.arrival_event.location
+                "arrival_location": world_gen.arrival_location_ref
                 if world_gen.arrival_event
                 else None,
             }
@@ -268,8 +268,8 @@ class GameService:
                 ON CONFLICT (game_id, cycle) DO UPDATE SET key_events = $3
             """,
                 game_id,
-                world_gen.starting_date
-                if hasattr(world_gen, "starting_date")
+                world_gen.arrival_event.arrival_date
+                if world_gen.arrival_event
                 else None,
                 json.dumps(arrival_event),
             )
@@ -281,9 +281,16 @@ class GameService:
     # =========================================================================
 
     async def process_light(self, game_id: UUID, narration, current_cycle: int) -> dict:
-        """Traite la sortie du narrateur"""
+        """
+        Traite la sortie du narrateur.
+
+        Note: Les changements de stats (jauges, crédits) sont gérés par
+        l'ExtractionService en arrière-plan, pas ici.
+        """
         new_cycle = current_cycle + 1
-        time = narration.time or "08h00"
+
+        time = narration.time.new_time if narration.time else "08h00"
+
         location = narration.current_location
         npcs = narration.npcs_present or []
 
@@ -313,39 +320,6 @@ class GameService:
                 new_date = (
                     day_info.new_date if hasattr(day_info, "new_date") else current_date
                 )
-
-            # Appliquer les changements de stats via les fonctions SQL
-            if narration.stats_changes:
-                sc = narration.stats_changes
-                if sc.energy:
-                    await conn.execute(
-                        "SELECT update_gauge($1, 'energy', $2, $3)",
-                        game_id,
-                        sc.energy,
-                        new_cycle,
-                    )
-                if sc.morale:
-                    await conn.execute(
-                        "SELECT update_gauge($1, 'morale', $2, $3)",
-                        game_id,
-                        sc.morale,
-                        new_cycle,
-                    )
-                if sc.health:
-                    await conn.execute(
-                        "SELECT update_gauge($1, 'health', $2, $3)",
-                        game_id,
-                        sc.health,
-                        new_cycle,
-                    )
-                if sc.credits:
-                    await conn.execute(
-                        "SELECT credit_transaction($1, $2, $3, $4)",
-                        game_id,
-                        sc.credits,
-                        new_cycle,
-                        "Narration",
-                    )
 
             # Mettre à jour cycle_summaries
             await conn.execute(
@@ -395,8 +369,6 @@ class GameService:
         current_location: str,
     ) -> dict:
         """Construit le contexte pour le narrateur depuis le KG"""
-        from kg.context_builder import ContextBuilder
-
         builder = ContextBuilder(self.pool, game_id)
         return await builder.build_context(
             player_input=player_input,

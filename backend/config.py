@@ -12,7 +12,9 @@ class Settings(BaseSettings):
     """Configuration de l'application"""
 
     # Database
-    database_url: str = os.getenv("DATABASE_URL", "postgresql://user:pass@localhost:5432/ldvelh")
+    database_url: str = os.getenv(
+        "DATABASE_URL", "postgresql://user:pass@localhost:5432/ldvelh"
+    )
 
     # Anthropic
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
@@ -42,4 +44,4 @@ def get_settings() -> Settings:
 
 
 # Constants
-STATS_VALENTIN_DEFAUT = {"energie": 4.0, "moral": 3.0, "sante": 5.0, "credits": 1400}
+STATS_DEFAUT = {"energie": 4.0, "moral": 3.0, "sante": 5.0, "credits": 1400}

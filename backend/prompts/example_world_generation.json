@@ -660,6 +660,7 @@
   "arrival_event": {
     "arrival_method": "navette cargo reconvertie en transport passagers",
     "arrival_location_ref": "Terminal d'Arrivée Quai 7",
+    "arrival_date": "Lundi 14 Mars 2847",
     "time_of_day": "morning",
     "immediate_sensory_details": [
       "Odeur de métal recyclé mêlée à celle du café du kiosque",

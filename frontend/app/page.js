@@ -17,7 +17,19 @@ import GameHeader from '../components/game/GameHeader';
 import MessageList from '../components/game/MessageList';
 import InputArea from '../components/game/InputArea';
 import SettingsPanel, { DebugStatePanel } from '../components/game/SettingsPanel';
+import WorldGenerationScreen from '../components/game/WorldGenerationScreen';
 import Modal from '../components/ui/Modal';
+
+// ============================================================================
+// PHASES DU JEU
+// ============================================================================
+const GAME_PHASE = {
+	LIST: 'list',
+	GENERATING_WORLD: 'generating',
+	WORLD_READY: 'world_ready',
+	STARTING_ADVENTURE: 'starting',
+	PLAYING: 'playing'
+};
 
 export default function Home() {
 	// =========================================================================
@@ -41,8 +53,6 @@ export default function Home() {
 	} = useParties();
 
 	const { fontSize, setFontSize } = useGamePreferences();
-
-	// Tooltips
 	const { tooltipMap, refresh: refreshTooltips } = useTooltips(partieId);
 
 	// UI State
@@ -51,9 +61,15 @@ export default function Home() {
 	const [editingIndex, setEditingIndex] = useState(null);
 	const [lastUserMessage, setLastUserMessage] = useState('');
 
-	// Streaming
-	const { startStream, cancel, isStreaming } = useStreaming({
+	// Phase du jeu et données de génération
+	const [gamePhase, setGamePhase] = useState(GAME_PHASE.LIST);
+	const [worldGenProgress, setWorldGenProgress] = useState('');
+	const [worldData, setWorldData] = useState(null);
+
+	// Streaming avec callbacks
+	const { startStream, cancel, isStreaming, rawJson } = useStreaming({
 		onChunk: (content) => {
+			// Mode LIGHT : afficher le narratif en streaming
 			setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.role === 'assistant' && last.streaming) {
@@ -62,7 +78,40 @@ export default function Home() {
 				return [...prev, { role: 'assistant', content, streaming: true }];
 			});
 		},
+		onProgress: (rawJson) => {
+			// Mode INIT : mettre à jour la progression
+			setWorldGenProgress(rawJson);
+		},
 		onDone: (displayText, state) => {
+			setLoading(false);
+			setSaving(true);
+
+			// Mode INIT : monde créé
+			if (state?.monde_cree) {
+				setWorldData(state);
+				setGamePhase(GAME_PHASE.WORLD_READY);
+				// Mettre à jour le gameState avec les infos de base
+				if (state.evenement_arrivee) {
+					setGameState({
+						partie: {
+							cycle_actuel: state.evenement_arrivee.cycle || 1,
+							jour: state.evenement_arrivee.jour,
+							date_jeu: state.evenement_arrivee.date_jeu,
+							heure: state.evenement_arrivee.heure,
+							lieu_actuel: state.evenement_arrivee.lieu_actuel || state.lieu_depart,
+							pnjs_presents: []
+						},
+						valentin: {
+							credits: state.credits,
+							inventaire: state.inventaire || []
+						},
+						ia: state.ia_nom ? { nom: state.ia_nom } : null
+					});
+				}
+				return;
+			}
+
+			// Mode LIGHT : afficher le narratif final
 			setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.role === 'assistant') {
@@ -70,12 +119,17 @@ export default function Home() {
 				}
 				return prev;
 			});
+
 			if (state) setGameState(state);
-			setLoading(false);
+
+			// Passer en mode jeu si on était en train de démarrer
+			if (gamePhase === GAME_PHASE.STARTING_ADVENTURE) {
+				setGamePhase(GAME_PHASE.PLAYING);
+			}
 		},
 		onSaved: () => {
 			setSaving(false);
-			refreshTooltips(); // Rafraîchir les tooltips après sauvegarde
+			refreshTooltips();
 		},
 		onError: (err, details) => {
 			setError({ message: err, details, recoverable: true });
@@ -88,62 +142,139 @@ export default function Home() {
 	// EFFECTS
 	// =========================================================================
 
-	// Charger la liste des parties au mount
 	useEffect(() => {
 		loadParties();
 	}, [loadParties]);
 
 	// =========================================================================
-	// HANDLERS
+	// GÉNÉRATION DU MONDE
 	// =========================================================================
 
-	const handleNewGame = async () => {
+	const generateWorld = useCallback(async (id) => {
 		setLoading(true);
+		setError(null);
+		setWorldGenProgress('');
+
+		await startStream('/chat', {
+			message: '__INIT__',
+			gameId: id,
+			gameState: null // Pas de gameState = mode INIT
+		});
+	}, [startStream, setLoading, setError]);
+
+	const handleStartAdventure = useCallback(async () => {
+		setGamePhase(GAME_PHASE.STARTING_ADVENTURE);
+		setLoading(true);
+		setError(null);
+		setMessages([]);
+
+		await startStream('/chat', {
+			message: '__ARRIVEE__',
+			gameId: partieId,
+			gameState
+		});
+	}, [partieId, gameState, startStream, setLoading, setError, setMessages]);
+
+	// =========================================================================
+	// HANDLERS PARTIES
+	// =========================================================================
+
+	const handleNewGame = useCallback(async () => {
+		setLoading(true);
+		setError(null);
 		try {
 			const id = await createPartie();
 			setPartieId(id);
 			setPartieName('Nouvelle partie');
 			setMessages([]);
 			replaceGameState(null);
+			setWorldGenProgress('');
+			setWorldData(null);
 			await loadParties();
+
+			// Lancer la génération du monde
+			setGamePhase(GAME_PHASE.GENERATING_WORLD);
+			setLoading(false);
+			generateWorld(id);
 		} catch (e) {
 			setError({ message: e.message });
-		} finally {
 			setLoading(false);
 		}
-	};
+	}, [createPartie, setPartieId, setPartieName, replaceGameState, setMessages, setError, loadParties, generateWorld]);
 
-	const handleLoadGame = async (id) => {
+	const handleLoadGame = useCallback(async (id) => {
 		setLoading(true);
+		setError(null);
 		try {
 			const data = await loadPartie(id);
 			setPartieId(id);
 			setPartieName(data.partie?.nom || data.name || 'Partie');
-			setMessages(data.messages || []);
-			replaceGameState(data.state || data);
+
+			// Charger le state
+			if (data.state) {
+				replaceGameState(data.state);
+			}
+
+			const loadedMessages = data.messages || [];
+			setMessages(loadedMessages);
+
+			// Déterminer la phase
+			if (loadedMessages.length > 0) {
+				setGamePhase(GAME_PHASE.PLAYING);
+			} else if (data.state?.partie?.lieu_actuel) {
+				// Monde créé mais aventure pas encore commencée
+				setWorldData({
+					monde_cree: true,
+					lieu_depart: data.state.partie.lieu_actuel,
+					inventaire: data.state?.valentin?.inventaire || []
+				});
+				setGamePhase(GAME_PHASE.WORLD_READY);
+			} else {
+				// Partie vierge, lancer la génération
+				setGamePhase(GAME_PHASE.GENERATING_WORLD);
+				setLoading(false);
+				generateWorld(id);
+				return;
+			}
 		} catch (e) {
 			setError({ message: e.message });
 		} finally {
 			setLoading(false);
 		}
-	};
+	}, [loadPartie, setPartieId, replaceGameState, setPartieName, setMessages, setError, generateWorld]);
 
-	const handleDeleteGame = async (id) => {
+	const handleDeleteGame = useCallback(async (id) => {
 		try {
 			await deletePartie(id);
-			if (partieId === id) resetGame();
+			if (partieId === id) {
+				resetGame();
+				setGamePhase(GAME_PHASE.LIST);
+				setWorldData(null);
+			}
 			await loadParties();
 		} catch (e) {
 			setError({ message: e.message });
 		}
-	};
+	}, [deletePartie, partieId, resetGame, loadParties, setError]);
 
-	const handleRenameGame = async (newName) => {
+	const handleRenameGame = useCallback(async (newName) => {
 		if (!partieId) return;
 		await renamePartie(partieId, newName);
 		setPartieName(newName);
 		await loadParties();
-	};
+	}, [partieId, renamePartie, setPartieName, loadParties]);
+
+	const handleQuit = useCallback(() => {
+		resetGame();
+		setGamePhase(GAME_PHASE.LIST);
+		setWorldData(null);
+		setWorldGenProgress('');
+		loadParties();
+	}, [resetGame, loadParties]);
+
+	// =========================================================================
+	// HANDLERS MESSAGES
+	// =========================================================================
 
 	const handleSendMessage = useCallback(async (content) => {
 		if (!partieId || loading) return;
@@ -155,16 +286,24 @@ export default function Home() {
 
 		await startStream('/chat', {
 			gameId: partieId,
-			message: content
+			message: content,
+			gameState
 		});
-	}, [partieId, loading, startStream, setMessages, setLoading, setSaving]);
+	}, [partieId, loading, gameState, startStream, setMessages, setLoading, setSaving]);
 
 	const handleCancel = useCallback(() => {
 		if (cancel()) {
 			setLoading(false);
 			setSaving(false);
+			setMessages(prev => {
+				const last = prev[prev.length - 1];
+				if (last?.streaming) {
+					return [...prev.slice(0, -1), { ...last, streaming: false, content: last.content + '\n\n*(Annulé)*' }];
+				}
+				return prev;
+			});
 		}
-	}, [cancel, setLoading, setSaving]);
+	}, [cancel, setLoading, setSaving, setMessages]);
 
 	const handleEdit = useCallback((index) => {
 		setEditingIndex(index);
@@ -176,7 +315,6 @@ export default function Home() {
 
 	const handleSubmitEdit = useCallback(async (content) => {
 		if (editingIndex === null) return;
-		// Rollback puis renvoyer
 		setMessages(prev => prev.slice(0, editingIndex));
 		setEditingIndex(null);
 		await handleSendMessage(content);
@@ -184,7 +322,6 @@ export default function Home() {
 
 	const handleRegenerate = useCallback(async () => {
 		if (!lastUserMessage) return;
-		// Supprimer la dernière réponse
 		setMessages(prev => {
 			const last = prev[prev.length - 1];
 			return last?.role === 'assistant' ? prev.slice(0, -1) : prev;
@@ -192,14 +329,8 @@ export default function Home() {
 		await handleSendMessage(lastUserMessage);
 	}, [lastUserMessage, setMessages, handleSendMessage]);
 
-	const handleQuit = useCallback(() => {
-		resetGame();
-	}, [resetGame]);
-
 	const handleRetry = useCallback(() => {
-		if (lastUserMessage) {
-			handleSendMessage(lastUserMessage);
-		}
+		if (lastUserMessage) handleSendMessage(lastUserMessage);
 	}, [lastUserMessage, handleSendMessage]);
 
 	// =========================================================================
@@ -207,7 +338,7 @@ export default function Home() {
 	// =========================================================================
 
 	// Écran de sélection de partie
-	if (!partieId) {
+	if (gamePhase === GAME_PHASE.LIST || !partieId) {
 		return (
 			<PartiesList
 				parties={parties}
@@ -220,10 +351,37 @@ export default function Home() {
 		);
 	}
 
-	// Écran de jeu
+	// Écran de génération du monde
+	if (gamePhase === GAME_PHASE.GENERATING_WORLD || gamePhase === GAME_PHASE.WORLD_READY) {
+		return (
+			<WorldGenerationScreen
+				isGenerating={gamePhase === GAME_PHASE.GENERATING_WORLD}
+				partialJson={worldGenProgress}
+				worldData={worldData}
+				onStartAdventure={handleStartAdventure}
+				error={error?.message}
+			/>
+		);
+	}
+
+	// Écran de démarrage de l'aventure
+	if (gamePhase === GAME_PHASE.STARTING_ADVENTURE && messages.length === 0) {
+		return (
+			<div className="min-h-screen bg-gray-900 flex items-center justify-center">
+				<div className="text-center space-y-4">
+					<div className="relative">
+						<div className="w-16 h-16 border-4 border-gray-700 rounded-full mx-auto" />
+						<div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-16 border-4 border-purple-500 rounded-full border-t-transparent animate-spin" />
+					</div>
+					<p className="text-gray-400">Début de l'aventure...</p>
+				</div>
+			</div>
+		);
+	}
+
+	// Écran de jeu normal
 	return (
 		<div className="h-screen flex flex-col bg-gray-900 text-white">
-			{/* Header */}
 			<GameHeader
 				partieName={partieName}
 				gameState={gameState}
@@ -233,7 +391,6 @@ export default function Home() {
 				onQuit={handleQuit}
 			/>
 
-			{/* Settings Panel */}
 			<SettingsPanel
 				isOpen={showSettings}
 				fontSize={fontSize}
@@ -242,13 +399,8 @@ export default function Home() {
 				onClose={() => setShowSettings(false)}
 			/>
 
-			{/* Debug State Panel */}
-			<DebugStatePanel
-				isOpen={showState}
-				gameState={gameState}
-			/>
+			<DebugStatePanel isOpen={showState} gameState={gameState} />
 
-			{/* Messages */}
 			<MessageList
 				messages={messages}
 				loading={loading}
@@ -266,7 +418,6 @@ export default function Home() {
 				tooltipMap={tooltipMap}
 			/>
 
-			{/* Input */}
 			<InputArea
 				onSend={handleSendMessage}
 				disabled={loading}

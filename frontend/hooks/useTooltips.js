@@ -13,21 +13,22 @@ export function useTooltips(partieId) {
 	const [error, setError] = useState(null);
 
 	const fetchTooltips = useCallback(async () => {
-		if (!partieId) return;
-
-		setIsLoading(true);
-		setError(null);
-
-		try {
-			const data = await tooltipsApi.get(partieId);
-			// L'API retourne { tooltips: { nom: {...}, ... } }
-			setTooltipMap(data.tooltips || {});
-		} catch (err) {
-			console.error('[useTooltips] Erreur:', err);
-			setError(err.message);
-		} finally {
-			setIsLoading(false);
-		}
+		setTooltipMap({});
+		// if (!partieId) return;
+		//
+		// setIsLoading(true);
+		// setError(null);
+		//
+		// try {
+		// 	const data = await tooltipsApi.get(partieId);
+		// 	// L'API retourne { tooltips: { nom: {...}, ... } }
+		// 	setTooltipMap(data.tooltips || {});
+		// } catch (err) {
+		// 	console.error('[useTooltips] Erreur:', err);
+		// 	setError(err.message);
+		// } finally {
+		// 	setIsLoading(false);
+		// }
 	}, [partieId]);
 
 	// Charger au mount et quand partieId change
