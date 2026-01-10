@@ -400,6 +400,27 @@ PARTICIPANT_ROLE_SYNONYMS = {
     "talked_about": "mentioned",
 }
 
+ORG_SIZE_SYNONYMS = {
+    # Trop petit → small
+    "tiny": "small",
+    "micro": "small",
+    "mini": "small",
+    "very_small": "small",
+    "startup": "small",
+    # Valeurs canoniques
+    "small": "small",
+    "medium": "medium",
+    "large": "large",
+    "station-wide": "station-wide",
+    "station_wide": "station-wide",
+    # Variations
+    "big": "large",
+    "huge": "large",
+    "massive": "station-wide",
+    "global": "station-wide",
+    "universal": "station-wide",
+}
+
 
 # =============================================================================
 # SYNONYMES POUR LES CLÉS (noms de champs)
@@ -748,6 +769,30 @@ def normalize_character(character: dict) -> dict:
     return result
 
 
+def normalize_organization(org: dict) -> dict:
+    """Normalise une organisation."""
+    if not isinstance(org, dict):
+        return org
+
+    result = dict(org)
+
+    # Normaliser size
+    if "size" in result:
+        old_val = result["size"]
+        new_val = normalize_value(old_val, ORG_SIZE_SYNONYMS, "organization.size")
+        result["size"] = new_val
+
+    # Tronquer description
+    if "description" in result:
+        result["description"] = truncate_string(
+            result["description"],
+            FIELD_MAX_LENGTHS["organization.description"],
+            "organization.description",
+        )
+
+    return result
+
+
 # =============================================================================
 # CRÉATION D'ARRIVAL_EVENT PAR DÉFAUT
 # =============================================================================
@@ -942,8 +987,11 @@ def normalize_world_generation(data: dict) -> dict:
     # === Organizations ===
     if "organizations" in result and isinstance(result["organizations"], list):
         result["organizations"] = truncate_list(
-            result["organizations"], 5, "organizations"
+            result["organizations"], LIST_MAX_LENGTHS["organizations"], "organizations"
         )
+        result["organizations"] = [
+            normalize_organization(org) for org in result["organizations"]
+        ]
 
     # === Inventory ===
     if "inventory" in result and isinstance(result["inventory"], list):

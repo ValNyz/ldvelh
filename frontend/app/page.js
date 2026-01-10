@@ -66,6 +66,9 @@ export default function Home() {
 	const [worldGenProgress, setWorldGenProgress] = useState('');
 	const [worldData, setWorldData] = useState(null);
 
+	// État d'extraction (narratif affiché, KG en cours de mise à jour)
+	const [isExtracting, setIsExtracting] = useState(false);
+
 	// Streaming avec callbacks
 	const { startStream, cancel, isStreaming, rawJson } = useStreaming({
 		onChunk: (content) => {
@@ -82,16 +85,35 @@ export default function Home() {
 			// Mode INIT : mettre à jour la progression
 			setWorldGenProgress(rawJson);
 		},
+		onExtracting: (displayText) => {
+			// Narratif terminé, extraction en cours
+			// Le joueur peut commencer à préparer sa réponse
+			setIsExtracting(true);
+
+			// Finaliser l'affichage du message
+			setMessages(prev => {
+				const last = prev[prev.length - 1];
+				if (last?.role === 'assistant') {
+					return [...prev.slice(0, -1), {
+						...last,
+						content: displayText || last.content,
+						streaming: false,
+						extracting: true
+					}];
+				}
+				return prev;
+			});
+		},
 		onDone: (displayText, state) => {
 			setLoading(false);
 			setSaving(true);
+			setIsExtracting(false);
 
 			// Mode INIT : monde créé
 			if (displayText === null && state?.monde_cree) {
 				setWorldData(state);
 				setGamePhase(GAME_PHASE.WORLD_READY);
 
-				// Mettre à jour le gameState avec les infos de base
 				setGameState({
 					partie: {
 						cycle_actuel: state.evenement_arrivee?.cycle || 1,
@@ -115,14 +137,18 @@ export default function Home() {
 			setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.role === 'assistant') {
-					return [...prev.slice(0, -1), { ...last, content: displayText || last.content, streaming: false }];
+					return [...prev.slice(0, -1), {
+						...last,
+						content: displayText || last.content,
+						streaming: false,
+						extracting: false
+					}];
 				}
 				return prev;
 			});
 
 			if (state) setGameState(state);
 
-			// Passer en mode jeu si on était en train de démarrer
 			if (gamePhase === GAME_PHASE.STARTING_ADVENTURE) {
 				setGamePhase(GAME_PHASE.PLAYING);
 			}
@@ -135,6 +161,7 @@ export default function Home() {
 			setError({ message: err, details, recoverable: true });
 			setLoading(false);
 			setSaving(false);
+			setIsExtracting(false);
 		}
 	});
 
@@ -151,9 +178,6 @@ export default function Home() {
 	// =========================================================================
 
 	const generateWorld = useCallback(async (id) => {
-		console.log('[DEBUG] generateWorld - gameState:', gameState);
-		console.log('[DEBUG] generateWorld - gameState?.monde_cree:', gameState?.monde_cree);
-
 		setLoading(true);
 		setError(null);
 		setWorldGenProgress('');
@@ -161,14 +185,11 @@ export default function Home() {
 		await startStream('/chat', {
 			message: '__INIT__',
 			gameId: id,
-			gameState: null // Pas de gameState = mode INIT
+			gameState: null
 		});
 	}, [startStream, setLoading, setError]);
 
 	const handleStartAdventure = useCallback(async () => {
-		console.log('[DEBUG] handleStartAdventure - gameState:', gameState);
-		console.log('[DEBUG] handleStartAdventure - gameState?.monde_cree:', gameState?.monde_cree);
-
 		setGamePhase(GAME_PHASE.STARTING_ADVENTURE);
 		setLoading(true);
 		setError(null);
@@ -198,7 +219,6 @@ export default function Home() {
 			setWorldData(null);
 			await loadParties();
 
-			// Lancer la génération du monde
 			setGamePhase(GAME_PHASE.GENERATING_WORLD);
 			setLoading(false);
 			generateWorld(id);
@@ -216,7 +236,6 @@ export default function Home() {
 			setPartieId(id);
 			setPartieName(data.partie?.nom || data.name || 'Partie');
 
-			// Charger le state
 			if (data.state) {
 				replaceGameState(data.state);
 			}
@@ -224,11 +243,9 @@ export default function Home() {
 			const loadedMessages = data.messages || [];
 			setMessages(loadedMessages);
 
-			// Déterminer la phase
 			if (loadedMessages.length > 0) {
 				setGamePhase(GAME_PHASE.PLAYING);
 			} else if (data.state?.monde_cree) {
-				// Monde créé mais aventure pas encore commencée
 				setWorldData({
 					monde_cree: true,
 					lieu_depart: data.state.partie.lieu_actuel,
@@ -236,7 +253,6 @@ export default function Home() {
 				});
 				setGamePhase(GAME_PHASE.WORLD_READY);
 			} else {
-				// Partie vierge, lancer la génération
 				setGamePhase(GAME_PHASE.GENERATING_WORLD);
 				setLoading(false);
 				generateWorld(id);
@@ -283,7 +299,7 @@ export default function Home() {
 	// =========================================================================
 
 	const handleSendMessage = useCallback(async (content) => {
-		if (!partieId || loading) return;
+		if (!partieId || loading || isExtracting) return;
 
 		setLastUserMessage(content);
 		setMessages(prev => [...prev, { role: 'user', content }]);
@@ -295,16 +311,22 @@ export default function Home() {
 			message: content,
 			gameState
 		});
-	}, [partieId, loading, gameState, startStream, setMessages, setLoading, setSaving]);
+	}, [partieId, loading, isExtracting, gameState, startStream, setMessages, setLoading, setSaving]);
 
 	const handleCancel = useCallback(() => {
 		if (cancel()) {
 			setLoading(false);
 			setSaving(false);
+			setIsExtracting(false);
 			setMessages(prev => {
 				const last = prev[prev.length - 1];
-				if (last?.streaming) {
-					return [...prev.slice(0, -1), { ...last, streaming: false, content: last.content + '\n\n*(Annulé)*' }];
+				if (last?.streaming || last?.extracting) {
+					return [...prev.slice(0, -1), {
+						...last,
+						streaming: false,
+						extracting: false,
+						content: last.content + '\n\n*(Annulé)*'
+					}];
 				}
 				return prev;
 			});
@@ -426,7 +448,8 @@ export default function Home() {
 
 			<InputArea
 				onSend={handleSendMessage}
-				disabled={loading}
+				disableInput={loading && !isExtracting}
+				disableSend={loading || isExtracting}
 				fontSize={fontSize}
 			/>
 		</div>

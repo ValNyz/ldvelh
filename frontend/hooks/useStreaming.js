@@ -61,6 +61,10 @@ export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) 
 								onProgress?.(fullJson);
 								break;
 
+							case 'extracting':
+								onExtracting?.(data.displayText);
+								break;
+
 							case 'done':
 								onDone?.(data.displayText, data.state);
 								break;
