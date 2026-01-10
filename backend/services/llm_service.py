@@ -3,6 +3,7 @@ LDVELH - LLM Service
 Gestion des appels à Claude
 """
 
+import time
 from collections.abc import Awaitable, Callable
 
 import anthropic
@@ -50,8 +51,10 @@ class LLMService:
         )
 
         full_json = ""
-        last_sent_display = ""
+        last_sent_length = 0
         last_progress_length = 0
+
+        start_time = time.perf_counter()
 
         try:
             async with self.client.messages.stream(
@@ -79,9 +82,28 @@ class LLMService:
                         else:
                             # Mode light: extrait et envoie le narratif
                             displayable = extract_narrative_from_partial(full_json)
-                            if displayable and displayable != last_sent_display:
-                                await sse_writer.send_chunk(displayable)
-                                last_sent_display = displayable
+                            if displayable and len(displayable) > last_sent_length:
+                                delta = displayable[
+                                    last_sent_length:
+                                ]  # " porte..." (juste le nouveau)
+                                await sse_writer.send_chunk(delta)
+                                last_sent_length = len(displayable)
+
+            elapsed = time.perf_counter() - start_time
+            mode = "INIT" if is_init_mode else "LIGHT"
+
+            print(f"\n{'=' * 60}")
+            print(f"[LLM {mode}] Génération terminée")
+            print(
+                f"[LLM {mode}] Temps: {elapsed:.2f}s | Taille: {len(full_json)} chars"
+            )
+            print(f"[LLM {mode}] Tokens estimés: ~{len(full_json) // 4}")
+            print(f"[LLM {mode}] Vitesse: ~{len(full_json) / elapsed:.0f} chars/s")
+            print(f"{'=' * 60}")
+            print(f"[LLM {mode}] SORTIE BRUTE:")
+            print(f"{'=' * 60}")
+            print(full_json)
+            print(f"{'=' * 60}\n")
 
             # Envoyer le reste en mode init
             if is_init_mode and len(full_json) > last_progress_length:

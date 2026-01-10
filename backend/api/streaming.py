@@ -179,11 +179,6 @@ def extract_narrative_from_partial(partial_json: str) -> str | None:
     start = partial_json.find(marker)
 
     if start == -1:
-        # Essayer avec narratif (ancien format)
-        marker = '"narratif":'
-        start = partial_json.find(marker)
-
-    if start == -1:
         return None
 
     # Trouve le début de la string
@@ -225,16 +220,18 @@ def build_display_text(parsed: dict) -> str:
     Construit le texte d'affichage depuis une réponse parsée.
     Ajoute les choix suggérés.
     """
-    text = parsed.get("narrative_text") or parsed.get("narratif") or ""
+
+    hour = parsed.get("hour") or ""
+    text = parsed.get("narrative_text") or ""
 
     # Ajouter les choix/suggestions
     choices = parsed.get("suggested_actions") or parsed.get("choix") or []
     if choices:
-        text += "\n\n---\n\n**Actions possibles :**\n"
+        text += "\n\n---\n\n\n"
         for i, choice in enumerate(choices, 1):
             text += f"{i}. {choice}\n"
 
-    return text.strip()
+    return f"{hour}\n{text.strip()}"
 
 
 def debug_partial_world_gen(raw_json: str) -> dict:

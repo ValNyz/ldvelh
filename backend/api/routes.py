@@ -3,6 +3,7 @@ LDVELH - API Routes
 Routes FastAPI principales
 """
 
+import time
 import asyncio
 from uuid import UUID
 
@@ -320,6 +321,7 @@ async def _handle_chat(
             context_prompt = build_narrator_context_prompt(context)
 
             async def on_light_complete(parsed, display_text, raw_json):
+                t0 = time.perf_counter()
                 if not parsed:
                     await sse_writer.send_error(
                         "Échec de génération narrative", recoverable=True
@@ -327,18 +329,32 @@ async def _handle_chat(
                     return
 
                 try:
+                    t1 = time.perf_counter()
                     # Normaliser AVANT validation Pydantic
                     parsed = normalize_narration_output(parsed)
+                    print(
+                        f"[TIMING] normalize: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    )
+                    t1 = time.perf_counter()
                     # Valider avec Pydantic
                     narration = NarrationOutput.model_validate(parsed)
-
+                    print(
+                        f"[TIMING] pydantic: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    )
+                    t1 = time.perf_counter()
                     # Traiter la narration
                     process_result = await game_service.process_light(
                         game_id, narration, current_cycle
                     )
-
+                    print(
+                        f"[TIMING] process_light: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    )
+                    t1 = time.perf_counter()
                     # Construire l'état pour le client
                     state = await game_service.load_game_state(game_id)
+                    print(
+                        f"[TIMING] load_game_state: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    )
                     state["partie"].update(
                         {
                             "cycle_actuel": process_result["cycle"],
@@ -351,9 +367,13 @@ async def _handle_chat(
                         state["partie"]["jour"] = process_result["day"]
                     if process_result.get("date"):
                         state["partie"]["date_jeu"] = process_result["date"]
-
+                    t1 = time.perf_counter()
                     await sse_writer.send_done(display_text, state)
 
+                    print(
+                        f"[TIMING] send_done: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    )
+                    t1 = time.perf_counter()
                     # Sauvegarder les messages
                     await game_service.save_messages(
                         game_id=game_id,
@@ -363,7 +383,15 @@ async def _handle_chat(
                         state_snapshot=process_result["state_snapshot"],
                     )
 
+                    print(
+                        f"[TIMING] save_messages: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    )
+
                     await sse_writer.send_saved()
+
+                    print(
+                        f"[TIMING] TOTAL on_light_complete: {(time.perf_counter() - t0) * 1000:.0f}ms"
+                    )
 
                     # Lancer l'extraction en background
                     background_tasks.add_task(

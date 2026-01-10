@@ -312,7 +312,7 @@ def game_state_to_dict(state: GameState) -> dict:
     Convertit un GameState en dict pour JSON.
     Utilise les alias français pour le frontend.
     """
-    return state.model_dump(exclude_none=True)
+    return state.model_dump(exclude_none=True, mode="json")
 
 
 def game_state_to_json(state: GameState) -> str:

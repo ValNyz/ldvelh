@@ -598,7 +598,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
         event_id = await conn.fetchval(
             """INSERT INTO events 
-               (game_id, type, title, description, planned_cycle, moment, 
+               (game_id, type, title, description, planned_cycle, hour, 
                 location_id, recurrence, amount)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                RETURNING id""",
@@ -607,7 +607,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             event.title,
             event.description,
             event.planned_cycle,
-            event.moment.value if event.moment else None,
+            event.hour,
             location_id,
             json.dumps(event.recurrence) if event.recurrence else None,
             event.amount,
