@@ -57,8 +57,16 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # 1. Create game
-                await self.create_game(conn, world_gen.world.name)
+                # 1. Create game OR rename existing
+                if self.game_id:
+                    # Game already exists, just rename it
+                    await conn.execute(
+                        "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
+                        world_gen.world.name,
+                        self.game_id,
+                    )
+                else:
+                    await self.create_game(conn, world_gen.world.name)
 
                 # 2. Create world as top-level location
                 await self._create_world(conn, world_gen.world)
@@ -237,7 +245,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     "arrival_location": arrival.arrival_location_ref,
                     "sensory_details": arrival.immediate_sensory_details,
                     "immediate_need": arrival.immediate_need,
-                    "first_npc": arrival.first_npc_encountered,
+                    "first_npc_encountered": arrival.first_npc_encountered,
                 }
             ),
         )

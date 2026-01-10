@@ -844,7 +844,7 @@ def create_default_arrival_event(data: dict) -> dict:
         "arrival_method": "navette de transport",
         "arrival_location_ref": arrival_location,
         "arrival_date": "Lundi 1er Janvier 2850",
-        "time_of_day": "morning",
+        "time": "8h00",
         "immediate_sensory_details": [
             "L'air recyclé de la station",
             "Le bourdonnement des systèmes",
