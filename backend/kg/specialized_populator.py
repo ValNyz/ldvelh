@@ -219,7 +219,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             f"Arrivée sur la station via {arrival.arrival_method}. {arrival.optional_incident or ''}",
             "exploration",
             location_id,
-            arrival.time_of_day.value,
+            arrival.hour,
             4,
             json.dumps([{"name": "Valentin", "role": "actor"}]),
         )
