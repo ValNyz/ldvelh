@@ -409,7 +409,19 @@ async def _handle_chat(
                     )
                     t1 = time.perf_counter()
                     # Sauvegarder les messages
-                    segment_summary = summary_task_holder.get("task", "")
+                    summary_task = summary_task_holder.get("task", "")
+                    segment_summary = ""
+                    if summary_task and summary_task.done():
+                        try:
+                            summary_result = summary_task.result()
+                            segment_summary = (
+                                summary_result.get("segment_summary", "")
+                                if summary_result
+                                else ""
+                            )
+                        except Exception as e:
+                            logger.warning(f"[CHAT] Échec récupération summary: {e}")
+
                     await game_service.save_messages(
                         game_id=game_id,
                         user_message=message,
@@ -446,6 +458,7 @@ async def _handle_chat(
                 sse_writer=sse_writer,
                 is_init_mode=False,
                 on_complete=on_light_complete,
+                on_narrative_ready=on_narrative_ready,
             )
 
     except Exception as e:
