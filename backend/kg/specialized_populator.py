@@ -1,6 +1,6 @@
 """
 LDVELH - Specialized Populators
-WorldPopulator: Initial world generation
+WorldPopulator: Initial world generation processing
 ExtractionPopulator: Narrative extraction processing
 """
 
@@ -18,7 +18,6 @@ from schema import (
     EntityCreation,
     EntityType,
     EntityUpdate,
-    FactDomain,
     FactType,
     InventoryChange,
     LocationData,
@@ -594,7 +593,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 FactData(
                     cycle=cycle,
                     fact_type=FactType.ACTION,
-                    domain=FactDomain.PERSONAL,
                     description=f"Utilise {change.object_ref}. {change.reason or ''}",
                     importance=2,
                     participants=[FactParticipant(entity_ref="Valentin", role="actor")],
