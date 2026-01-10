@@ -6,7 +6,13 @@ Input/Output pour le LLM narrateur
 from typing import Optional
 from pydantic import BaseModel, Field
 
-from .core import EntityRef, ArcDomain
+from .core import (
+    ArcDomain,
+    EntityRef,
+    Phrase,
+    Tag,
+    Text,
+)
 
 
 # =============================================================================
@@ -282,10 +288,7 @@ class TimeProgression(BaseModel):
         default=False,
         description="True si saut temporel significatif (ellipse narrative)",
     )
-    ellipse_summary: Optional[str] = Field(
-        default=None,
-        description="Si ellipse: résumé de ce qui s'est passé pendant le saut",
-    )
+    ellipse_summary: Phrase | None = None  # 150 chars
 
 
 class DayTransition(BaseModel):
@@ -294,9 +297,7 @@ class DayTransition(BaseModel):
     new_cycle: int
     new_day: str
     new_date: str  # "Jeudi 16 Mars 2847"
-    night_summary: Optional[str] = Field(
-        default=None, description="Résumé de la nuit/transition si pertinent"
-    )
+    night_summary: Phrase | None = None  # 150 chars
 
 
 class NarrationOutput(BaseModel):
@@ -326,22 +327,16 @@ class NarrationOutput(BaseModel):
     )
 
     # === CHOIX ===
-    suggested_actions: list[str] = Field(
+    suggested_actions: list[Phrase] = Field(
         ...,
         min_length=2,
         max_length=5,
-        description="Suggestions d'actions possibles (non obligatoires pour le joueur)",
+        description="Suggestions d'actions possibles",
     )
 
     # === HINTS POUR EXTRACTION ===
     hints: NarrationHints
 
     # === META ===
-    scene_mood: Optional[str] = Field(
-        default=None, max_length=50, description="Ambiance de la scène en 2-3 mots"
-    )
-    narrator_notes: Optional[str] = Field(
-        default=None,
-        max_length=300,
-        description="Notes internes (non montrées au joueur)",
-    )
+    scene_mood: Tag | None = None  # 50 chars - Ambiance en 2-3 mots
+    narrator_notes: Text | None = None  # 300 chars - Notes internes

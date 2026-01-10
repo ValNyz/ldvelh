@@ -3,17 +3,33 @@ LDVELH - Entity Schema Models
 Modèles pour chaque type d'entité, réutilisables partout
 """
 
+import logging
 from pydantic import BaseModel, Field, field_validator
 
 from .core import (
     ArcDomain,
+    Backstory,
     Cycle,
     DepartureReason,
     EntityRef,
+    FullText,
+    Label,
+    LongText,
+    Name,
+    OrgSize,
+    Phrase,
+    ShortText,
     Skill,
+    Tag,
     TemporalValidationMixin,
+    Text,
+    normalize_departure_reason,
+    normalize_org_size,
 )
 from .narrative import CharacterArc
+
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
 # WORLD / STATION
@@ -23,11 +39,11 @@ from .narrative import CharacterArc
 class WorldData(BaseModel, TemporalValidationMixin):
     """The space station/habitat - top-level location"""
 
-    name: str = Field(..., max_length=100)
-    station_type: str = Field(..., max_length=50)
+    name: Name  # 100 chars
+    station_type: Tag  # 50 chars
     population: int = Field(..., ge=100, le=5_000_000)
-    atmosphere: str = Field(..., max_length=50, description="2-3 words")
-    description: str = Field(..., max_length=500)
+    atmosphere: Tag  # 50 chars - 2-3 words
+    description: FullText  # 500 chars
     sectors: list[str] = Field(..., min_length=2, max_length=10)
     founding_cycle: Cycle = Field(
         default=-5000,
@@ -44,11 +60,11 @@ class WorldData(BaseModel, TemporalValidationMixin):
 class ProtagonistData(BaseModel):
     """The player character"""
 
-    name: str = Field(default="Valentin", max_length=50)
-    origin_location: str = Field(..., max_length=100)
+    name: Tag = "Valentin"  # 50 chars
+    origin_location: Name  # 100 chars
     departure_reason: DepartureReason
-    departure_story: str = Field(..., max_length=400)
-    backstory: str = Field(..., max_length=600)
+    departure_story: LongText  # 400 chars
+    backstory: Backstory  # 600 chars
     hobbies: list[str] = Field(..., min_length=2, max_length=5)
     skills: list[Skill] = Field(..., min_length=2, max_length=6)
     initial_credits: int = Field(..., ge=0, le=10000)
@@ -56,58 +72,25 @@ class ProtagonistData(BaseModel):
     initial_morale: float = Field(default=3.0, ge=0, le=5)
     initial_health: float = Field(default=4.0, ge=0, le=5)
 
+    @field_validator("departure_reason", mode="before")
+    @classmethod
+    def _normalize_departure_reason(cls, v):
+        return normalize_departure_reason(v)
+
 
 # =============================================================================
 # PERSONAL AI
 # =============================================================================
 
-FORBIDDEN_AI_NAMES = frozenset(
-    [
-        "aria",
-        "nova",
-        "luna",
-        "stella",
-        "aurora",
-        "athena",
-        "cortana",
-        "alexa",
-        "siri",
-        "echo",
-        "iris",
-        "lyra",
-        "astra",
-        "vega",
-        "maya",
-        "eve",
-        "ava",
-        "zoe",
-        "cleo",
-        "neo",
-        "max",
-        "sam",
-        "friday",
-        "jarvis",
-    ]
-)
-
 
 class PersonalAIData(BaseModel):
     """The protagonist's AI companion"""
 
-    name: str = Field(..., max_length=30)
-    voice_description: str = Field(..., max_length=150)
+    name: Label  # 30 chars
+    voice_description: Phrase  # 150 chars
     personality_traits: list[str] = Field(..., min_length=2, max_length=5)
-    substrate: str = Field(default="personal_device", max_length=50)
-    quirk: str = Field(..., max_length=200)
-
-    @field_validator("name")
-    @classmethod
-    def validate_ai_name(cls, v: str) -> str:
-        if v.lower() in FORBIDDEN_AI_NAMES:
-            raise ValueError(
-                f"AI name '{v}' is too common/cliché. Choose something original."
-            )
-        return v
+    substrate: Tag = "personal_device"  # 50 chars
+    quirk: ShortText  # 200 chars
 
 
 # =============================================================================
@@ -118,17 +101,17 @@ class PersonalAIData(BaseModel):
 class CharacterData(BaseModel, TemporalValidationMixin):
     """An NPC in the world"""
 
-    name: str = Field(..., max_length=100)
-    species: str = Field(default="human", max_length=50)
-    gender: str = Field(..., max_length=30)
-    pronouns: str = Field(..., max_length=20)
+    name: Name  # 100 chars
+    species: Tag = "human"  # 50 chars
+    gender: Label  # 30 chars
+    pronouns: Label  # 30 chars
     age: int | None = Field(default=None, ge=1, le=1000)
-    physical_description: str = Field(..., max_length=300)
+    physical_description: Text  # 300 chars
     personality_traits: list[str] = Field(..., min_length=2, max_length=6)
-    occupation: str = Field(..., max_length=100)
+    occupation: Name  # 100 chars
     workplace_ref: EntityRef | None = None
     residence_ref: EntityRef | None = None
-    origin_location: str | None = Field(default=None, max_length=100)
+    origin_location: Name | None = None  # 100 chars
     station_arrival_cycle: Cycle = Field(
         ...,
         le=1,
@@ -146,18 +129,17 @@ class CharacterData(BaseModel, TemporalValidationMixin):
     # Meta
     is_mandatory: bool = Field(default=False)
     romantic_potential: bool = Field(default=False)
-    initial_relationship_to_protagonist: str | None = Field(
-        default=None, max_length=200
-    )
+    initial_relationship_to_protagonist: ShortText | None = None  # 200 chars
 
     @field_validator("arcs")
     @classmethod
     def validate_arc_diversity(cls, v: list[CharacterArc]) -> list[CharacterArc]:
-        """Encourage diverse arc domains"""
+        """Encourage diverse arc domains - soft validation"""
         domains = [arc.domain for arc in v]
         if len(v) >= 3 and len(set(domains)) < 2:
-            raise ValueError(
-                "Character with 3+ arcs should have at least 2 different domains"
+            logger.warning(
+                f"[Validation] Character has {len(v)} arcs but only "
+                f"{len(set(domains))} domain(s) - diversity encouraged"
             )
         return v
 
@@ -170,16 +152,16 @@ class CharacterData(BaseModel, TemporalValidationMixin):
 class LocationData(BaseModel):
     """A place in the station"""
 
-    name: str = Field(..., max_length=100)
-    location_type: str = Field(..., max_length=50)
-    sector: str | None = Field(default=None, max_length=50)
-    description: str = Field(..., max_length=400)
-    atmosphere: str = Field(..., max_length=100)
+    name: Name  # 100 chars
+    location_type: Tag  # 50 chars
+    sector: Tag | None = None  # 50 chars
+    description: LongText  # 400 chars
+    atmosphere: Name  # 100 chars - slightly longer for locations
     parent_location_ref: EntityRef | None = None
     accessible: bool = True
     notable_features: list[str] = Field(default_factory=list, max_length=5)
-    typical_crowd: str | None = Field(default=None, max_length=150)
-    operating_hours: str | None = Field(default=None, max_length=50)
+    typical_crowd: Phrase | None = None  # 150 chars
+    operating_hours: Tag | None = None  # 50 chars
 
 
 # =============================================================================
@@ -190,14 +172,14 @@ class LocationData(BaseModel):
 class ObjectData(BaseModel):
     """An item that can be owned"""
 
-    name: str = Field(..., max_length=100)
-    category: str = Field(..., max_length=50)
-    description: str = Field(..., max_length=200)
+    name: Name  # 100 chars
+    category: Tag  # 50 chars
+    description: ShortText  # 200 chars
     transportable: bool = True
     stackable: bool = False
     quantity: int = Field(default=1, ge=1)
     base_value: int = Field(default=0, ge=0)
-    emotional_significance: str | None = Field(default=None, max_length=150)
+    emotional_significance: Phrase | None = None  # 150 chars
 
 
 # =============================================================================
@@ -208,15 +190,20 @@ class ObjectData(BaseModel):
 class OrganizationData(BaseModel, TemporalValidationMixin):
     """A company, faction, or group"""
 
-    name: str = Field(..., max_length=100)
-    org_type: str = Field(..., max_length=50)
-    domain: str = Field(..., max_length=100)
-    size: str = Field(..., pattern="^(small|medium|large|station-wide)$")
-    description: str = Field(..., max_length=500)
-    reputation: str = Field(..., max_length=150)
+    name: Name  # 100 chars
+    org_type: Tag  # 50 chars
+    domain: Name  # 100 chars
+    size: OrgSize
+    description: FullText  # 500 chars
+    reputation: Phrase  # 150 chars
     headquarters_ref: EntityRef | None = None
     founding_cycle: Cycle | None = Field(default=None, le=1)
     is_employer: bool = False
+
+    @field_validator("size", mode="before")
+    @classmethod
+    def _normalize_size(cls, v):
+        return normalize_org_size(v)
 
 
 # =============================================================================

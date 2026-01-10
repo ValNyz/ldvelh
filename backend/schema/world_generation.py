@@ -1,11 +1,21 @@
 """
 LDVELH - World Generation Schema
 Modèle spécifique pour la génération initiale du monde
+Avec validation SOFT des références (filtrage au lieu d'erreur)
 """
 
+import logging
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .core import EntityRef, TemporalValidationMixin
+from .core import (
+    EntityRef,
+    Mood,
+    Name,
+    ShortText,
+    Tag,
+    TemporalValidationMixin,
+    Text,
+)
 from .entities import (
     CharacterData,
     LocationData,
@@ -18,6 +28,8 @@ from .entities import (
 from .relations import RelationData
 from .narrative import NarrativeArcData
 
+logger = logging.getLogger(__name__)
+
 # =============================================================================
 # ARRIVAL EVENT
 # =============================================================================
@@ -26,19 +38,15 @@ from .narrative import NarrativeArcData
 class ArrivalEventData(BaseModel):
     """Instructions for generating the first narrative moment"""
 
-    arrival_method: str = Field(..., max_length=100)
+    arrival_method: Name  # 100 chars
     arrival_location_ref: EntityRef
-    arrival_date: str = Field(
-        ...,
-        max_length=50,
-        description="Date d'arrivée dans l'univers, ex: 'Lundi 14 Mars 2847'",
-    )
+    arrival_date: Tag  # 50 chars - ex: 'Lundi 14 Mars 2847'
     time: str  # "14h30"
     immediate_sensory_details: list[str] = Field(..., min_length=3, max_length=6)
     first_npc_encountered: EntityRef | None = None
-    initial_mood: str = Field(..., max_length=80)
-    immediate_need: str = Field(..., max_length=200)
-    optional_incident: str | None = Field(default=None, max_length=300)
+    initial_mood: Mood  # 80 chars
+    immediate_need: ShortText  # 200 chars
+    optional_incident: Text | None = None  # 300 chars
 
 
 # =============================================================================
@@ -56,7 +64,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         max_length=6,
         description="Thematic words guiding this generation",
     )
-    tone_notes: str = Field(..., max_length=300)
+    tone_notes: Text  # 300 chars
 
     # Core elements
     world: WorldData
@@ -82,21 +90,90 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     # VALIDATORS
     # =========================================================================
 
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_arrival_event(cls, data: dict) -> dict:
+        """Create default arrival_event if missing (truncated JSON from LLM)"""
+        if not isinstance(data, dict):
+            return data
+
+        if "arrival_event" not in data or data["arrival_event"] is None:
+            logger.warning("[Validation] arrival_event missing → creating default")
+            data["arrival_event"] = cls._create_default_arrival_event(data)
+
+        return data
+
+    @staticmethod
+    def _create_default_arrival_event(data: dict) -> dict:
+        """Create a default arrival_event based on available data."""
+        # Find an arrival location (dock, terminal, etc.)
+        arrival_location = "Station"
+        if "locations" in data and isinstance(data["locations"], list):
+            arrival_types = {
+                "dock",
+                "terminal",
+                "port",
+                "arrival",
+                "gate",
+                "bay",
+                "quai",
+            }
+            for loc in data["locations"]:
+                if isinstance(loc, dict):
+                    loc_type = loc.get("location_type", "").lower()
+                    if any(t in loc_type for t in arrival_types):
+                        arrival_location = loc.get("name", arrival_location)
+                        break
+            # Fallback: first location
+            if arrival_location == "Station" and data["locations"]:
+                first_loc = data["locations"][0]
+                if isinstance(first_loc, dict):
+                    arrival_location = first_loc.get("name", "Station")
+
+        # Find a potential first NPC
+        first_npc = None
+        if (
+            "characters" in data
+            and isinstance(data["characters"], list)
+            and data["characters"]
+        ):
+            first_char = data["characters"][0]
+            if isinstance(first_char, dict):
+                first_npc = first_char.get("name")
+
+        return {
+            "arrival_method": "navette de transport",
+            "arrival_location_ref": arrival_location,
+            "arrival_date": "Lundi 1er Janvier 2850",
+            "time": "8h00",
+            "immediate_sensory_details": [
+                "L'air recyclé de la station",
+                "Le bourdonnement des systèmes",
+                "La lumière artificielle",
+            ],
+            "first_npc_encountered": first_npc,
+            "initial_mood": "Mélange d'appréhension et d'excitation",
+            "immediate_need": "Trouver ses quartiers et s'orienter",
+            "optional_incident": None,
+        }
+
     @field_validator("characters")
     @classmethod
     def validate_character_diversity(
         cls, v: list[CharacterData]
     ) -> list[CharacterData]:
-        """Ensure species diversity"""
+        """Ensure species diversity - soft validation"""
         species = [c.species.lower() for c in v]
         if species.count("human") == len(species):
-            raise ValueError("Need at least one non-human character for diversity")
+            logger.warning(
+                "[Validation] All characters are human - diversity encouraged"
+            )
         return v
 
     @field_validator("locations")
     @classmethod
     def validate_essential_locations(cls, v: list[LocationData]) -> list[LocationData]:
-        """Ensure we have arrival point and residence"""
+        """Ensure we have arrival point and residence - soft validation"""
         types = [loc.location_type.lower() for loc in v]
 
         residence_types = {
@@ -113,108 +190,258 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         has_arrival = any(t in arrival_types for t in types)
 
         if not has_residence:
-            raise ValueError("Must include a residence location for Valentin")
+            logger.warning("[Validation] No residence location found for Valentin")
         if not has_arrival:
-            raise ValueError("Must include an arrival location (dock, terminal, etc.)")
+            logger.warning("[Validation] No arrival location (dock, terminal) found")
         return v
 
     @model_validator(mode="after")
-    def validate_temporal_coherence(self) -> "WorldGeneration":
-        """Validate all temporal relationships"""
+    def validate_temporal_coherence_soft(self) -> "WorldGeneration":
+        """
+        Validate all temporal relationships - SOFT MODE.
+        Filters out entities with invalid temporal data instead of raising.
+        """
         founding = self.world.founding_cycle
 
-        # Check character arrivals
+        # Filter characters with invalid arrival cycles
+        valid_chars = []
         for char in self.characters:
-            if char.station_arrival_cycle < founding:
-                raise ValueError(
-                    f"Character '{char.name}' arrived (cycle {char.station_arrival_cycle}) "
-                    f"before station was founded (cycle {founding})"
-                )
+            if self.is_temporally_valid(
+                char.station_arrival_cycle, founding, f"Character '{char.name}'"
+            ):
+                valid_chars.append(char)
 
-        # Check organization foundings
+        if len(valid_chars) != len(self.characters):
+            self.characters = valid_chars
+
+        # Filter organizations with invalid founding cycles
+        valid_orgs = []
         for org in self.organizations:
-            if org.founding_cycle and org.founding_cycle < founding:
-                raise ValueError(
-                    f"Organization '{org.name}' founded (cycle {org.founding_cycle}) before station (cycle {founding})"
-                )
+            if org.founding_cycle is None or self.is_temporally_valid(
+                org.founding_cycle, founding, f"Organization '{org.name}'"
+            ):
+                valid_orgs.append(org)
+
+        if len(valid_orgs) != len(self.organizations):
+            self.organizations = valid_orgs
 
         return self
 
     @model_validator(mode="after")
-    def validate_references(self) -> "WorldGeneration":
-        """Validate all entity references exist"""
-        # Build entity name registry
-        known_names = {self.protagonist.name.lower(), self.personal_ai.name.lower()}
-        known_names.add(self.world.name.lower())
-        known_names.update(c.name.lower() for c in self.characters)
-        known_names.update(l.name.lower() for l in self.locations)
-        known_names.update(o.name.lower() for o in self.organizations)
-        known_names.update(i.name.lower() for i in self.inventory)
+    def validate_references_soft(self) -> "WorldGeneration":
+        """
+        Validate all entity references - SOFT MODE.
+        Instead of raising errors, filter out entities with invalid refs.
+        Uses multi-pass to handle cascading invalidations.
+        """
+        max_passes = 5
+        pass_num = 0
 
-        errors = []
+        while pass_num < max_passes:
+            pass_num += 1
+            changed = False
 
-        # Check character refs
-        for char in self.characters:
-            if char.workplace_ref and char.workplace_ref.lower() not in known_names:
-                errors.append(
-                    f"Character '{char.name}' workplace_ref '{char.workplace_ref}' not found"
-                )
-            if char.residence_ref and char.residence_ref.lower() not in known_names:
-                errors.append(
-                    f"Character '{char.name}' residence_ref '{char.residence_ref}' not found"
-                )
+            # Build current registry of valid names
+            known_names = self._build_name_registry()
 
-        # Check location parent refs
-        for loc in self.locations:
-            if (
-                loc.parent_location_ref
-                and loc.parent_location_ref.lower() not in known_names
-            ):
-                errors.append(
-                    f"Location '{loc.name}' parent_ref '{loc.parent_location_ref}' not found"
-                )
+            # --- Filter characters with invalid refs ---
+            valid_chars = []
+            for char in self.characters:
+                issues = []
+                if char.workplace_ref and char.workplace_ref.lower() not in known_names:
+                    issues.append(f"workplace_ref '{char.workplace_ref}'")
+                if char.residence_ref and char.residence_ref.lower() not in known_names:
+                    issues.append(f"residence_ref '{char.residence_ref}'")
 
-        # Check organization HQ refs
-        for org in self.organizations:
-            if org.headquarters_ref and org.headquarters_ref.lower() not in known_names:
-                errors.append(
-                    f"Organization '{org.name}' HQ ref '{org.headquarters_ref}' not found"
-                )
-
-        # Check relation refs
-        for rel in self.initial_relations:
-            if rel.source_ref.lower() not in known_names:
-                errors.append(f"Relation source '{rel.source_ref}' not found")
-            if rel.target_ref.lower() not in known_names:
-                errors.append(f"Relation target '{rel.target_ref}' not found")
-
-        # Check arrival event refs
-        if self.arrival_event.arrival_location_ref.lower() not in known_names:
-            errors.append(
-                f"Arrival location '{self.arrival_event.arrival_location_ref}' not found"
-            )
-        if self.arrival_event.first_npc_encountered:
-            if self.arrival_event.first_npc_encountered.lower() not in known_names:
-                errors.append(
-                    f"First NPC '{self.arrival_event.first_npc_encountered}' not found"
-                )
-
-        # Check narrative arc refs
-        for arc in self.narrative_arcs:
-            for entity in arc.involved_entities:
-                if entity.lower() not in known_names:
-                    errors.append(
-                        f"Arc '{arc.title}' references unknown entity '{entity}'"
+                if issues:
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: Filtering Character '{char.name}' "
+                        f"- invalid {', '.join(issues)}"
                     )
+                    changed = True
+                else:
+                    valid_chars.append(char)
 
-        if errors:
-            raise ValueError("Reference validation failed:\n" + "\n".join(errors[:10]))
+            if len(valid_chars) != len(self.characters):
+                self.characters = valid_chars
+
+            # --- Filter locations with invalid parent refs ---
+            valid_locs = []
+            for loc in self.locations:
+                if (
+                    loc.parent_location_ref
+                    and loc.parent_location_ref.lower() not in known_names
+                ):
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: Filtering Location '{loc.name}' "
+                        f"- invalid parent_ref '{loc.parent_location_ref}'"
+                    )
+                    changed = True
+                else:
+                    valid_locs.append(loc)
+
+            if len(valid_locs) != len(self.locations):
+                self.locations = valid_locs
+
+            # --- Filter organizations with invalid HQ refs ---
+            valid_orgs = []
+            for org in self.organizations:
+                if (
+                    org.headquarters_ref
+                    and org.headquarters_ref.lower() not in known_names
+                ):
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: Filtering Organization '{org.name}' "
+                        f"- invalid HQ ref '{org.headquarters_ref}'"
+                    )
+                    changed = True
+                else:
+                    valid_orgs.append(org)
+
+            if len(valid_orgs) != len(self.organizations):
+                self.organizations = valid_orgs
+
+            # Rebuild registry after entity filtering
+            known_names = self._build_name_registry()
+
+            # --- Filter relations with invalid refs ---
+            valid_rels = []
+            for rel in self.initial_relations:
+                source_valid = rel.source_ref.lower() in known_names
+                target_valid = rel.target_ref.lower() in known_names
+
+                if not source_valid or not target_valid:
+                    invalid_refs = []
+                    if not source_valid:
+                        invalid_refs.append(f"source '{rel.source_ref}'")
+                    if not target_valid:
+                        invalid_refs.append(f"target '{rel.target_ref}'")
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: Filtering Relation {rel.relation_type.value} "
+                        f"- invalid {', '.join(invalid_refs)}"
+                    )
+                    changed = True
+                else:
+                    valid_rels.append(rel)
+
+            if len(valid_rels) != len(self.initial_relations):
+                self.initial_relations = valid_rels
+
+            # --- Filter narrative arcs with invalid entity refs ---
+            valid_arcs = []
+            for arc in self.narrative_arcs:
+                invalid_entities = [
+                    e for e in arc.involved_entities if e.lower() not in known_names
+                ]
+                if invalid_entities:
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: Filtering Arc '{arc.title}' "
+                        f"- invalid entities: {invalid_entities}"
+                    )
+                    changed = True
+                else:
+                    valid_arcs.append(arc)
+
+            if len(valid_arcs) != len(self.narrative_arcs):
+                self.narrative_arcs = valid_arcs
+
+            # --- Fix arrival_event refs (required fields - use fallback) ---
+            if self.arrival_event.arrival_location_ref.lower() not in known_names:
+                # Find a valid arrival location
+                fallback = self._find_arrival_location_fallback()
+                if fallback:
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: arrival_location_ref "
+                        f"'{self.arrival_event.arrival_location_ref}' not found "
+                        f"→ fallback to '{fallback}'"
+                    )
+                    self.arrival_event.arrival_location_ref = fallback
+                    changed = True
+
+            if self.arrival_event.first_npc_encountered:
+                if self.arrival_event.first_npc_encountered.lower() not in known_names:
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: first_npc_encountered "
+                        f"'{self.arrival_event.first_npc_encountered}' not found "
+                        f"→ setting to None"
+                    )
+                    self.arrival_event.first_npc_encountered = None
+                    changed = True
+
+            # If nothing changed, we're done
+            if not changed:
+                if pass_num > 1:
+                    logger.info(
+                        f"[SoftRef] Validation stabilized after {pass_num} passes"
+                    )
+                break
+
+        if pass_num >= max_passes:
+            logger.warning(
+                f"[SoftRef] Reached max passes ({max_passes}), may have remaining issues"
+            )
+
+        # Final validation: ensure minimums are still met
+        self._validate_minimums_after_filtering()
 
         return self
+
+    def _build_name_registry(self) -> set[str]:
+        """Build a set of all known entity names (lowercase)"""
+        known = {self.protagonist.name.lower(), self.personal_ai.name.lower()}
+        known.add(self.world.name.lower())
+        known.update(c.name.lower() for c in self.characters)
+        known.update(loc.name.lower() for loc in self.locations)
+        known.update(org.name.lower() for org in self.organizations)
+        known.update(item.name.lower() for item in self.inventory)
+        return known
+
+    def _find_arrival_location_fallback(self) -> str | None:
+        """Find a suitable arrival location from existing locations"""
+        arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
+
+        # First try: find a proper arrival location
+        for loc in self.locations:
+            if loc.location_type.lower() in arrival_types:
+                return loc.name
+
+        # Fallback: first location
+        if self.locations:
+            return self.locations[0].name
+
+        return None
+
+    def _validate_minimums_after_filtering(self) -> None:
+        """Ensure we still meet minimum requirements after filtering"""
+        issues = []
+
+        if len(self.characters) < 3:
+            issues.append(f"characters: {len(self.characters)}/3")
+
+        if len(self.locations) < 4:
+            issues.append(f"locations: {len(self.locations)}/4")
+
+        if len(self.organizations) < 1:
+            issues.append(f"organizations: {len(self.organizations)}/1")
+
+        if len(self.narrative_arcs) < 3:
+            issues.append(f"narrative_arcs: {len(self.narrative_arcs)}/3")
+
+        if len(self.initial_relations) < 5:
+            issues.append(f"relations: {len(self.initial_relations)}/5")
+
+        if issues:
+            logger.error(
+                f"[SoftRef] After filtering, minimums not met: {', '.join(issues)}"
+            )
+            raise ValueError(
+                f"Too many entities filtered due to invalid refs. "
+                f"Minimums not met: {', '.join(issues)}"
+            )
 
     @model_validator(mode="after")
     def validate_inventory_for_departure(self) -> "WorldGeneration":
-        """Check inventory matches departure reason"""
+        """Check inventory matches departure reason - soft validation"""
         reason = self.protagonist.departure_reason
         credits = self.protagonist.initial_credits
 
@@ -230,8 +457,9 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
         min_c, max_c = expected_ranges.get(reason.value, (0, 10000))
         if not (min_c <= credits <= max_c):
-            raise ValueError(
-                f"Credits ({credits}) unusual for departure_reason '{reason.value}' (expected {min_c}-{max_c})"
+            logger.warning(
+                f"[Validation] Credits ({credits}) unusual for departure_reason "
+                f"'{reason.value}' (expected {min_c}-{max_c})"
             )
 
         return self

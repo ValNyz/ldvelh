@@ -5,7 +5,7 @@ Modèles pour extraire les données du texte narratif généré par le LLM
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
     Attribute,
@@ -14,15 +14,22 @@ from .core import (
     Cycle,
     EntityRef,
     EntityType,
+    FullText,
+    LongText,
+    Name,
+    Phrase,
+    ShortText,
     Skill,
+    Tag,
+    Text,
+    normalize_certainty,
+    normalize_commitment_type,
+    normalize_entity_type,
 )
 from .entities import CharacterData, LocationData, ObjectData, OrganizationData
 from .narrative import (
     BeliefData,
     CharacterArc,
-    CommitmentCreation,
-    CommitmentResolution,
-    EventScheduled,
     FactData,
 )
 from .relations import RelationData, RelationType
@@ -36,7 +43,7 @@ class EntityCreation(BaseModel):
     """A new entity discovered/introduced in the narrative"""
 
     entity_type: EntityType
-    name: str = Field(..., max_length=100)
+    name: Name  # 100 chars
     aliases: list[str] = Field(default_factory=list)
     confirmed: bool = Field(
         default=True, description="False if entity is only mentioned/rumored"
@@ -46,6 +53,11 @@ class EntityCreation(BaseModel):
     location_data: LocationData | None = None
     object_data: ObjectData | None = None  # Pour objets décor uniquement
     organization_data: OrganizationData | None = None
+
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def _normalize_entity_type(cls, v):
+        return normalize_entity_type(v)
 
     @model_validator(mode="after")
     def validate_data_matches_type(self) -> "EntityCreation":
@@ -74,14 +86,14 @@ class EntityUpdate(BaseModel):
     skills_changed: list[Skill] = Field(default_factory=list)
     arc_updates: list[CharacterArc] = Field(default_factory=list)
     removed: bool = False
-    removal_reason: str | None = None
+    removal_reason: Text | None = None  # 300 chars
 
 
 class EntityRemoval(BaseModel):
     """An entity that's been removed (death, departure, destruction)"""
 
     entity_ref: EntityRef
-    reason: str = Field(..., max_length=300)
+    reason: Text  # 300 chars
     cycle: Cycle
 
 
@@ -96,14 +108,14 @@ class ObjectCreation(BaseModel):
     Produced by the Objects extractor based on inventory hints.
     """
 
-    name: str = Field(..., max_length=100)
-    category: str = Field(..., max_length=50)
-    description: str = Field(..., max_length=200)
+    name: Name  # 100 chars
+    category: Tag  # 50 chars
+    description: ShortText  # 200 chars
     transportable: bool = True
     stackable: bool = False
     base_value: int = Field(default=0, ge=0)
-    emotional_significance: str | None = Field(default=None, max_length=150)
-    from_hint: str = Field(..., description="The original hint this was created from")
+    emotional_significance: Phrase | None = None  # 150 chars
+    from_hint: ShortText  # 200 chars - The original hint
 
 
 # =============================================================================
@@ -126,8 +138,15 @@ class RelationUpdate(BaseModel):
     relation_type: RelationType
     new_certainty: CertaintyLevel | None = None
     new_level: int | None = Field(default=None, ge=0, le=10)
-    new_context: str | None = None
+    new_context: ShortText | None = None  # 200 chars
     revealed_truth: bool | None = None
+
+    @field_validator("new_certainty", mode="before")
+    @classmethod
+    def _normalize_certainty(cls, v):
+        if v is None:
+            return v
+        return normalize_certainty(v)
 
 
 class RelationEnd(BaseModel):
@@ -137,7 +156,7 @@ class RelationEnd(BaseModel):
     target_ref: EntityRef
     relation_type: RelationType
     cycle: Cycle
-    reason: str | None = Field(default=None, max_length=200)
+    reason: ShortText | None = None  # 200 chars
 
 
 # =============================================================================
@@ -150,14 +169,14 @@ class GaugeChange(BaseModel):
 
     gauge: Literal["energy", "morale", "health"]
     delta: float = Field(..., ge=-5, le=5)
-    reason: str = Field(..., max_length=100)
+    reason: Name  # 100 chars
 
 
 class CreditTransaction(BaseModel):
     """Money gained or spent"""
 
     amount: int  # Positive = gain, negative = spend
-    description: str = Field(..., max_length=150)
+    description: Phrase  # 150 chars
 
 
 class InventoryChange(BaseModel):
@@ -172,13 +191,9 @@ class InventoryChange(BaseModel):
     # Pour objets existants
     object_ref: EntityRef | None = None
     # Pour nouveaux objets: description textuelle, pas ObjectData
-    object_hint: str | None = Field(
-        default=None,
-        max_length=200,
-        description="Description du nouvel objet acquis (sera traité par extracteur Objets)",
-    )
+    object_hint: ShortText | None = None  # 200 chars
     quantity_delta: int = Field(default=1)
-    reason: str | None = Field(default=None, max_length=150)
+    reason: Phrase | None = None  # 150 chars
 
     @model_validator(mode="after")
     def validate_ref_or_hint(self) -> "InventoryChange":
@@ -195,34 +210,37 @@ class InventoryChange(BaseModel):
 # =============================================================================
 
 
-class CommitmentCreation(BaseModel):
-    """A new narrative commitment (foreshadowing, secret, etc.)"""
+class CommitmentCreationExtraction(BaseModel):
+    """A new narrative commitment (foreshadowing, secret, etc.) - for extraction"""
 
     commitment_type: CommitmentType
-    description: str = Field(..., max_length=400)
+    description: LongText  # 400 chars
     involved_entities: list[EntityRef] = Field(default_factory=list)
     deadline_cycle: Cycle | None = None
-    objective: str | None = None
-    obstacle: str | None = None
+    objective: ShortText | None = None  # 200 chars
+    obstacle: ShortText | None = None  # 200 chars
+
+    @field_validator("commitment_type", mode="before")
+    @classmethod
+    def _normalize_commitment_type(cls, v):
+        return normalize_commitment_type(v)
 
 
-class CommitmentResolution(BaseModel):
-    """A commitment that was resolved"""
+class CommitmentResolutionExtraction(BaseModel):
+    """A commitment that was resolved - for extraction"""
 
-    commitment_description: str = Field(
-        ..., max_length=200, description="Description to match existing commitment"
-    )
-    resolution_description: str = Field(..., max_length=300)
+    commitment_description: ShortText  # 200 chars - to match existing
+    resolution_description: Text  # 300 chars
 
 
-class EventScheduled(BaseModel):
-    """An event planned for the future"""
+class EventScheduledExtraction(BaseModel):
+    """An event planned for the future - for extraction"""
 
     event_type: Literal[
         "appointment", "deadline", "celebration", "recurring", "financial_due"
     ]
-    title: str = Field(..., max_length=150)
-    description: str | None = Field(default=None, max_length=300)
+    title: Phrase  # 150 chars
+    description: Text | None = None  # 300 chars
     planned_cycle: Cycle = Field(..., ge=1)
     time: str | None = Field(default="12h00", max_length=5)
     location_ref: EntityRef | None = None
@@ -275,18 +293,18 @@ class NarrativeExtraction(BaseModel):
     beliefs_updated: list[BeliefData] = Field(default_factory=list)
 
     # Narrative commitments
-    commitments_created: list[CommitmentCreation] = Field(default_factory=list)
-    commitments_resolved: list[CommitmentResolution] = Field(default_factory=list)
+    commitments_created: list[CommitmentCreationExtraction] = Field(
+        default_factory=list
+    )
+    commitments_resolved: list[CommitmentResolutionExtraction] = Field(
+        default_factory=list
+    )
 
     # Future events
-    events_scheduled: list[EventScheduled] = Field(default_factory=list)
+    events_scheduled: list[EventScheduledExtraction] = Field(default_factory=list)
 
     # Summary
-    segment_summary: str = Field(
-        default="",
-        max_length=500,
-        description="Brief summary of what happened",
-    )
+    segment_summary: FullText = ""  # 500 chars
     key_npcs_present: list[EntityRef] = Field(default_factory=list)
 
 
@@ -303,4 +321,4 @@ class NarrativeWithExtraction(BaseModel):
 
     narrative_text: str = Field(..., min_length=100)
     extraction: NarrativeExtraction
-    narrator_notes: str | None = Field(default=None, max_length=500)
+    narrator_notes: FullText | None = None  # 500 chars

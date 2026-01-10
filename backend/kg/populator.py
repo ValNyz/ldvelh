@@ -12,10 +12,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from schema import (
-    OWNERSHIP_RELATIONS,
-    PROFESSIONAL_RELATIONS,
-    SOCIAL_RELATIONS,
-    SPATIAL_RELATIONS,
+    RelationCategory,
     BeliefData,
     CharacterData,
     # Core
@@ -516,7 +513,7 @@ class KnowledgeGraphPopulator:
         rt = data.relation_type
 
         # Social relations
-        if rt in SOCIAL_RELATIONS:
+        if rt.category in RelationCategory.SOCIAL:
             social = data.social
             if social or data.source_info:
                 await conn.execute(
@@ -536,7 +533,7 @@ class KnowledgeGraphPopulator:
                 )
 
         # Professional relations
-        elif rt in PROFESSIONAL_RELATIONS:
+        elif rt.category in RelationCategory.PROFESSIONAL:
             prof = data.professional
             if prof:
                 await conn.execute(
@@ -554,7 +551,7 @@ class KnowledgeGraphPopulator:
                 )
 
         # Spatial relations
-        elif rt in SPATIAL_RELATIONS:
+        elif rt.category in RelationCategory.SPATIAL:
             spatial = data.spatial
             if spatial:
                 await conn.execute(
@@ -569,7 +566,7 @@ class KnowledgeGraphPopulator:
                 )
 
         # Ownership relations
-        elif rt in OWNERSHIP_RELATIONS:
+        elif rt.category in RelationCategory.OWNERSHIP:
             own = data.ownership
             await conn.execute(
                 """INSERT INTO relations_ownership 
