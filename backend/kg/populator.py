@@ -53,7 +53,9 @@ class EntityRegistry:
     """
 
     _by_name: dict[str, UUID] = field(default_factory=dict)
-    _by_type: dict[EntityType, list[UUID]] = field(default_factory=lambda: {t: [] for t in EntityType})
+    _by_type: dict[EntityType, list[UUID]] = field(
+        default_factory=lambda: {t: [] for t in EntityType}
+    )
     _names_by_id: dict[UUID, str] = field(default_factory=dict)
 
     def register(self, name: str, entity_id: UUID, entity_type: EntityType) -> None:
@@ -103,7 +105,9 @@ class KnowledgeGraphPopulator:
 
     async def create_game(self, conn: Connection, name: str) -> UUID:
         """Create a new game and set it as current"""
-        self.game_id = await conn.fetchval("INSERT INTO games (name) VALUES ($1) RETURNING id", name)
+        self.game_id = await conn.fetchval(
+            "INSERT INTO games (name) VALUES ($1) RETURNING id", name
+        )
         logger.info(f"Created game {self.game_id}: {name}")
         return self.game_id
 
@@ -113,7 +117,8 @@ class KnowledgeGraphPopulator:
             raise ValueError("game_id must be set before loading registry")
 
         rows = await conn.fetch(
-            "SELECT id, name, type FROM entities WHERE game_id = $1 AND removed_cycle IS NULL", self.game_id
+            "SELECT id, name, type FROM entities WHERE game_id = $1 AND removed_cycle IS NULL",
+            self.game_id,
         )
         for row in rows:
             self.registry.register(row["name"], row["id"], EntityType(row["type"]))
@@ -147,7 +152,11 @@ class KnowledgeGraphPopulator:
         return entity_id
 
     async def set_attributes(
-        self, conn: Connection, entity_id: UUID, attrs: dict[str, str | int | float | list | dict], cycle: int = 1
+        self,
+        conn: Connection,
+        entity_id: UUID,
+        attrs: dict[str, str | int | float | list | dict],
+        cycle: int = 1,
     ) -> None:
         """Set multiple attributes on an entity"""
         for key, value in attrs.items():
@@ -158,16 +167,31 @@ class KnowledgeGraphPopulator:
                 value = str(value)
 
             await conn.execute(
-                "SELECT set_attribute($1, $2, $3, $4, $5, $6)", self.game_id, entity_id, key, value, cycle, None
+                "SELECT set_attribute($1, $2, $3, $4, $5, $6)",
+                self.game_id,
+                entity_id,
+                key,
+                value,
+                cycle,
+                None,
             )
 
-    async def set_skill(self, conn: Connection, entity_id: UUID, skill: Skill, cycle: int = 1) -> UUID | None:
+    async def set_skill(
+        self, conn: Connection, entity_id: UUID, skill: Skill, cycle: int = 1
+    ) -> UUID | None:
         """Set a skill on an entity"""
         return await conn.fetchval(
-            "SELECT set_skill($1, $2, $3, $4, $5)", self.game_id, entity_id, skill.name, skill.level, cycle
+            "SELECT set_skill($1, $2, $3, $4, $5)",
+            self.game_id,
+            entity_id,
+            skill.name,
+            skill.level,
+            cycle,
         )
 
-    async def remove_entity(self, conn: Connection, entity_ref: str, cycle: int, reason: str) -> bool:
+    async def remove_entity(
+        self, conn: Connection, entity_ref: str, cycle: int, reason: str
+    ) -> bool:
         """Mark an entity as removed"""
         entity_id = self.registry.resolve(entity_ref)
         if not entity_id:
@@ -188,9 +212,13 @@ class KnowledgeGraphPopulator:
     # TYPED ENTITY CREATION
     # =========================================================================
 
-    async def create_protagonist(self, conn: Connection, data: ProtagonistData, cycle: int = 1) -> UUID:
+    async def create_protagonist(
+        self, conn: Connection, data: ProtagonistData, cycle: int = 1
+    ) -> UUID:
         """Create the protagonist entity"""
-        entity_id = await self.upsert_entity(conn, EntityType.PROTAGONIST, data.name, cycle=cycle)
+        entity_id = await self.upsert_entity(
+            conn, EntityType.PROTAGONIST, data.name, cycle=cycle
+        )
 
         await conn.execute(
             """INSERT INTO entity_protagonists 
@@ -225,9 +253,13 @@ class KnowledgeGraphPopulator:
 
         return entity_id
 
-    async def create_character(self, conn: Connection, data: CharacterData, cycle: int = 1) -> UUID:
+    async def create_character(
+        self, conn: Connection, data: CharacterData, cycle: int = 1
+    ) -> UUID:
         """Create a character (NPC) entity"""
-        entity_id = await self.upsert_entity(conn, EntityType.CHARACTER, data.name, cycle=cycle)
+        entity_id = await self.upsert_entity(
+            conn, EntityType.CHARACTER, data.name, cycle=cycle
+        )
 
         await conn.execute(
             """INSERT INTO entity_characters 
@@ -265,9 +297,13 @@ class KnowledgeGraphPopulator:
 
         return entity_id
 
-    async def create_location(self, conn: Connection, data: LocationData, cycle: int = 1) -> UUID:
+    async def create_location(
+        self, conn: Connection, data: LocationData, cycle: int = 1
+    ) -> UUID:
         """Create a location entity"""
-        entity_id = await self.upsert_entity(conn, EntityType.LOCATION, data.name, cycle=cycle)
+        entity_id = await self.upsert_entity(
+            conn, EntityType.LOCATION, data.name, cycle=cycle
+        )
 
         parent_id = None
         if data.parent_location_ref:
@@ -305,10 +341,16 @@ class KnowledgeGraphPopulator:
         return entity_id
 
     async def create_object(
-        self, conn: Connection, data: ObjectData, owner_ref: str | None = None, cycle: int = 1
+        self,
+        conn: Connection,
+        data: ObjectData,
+        owner_ref: str | None = None,
+        cycle: int = 1,
     ) -> UUID:
         """Create an object entity, optionally with owner"""
-        entity_id = await self.upsert_entity(conn, EntityType.OBJECT, data.name, cycle=cycle)
+        entity_id = await self.upsert_entity(
+            conn, EntityType.OBJECT, data.name, cycle=cycle
+        )
 
         await conn.execute(
             """INSERT INTO entity_objects 
@@ -349,9 +391,13 @@ class KnowledgeGraphPopulator:
 
         return entity_id
 
-    async def create_organization(self, conn: Connection, data: OrganizationData, cycle: int = 1) -> UUID:
+    async def create_organization(
+        self, conn: Connection, data: OrganizationData, cycle: int = 1
+    ) -> UUID:
         """Create an organization entity"""
-        entity_id = await self.upsert_entity(conn, EntityType.ORGANIZATION, data.name, cycle=cycle)
+        entity_id = await self.upsert_entity(
+            conn, EntityType.ORGANIZATION, data.name, cycle=cycle
+        )
 
         hq_id = None
         if data.headquarters_ref:
@@ -376,15 +422,23 @@ class KnowledgeGraphPopulator:
         await self.set_attributes(
             conn,
             entity_id,
-            {"description": data.description, "reputation": data.reputation, "is_employer": data.is_employer},
+            {
+                "description": data.description,
+                "reputation": data.reputation,
+                "is_employer": data.is_employer,
+            },
             cycle,
         )
 
         return entity_id
 
-    async def create_ai(self, conn: Connection, data: PersonalAIData, creator_ref: str, cycle: int = 1) -> UUID:
+    async def create_ai(
+        self, conn: Connection, data: PersonalAIData, creator_ref: str, cycle: int = 1
+    ) -> UUID:
         """Create a personal AI entity"""
-        entity_id = await self.upsert_entity(conn, EntityType.AI, data.name, cycle=cycle)
+        entity_id = await self.upsert_entity(
+            conn, EntityType.AI, data.name, cycle=cycle
+        )
 
         creator_id = self.registry.resolve(creator_ref)
 
@@ -398,13 +452,25 @@ class KnowledgeGraphPopulator:
             entity_id,
             creator_id,
             data.substrate,
-            json.dumps({"voice": data.voice_description, "personality": data.personality_traits, "quirk": data.quirk}),
+            json.dumps(
+                {
+                    "voice": data.voice_description,
+                    "personality": data.personality_traits,
+                    "quirk": data.quirk,
+                }
+            ),
         )
 
         # Create ownership relation
         if creator_id:
             await self.create_relation(
-                conn, RelationData(source_ref=creator_ref, target_ref=data.name, relation_type=RelationType.OWNS), cycle
+                conn,
+                RelationData(
+                    source_ref=creator_ref,
+                    target_ref=data.name,
+                    relation_type=RelationType.OWNS,
+                ),
+                cycle,
             )
 
         return entity_id
@@ -413,13 +479,17 @@ class KnowledgeGraphPopulator:
     # RELATIONS
     # =========================================================================
 
-    async def create_relation(self, conn: Connection, data: RelationData, cycle: int = 1) -> UUID | None:
+    async def create_relation(
+        self, conn: Connection, data: RelationData, cycle: int = 1
+    ) -> UUID | None:
         """Create or update a relation"""
         source_id = self.registry.resolve(data.source_ref)
         target_id = self.registry.resolve(data.target_ref)
 
         if not source_id or not target_id:
-            logger.warning(f"Cannot create relation: {data.source_ref} -> {data.target_ref} (missing entity)")
+            logger.warning(
+                f"Cannot create relation: {data.source_ref} -> {data.target_ref} (missing entity)"
+            )
             return None
 
         rel_id = await conn.fetchval(
@@ -439,7 +509,9 @@ class KnowledgeGraphPopulator:
 
         return rel_id
 
-    async def _insert_typed_relation_data(self, conn: Connection, rel_id: UUID, data: RelationData) -> None:
+    async def _insert_typed_relation_data(
+        self, conn: Connection, rel_id: UUID, data: RelationData
+    ) -> None:
         """Insert into the appropriate typed relation table"""
         rt = data.relation_type
 
@@ -546,7 +618,9 @@ class KnowledgeGraphPopulator:
         if data.location_ref:
             location_id = self.registry.resolve(data.location_ref)
 
-        participants_json = json.dumps([{"name": p.entity_ref, "role": p.role.value} for p in data.participants])
+        participants_json = json.dumps(
+            [{"name": p.entity_ref, "role": p.role.value} for p in data.participants]
+        )
 
         return await conn.fetchval(
             "SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8, $9)",
@@ -556,7 +630,7 @@ class KnowledgeGraphPopulator:
             data.description,
             data.domain.value,
             location_id,
-            data.moment.value if data.moment else None,
+            data,
             data.importance,
             participants_json,
         )
@@ -566,7 +640,11 @@ class KnowledgeGraphPopulator:
     # =========================================================================
 
     async def set_belief(
-        self, conn: Connection, data: BeliefData, cycle: int, source_fact_id: UUID | None = None
+        self,
+        conn: Connection,
+        data: BeliefData,
+        cycle: int,
+        source_fact_id: UUID | None = None,
     ) -> UUID:
         """Set or update a belief"""
         subject_id = self.registry.resolve_strict(data.subject_ref)
@@ -587,9 +665,17 @@ class KnowledgeGraphPopulator:
     # PROTAGONIST SPECIFIC
     # =========================================================================
 
-    async def update_gauge(self, conn: Connection, gauge: str, delta: float, cycle: int) -> tuple[bool, float, float]:
+    async def update_gauge(
+        self, conn: Connection, gauge: str, delta: float, cycle: int
+    ) -> tuple[bool, float, float]:
         """Update energy/morale/health"""
-        result = await conn.fetchrow("SELECT * FROM update_gauge($1, $2, $3, $4)", self.game_id, gauge, delta, cycle)
+        result = await conn.fetchrow(
+            "SELECT * FROM update_gauge($1, $2, $3, $4)",
+            self.game_id,
+            gauge,
+            delta,
+            cycle,
+        )
         return result["success"], result["old_value"], result["new_value"]
 
     async def credit_transaction(
@@ -597,7 +683,11 @@ class KnowledgeGraphPopulator:
     ) -> tuple[bool, int, str | None]:
         """Add or remove credits"""
         result = await conn.fetchrow(
-            "SELECT * FROM credit_transaction($1, $2, $3, $4)", self.game_id, amount, cycle, description
+            "SELECT * FROM credit_transaction($1, $2, $3, $4)",
+            self.game_id,
+            amount,
+            cycle,
+            description,
         )
         return result["success"], result["new_balance"], result["error"]
 
@@ -650,11 +740,15 @@ class KnowledgeGraphPopulator:
     async def get_message(self, conn: Connection, message_id: UUID) -> dict | None:
         """Get a single message by ID"""
         row = await conn.fetchrow(
-            "SELECT * FROM chat_messages WHERE id = $1 AND game_id = $2", message_id, self.game_id
+            "SELECT * FROM chat_messages WHERE id = $1 AND game_id = $2",
+            message_id,
+            self.game_id,
         )
         return dict(row) if row else None
 
-    async def get_messages_since(self, conn: Connection, since_cycle: int, limit: int = 100) -> list[dict]:
+    async def get_messages_since(
+        self, conn: Connection, since_cycle: int, limit: int = 100
+    ) -> list[dict]:
         """Get messages from a cycle onwards"""
         rows = await conn.fetch(
             """SELECT * FROM chat_messages 
@@ -667,7 +761,9 @@ class KnowledgeGraphPopulator:
         )
         return [dict(row) for row in rows]
 
-    async def get_recent_messages(self, conn: Connection, limit: int = 20) -> list[dict]:
+    async def get_recent_messages(
+        self, conn: Connection, limit: int = 20
+    ) -> list[dict]:
         """Get the most recent messages"""
         rows = await conn.fetch(
             """SELECT * FROM chat_messages 
@@ -718,7 +814,9 @@ class KnowledgeGraphPopulator:
     # ROLLBACK
     # =========================================================================
 
-    async def rollback_to_message(self, conn: Connection, message_id: UUID, include_message: bool = False) -> dict:
+    async def rollback_to_message(
+        self, conn: Connection, message_id: UUID, include_message: bool = False
+    ) -> dict:
         """
         Rollback the game state to just before (or at) a specific message.
 
@@ -742,7 +840,9 @@ class KnowledgeGraphPopulator:
         rollback_cycle = target_cycle if include_message else target_cycle - 1
 
         # Call the SQL rollback function
-        result = await conn.fetchrow("SELECT * FROM rollback_to_cycle($1, $2)", self.game_id, rollback_cycle)
+        result = await conn.fetchrow(
+            "SELECT * FROM rollback_to_cycle($1, $2)", self.game_id, rollback_cycle
+        )
 
         stats = {
             "rolled_back_to_cycle": rollback_cycle,
@@ -788,7 +888,9 @@ class KnowledgeGraphPopulator:
         Returns:
             Stats about what was rolled back
         """
-        result = await conn.fetchrow("SELECT * FROM rollback_to_cycle($1, $2)", self.game_id, target_cycle)
+        result = await conn.fetchrow(
+            "SELECT * FROM rollback_to_cycle($1, $2)", self.game_id, target_cycle
+        )
 
         stats = {
             "rolled_back_to_cycle": target_cycle,
@@ -800,7 +902,11 @@ class KnowledgeGraphPopulator:
         }
 
         # Delete messages after target cycle
-        await conn.execute("DELETE FROM chat_messages WHERE game_id = $1 AND cycle > $2", self.game_id, target_cycle)
+        await conn.execute(
+            "DELETE FROM chat_messages WHERE game_id = $1 AND cycle > $2",
+            self.game_id,
+            target_cycle,
+        )
 
         # Clear registry and reload
         self.registry = EntityRegistry()
@@ -823,27 +929,39 @@ class KnowledgeGraphPopulator:
         counts = {}
 
         counts["messages"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM chat_messages WHERE game_id = $1 AND cycle > $2", self.game_id, target_cycle
+            "SELECT COUNT(*) FROM chat_messages WHERE game_id = $1 AND cycle > $2",
+            self.game_id,
+            target_cycle,
         )
 
         counts["facts"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM facts WHERE game_id = $1 AND cycle > $2", self.game_id, target_cycle
+            "SELECT COUNT(*) FROM facts WHERE game_id = $1 AND cycle > $2",
+            self.game_id,
+            target_cycle,
         )
 
         counts["events"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM events WHERE game_id = $1 AND planned_cycle > $2", self.game_id, target_cycle
+            "SELECT COUNT(*) FROM events WHERE game_id = $1 AND planned_cycle > $2",
+            self.game_id,
+            target_cycle,
         )
 
         counts["new_entities"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM entities WHERE game_id = $1 AND created_cycle > $2", self.game_id, target_cycle
+            "SELECT COUNT(*) FROM entities WHERE game_id = $1 AND created_cycle > $2",
+            self.game_id,
+            target_cycle,
         )
 
         counts["modified_attributes"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM attributes WHERE game_id = $1 AND start_cycle > $2", self.game_id, target_cycle
+            "SELECT COUNT(*) FROM attributes WHERE game_id = $1 AND start_cycle > $2",
+            self.game_id,
+            target_cycle,
         )
 
         counts["new_relations"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM relations WHERE game_id = $1 AND start_cycle > $2", self.game_id, target_cycle
+            "SELECT COUNT(*) FROM relations WHERE game_id = $1 AND start_cycle > $2",
+            self.game_id,
+            target_cycle,
         )
 
         return {

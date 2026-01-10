@@ -508,7 +508,7 @@ class ContextBuilder:
         """Récupère les événements à venir"""
         rows = await conn.fetch(
             """
-            SELECT ev.title, ev.type, ev.planned_cycle, ev.moment,
+            SELECT ev.title, ev.type, ev.planned_cycle, ev.hour,
                    loc.name as location,
                    array_agg(e.name) as participants
             FROM events ev
@@ -518,7 +518,7 @@ class ContextBuilder:
             WHERE ev.game_id = $1 
             AND ev.planned_cycle >= $2
             AND ev.completed = false AND ev.cancelled = false
-            GROUP BY ev.id, ev.title, ev.type, ev.planned_cycle, ev.moment, loc.name
+            GROUP BY ev.id, ev.title, ev.type, ev.planned_cycle, ev.hour, loc.name
             ORDER BY ev.planned_cycle
             LIMIT 5
         """,
@@ -530,7 +530,7 @@ class ContextBuilder:
             EventSummary(
                 title=r["title"],
                 planned_cycle=r["planned_cycle"],
-                planned_time=r["moment"],
+                planned_time=r["hour"],
                 location=r["location"],
                 participants=[n for n in (r["participants"] or []) if n],
                 type=r["type"],

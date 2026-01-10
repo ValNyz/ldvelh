@@ -15,7 +15,6 @@ from .core import (
     EntityRef,
     FactDomain,
     FactType,
-    Moment,
     ParticipantRole,
 )
 
@@ -33,7 +32,9 @@ class CharacterArc(BaseModel):
     desire: str = Field(..., max_length=150, description="What they want")
     obstacle: str = Field(..., max_length=150, description="What blocks them")
     potential_evolution: str = Field(..., max_length=200)
-    intensity: int = Field(default=3, ge=1, le=5, description="How pressing is this arc now")
+    intensity: int = Field(
+        default=3, ge=1, le=5, description="How pressing is this arc now"
+    )
 
 
 # =============================================================================
@@ -52,7 +53,7 @@ class FactData(BaseModel):
     """An immutable event that happened"""
 
     cycle: Cycle
-    moment: Moment | None = None
+    hour: str | None = None
     fact_type: FactType
     domain: FactDomain = FactDomain.OTHER
     description: str = Field(..., max_length=500)
@@ -97,7 +98,9 @@ class CommitmentCreation(BaseModel):
 class CommitmentResolution(BaseModel):
     """A commitment that was resolved"""
 
-    commitment_description: str = Field(..., max_length=200, description="Description to match existing commitment")
+    commitment_description: str = Field(
+        ..., max_length=200, description="Description to match existing commitment"
+    )
     resolution_description: str = Field(..., max_length=300)
 
 
@@ -117,11 +120,13 @@ class EventType(str):
 class EventScheduled(BaseModel):
     """An event planned for the future"""
 
-    event_type: Literal["appointment", "deadline", "celebration", "recurring", "financial_due"]
+    event_type: Literal[
+        "appointment", "deadline", "celebration", "recurring", "financial_due"
+    ]
     title: str = Field(..., max_length=150)
     description: str | None = Field(default=None, max_length=300)
     planned_cycle: Cycle = Field(..., ge=1)
-    moment: Moment | None = None
+    hour: str | None = Field(default="12h00", max_length=5)
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
     recurrence: dict | None = Field(

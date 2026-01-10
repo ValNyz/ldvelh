@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 FIELD_MAX_LENGTHS = {
+    "suggested_action": 150,
+    "entityref": 100,
+    "scene_mood": 50,
+    "narrator_notes": 300,
     # WorldGeneration
     "tone_notes": 300,
     # WorldData
@@ -63,6 +67,7 @@ LIST_MAX_LENGTHS = {
     "narrative_arcs": 10,
     "initial_relations": 30,  # Généreux pour éviter de perdre des relations importantes
     "immediate_sensory_details": 6,
+    "suggested_action": 5,
 }
 
 
@@ -986,19 +991,69 @@ def normalize_world_generation(data: dict) -> dict:
 
 
 def normalize_narration_output(data: dict) -> dict:
-    """
-    Normalise une sortie NarrationOutput.
-    À appeler AVANT NarrationOutput.model_validate(data).
-    """
+    """Normalise une sortie NarrationOutput."""
     if not isinstance(data, dict):
         return data
 
     result = dict(data)
 
+    # Tronquer les champs texte
+    if "scene_mood" in result:
+        result["scene_mood"] = truncate_string(
+            result["scene_mood"], FIELD_MAX_LENGTHS["scene_mood"], "scene_mood"
+        )
+
+    if "narrator_notes" in result:
+        result["narrator_notes"] = truncate_string(
+            result["narrator_notes"],
+            FIELD_MAX_LENGTHS["narrator_notes"],
+            "narrator_notes",
+        )
+
+    # if "narrative_text" in result:
+    #     result["narrative_text"] = truncate_string(
+    #         result["narrative_text"], 4000, "narrative_text"
+    #     )
+    #
+    if "current_location" in result:
+        result["current_location"] = truncate_string(
+            result["current_location"],
+            FIELD_MAX_LENGTHS["entityref"],
+            "current_location",
+        )
+
+    # Tronquer les actions suggérées
+    if "suggested_actions" in result and isinstance(result["suggested_actions"], list):
+        result["suggested_actions"] = [
+            truncate_string(
+                a, FIELD_MAX_LENGTHS["suggested_action"], "suggested_action"
+            )
+            if isinstance(a, str)
+            else a
+            for a in result["suggested_actions"][:5]  # Max 5 actions
+        ]
+
+    # Tronquer les NPCs présents
+    if "npcs_present" in result and isinstance(result["npcs_present"], list):
+        result["npcs_present"] = result["npcs_present"][:10]  # Max 10 NPCs
+
     # Normaliser hints si présent
     if "hints" in result and isinstance(result["hints"], dict):
-        # Les hints n'ont pas d'enums à normaliser actuellement
-        pass
+        hints = result["hints"]
+        if "foreshadowing" in hints and isinstance(hints["foreshadowing"], list):
+            hints["foreshadowing"] = [
+                truncate_string(f, 150, "hint.foreshadowing")
+                if isinstance(f, str)
+                else f
+                for f in hints["foreshadowing"][:5]
+            ]
+        if "world_detail" in hints and isinstance(hints["world_detail"], list):
+            hints["world_detail"] = [
+                truncate_string(w, 150, "hint.world_detail")
+                if isinstance(w, str)
+                else w
+                for w in hints["world_detail"][:5]
+            ]
 
     return result
 

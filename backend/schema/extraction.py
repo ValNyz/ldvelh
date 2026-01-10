@@ -7,7 +7,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from .core import Attribute, CertaintyLevel, CommitmentType, Cycle, EntityRef, EntityType, Moment, Skill
+from .core import (
+    Attribute,
+    CertaintyLevel,
+    CommitmentType,
+    Cycle,
+    EntityRef,
+    EntityType,
+    Skill,
+)
 from .entities import CharacterData, LocationData, ObjectData, OrganizationData
 from .narrative import (
     BeliefData,
@@ -30,7 +38,9 @@ class EntityCreation(BaseModel):
     entity_type: EntityType
     name: str = Field(..., max_length=100)
     aliases: list[str] = Field(default_factory=list)
-    confirmed: bool = Field(default=True, description="False if entity is only mentioned/rumored")
+    confirmed: bool = Field(
+        default=True, description="False if entity is only mentioned/rumored"
+    )
     # Type-specific data (one of these based on entity_type)
     character_data: CharacterData | None = None
     location_data: LocationData | None = None
@@ -49,7 +59,9 @@ class EntityCreation(BaseModel):
         expected_field = type_to_field.get(self.entity_type)
         if expected_field:
             if getattr(self, expected_field) is None:
-                raise ValueError(f"Entity type {self.entity_type} requires {expected_field}")
+                raise ValueError(
+                    f"Entity type {self.entity_type} requires {expected_field}"
+                )
         return self
 
 
@@ -161,18 +173,22 @@ class CommitmentCreation(BaseModel):
 class CommitmentResolution(BaseModel):
     """A commitment that was resolved"""
 
-    commitment_description: str = Field(..., max_length=200, description="Description to match existing commitment")
+    commitment_description: str = Field(
+        ..., max_length=200, description="Description to match existing commitment"
+    )
     resolution_description: str = Field(..., max_length=300)
 
 
 class EventScheduled(BaseModel):
     """An event planned for the future"""
 
-    event_type: Literal["appointment", "deadline", "celebration", "recurring", "financial_due"]
+    event_type: Literal[
+        "appointment", "deadline", "celebration", "recurring", "financial_due"
+    ]
     title: str = Field(..., max_length=150)
     description: str | None = Field(default=None, max_length=300)
     planned_cycle: Cycle = Field(..., ge=1)
-    moment: Moment | None = None
+    hour: str | None = Field(default="12h00", max_length=5)
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
     recurrence: dict | None = None  # For recurring events
@@ -192,7 +208,9 @@ class NarrativeExtraction(BaseModel):
 
     # Context
     cycle: Cycle
-    moment: Moment | None = None
+    hour: str | None = Field(
+        max_length=5, description="Hour at the start of the narration."
+    )
     current_location_ref: EntityRef | None = None
 
     # Facts (immutable events that happened)
@@ -226,7 +244,9 @@ class NarrativeExtraction(BaseModel):
 
     # Summary for context management
     segment_summary: str = Field(
-        ..., max_length=500, description="Brief summary of what happened for context compression"
+        ...,
+        max_length=500,
+        description="Brief summary of what happened for context compression",
     )
     key_npcs_present: list[EntityRef] = Field(default_factory=list)
 
@@ -242,7 +262,9 @@ class NarrativeExtraction(BaseModel):
             or self.beliefs_updated
         )
         if not has_content and not self.segment_summary:
-            raise ValueError("Extraction must contain at least facts, changes, or a summary")
+            raise ValueError(
+                "Extraction must contain at least facts, changes, or a summary"
+            )
         return self
 
 
