@@ -1,0 +1,677 @@
+{
+  "generation_seed_words": [
+    "rouille",
+    "verdure",
+    "reconstruction",
+    "communauté",
+    "mélancolie"
+  ],
+  "tone_notes": "Station industrielle en reconversion écologique. Ambiance de ville portuaire spatiale avec ses habitués fatigués mais solidaires. Les espaces communs sentent le métal recyclé et les plantes hydroponiques.",
+
+  "world": {
+    "name": "Escale Méridienne",
+    "station_type": "station orbitale reconvertie",
+    "population": 12400,
+    "atmosphere": "industrielle verdoyante",
+    "description": "Ancienne station minière reconvertie en hub logistique et agricole. Les serres ont envahi les anciens hangars de minerai, créant un contraste saisissant entre métal rouillé et feuillages luxuriants. La population est un mélange de vétérans de l'industrie lourde et de nouveaux arrivants cherchant une vie plus simple.",
+    "sectors": [
+      "Quai Central",
+      "Serres Hautes",
+      "Quartier Ouvrier",
+      "Zone Technique",
+      "Promenade"
+    ],
+    "founding_cycle": -4500
+  },
+
+  "protagonist": {
+    "name": "Valentin",
+    "origin_location": "Cité-Dôme de Vega III",
+    "departure_reason": "fresh_start",
+    "departure_story": "Après huit ans dans une startup IA qui a implosé dans un scandale éthique, Valentin a choisi de tout quitter plutôt que de témoigner contre d'anciens collègues devenus amis. Pas une fuite - un choix. Le temps de réfléchir à ce qu'il veut vraiment construire.",
+    "backstory": "Développeur talentueux mais idéaliste, Valentin a toujours cru que la technologie devait servir les gens. La réalité de l'industrie l'a désenchanté sans le briser. Il cherche un endroit où son travail aurait du sens.",
+    "hobbies": [
+      "cuisine improvisée",
+      "lecture de romans pré-Expansion",
+      "course à pied matinale"
+    ],
+    "skills": [
+      { "name": "architecture_systemes", "level": 4 },
+      { "name": "programmation_ia", "level": 4 },
+      { "name": "negociation", "level": 2 },
+      { "name": "cuisine", "level": 3 }
+    ],
+    "initial_credits": 1650,
+    "initial_energy": 2.5,
+    "initial_morale": 3.0,
+    "initial_health": 4.0
+  },
+
+  "personal_ai": {
+    "name": "Célimène",
+    "voice_description": "voix chaude et légèrement rauque, comme quelqu'un qui vient de se réveiller",
+    "personality_traits": [
+      "sarcastique bienveillante",
+      "observatrice",
+      "loyale"
+    ],
+    "substrate": "personal_device",
+    "quirk": "A tendance à commenter silencieusement les gens par des notes textuelles que seul Valentin peut voir, souvent plus perspicaces qu'il ne voudrait l'admettre"
+  },
+
+  "characters": [
+    {
+      "name": "Justine Lépicier",
+      "species": "human",
+      "gender": "femme",
+      "pronouns": "elle",
+      "age": 32,
+      "physical_description": "1m54, 72kg, courbes prononcées, poitrine volumineuse, blonde en désordre, yeux bleus fatigués, cernes",
+      "personality_traits": [
+        "pragmatique",
+        "généreuse malgré elle",
+        "humour pince-sans-rire",
+        "cache sa vulnérabilité"
+      ],
+      "occupation": "technicienne de maintenance des serres",
+      "workplace_ref": "Serres Hydro-7",
+      "residence_ref": "Bloc Résidentiel Tournesol",
+      "origin_location": "Station Kepler-22",
+      "station_arrival_cycle": -730,
+      "arcs": [
+        {
+          "domain": "family",
+          "title": "La mère malade",
+          "situation": "Sa mère sur Kepler-22 est malade et Justine envoie la moitié de son salaire chaque mois",
+          "desire": "Faire venir sa mère sur Méridienne où les soins sont meilleurs",
+          "obstacle": "Le coût du transfert médical inter-stations est astronomique",
+          "potential_evolution": "Pourrait accepter de l'aide de quelqu'un qui comprend ce que c'est de partir pour protéger les siens",
+          "intensity": 5
+        },
+        {
+          "domain": "professional",
+          "title": "Compétence sous-estimée",
+          "situation": "Elle est bien plus qualifiée que son poste actuel ne le suggère",
+          "desire": "Être reconnue pour ses vraies compétences en ingénierie",
+          "obstacle": "Pas le temps ni l'énergie de chercher mieux avec ses soucis familiaux",
+          "potential_evolution": "Une opportunité pourrait se présenter si quelqu'un remarque son talent",
+          "intensity": 2
+        },
+        {
+          "domain": "romantic",
+          "title": "Cœur en jachère",
+          "situation": "Célibataire depuis sa rupture difficile avant de partir de Kepler-22",
+          "desire": "Retrouver une connexion intime, mais terrifiée à l'idée de souffrir encore",
+          "obstacle": "Se protège derrière son humour caustique et son emploi du temps chargé",
+          "potential_evolution": "Pourrait s'ouvrir à quelqu'un de patient qui ne la brusque pas",
+          "intensity": 3
+        },
+        {
+          "domain": "social",
+          "title": "Isolement choisi",
+          "situation": "A quelques connaissances mais pas de vrais amis sur la station",
+          "desire": "Au fond, voudrait appartenir à un groupe, une communauté",
+          "obstacle": "Refuse de s'attacher à un endroit qu'elle pourrait devoir quitter",
+          "potential_evolution": "Le café d'Ossek pourrait devenir son ancrage social",
+          "intensity": 3
+        }
+      ],
+      "is_mandatory": true,
+      "romantic_potential": true,
+      "initial_relationship_to_protagonist": null
+    },
+    {
+      "name": "Ossek",
+      "species": "keth (humanoïde semi-aquatique)",
+      "gender": "non-binaire",
+      "pronouns": "iel",
+      "age": null,
+      "physical_description": "Peau bleu-gris iridescente, branchies latérales élégantes, grands yeux sans pupilles aux reflets dorés. Porte toujours un humidificateur de cou. Mains palmées qu'iel cache rarement.",
+      "personality_traits": [
+        "calme océanique",
+        "curieux des cultures terrestres",
+        "collectionneur de mots",
+        "légèrement formel"
+      ],
+      "occupation": "barista et propriétaire du café",
+      "workplace_ref": "Le Quart de Cycle",
+      "residence_ref": "Appartement au-dessus du Quart de Cycle",
+      "origin_location": "Monde-Océan de Téthys",
+      "station_arrival_cycle": -1825,
+      "arcs": [
+        {
+          "domain": "family",
+          "title": "L'exil du banc",
+          "situation": "A quitté son monde natal après un désaccord profond avec sa famille-banc concernant les mariages arrangés",
+          "desire": "Créer une nouvelle forme de famille-banc choisie parmi les habitués de son café",
+          "obstacle": "Les Keth isolés de leur banc souffrent d'une forme de dépression chronique",
+          "potential_evolution": "Le café pourrait devenir ce nouveau banc si suffisamment de liens se tissent",
+          "intensity": 4
+        },
+        {
+          "domain": "professional",
+          "title": "Le café comme sanctuaire",
+          "situation": "Le Quart de Cycle est rentable mais fragile, dépendant de quelques habitués fidèles",
+          "desire": "Que le café devienne un vrai lieu de vie pour la communauté",
+          "obstacle": "La solitude keth rend difficile l'énergie nécessaire à l'expansion",
+          "potential_evolution": "Un partenaire ou des habitués plus investis pourraient aider",
+          "intensity": 3
+        },
+        {
+          "domain": "health",
+          "title": "Le mal du banc",
+          "situation": "Souffre de mélancolie keth chronique, symptôme de l'isolation de son espèce",
+          "desire": "Trouver un équilibre qui permette de vivre loin des siens",
+          "obstacle": "Aucun traitement connu, seulement des palliatifs sociaux",
+          "potential_evolution": "Des liens profonds avec des non-Keth pourraient aider",
+          "intensity": 4
+        }
+      ],
+      "is_mandatory": false,
+      "romantic_potential": false,
+      "initial_relationship_to_protagonist": null
+    },
+    {
+      "name": "Marcus Chen-Okafor",
+      "species": "human",
+      "gender": "homme",
+      "pronouns": "il",
+      "age": 58,
+      "physical_description": "Grand, carrure d'ancien docker, cheveux gris en brosse, visage buriné avec une cicatrice à la tempe. Mains calleuses mais gestes délicats.",
+      "personality_traits": [
+        "bourru",
+        "protecteur",
+        "nostalgique",
+        "cache un passé douloureux"
+      ],
+      "occupation": "chef de secteur maintenance",
+      "workplace_ref": "Centre de Contrôle Technique",
+      "residence_ref": "Quartier Ouvrier - Niveau 3",
+      "origin_location": "Station Méridienne (natif)",
+      "station_arrival_cycle": -4500,
+      "arcs": [
+        {
+          "domain": "personal",
+          "title": "Le deuil enterré",
+          "situation": "A perdu sa femme et son fils dans un accident industriel il y a dix ans",
+          "desire": "Secrètement, trouver la paix avec leur mort",
+          "obstacle": "S'est enterré dans le travail pour ne pas ressentir",
+          "potential_evolution": "Quelqu'un qui lui rappelle son fils pourrait rouvrir cette blessure pour la guérir",
+          "intensity": 4
+        },
+        {
+          "domain": "professional",
+          "title": "Le dernier gardien",
+          "situation": "Connaît chaque recoin de la station mieux que quiconque",
+          "desire": "Transmettre ce savoir avant qu'il ne soit trop tard",
+          "obstacle": "Refuse de former un successeur de peur de devenir inutile",
+          "potential_evolution": "Pourrait trouver un sens nouveau en devenant mentor",
+          "intensity": 3
+        },
+        {
+          "domain": "existential",
+          "title": "La retraite impossible",
+          "situation": "Approche de l'âge de la retraite mais ne sait pas qui il serait sans son travail",
+          "desire": "Découvrir une raison de vivre en dehors du travail",
+          "obstacle": "Terreur du vide, de l'inutilité",
+          "potential_evolution": "Un nouveau rôle social pourrait émerger",
+          "intensity": 2
+        }
+      ],
+      "is_mandatory": false,
+      "romantic_potential": false,
+      "initial_relationship_to_protagonist": null
+    },
+    {
+      "name": "Dr. Yuki Tanaka",
+      "species": "human",
+      "gender": "femme",
+      "pronouns": "elle",
+      "age": 41,
+      "physical_description": "Petite, élégante, cheveux noirs courts, lunettes rectangulaires, toujours en tenue professionnelle même le week-end. Sourire rare mais sincère.",
+      "personality_traits": [
+        "méthodique",
+        "éthique rigoureuse",
+        "introvertie",
+        "humour inattendu"
+      ],
+      "occupation": "directrice R&D chez Symbiose Tech",
+      "workplace_ref": "Bureaux Symbiose Tech",
+      "residence_ref": "Résidence Les Glycines",
+      "origin_location": "Terre - Osaka Orbital",
+      "station_arrival_cycle": -912,
+      "arcs": [
+        {
+          "domain": "professional",
+          "title": "L'IA éthique",
+          "situation": "Recrutée pour développer des IA agricoles éthiques après avoir quitté un géant tech",
+          "desire": "Prouver qu'on peut faire de l'IA responsable ET rentable",
+          "obstacle": "Le conseil d'administration pousse pour des raccourcis qu'elle refuse",
+          "potential_evolution": "Cherche des alliés qui partagent sa vision",
+          "intensity": 5
+        },
+        {
+          "domain": "personal",
+          "title": "L'équilibre perdu",
+          "situation": "Travaille trop, néglige sa santé et sa vie personnelle",
+          "desire": "Retrouver un équilibre, peut-être des hobbies oubliés",
+          "obstacle": "La pression constante et le sentiment de responsabilité",
+          "potential_evolution": "Quelqu'un pourrait lui rappeler l'importance de vivre",
+          "intensity": 3
+        },
+        {
+          "domain": "social",
+          "title": "Le leadership solitaire",
+          "situation": "Respectée mais pas vraiment proche de son équipe",
+          "desire": "Des relations plus authentiques au travail",
+          "obstacle": "Sa position hiérarchique crée une distance naturelle",
+          "potential_evolution": "Un nouvel employé sans historique pourrait devenir un vrai collègue",
+          "intensity": 2
+        }
+      ],
+      "is_mandatory": false,
+      "romantic_potential": true,
+      "initial_relationship_to_protagonist": null
+    }
+  ],
+
+  "locations": [
+    {
+      "name": "Terminal d'Arrivée Quai 7",
+      "location_type": "terminal",
+      "sector": "Quai Central",
+      "description": "Vaste hall aux plafonds hauts où le métal industriel rencontre des tentatives de verdure. Des bancs usés, des écrans d'information clignotants, et l'odeur caractéristique du recycleur d'air mélangée à celle du café du kiosque voisin.",
+      "atmosphere": "transit perpétuel",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": [
+        "kiosque à café automatique",
+        "panneau des arrivées holographique",
+        "bancs sculptés dans d'anciens conteneurs"
+      ],
+      "typical_crowd": "voyageurs fatigués, dockers entre deux shifts, familles en attente",
+      "operating_hours": "24/7"
+    },
+    {
+      "name": "Bloc Résidentiel Tournesol",
+      "location_type": "apartment_building",
+      "sector": "Quartier Ouvrier",
+      "description": "Immeuble de huit étages aux murs couverts de mousse décorative. Les appartements sont petits mais fonctionnels. L'ascenseur fait un bruit inquiétant mais personne ne s'en plaint plus.",
+      "atmosphere": "communauté fatiguée",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": [
+        "jardin partagé sur le toit",
+        "buanderie commune niveau 2",
+        "boîtes aux lettres vintage"
+      ],
+      "typical_crowd": "travailleurs des serres, techniciens, quelques retraités",
+      "operating_hours": null
+    },
+    {
+      "name": "Appartement 4-12",
+      "location_type": "apartment",
+      "sector": "Quartier Ouvrier",
+      "description": "Studio de 28m² au quatrième étage. Fenêtre donnant sur les serres, ce qui offre une vue verdoyante mais aussi le bourdonnement constant des ventilateurs. Mobilier standard de la station : fonctionnel, impersonnel, en attente d'être habité.",
+      "atmosphere": "nouveau départ",
+      "parent_location_ref": "Bloc Résidentiel Tournesol",
+      "accessible": true,
+      "notable_features": [
+        "kitchenette compacte",
+        "lit escamotable",
+        "terminal mural ancien modèle"
+      ],
+      "typical_crowd": null,
+      "operating_hours": null
+    },
+    {
+      "name": "Le Quart de Cycle",
+      "location_type": "cafe",
+      "sector": "Promenade",
+      "description": "Café chaleureux tenu par Ossek. Mélange improbable de mobilier récupéré, de plantes en pots, et d'aquariums décoratifs. Le menu change selon l'humeur du propriétaire. Les habitués ont leur tasse attitrée sur l'étagère.",
+      "atmosphere": "refuge quotidien",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": [
+        "étagère à tasses personnelles",
+        "coin lecture avec fauteuils dépareillés",
+        "petit aquarium keth dans le comptoir"
+      ],
+      "typical_crowd": "habitués du matin, travailleurs en pause, solitaires cherchant compagnie silencieuse",
+      "operating_hours": "morning to evening"
+    },
+    {
+      "name": "Serres Hydro-7",
+      "location_type": "greenhouse",
+      "sector": "Serres Hautes",
+      "description": "Immense dôme de verre et d'acier où poussent légumes et fruits pour la station. L'air est humide et chaud, saturé d'odeurs végétales. Des passerelles permettent de circuler entre les niveaux de culture.",
+      "atmosphere": "jungle ordonnée",
+      "parent_location_ref": null,
+      "accessible": true,
+      "notable_features": [
+        "cascade de recyclage d'eau",
+        "zone expérimentale clôturée",
+        "réfectoire des jardiniers"
+      ],
+      "typical_crowd": "techniciens agricoles, botanistes, livreurs",
+      "operating_hours": "24/7 mais accès restreint la nuit"
+    },
+    {
+      "name": "Bureaux Symbiose Tech",
+      "location_type": "office",
+      "sector": "Zone Technique",
+      "description": "Open space moderne contrastant avec le reste de la station. Murs blancs, plantes de bureau, écrans partout. L'entreprise développe des IA pour l'optimisation agricole.",
+      "atmosphere": "startup mature",
+      "parent_location_ref": null,
+      "accessible": false,
+      "notable_features": [
+        "salle de serveurs vitrée",
+        "espace détente avec hamacs",
+        "terrasse donnant sur les serres"
+      ],
+      "typical_crowd": "développeurs, chercheurs, commerciaux occasionnels",
+      "operating_hours": "standard work hours"
+    }
+  ],
+
+  "organizations": [
+    {
+      "name": "Symbiose Tech",
+      "org_type": "company",
+      "domain": "IA agricole et optimisation écologique",
+      "size": "medium",
+      "description": "Startup fondée il y a huit ans, spécialisée dans les IA qui optimisent les rendements des serres tout en minimisant l'impact environnemental. Réputation d'éthique mais sous pression financière.",
+      "reputation": "innovants et intègres, mais fragiles",
+      "headquarters_ref": "Bureaux Symbiose Tech",
+      "founding_cycle": -2920,
+      "is_employer": true
+    },
+    {
+      "name": "Administration Méridienne",
+      "org_type": "administration",
+      "domain": "gestion de la station",
+      "size": "station-wide",
+      "description": "Gouvernement local élu tous les quatre ans. Bureaucratie lente mais relativement honnête. Gère les services essentiels et arbitre les conflits entre secteurs.",
+      "reputation": "bien intentionnée mais dépassée",
+      "headquarters_ref": null,
+      "founding_cycle": -4500,
+      "is_employer": false
+    },
+    {
+      "name": "Syndicat des Jardiniers",
+      "org_type": "union",
+      "domain": "protection des travailleurs agricoles",
+      "size": "large",
+      "description": "Syndicat puissant regroupant tous les travailleurs des serres. Négocie salaires et conditions de travail. Organise aussi des événements sociaux.",
+      "reputation": "combatifs mais justes",
+      "headquarters_ref": null,
+      "founding_cycle": -3650,
+      "is_employer": false
+    }
+  ],
+
+  "inventory": [
+    {
+      "name": "Sac de voyage usé",
+      "category": "personal",
+      "description": "Sac souple en toile synthétique, sangles rafistolées, poches multiples. Contient toute la vie de Valentin.",
+      "transportable": true,
+      "stackable": false,
+      "quantity": 1,
+      "base_value": 30,
+      "emotional_significance": "Cadeau de sa grand-mère avant son premier départ de la Terre"
+    },
+    {
+      "name": "Terminal personnel",
+      "category": "tech",
+      "description": "Modèle standard mais bien entretenu. Héberge Célimène. Écran légèrement rayé. Associé à une oreillette.",
+      "transportable": true,
+      "stackable": false,
+      "quantity": 1,
+      "base_value": 450,
+      "emotional_significance": null
+    },
+    {
+      "name": "Vêtements de voyage",
+      "category": "clothing",
+      "description": "Trois tenues pratiques : pantalons cargo, pulls synthétiques, veste légère. Couleurs neutres.",
+      "transportable": true,
+      "stackable": true,
+      "quantity": 3,
+      "base_value": 80,
+      "emotional_significance": null
+    },
+    {
+      "name": "Livre papier - Chroniques Terriennes",
+      "category": "personal",
+      "description": "Recueil de nouvelles pré-Expansion, couverture cornée, pages jaunies. Une rareté.",
+      "transportable": true,
+      "stackable": false,
+      "quantity": 1,
+      "base_value": 200,
+      "emotional_significance": "Le seul livre papier qu'il possède, trouvé dans une brocante sur Vega III"
+    },
+    {
+      "name": "Kit de cuisine minimal",
+      "category": "tool",
+      "description": "Couteau pliant, petite poêle pliable, épices de base dans des tubes. Essentiel pour quelqu'un qui cuisine.",
+      "transportable": true,
+      "stackable": false,
+      "quantity": 1,
+      "base_value": 75,
+      "emotional_significance": null
+    },
+    {
+      "name": "Credentials professionnels",
+      "category": "document",
+      "description": "Clé cryptographique contenant certifications, portfolio, et lettres de recommandation. Tout ce qui prouve qui il est professionnellement.",
+      "transportable": true,
+      "stackable": false,
+      "quantity": 1,
+      "base_value": 0,
+      "emotional_significance": "Huit ans de travail résumés en quelques mégaoctets"
+    }
+  ],
+
+  "narrative_arcs": [
+    {
+      "title": "Les Fantômes de Vega",
+      "arc_type": "secret",
+      "domain": "personal",
+      "description": "Le scandale IA de Vega III n'est pas terminé. Quelqu'un sait que Valentin était là et pourrait le contacter - pour demander son aide ou son silence.",
+      "involved_entities": ["Valentin"],
+      "potential_triggers": [
+        "message crypté inattendu",
+        "rencontre avec ancien collègue",
+        "article de presse"
+      ],
+      "stakes": "La réputation de Valentin et peut-être sa sécurité",
+      "deadline_cycle": null
+    },
+    {
+      "title": "La Mère de Justine",
+      "arc_type": "arc",
+      "domain": "family",
+      "description": "L'état de santé de la mère de Justine va s'aggraver, forçant des décisions difficiles. Justine aura besoin d'aide qu'elle refusera de demander.",
+      "involved_entities": ["Justine Lépicier"],
+      "potential_triggers": [
+        "appel médical urgent",
+        "Justine absente du travail",
+        "conversation surprise"
+      ],
+      "stakes": "La famille de Justine et sa capacité à accepter de l'aide",
+      "deadline_cycle": 120
+    },
+    {
+      "title": "Pression sur Symbiose",
+      "arc_type": "foreshadowing",
+      "domain": "professional",
+      "description": "Un investisseur externe s'intéresse à Symbiose Tech. Ses intentions ne sont pas claires mais le conseil d'administration est tenté par l'argent.",
+      "involved_entities": ["Symbiose Tech", "Dr. Yuki Tanaka"],
+      "potential_triggers": [
+        "réunion générale annoncée",
+        "rumeurs au café",
+        "Yuki stressée"
+      ],
+      "stakes": "L'indépendance et l'éthique de Symbiose Tech",
+      "deadline_cycle": 180
+    },
+    {
+      "title": "Le Banc d'Ossek",
+      "arc_type": "setup",
+      "domain": "family",
+      "description": "Ossek reçoit des nouvelles de son monde natal. Sa famille-banc le rappelle pour un événement important. Iel devra choisir entre son ancienne vie et celle qu'iel construit.",
+      "involved_entities": ["Ossek", "Le Quart de Cycle"],
+      "potential_triggers": ["lettre de Téthys", "Ossek absent", "café fermé"],
+      "stakes": "L'avenir du Quart de Cycle et le bien-être d'Ossek",
+      "deadline_cycle": 90
+    },
+    {
+      "title": "L'Accident du Secteur 4",
+      "arc_type": "chekhov_gun",
+      "domain": "personal",
+      "description": "Marcus mentionne parfois l'accident qui a tué sa famille. Les dossiers sont scellés mais des incohérences existent. Quelqu'un d'autre s'y intéresse.",
+      "involved_entities": ["Marcus Chen-Okafor", "Administration Méridienne"],
+      "potential_triggers": [
+        "questions sur le passé",
+        "documents trouvés",
+        "visite mystérieuse"
+      ],
+      "stakes": "La vérité sur la tragédie de Marcus",
+      "deadline_cycle": null
+    },
+    {
+      "title": "Nouveau Départ",
+      "arc_type": "arc",
+      "domain": "existential",
+      "description": "Valentin doit se reconstruire une vie : travail, logement, relations, sens. Chaque choix façonne qui il devient.",
+      "involved_entities": ["Valentin", "Célimène"],
+      "potential_triggers": ["chaque décision quotidienne"],
+      "stakes": "L'identité et le bonheur de Valentin",
+      "deadline_cycle": null
+    }
+  ],
+
+  "initial_relations": [
+    {
+      "source_ref": "Valentin",
+      "target_ref": "Appartement 4-12",
+      "relation_type": "lives_at",
+      "certainty": "certain",
+      "context": "Attribution temporaire de la station"
+    },
+    {
+      "source_ref": "Valentin",
+      "target_ref": "Symbiose Tech",
+      "relation_type": "employed_by",
+      "certainty": "certain",
+      "context": "Recruté comme architecte IA junior",
+      "position": "Architecte IA"
+    },
+    {
+      "source_ref": "Valentin",
+      "target_ref": "Bureaux Symbiose Tech",
+      "relation_type": "works_at",
+      "certainty": "certain"
+    },
+    {
+      "source_ref": "Appartement 4-12",
+      "target_ref": "Bloc Résidentiel Tournesol",
+      "relation_type": "located_in",
+      "certainty": "certain"
+    },
+    {
+      "source_ref": "Justine Lépicier",
+      "target_ref": "Serres Hydro-7",
+      "relation_type": "works_at",
+      "certainty": "certain",
+      "regularity": "daily"
+    },
+    {
+      "source_ref": "Justine Lépicier",
+      "target_ref": "Bloc Résidentiel Tournesol",
+      "relation_type": "lives_at",
+      "certainty": "certain",
+      "context": "Appartement 3-08, un étage en dessous de Valentin"
+    },
+    {
+      "source_ref": "Ossek",
+      "target_ref": "Le Quart de Cycle",
+      "relation_type": "works_at",
+      "certainty": "certain",
+      "regularity": "daily"
+    },
+    {
+      "source_ref": "Ossek",
+      "target_ref": "Le Quart de Cycle",
+      "relation_type": "owns",
+      "certainty": "certain"
+    },
+    {
+      "source_ref": "Marcus Chen-Okafor",
+      "target_ref": "Administration Méridienne",
+      "relation_type": "employed_by",
+      "certainty": "certain",
+      "position": "Chef de secteur maintenance"
+    },
+    {
+      "source_ref": "Dr. Yuki Tanaka",
+      "target_ref": "Symbiose Tech",
+      "relation_type": "employed_by",
+      "certainty": "certain",
+      "position": "Directrice R&D"
+    },
+    {
+      "source_ref": "Dr. Yuki Tanaka",
+      "target_ref": "Valentin",
+      "relation_type": "manages",
+      "certainty": "certain",
+      "context": "Supérieure hiérarchique directe"
+    },
+    {
+      "source_ref": "Symbiose Tech",
+      "target_ref": "Bureaux Symbiose Tech",
+      "relation_type": "located_in",
+      "certainty": "certain"
+    },
+    {
+      "source_ref": "Justine Lépicier",
+      "target_ref": "Syndicat des Jardiniers",
+      "relation_type": "employed_by",
+      "certainty": "certain",
+      "context": "Membre active"
+    },
+    {
+      "source_ref": "Marcus Chen-Okafor",
+      "target_ref": "Ossek",
+      "relation_type": "knows",
+      "certainty": "certain",
+      "context": "Client régulier du Quart de Cycle depuis des années"
+    },
+    {
+      "source_ref": "Ossek",
+      "target_ref": "Justine Lépicier",
+      "relation_type": "knows",
+      "certainty": "certain",
+      "context": "Habitué du café, conversations épisodiques"
+    }
+  ],
+
+  "arrival_event": {
+    "arrival_method": "navette cargo reconvertie en transport passagers",
+    "arrival_location_ref": "Terminal d'Arrivée Quai 7",
+    "arrival_date": "Lundi 14 Mars 2847",
+    "time_of_day": "morning",
+    "immediate_sensory_details": [
+      "Odeur de métal recyclé mêlée à celle du café du kiosque",
+      "Bourdonnement constant des systèmes de ventilation",
+      "Lumière artificielle imitant un matin terrestre, légèrement trop bleue",
+      "Annonces en trois langues crachotant des arrivées et départs",
+      "Froid relatif après la chaleur de la navette bondée"
+    ],
+    "first_npc_encountered": null,
+    "initial_mood": "fatigué mais curieusement optimiste",
+    "immediate_need": "Trouver l'appartement assigné et déposer ses affaires avant de s'effondrer",
+    "optional_incident": "Un enfant échappe à ses parents et bouscule Valentin. Sourires échangés avec la mère essoufflée qui court après. Premier contact humain sur la station."
+  }
+}
