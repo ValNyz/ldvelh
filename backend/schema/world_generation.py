@@ -5,7 +5,7 @@ Modèle spécifique pour la génération initiale du monde
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .core import EntityRef, Moment, TemporalValidationMixin
+from .core import EntityRef, TemporalValidationMixin
 from .entities import (
     CharacterData,
     LocationData,
@@ -33,7 +33,7 @@ class ArrivalEventData(BaseModel):
         max_length=50,
         description="Date d'arrivée dans l'univers, ex: 'Lundi 14 Mars 2847'",
     )
-    time_of_day: Moment
+    hour: str  # "14h30"
     immediate_sensory_details: list[str] = Field(..., min_length=3, max_length=6)
     first_npc_encountered: EntityRef | None = None
     initial_mood: str = Field(..., max_length=80)

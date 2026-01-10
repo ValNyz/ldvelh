@@ -87,7 +87,7 @@ export default function Home() {
 			setSaving(true);
 
 			// Mode INIT : monde créé
-			if (state?.monde_cree) {
+			if (displayText === null && state?.monde_cree) {
 				setWorldData(state);
 				setGamePhase(GAME_PHASE.WORLD_READY);
 
@@ -151,6 +151,9 @@ export default function Home() {
 	// =========================================================================
 
 	const generateWorld = useCallback(async (id) => {
+		console.log('[DEBUG] generateWorld - gameState:', gameState);
+		console.log('[DEBUG] generateWorld - gameState?.monde_cree:', gameState?.monde_cree);
+
 		setLoading(true);
 		setError(null);
 		setWorldGenProgress('');
@@ -163,6 +166,9 @@ export default function Home() {
 	}, [startStream, setLoading, setError]);
 
 	const handleStartAdventure = useCallback(async () => {
+		console.log('[DEBUG] handleStartAdventure - gameState:', gameState);
+		console.log('[DEBUG] handleStartAdventure - gameState?.monde_cree:', gameState?.monde_cree);
+
 		setGamePhase(GAME_PHASE.STARTING_ADVENTURE);
 		setLoading(true);
 		setError(null);
@@ -221,7 +227,7 @@ export default function Home() {
 			// Déterminer la phase
 			if (loadedMessages.length > 0) {
 				setGamePhase(GAME_PHASE.PLAYING);
-			} else if (data.state?.partie?.lieu_actuel) {
+			} else if (data.state?.monde_cree) {
 				// Monde créé mais aventure pas encore commencée
 				setWorldData({
 					monde_cree: true,
