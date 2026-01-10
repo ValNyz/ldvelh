@@ -513,7 +513,7 @@ class KnowledgeGraphPopulator:
         rt = data.relation_type
 
         # Social relations
-        if rt.category in RelationCategory.SOCIAL:
+        if rt.category == RelationCategory.SOCIAL:
             social = data.social
             if social or data.source_info:
                 await conn.execute(
@@ -533,7 +533,7 @@ class KnowledgeGraphPopulator:
                 )
 
         # Professional relations
-        elif rt.category in RelationCategory.PROFESSIONAL:
+        elif rt.category == RelationCategory.PROFESSIONAL:
             prof = data.professional
             if prof:
                 await conn.execute(
@@ -551,7 +551,7 @@ class KnowledgeGraphPopulator:
                 )
 
         # Spatial relations
-        elif rt.category in RelationCategory.SPATIAL:
+        elif rt.category == RelationCategory.SPATIAL:
             spatial = data.spatial
             if spatial:
                 await conn.execute(
@@ -566,7 +566,7 @@ class KnowledgeGraphPopulator:
                 )
 
         # Ownership relations
-        elif rt.category in RelationCategory.OWNERSHIP:
+        elif rt.category == RelationCategory.OWNERSHIP:
             own = data.ownership
             await conn.execute(
                 """INSERT INTO relations_ownership 
