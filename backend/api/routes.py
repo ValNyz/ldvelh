@@ -186,6 +186,12 @@ async def _handle_chat(
         message = request.message
         game_state = request.gameState
 
+        # DEBUG - à ajouter temporairement
+        print(f"[DEBUG] game_state reçu: {game_state}")
+        print(
+            f"[DEBUG] game_state.monde_cree: {game_state.monde_cree if game_state else 'N/A'}"
+        )
+
         # Déterminer le mode
         is_init_mode = not game_state or not game_state.monde_cree
         is_first_light = (

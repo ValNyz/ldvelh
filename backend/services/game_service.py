@@ -88,6 +88,17 @@ class GameService:
             if not game:
                 raise ValueError(f"Partie {game_id} introuvable")
 
+            # Vérifier si le monde est créé (protagoniste existe)
+            monde_cree = await conn.fetchval(
+                """
+                SELECT EXISTS(
+                    SELECT 1 FROM entities 
+                    WHERE game_id = $1 AND type = 'protagonist' AND removed_cycle IS NULL
+                )
+            """,
+                game_id,
+            )
+
             # Charger en parallèle
             stats = await self._load_protagonist_stats(conn, game_id)
             inventaire = await self._load_inventory(conn, game_id)
@@ -114,7 +125,10 @@ class GameService:
             valentin_data=valentin,
             ia_data=ia,
         )
-        return game_state_to_dict(state)
+
+        result = game_state_to_dict(state)
+        result["monde_cree"] = monde_cree  # ← Ajouter le flag
+        return result
 
     async def _load_protagonist_stats(self, conn, game_id: UUID) -> dict:
         """Charge les stats du protagoniste via la vue v_current_attributes"""
@@ -212,7 +226,7 @@ class GameService:
 
         return {
             "cycle": snapshot_row["cycle"] if snapshot_row else 0,
-            "day": summary_row["day"] if summary_row else 1,
+            "day": summary_row["day"] if summary_row else "Lundi",
             "date": summary_row["date"] if summary_row else None,
             "time": snapshot.get("time", "08h00"),
             "location": snapshot.get("location"),
@@ -246,26 +260,7 @@ class GameService:
         populator = WorldPopulator(self.pool, game_id)
         await populator.populate(world_gen)
 
-        # Sauvegarder le résumé initial du cycle 1
         arrival = world_gen.arrival_event
-        arrival_info = {
-            "type": "world_generation",
-            "arrival_location": arrival.arrival_location_ref if arrival else None,
-        }
-
-        async with self.pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO cycle_summaries (game_id, cycle, day, date, key_events)
-                VALUES ($1, 1, 1, $2, $3)
-                ON CONFLICT (game_id, cycle) DO UPDATE SET key_events = $3
-            """,
-                game_id,
-                arrival.arrival_date if arrival else None,
-                json.dumps(arrival_info),
-            )
-
-        # Retourner un dict avec les infos utiles pour le frontend
         return {
             "monde_nom": world_gen.world.name,
             "monde_type": world_gen.world.station_type,
@@ -296,15 +291,15 @@ class GameService:
                 game_id,
             )
 
-            current_day = current["day"] if current else 1
+            current_day = current["day"] if current else "Lundi"
             current_date = current["date"] if current else None
 
             # Gérer le changement de jour si présent
             new_day, new_date = current_day, current_date
             if narration.day_transition:
                 dt = narration.day_transition
-                new_day = getattr(dt, "new_day", current_day + 1)
-                new_date = getattr(dt, "new_date", current_date)
+                new_day = getattr(dt, "new_day", None)  # "Mardi" par exemple
+                new_date = getattr(dt, "new_date", None)  # "15 Mars 2847"
 
             # Mettre à jour cycle_summaries
             await conn.execute(
@@ -354,13 +349,15 @@ class GameService:
         current_location: str,
     ) -> dict:
         """Construit le contexte pour le narrateur depuis le KG"""
-        builder = ContextBuilder(self.pool, game_id)
-        return await builder.build_context(
-            player_input=player_input,
-            current_cycle=current_cycle,
-            current_time=current_time,
-            current_location=current_location,
-        )
+        async with self.pool.acquire() as conn:
+            builder = ContextBuilder(self.pool, game_id)
+            return await builder.build(
+                conn=conn,
+                player_input=player_input,
+                current_cycle=current_cycle,
+                current_time=current_time,
+                current_location_name=current_location,
+            )
 
     # =========================================================================
     # MESSAGES

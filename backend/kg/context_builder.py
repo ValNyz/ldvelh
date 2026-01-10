@@ -146,23 +146,9 @@ class ContextBuilder:
         """Récupère les infos du jour (depuis cycle_summaries)"""
         row = await conn.fetchrow(
             """
-            SELECT day, date, summary
-            FROM cycle_summaries
-            WHERE game_id = $1 AND cycle = $2
-        """,
-            self.game_id,
-            cycle,
-        )
-
-        if row:
-            return {"day": row["day"], "date": row["date"]}
-
-        # Fallback : chercher le dernier jour connu
-        row = await conn.fetchrow(
-            """
             SELECT day, date
             FROM cycle_summaries
-            WHERE game_id = $1 AND cycle < $2 AND day IS NOT NULL
+            WHERE game_id = $1 AND cycle <= $2 AND day IS NOT NULL
             ORDER BY cycle DESC
             LIMIT 1
         """,
@@ -171,17 +157,10 @@ class ContextBuilder:
         )
 
         if row:
-            delta = cycle - (
-                await conn.fetchval(
-                    "SELECT MAX(cycle) FROM cycle_summaries WHERE game_id = $1 AND cycle < $2",
-                    self.game_id,
-                    cycle,
-                )
-                or 0
-            )
-            return {"day": (row["day"] or 1) + delta, "date": row["date"]}
+            return {"day": row["day"], "date": row["date"]}
 
-        return {"day": cycle, "date": f"Jour {cycle}"}
+        # Fallback : pas encore de cycle_summaries
+        return {"day": "Lundi", "date": "Jour 1"}
 
     # =========================================================================
     # PROTAGONIST
@@ -448,7 +427,7 @@ class ContextBuilder:
             AND r.type IN ('knows', 'friend_of', 'romantic', 'colleague_of')
             AND r.end_cycle IS NULL
             AND e.removed_cycle IS NULL
-            ORDER BY COALESCE(rs.level, 0) DESC
+            ORDER BY rel_level DESC NULLS LAST
             LIMIT 8
         """,
             self.game_id,
@@ -689,10 +668,17 @@ class ContextBuilder:
             limit,
         )
 
-        return [
-            f"Cycle {r['cycle']} ({r['date'] or f'Jour {r['day'] or r['cycle']}'}) : {r['summary']}"
-            for r in reversed(rows)
-        ]
+        results = []
+        for r in reversed(rows):
+            # Formater : "Cycle 3 (Mardi 15 Mars) : résumé..."
+            date_str = (
+                f"{r['day']} {r['date']}"
+                if r["day"] and r["date"]
+                else r["date"] or f"Cycle {r['cycle']}"
+            )
+            results.append(f"Cycle {r['cycle']} ({date_str}) : {r['summary']}")
+
+        return results
 
     async def _get_recent_messages(
         self, conn: Connection, limit: int = 5

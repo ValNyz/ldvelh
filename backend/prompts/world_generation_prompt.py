@@ -564,8 +564,8 @@ EXAMPLE_JSON_OUTPUT = """{
   "arrival_event": {
     "arrival_method": "navette cargo reconvertie",
     "arrival_location_ref": "Terminal Quai 7",
-    "arrival_date": "Lundi 14 Mars 2847",
-    "time_of_day": "morning",
+    "arrival_date": "Lundi 18 Juillet 2847",
+    "hour": "8h42",
     "immediate_sensory_details": [
       "Odeur de métal recyclé mêlée à celle du café",
       "Bourdonnement constant des ventilateurs",

@@ -254,7 +254,7 @@ CREATE TABLE facts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   cycle INTEGER NOT NULL,
-  moment VARCHAR(20),
+  hour VARCHAR(20),
   type fact_type NOT NULL,
   domain fact_domain DEFAULT 'other',
   description TEXT NOT NULL,
@@ -354,7 +354,7 @@ CREATE TABLE events (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   planned_cycle INTEGER NOT NULL,
-  moment VARCHAR(20),
+  hour VARCHAR(20),
   location_id UUID REFERENCES entities(id) ON DELETE SET NULL,
   recurrence JSONB,
   amount INTEGER,
@@ -430,7 +430,7 @@ CREATE TABLE chat_messages (
   role VARCHAR(20) NOT NULL,
   content TEXT NOT NULL,
   cycle INTEGER NOT NULL,
-  day INTEGER,
+  day VARCHAR(10),
   date VARCHAR(50),
   location_id UUID REFERENCES entities(id) ON DELETE SET NULL,
   npcs_present UUID[] DEFAULT '{}',
@@ -452,7 +452,7 @@ CREATE TABLE cycle_summaries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   cycle INTEGER NOT NULL,
-  day INTEGER,
+  day VARCHAR(10),
   date VARCHAR(50),
   summary TEXT,
   key_events JSONB,
@@ -702,7 +702,7 @@ CREATE OR REPLACE FUNCTION create_fact(
   p_description TEXT,
   p_domain fact_domain DEFAULT 'other',
   p_location_id UUID DEFAULT NULL,
-  p_moment VARCHAR(20) DEFAULT NULL,
+  p_hour VARCHAR(20) DEFAULT NULL,
   p_importance INTEGER DEFAULT 3,
   p_participants JSONB DEFAULT '[]'
 )
@@ -714,8 +714,8 @@ DECLARE
   v_participant JSONB;
   v_entity_id UUID;
 BEGIN
-  INSERT INTO facts (game_id, cycle, type, domain, description, location_id, moment, importance)
-  VALUES (p_game_id, p_cycle, p_type, p_domain, p_description, p_location_id, p_moment, p_importance)
+  INSERT INTO facts (game_id, cycle, type, domain, description, location_id, hour, importance)
+  VALUES (p_game_id, p_cycle, p_type, p_domain, p_description, p_location_id, p_hour, p_importance)
   RETURNING id INTO v_fact_id;
   
   FOR v_participant IN SELECT * FROM jsonb_array_elements(p_participants)
@@ -1086,7 +1086,7 @@ SELECT
   ev.title,
   ev.description,
   ev.planned_cycle,
-  ev.moment,
+  ev.hour,
   ev.recurrence,
   ev.amount,
   l.name AS location_name,
@@ -1189,7 +1189,7 @@ SELECT
   f.id,
   f.game_id,
   f.cycle,
-  f.moment,
+  f.hour,
   f.type,
   f.domain,
   f.description,

@@ -45,7 +45,7 @@ class PartieState(BaseModel):
     id: Optional[UUID] = None
     nom: str = "Partie sans nom"
     cycle_actuel: int = 1
-    jour: int = 1
+    jour: str = "Lundi"
     date_jeu: Optional[str] = None
     heure: Optional[str] = None
     lieu_actuel: Optional[str] = None
@@ -142,7 +142,7 @@ def normalize_partie(data: Optional[dict]) -> Optional[PartieState]:
         id=data.get("id") or data.get("partie_id"),
         nom=data.get("nom") or data.get("name", "Partie sans nom"),
         cycle_actuel=data.get("cycle_actuel") or data.get("current_cycle", 1),
-        jour=data.get("jour") or data.get("narrative_day", 1),
+        jour=data.get("jour") or data.get("narrative_day", "Lundi"),
         date_jeu=data.get("date_jeu") or data.get("universe_date"),
         heure=data.get("heure") or data.get("time") or data.get("current_time"),
         lieu_actuel=data.get("lieu_actuel") or data.get("current_location"),

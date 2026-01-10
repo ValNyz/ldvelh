@@ -224,18 +224,20 @@ class WorldPopulator(KnowledgeGraphPopulator):
             json.dumps([{"name": "Valentin", "role": "actor"}]),
         )
 
-        # Create cycle summary with arrival metadata
+        # Create cycle summary with arrival metadata - INCLURE LA DATE
         await conn.execute(
             """INSERT INTO cycle_summaries 
-               (game_id, cycle, day, summary, key_events)
-               VALUES ($1, $2, $3, $4, $5)""",
+               (game_id, cycle, day, date, summary, key_events)
+               VALUES ($1, $2, $3, $4, $5, $6)""",
             self.game_id,
             1,
-            1,
+            arrival.arrival_date.split()[0],
+            arrival.arrival_date,  # ← AJOUTER LA DATE ICI
             f"Jour 1: Arrivée. Humeur: {arrival.initial_mood}",
             json.dumps(
                 {
                     "arrival_method": arrival.arrival_method,
+                    "arrival_location": arrival.arrival_location_ref,
                     "sensory_details": arrival.immediate_sensory_details,
                     "immediate_need": arrival.immediate_need,
                     "first_npc": arrival.first_npc_encountered,
