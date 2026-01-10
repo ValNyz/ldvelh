@@ -44,7 +44,7 @@ class EntityCreation(BaseModel):
     # Type-specific data (one of these based on entity_type)
     character_data: CharacterData | None = None
     location_data: LocationData | None = None
-    object_data: ObjectData | None = None
+    object_data: ObjectData | None = None  # Pour objets décor uniquement
     organization_data: OrganizationData | None = None
 
     @model_validator(mode="after")
@@ -69,13 +69,10 @@ class EntityUpdate(BaseModel):
     """An update to an existing entity"""
 
     entity_ref: EntityRef
-    # What changed
     new_aliases: list[str] = Field(default_factory=list)
     attributes_changed: list[Attribute] = Field(default_factory=list)
     skills_changed: list[Skill] = Field(default_factory=list)
-    # For characters: arc updates
     arc_updates: list[CharacterArc] = Field(default_factory=list)
-    # Removal
     removed: bool = False
     removal_reason: str | None = None
 
@@ -86,6 +83,27 @@ class EntityRemoval(BaseModel):
     entity_ref: EntityRef
     reason: str = Field(..., max_length=300)
     cycle: Cycle
+
+
+# =============================================================================
+# OBJECT CREATION (from inventory acquisition)
+# =============================================================================
+
+
+class ObjectCreation(BaseModel):
+    """
+    A new object created from inventory acquisition.
+    Produced by the Objects extractor based on inventory hints.
+    """
+
+    name: str = Field(..., max_length=100)
+    category: str = Field(..., max_length=50)
+    description: str = Field(..., max_length=200)
+    transportable: bool = True
+    stackable: bool = False
+    base_value: int = Field(default=0, ge=0)
+    emotional_significance: str | None = Field(default=None, max_length=150)
+    from_hint: str = Field(..., description="The original hint this was created from")
 
 
 # =============================================================================
@@ -106,11 +124,10 @@ class RelationUpdate(BaseModel):
     source_ref: EntityRef
     target_ref: EntityRef
     relation_type: RelationType
-    # What changed
     new_certainty: CertaintyLevel | None = None
     new_level: int | None = Field(default=None, ge=0, le=10)
     new_context: str | None = None
-    revealed_truth: bool | None = None  # If is_true changed
+    revealed_truth: bool | None = None
 
 
 class RelationEnd(BaseModel):
@@ -144,13 +161,33 @@ class CreditTransaction(BaseModel):
 
 
 class InventoryChange(BaseModel):
-    """Item gained, lost, or modified"""
+    """
+    Item gained, lost, or used.
 
-    action: Literal["acquire", "lose", "modify", "use"]
-    object_ref: EntityRef | None = None  # For existing items
-    new_object: ObjectData | None = None  # For new items
+    Pour les nouveaux objets: utiliser object_hint (pas de création ici).
+    L'extracteur Objets créera l'objet à partir du hint.
+    """
+
+    action: Literal["acquire", "lose", "use"]
+    # Pour objets existants
+    object_ref: EntityRef | None = None
+    # Pour nouveaux objets: description textuelle, pas ObjectData
+    object_hint: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Description du nouvel objet acquis (sera traité par extracteur Objets)",
+    )
     quantity_delta: int = Field(default=1)
     reason: str | None = Field(default=None, max_length=150)
+
+    @model_validator(mode="after")
+    def validate_ref_or_hint(self) -> "InventoryChange":
+        """Ensure either object_ref or object_hint is provided for acquire"""
+        if self.action == "acquire" and not self.object_ref and not self.object_hint:
+            raise ValueError("acquire action requires object_ref or object_hint")
+        if self.action in ("lose", "use") and not self.object_ref:
+            raise ValueError(f"{self.action} action requires object_ref")
+        return self
 
 
 # =============================================================================
@@ -165,7 +202,6 @@ class CommitmentCreation(BaseModel):
     description: str = Field(..., max_length=400)
     involved_entities: list[EntityRef] = Field(default_factory=list)
     deadline_cycle: Cycle | None = None
-    # For arcs
     objective: str | None = None
     obstacle: str | None = None
 
@@ -191,8 +227,8 @@ class EventScheduled(BaseModel):
     hour: str | None = Field(default="12h00", max_length=5)
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
-    recurrence: dict | None = None  # For recurring events
-    amount: int | None = None  # For financial_due
+    recurrence: dict | None = None
+    amount: int | None = None
 
 
 # =============================================================================
@@ -203,13 +239,13 @@ class EventScheduled(BaseModel):
 class NarrativeExtraction(BaseModel):
     """
     Complete extraction from a narrative segment.
-    The LLM should produce this after generating narrative text.
+    Assembled from parallel extractors.
     """
 
     # Context
-    cycle: Cycle
+    cycle: Cycle = Field(default=1)
     hour: str | None = Field(
-        max_length=5, description="Hour at the start of the narration."
+        default=None, max_length=5, description="Hour at the start of the narration."
     )
     current_location_ref: EntityRef | None = None
 
@@ -221,7 +257,10 @@ class NarrativeExtraction(BaseModel):
     entities_updated: list[EntityUpdate] = Field(default_factory=list)
     entities_removed: list[EntityRemoval] = Field(default_factory=list)
 
-    # Relation changes
+    # Objects created (from inventory acquisition)
+    objects_created: list[ObjectCreation] = Field(default_factory=list)
+
+    # Relation changes (NO owns - handled automatically)
     relations_created: list[RelationCreation] = Field(default_factory=list)
     relations_updated: list[RelationUpdate] = Field(default_factory=list)
     relations_ended: list[RelationEnd] = Field(default_factory=list)
@@ -242,30 +281,13 @@ class NarrativeExtraction(BaseModel):
     # Future events
     events_scheduled: list[EventScheduled] = Field(default_factory=list)
 
-    # Summary for context management
+    # Summary
     segment_summary: str = Field(
-        ...,
+        default="",
         max_length=500,
-        description="Brief summary of what happened for context compression",
+        description="Brief summary of what happened",
     )
     key_npcs_present: list[EntityRef] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_no_empty_extraction(self) -> "NarrativeExtraction":
-        """Ensure we extracted something meaningful"""
-        has_content = (
-            self.facts
-            or self.entities_created
-            or self.entities_updated
-            or self.relations_created
-            or self.gauge_changes
-            or self.beliefs_updated
-        )
-        if not has_content and not self.segment_summary:
-            raise ValueError(
-                "Extraction must contain at least facts, changes, or a summary"
-            )
-        return self
 
 
 # =============================================================================
@@ -281,6 +303,4 @@ class NarrativeWithExtraction(BaseModel):
 
     narrative_text: str = Field(..., min_length=100)
     extraction: NarrativeExtraction
-
-    # Optional: narrator notes (not shown to player)
     narrator_notes: str | None = Field(default=None, max_length=500)

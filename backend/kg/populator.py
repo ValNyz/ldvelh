@@ -630,7 +630,7 @@ class KnowledgeGraphPopulator:
             data.description,
             data.domain.value,
             location_id,
-            data,
+            data.hour,
             data.importance,
             participants_json,
         )

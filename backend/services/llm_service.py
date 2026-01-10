@@ -3,7 +3,6 @@ LDVELH - LLM Service
 Gestion des appels à Claude
 """
 
-import time
 from collections.abc import Awaitable, Callable
 
 import anthropic
@@ -34,6 +33,7 @@ class LLMService:
         is_init_mode: bool = False,
         on_complete: Callable[[dict | None, str | None, str], Awaitable[None]]
         | None = None,
+        on_narrative_ready: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         """
         Stream une réponse narrative depuis Claude.
@@ -42,8 +42,9 @@ class LLMService:
             system_prompt: Prompt système
             user_message: Message utilisateur (contexte)
             sse_writer: Writer SSE pour le streaming
-            is_init_mode: True si mode World Builder (pas de streaming narratif)
-            on_complete: Callback appelé à la fin avec (parsed, display_text, raw_json)
+            is_init_mode: True si mode World Builder
+            on_complete: Callback à la fin avec (parsed, display_text, raw_json)
+            on_narrative_ready: Callback dès que le narrative_text est complet
         """
         settings = self.settings
         max_tokens = (
@@ -53,8 +54,7 @@ class LLMService:
         full_json = ""
         last_sent_length = 0
         last_progress_length = 0
-
-        start_time = time.perf_counter()
+        narrative_callback_fired = False
 
         try:
             async with self.client.messages.stream(
@@ -75,54 +75,39 @@ class LLMService:
                         full_json += event.delta.text
 
                         if is_init_mode:
-                            # Mode init: envoie le JSON brut périodiquement
                             if len(full_json) - last_progress_length > 500:
                                 await sse_writer.send_progress(full_json)
                                 last_progress_length = len(full_json)
                         else:
-                            # Mode light: extrait et envoie le narratif
                             displayable = extract_narrative_from_partial(full_json)
                             if displayable and len(displayable) > last_sent_length:
-                                delta = displayable[
-                                    last_sent_length:
-                                ]  # " porte..." (juste le nouveau)
+                                delta = displayable[last_sent_length:]
                                 await sse_writer.send_chunk(delta)
                                 last_sent_length = len(displayable)
 
-            elapsed = time.perf_counter() - start_time
-            mode = "INIT" if is_init_mode else "LIGHT"
+                                # Détecter la fin du narrative_text
+                                # On cherche la fermeture du champ narrative_text
+                                if (
+                                    not narrative_callback_fired
+                                    and on_narrative_ready
+                                    and self._is_narrative_complete(full_json)
+                                ):
+                                    narrative_callback_fired = True
+                                    await on_narrative_ready(displayable)
 
-            print(f"\n{'=' * 60}")
-            print(f"[LLM {mode}] Génération terminée")
-            print(
-                f"[LLM {mode}] Temps: {elapsed:.2f}s | Taille: {len(full_json)} chars"
-            )
-            print(f"[LLM {mode}] Tokens estimés: ~{len(full_json) // 4}")
-            print(f"[LLM {mode}] Vitesse: ~{len(full_json) / elapsed:.0f} chars/s")
-            print(f"{'=' * 60}")
-            print(f"[LLM {mode}] SORTIE BRUTE:")
-            print(f"{'=' * 60}")
-            print(full_json)
-            print(f"{'=' * 60}\n")
-
-            # Envoyer le reste en mode init
             if is_init_mode and len(full_json) > last_progress_length:
                 await sse_writer.send_progress(full_json)
 
-            # Parser le JSON final
             parsed = parse_json_response(full_json)
 
-            # Construire le texte d'affichage
             display_text = None
             if not is_init_mode and parsed:
                 display_text = build_display_text(parsed)
             elif not is_init_mode:
-                # Fallback: utiliser ce qu'on a extrait
                 display_text = (
                     extract_narrative_from_partial(full_json) or "Erreur de génération."
                 )
 
-            # Callback
             if on_complete:
                 await on_complete(parsed, display_text, full_json)
 
@@ -137,24 +122,33 @@ class LLMService:
             await sse_writer.send_error(str(e), recoverable=True)
             raise
 
+    def _is_narrative_complete(self, partial_json: str) -> bool:
+        """Détecte si le champ narrative_text est complet dans le JSON partiel"""
+        # Cherche la fin du narrative_text (guillemet fermant suivi de virgule ou })
+        import re
+
+        # Pattern: "narrative_text": "..." suivi de , ou de fin d'objet
+        pattern = r'"narrative_text"\s*:\s*"(?:[^"\\]|\\.)*"\s*[,}]'
+        return bool(re.search(pattern, partial_json))
+
     # =========================================================================
-    # EXTRACTION (Non-streaming)
+    # EXTRACTION LÉGÈRE (Haiku)
     # =========================================================================
 
-    async def extract_narrative(
+    async def extract_light(
         self,
         system_prompt: str,
         user_message: str,
     ) -> dict | None:
         """
-        Extrait les données d'un texte narratif.
-        Appel non-streaming pour l'extraction en background.
+        Extraction légère avec Haiku.
+        Pour: résumé, état protagoniste, faits, relations, croyances.
         """
         try:
             response = await self.client.messages.create(
-                model=self.settings.model_extraction,
-                max_tokens=self.settings.max_tokens_extraction,
-                temperature=0.3,  # Moins créatif pour l'extraction
+                model=self.settings.model_extraction_light,
+                max_tokens=self.settings.max_tokens_extraction_light,
+                temperature=self.settings.temperature_extraction,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
             )
@@ -163,12 +157,49 @@ class LLMService:
             return parse_json_response(content)
 
         except Exception as e:
-            print(f"[LLM] Erreur extraction: {e}")
+            print(f"[LLM] Erreur extraction light: {e}")
             return None
 
     # =========================================================================
-    # RÉSUMÉ (Non-streaming)
+    # EXTRACTION LOURDE (Sonnet)
     # =========================================================================
+
+    async def extract_heavy(
+        self,
+        system_prompt: str,
+        user_message: str,
+    ) -> dict | None:
+        """
+        Extraction lourde avec Sonnet.
+        Pour: entités (avec arcs), engagements narratifs.
+        """
+        try:
+            response = await self.client.messages.create(
+                model=self.settings.model_extraction_heavy,
+                max_tokens=self.settings.max_tokens_extraction_heavy,
+                temperature=self.settings.temperature_extraction,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+            )
+
+            content = response.content[0].text
+            return parse_json_response(content)
+
+        except Exception as e:
+            print(f"[LLM] Erreur extraction heavy: {e}")
+            return None
+
+    # =========================================================================
+    # LEGACY - Gardé pour compatibilité
+    # =========================================================================
+
+    async def extract_narrative(
+        self,
+        system_prompt: str,
+        user_message: str,
+    ) -> dict | None:
+        """Legacy: utilise extract_heavy par défaut"""
+        return await self.extract_heavy(system_prompt, user_message)
 
     async def summarize_message(
         self, narrative_text: str, max_length: int = 150
@@ -197,12 +228,7 @@ Résumé (une phrase):""",
 
         except Exception as e:
             print(f"[LLM] Erreur résumé: {e}")
-            # Fallback: premiers mots du texte
             return narrative_text[:max_length].rsplit(" ", 1)[0] + "..."
-
-    # =========================================================================
-    # GÉNÉRATION MONDE (Non-streaming, pour tests)
-    # =========================================================================
 
     async def generate_world(
         self,

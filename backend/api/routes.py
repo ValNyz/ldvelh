@@ -4,6 +4,7 @@ Routes FastAPI principales
 """
 
 import time
+import logging
 import asyncio
 from uuid import UUID
 
@@ -21,9 +22,15 @@ from api.dependencies import get_pool, get_settings_dep
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from prompts.world_generation_prompt import get_full_generation_prompt
-from services.extraction_service import run_extraction_background
+from kg.context_builder import ContextBuilder
+from services.extraction_service import (
+    ParallelExtractionService,
+    create_summary_task,
+)
 from services.game_service import GameService
 from services.llm_service import get_llm_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -182,18 +189,12 @@ async def _handle_chat(
     try:
         game_service = GameService(pool)
         llm_service = get_llm_service()
+        extraction_service = ParallelExtractionService(pool)
 
         game_id = request.gameId
         message = request.message
         game_state = request.gameState
 
-        # DEBUG - à ajouter temporairement
-        print(f"[DEBUG] game_state reçu: {game_state}")
-        print(
-            f"[DEBUG] game_state.monde_cree: {game_state.monde_cree if game_state else 'N/A'}"
-        )
-
-        # Déterminer le mode
         is_init_mode = not game_state or not game_state.monde_cree
         is_first_light = (
             game_state
@@ -212,8 +213,9 @@ async def _handle_chat(
         # MODE INIT (World Builder)
         # =====================================================================
         if is_init_mode:
-            print("[CHAT] Mode: INIT (World Builder)")
+            logger.info("[CHAT] Mode: INIT (World Builder)")
 
+            ### TODO un jour, il faudra ajouter la paramétrisation du npc soi même mandatory en config avant création du monde. Idem pour lieu, station ?
             prompt = get_full_generation_prompt(
                 mandatory_npcs=None,  # À paramétrer selon besoin
                 theme_preferences=message
@@ -223,9 +225,8 @@ async def _handle_chat(
             )
 
             async def on_init_complete(parsed, display_text, raw_json):
-                print(f"[DEBUG] raw_json length: {len(raw_json)}")
-                print(f"[DEBUG] raw_json ends with: ...{raw_json[-100:]}")
-                print(f"[DEBUG] parsed is None: {parsed is None}")
+                logger.debug(f"[DEBUG] raw_json length: {len(raw_json)}")
+                logger.debug(f"[DEBUG] raw_json ends with: ...{raw_json[-100:]}")
                 if not parsed:
                     await sse_writer.send_error(
                         "Échec de génération du monde",
@@ -240,7 +241,6 @@ async def _handle_chat(
                 try:
                     # Normaliser AVANT validation Pydantic
                     parsed = normalize_world_generation(parsed)
-                    # Valider avec Pydantic
                     world_gen = WorldGeneration.model_validate(parsed)
 
                     # Peupler le KG
@@ -261,7 +261,7 @@ async def _handle_chat(
                     await sse_writer.send_saved()
 
                 except Exception as e:
-                    print(f"[CHAT] Erreur process init: {e}")
+                    logger.error(f"[CHAT] Erreur process init: {e}")
                     await sse_writer.send_error(str(e), recoverable=True)
 
             await llm_service.stream_narration(
@@ -269,6 +269,7 @@ async def _handle_chat(
                 user_message=prompt["user"],
                 sse_writer=sse_writer,
                 is_init_mode=True,
+                temperature=1.0,
                 on_complete=on_init_complete,
             )
 
@@ -277,18 +278,17 @@ async def _handle_chat(
         # =====================================================================
         else:
             mode_label = "FIRST_LIGHT" if is_first_light else "LIGHT"
-            print(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
+            logger.info(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
 
             # Construire le contexte
             current_time = (
-                game_state.partie.get("heure", "08h00")
-                if game_state.partie
-                else "08h00"
+                game_state.partie.get("heure", "8h00") if game_state.partie else "8h00"
             )
             current_location = (
                 game_state.partie.get("lieu_actuel", "") if game_state.partie else ""
             )
 
+            ### TODO Je n'aime pas trop avoir du SQL dans ce fichier, à déplacer. Voir à modifier
             # Si first_light, utiliser l'événement d'arrivée comme contexte initial
             if is_first_light:
                 # Récupérer les infos d'arrivée depuis la BDD
@@ -310,15 +310,25 @@ async def _handle_chat(
                     current_location = events.get("arrival_location", current_location)
                     message = message or "Je viens d'arriver sur la station."
 
-            context = await game_service.build_narration_context(
-                game_id=game_id,
-                player_input=message,
-                current_cycle=current_cycle,
-                current_time=current_time,
-                current_location=current_location,
-            )
+            async with pool.acquire() as conn:
+                builder = ContextBuilder(pool, game_id)
+                context = await builder.build(
+                    conn=conn,
+                    player_input=message,
+                    current_cycle=current_cycle,
+                    current_time=current_time,
+                    current_location_name=current_location,
+                )
 
             context_prompt = build_narrator_context_prompt(context)
+
+            # Variable pour stocker la tâche de résumé lancée tôt
+            summary_task_holder = {"task": None}
+
+            async def on_narrative_ready(narrative_text: str):
+                """Callback dès que le narrative_text est complet"""
+                logger.info("[CHAT] Narrative ready, lancement résumé anticipé")
+                summary_task_holder["task"] = create_summary_task(pool, narrative_text)
 
             async def on_light_complete(parsed, display_text, raw_json):
                 t0 = time.perf_counter()
@@ -332,27 +342,45 @@ async def _handle_chat(
                     t1 = time.perf_counter()
                     # Normaliser AVANT validation Pydantic
                     parsed = normalize_narration_output(parsed)
-                    print(
-                        f"[TIMING] normalize: {(time.perf_counter() - t1) * 1000:.0f}ms"
-                    )
-                    t1 = time.perf_counter()
-                    # Valider avec Pydantic
                     narration = NarrationOutput.model_validate(parsed)
-                    print(
-                        f"[TIMING] pydantic: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    logger.debug(
+                        f"[TIMING] validation + pydantic: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
                     t1 = time.perf_counter()
                     # Traiter la narration
                     process_result = await game_service.process_light(
                         game_id, narration, current_cycle
                     )
-                    print(
+                    logger.debug(
                         f"[TIMING] process_light: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
+
+                    # === EXTRACTION PARALLÈLE (BLOQUANTE) ===
+                    # Signaler au client que l'extraction commence
+                    # Le joueur peut taper mais pas encore envoyer
+                    await sse_writer.send_extracting(display_text)
+
                     t1 = time.perf_counter()
+                    logger.info("[CHAT] Lancement extraction parallèle...")
+
+                    extraction_result = await extraction_service.extract_and_populate(
+                        game_id=game_id,
+                        narrative_text=narration.narrative_text,
+                        hints=narration.hints,
+                        cycle=process_result["cycle"],
+                        location=process_result["location"],
+                        npcs_present=process_result["npcs_present"],
+                        summary_task=summary_task_holder.get("task"),
+                    )
+                    logger.info(f"[CHAT] Extraction terminée: {extraction_result}")
+                    logger.debug(
+                        f"[TIMING] extract_and_populate: {(time.perf_counter() - t1) * 1000:.0f}ms"
+                    )
+                    t1 = time.perf_counter()
+
                     # Construire l'état pour le client
                     state = await game_service.load_game_state(game_id)
-                    print(
+                    logger.debug(
                         f"[TIMING] load_game_state: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
                     state["partie"].update(
@@ -370,7 +398,7 @@ async def _handle_chat(
                     t1 = time.perf_counter()
                     await sse_writer.send_done(display_text, state)
 
-                    print(
+                    logger.debug(
                         f"[TIMING] send_done: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
                     t1 = time.perf_counter()
@@ -383,30 +411,18 @@ async def _handle_chat(
                         state_snapshot=process_result["state_snapshot"],
                     )
 
-                    print(
+                    logger.debug(
                         f"[TIMING] save_messages: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
 
                     await sse_writer.send_saved()
 
-                    print(
+                    logger.debug(
                         f"[TIMING] TOTAL on_light_complete: {(time.perf_counter() - t0) * 1000:.0f}ms"
                     )
 
-                    # Lancer l'extraction en background
-                    background_tasks.add_task(
-                        run_extraction_background,
-                        pool,
-                        game_id,
-                        narration.narrative_text,
-                        narration.hints,
-                        process_result["cycle"],
-                        process_result["location"],
-                        process_result["npcs_present"],
-                    )
-
                 except Exception as e:
-                    print(f"[CHAT] Erreur process light: {e}")
+                    logger.error(f"[CHAT] Erreur process light: {e}")
                     import traceback
 
                     traceback.print_exc()
@@ -421,7 +437,7 @@ async def _handle_chat(
             )
 
     except Exception as e:
-        print(f"[CHAT] Erreur non gérée: {e}")
+        logger.debug(f"[CHAT] Erreur non gérée: {e}")
         import traceback
 
         traceback.print_exc()
