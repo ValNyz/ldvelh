@@ -217,12 +217,11 @@ class WorldPopulator(KnowledgeGraphPopulator):
         location_id = self.registry.resolve(arrival.arrival_location_ref)
 
         await conn.execute(
-            """SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+            """SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8)""",
             self.game_id,
             1,
             "incident",
             f"Arrivée sur la station via {arrival.arrival_method}. {arrival.optional_incident or ''}",
-            "exploration",
             location_id,
             arrival.time,
             4,
@@ -655,7 +654,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 cycle,
                 "incident",
                 resolution.resolution_description,
-                "other",
                 None,
                 None,
                 3,

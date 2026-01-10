@@ -106,7 +106,6 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     @staticmethod
     def _create_default_arrival_event(data: dict) -> dict:
         """Create a default arrival_event based on available data."""
-        # Find an arrival location (dock, terminal, etc.)
         arrival_location = "Station"
         if "locations" in data and isinstance(data["locations"], list):
             arrival_types = {
@@ -124,13 +123,11 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     if any(t in loc_type for t in arrival_types):
                         arrival_location = loc.get("name", arrival_location)
                         break
-            # Fallback: first location
             if arrival_location == "Station" and data["locations"]:
                 first_loc = data["locations"][0]
                 if isinstance(first_loc, dict):
                     arrival_location = first_loc.get("name", "Station")
 
-        # Find a potential first NPC
         first_npc = None
         if (
             "characters" in data
@@ -197,13 +194,9 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     @model_validator(mode="after")
     def validate_temporal_coherence_soft(self) -> "WorldGeneration":
-        """
-        Validate all temporal relationships - SOFT MODE.
-        Filters out entities with invalid temporal data instead of raising.
-        """
+        """Validate all temporal relationships - SOFT MODE."""
         founding = self.world.founding_cycle
 
-        # Filter characters with invalid arrival cycles
         valid_chars = []
         for char in self.characters:
             if self.is_temporally_valid(
@@ -214,7 +207,6 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         if len(valid_chars) != len(self.characters):
             self.characters = valid_chars
 
-        # Filter organizations with invalid founding cycles
         valid_orgs = []
         for org in self.organizations:
             if org.founding_cycle is None or self.is_temporally_valid(
@@ -231,8 +223,9 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     def validate_references_soft(self) -> "WorldGeneration":
         """
         Validate all entity references - SOFT MODE.
-        Instead of raising errors, filter out entities with invalid refs.
-        Uses multi-pass to handle cascading invalidations.
+        - Optional refs: set to None if invalid
+        - List refs: filter invalid entries
+        - Only filter entity if required refs are invalid or list becomes empty
         """
         max_passes = 5
         pass_num = 0
@@ -240,71 +233,52 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         while pass_num < max_passes:
             pass_num += 1
             changed = False
-
-            # Build current registry of valid names
             known_names = self._build_name_registry()
 
-            # --- Filter characters with invalid refs ---
-            valid_chars = []
+            # --- Characters: nullify invalid optional refs ---
             for char in self.characters:
-                issues = []
                 if char.workplace_ref and char.workplace_ref.lower() not in known_names:
-                    issues.append(f"workplace_ref '{char.workplace_ref}'")
-                if char.residence_ref and char.residence_ref.lower() not in known_names:
-                    issues.append(f"residence_ref '{char.residence_ref}'")
-
-                if issues:
                     logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Filtering Character '{char.name}' "
-                        f"- invalid {', '.join(issues)}"
+                        f"[SoftRef] Pass {pass_num}: Character '{char.name}' "
+                        f"- nullifying invalid workplace_ref '{char.workplace_ref}'"
                     )
+                    char.workplace_ref = None
                     changed = True
-                else:
-                    valid_chars.append(char)
+                if char.residence_ref and char.residence_ref.lower() not in known_names:
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: Character '{char.name}' "
+                        f"- nullifying invalid residence_ref '{char.residence_ref}'"
+                    )
+                    char.residence_ref = None
+                    changed = True
 
-            if len(valid_chars) != len(self.characters):
-                self.characters = valid_chars
-
-            # --- Filter locations with invalid parent refs ---
-            valid_locs = []
+            # --- Locations: nullify invalid optional parent refs ---
             for loc in self.locations:
                 if (
                     loc.parent_location_ref
                     and loc.parent_location_ref.lower() not in known_names
                 ):
                     logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Filtering Location '{loc.name}' "
-                        f"- invalid parent_ref '{loc.parent_location_ref}'"
+                        f"[SoftRef] Pass {pass_num}: Location '{loc.name}' "
+                        f"- nullifying invalid parent_ref '{loc.parent_location_ref}'"
                     )
+                    loc.parent_location_ref = None
                     changed = True
-                else:
-                    valid_locs.append(loc)
 
-            if len(valid_locs) != len(self.locations):
-                self.locations = valid_locs
-
-            # --- Filter organizations with invalid HQ refs ---
-            valid_orgs = []
+            # --- Organizations: nullify invalid optional HQ refs ---
             for org in self.organizations:
                 if (
                     org.headquarters_ref
                     and org.headquarters_ref.lower() not in known_names
                 ):
                     logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Filtering Organization '{org.name}' "
-                        f"- invalid HQ ref '{org.headquarters_ref}'"
+                        f"[SoftRef] Pass {pass_num}: Organization '{org.name}' "
+                        f"- nullifying invalid HQ ref '{org.headquarters_ref}'"
                     )
+                    org.headquarters_ref = None
                     changed = True
-                else:
-                    valid_orgs.append(org)
 
-            if len(valid_orgs) != len(self.organizations):
-                self.organizations = valid_orgs
-
-            # Rebuild registry after entity filtering
-            known_names = self._build_name_registry()
-
-            # --- Filter relations with invalid refs ---
+            # --- Relations: filter those with invalid required refs ---
             valid_rels = []
             for rel in self.initial_relations:
                 source_valid = rel.source_ref.lower() in known_names
@@ -327,27 +301,39 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             if len(valid_rels) != len(self.initial_relations):
                 self.initial_relations = valid_rels
 
-            # --- Filter narrative arcs with invalid entity refs ---
+            # --- Narrative arcs: filter invalid refs from involved_entities ---
             valid_arcs = []
             for arc in self.narrative_arcs:
+                valid_entities = [
+                    e for e in arc.involved_entities if e.lower() in known_names
+                ]
                 invalid_entities = [
                     e for e in arc.involved_entities if e.lower() not in known_names
                 ]
+
                 if invalid_entities:
-                    logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Filtering Arc '{arc.title}' "
-                        f"- invalid entities: {invalid_entities}"
-                    )
-                    changed = True
+                    if valid_entities:
+                        logger.warning(
+                            f"[SoftRef] Pass {pass_num}: Arc '{arc.title}' "
+                            f"- removing invalid entities: {invalid_entities}"
+                        )
+                        arc.involved_entities = valid_entities
+                        valid_arcs.append(arc)
+                        changed = True
+                    else:
+                        logger.warning(
+                            f"[SoftRef] Pass {pass_num}: Filtering Arc '{arc.title}' "
+                            f"- no valid entities remain"
+                        )
+                        changed = True
                 else:
                     valid_arcs.append(arc)
 
             if len(valid_arcs) != len(self.narrative_arcs):
                 self.narrative_arcs = valid_arcs
 
-            # --- Fix arrival_event refs (required fields - use fallback) ---
+            # --- Fix arrival_event refs ---
             if self.arrival_event.arrival_location_ref.lower() not in known_names:
-                # Find a valid arrival location
                 fallback = self._find_arrival_location_fallback()
                 if fallback:
                     logger.warning(
@@ -368,7 +354,6 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     self.arrival_event.first_npc_encountered = None
                     changed = True
 
-            # If nothing changed, we're done
             if not changed:
                 if pass_num > 1:
                     logger.info(
@@ -381,9 +366,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                 f"[SoftRef] Reached max passes ({max_passes}), may have remaining issues"
             )
 
-        # Final validation: ensure minimums are still met
-        self._validate_minimums_after_filtering()
-
+        self._check_minimums_after_filtering()
         return self
 
     def _build_name_registry(self) -> set[str]:
@@ -399,44 +382,31 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     def _find_arrival_location_fallback(self) -> str | None:
         """Find a suitable arrival location from existing locations"""
         arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
-
-        # First try: find a proper arrival location
         for loc in self.locations:
             if loc.location_type.lower() in arrival_types:
                 return loc.name
-
-        # Fallback: first location
         if self.locations:
             return self.locations[0].name
-
         return None
 
-    def _validate_minimums_after_filtering(self) -> None:
-        """Ensure we still meet minimum requirements after filtering"""
+    def _check_minimums_after_filtering(self) -> None:
+        """Log warning if minimums not met after filtering (don't raise)"""
         issues = []
-
         if len(self.characters) < 3:
             issues.append(f"characters: {len(self.characters)}/3")
-
         if len(self.locations) < 4:
             issues.append(f"locations: {len(self.locations)}/4")
-
         if len(self.organizations) < 1:
             issues.append(f"organizations: {len(self.organizations)}/1")
-
         if len(self.narrative_arcs) < 3:
             issues.append(f"narrative_arcs: {len(self.narrative_arcs)}/3")
-
         if len(self.initial_relations) < 5:
             issues.append(f"relations: {len(self.initial_relations)}/5")
 
         if issues:
-            logger.error(
-                f"[SoftRef] After filtering, minimums not met: {', '.join(issues)}"
-            )
-            raise ValueError(
-                f"Too many entities filtered due to invalid refs. "
-                f"Minimums not met: {', '.join(issues)}"
+            logger.warning(
+                f"[SoftRef] After filtering, minimums not met: {', '.join(issues)} "
+                f"- continuing anyway"
             )
 
     @model_validator(mode="after")

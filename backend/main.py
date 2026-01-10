@@ -5,13 +5,10 @@ Point d'entrée principal
 
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 from config import get_settings
 
@@ -81,50 +78,6 @@ app.include_router(router, prefix="/api")
 async def health_check():
     """Health check pour Railway"""
     return {"status": "healthy", "service": "ldvelh-api"}
-
-
-# =============================================================================
-# SERVIR LE FRONTEND STATIQUE
-# =============================================================================
-
-# Chemin vers le build Next.js (export statique)
-FRONTEND_DIR = Path(__file__).parent.parent / "frontend" / "out"
-
-if FRONTEND_DIR.exists():
-    print(f"[STARTUP] Frontend trouvé: {FRONTEND_DIR}")
-
-    # Servir les fichiers statiques (_next, images, etc.)
-    app.mount(
-        "/_next", StaticFiles(directory=FRONTEND_DIR / "_next"), name="next-static"
-    )
-
-    # Route catch-all pour servir les pages HTML
-    @app.get("/{path:path}")
-    async def serve_frontend(path: str):
-        """Sert les fichiers du frontend Next.js"""
-        # Fichier demandé
-        file_path = FRONTEND_DIR / path
-
-        # Si c'est un fichier existant, le servir
-        if file_path.is_file():
-            return FileResponse(file_path)
-
-        # Si c'est un dossier avec index.html (trailingSlash: true)
-        index_in_folder = FRONTEND_DIR / path / "index.html"
-        if index_in_folder.is_file():
-            return FileResponse(index_in_folder)
-
-        # Sinon, servir index.html (SPA fallback)
-        return FileResponse(FRONTEND_DIR / "index.html")
-
-    # Route racine
-    @app.get("/")
-    async def serve_index():
-        """Sert la page d'accueil"""
-        return FileResponse(FRONTEND_DIR / "index.html")
-
-else:
-    print(f"[STARTUP] Frontend non trouvé: {FRONTEND_DIR} (mode API uniquement)")
 
 
 if __name__ == "__main__":
