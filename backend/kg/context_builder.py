@@ -20,6 +20,7 @@ from schema.narration import (
     EventSummary,
     RecentFact,
     MessageSummary,
+    PersonalAISummary,
 )
 from schema import ArcDomain
 
@@ -53,6 +54,9 @@ class ContextBuilder:
         # Protagoniste
         protagonist = await self._get_protagonist_state(conn)
         inventory = await self._get_inventory(conn)
+
+        # IA personnelle
+        personal_ai = await self._get_personal_ai(conn)
 
         # Lieu actuel
         current_location = await self._get_location(conn, current_location_name)
@@ -95,6 +99,7 @@ class ContextBuilder:
             # Protagoniste
             protagonist=protagonist,
             inventory=inventory,
+            personal_ai=personal_ai,
             # PNJs
             npcs_present=npcs_present,
             npcs_relevant=npcs_relevant,
@@ -281,6 +286,39 @@ class ContextBuilder:
             )
             for r in rows
         ]
+
+    async def _get_personal_ai(self, conn: Connection) -> PersonalAISummary | None:
+        """Récupère l'IA personnelle du protagoniste"""
+        row = await conn.fetchrow(
+            """
+            SELECT e.name, ea.traits
+            FROM entities e
+            JOIN entity_ais ea ON ea.entity_id = e.id
+            WHERE e.game_id = $1 
+            AND e.type = 'ai' 
+            AND e.removed_cycle IS NULL
+            LIMIT 1
+            """,
+            self.game_id,
+        )
+
+        if not row:
+            return None
+
+        # Les traits sont stockés en JSON dans entity_ais.traits
+        traits_data = {}
+        if row["traits"]:
+            try:
+                traits_data = json.loads(row["traits"])
+            except:
+                pass
+
+        return PersonalAISummary(
+            name=row["name"],
+            voice_description=traits_data.get("voice"),
+            personality_traits=traits_data.get("personality", []),
+            quirk=traits_data.get("quirk"),
+        )
 
     # =========================================================================
     # LOCATIONS
@@ -508,7 +546,7 @@ class ContextBuilder:
         """Récupère les événements à venir"""
         rows = await conn.fetch(
             """
-            SELECT ev.title, ev.type, ev.planned_cycle, ev.hour,
+            SELECT ev.title, ev.type, ev.planned_cycle, ev.time,
                    loc.name as location,
                    array_agg(e.name) as participants
             FROM events ev
@@ -518,7 +556,7 @@ class ContextBuilder:
             WHERE ev.game_id = $1 
             AND ev.planned_cycle >= $2
             AND ev.completed = false AND ev.cancelled = false
-            GROUP BY ev.id, ev.title, ev.type, ev.planned_cycle, ev.hour, loc.name
+            GROUP BY ev.id, ev.title, ev.type, ev.planned_cycle, ev.time, loc.name
             ORDER BY ev.planned_cycle
             LIMIT 5
         """,
@@ -530,7 +568,7 @@ class ContextBuilder:
             EventSummary(
                 title=r["title"],
                 planned_cycle=r["planned_cycle"],
-                planned_time=r["hour"],
+                planned_time=r["time"],
                 location=r["location"],
                 participants=[n for n in (r["participants"] or []) if n],
                 type=r["type"],
@@ -554,14 +592,15 @@ class ContextBuilder:
             LEFT JOIN fact_participants fp ON fp.fact_id = f.id
             LEFT JOIN entities e ON e.id = fp.entity_id
             WHERE f.game_id = $1 
-            AND f.cycle >= $2
+            AND f.cycle BETWEEN $2 AND $3
             AND f.importance >= 4
             GROUP BY f.id, f.cycle, f.description, f.importance
             ORDER BY f.importance DESC, f.cycle DESC
             LIMIT 10
-        """,
+            """,
             self.game_id,
             current_cycle - lookback,
+            current_cycle,
         )
 
         return [
@@ -672,9 +711,9 @@ class ContextBuilder:
         for r in reversed(rows):
             # Formater : "Cycle 3 (Mardi 15 Mars) : résumé..."
             date_str = (
-                f"{r['day']} {r['date']}"
-                if r["day"] and r["date"]
-                else r["date"] or f"Cycle {r['cycle']}"
+                r["date"]
+                if r["day"] in (r["date"] or "")
+                else f"{r['day']} {r['date']}"
             )
             results.append(f"Cycle {r['cycle']} ({date_str}) : {r['summary']}")
 

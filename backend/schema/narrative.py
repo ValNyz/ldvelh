@@ -53,7 +53,7 @@ class FactData(BaseModel):
     """An immutable event that happened"""
 
     cycle: Cycle
-    hour: str | None = None
+    time: str | None = None
     fact_type: FactType
     domain: FactDomain = FactDomain.OTHER
     description: str = Field(..., max_length=500)
@@ -126,7 +126,7 @@ class EventScheduled(BaseModel):
     title: str = Field(..., max_length=150)
     description: str | None = Field(default=None, max_length=300)
     planned_cycle: Cycle = Field(..., ge=1)
-    hour: str | None = Field(default="12h00", max_length=5)
+    time: str | None = Field(default="12h00", max_length=5)
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
     recurrence: dict | None = Field(

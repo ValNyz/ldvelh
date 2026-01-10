@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 
 // Hooks
 import { useGameState, useParties } from '../hooks/useGameState';
@@ -9,7 +9,7 @@ import { useGamePreferences } from '../hooks/useLocalStorage';
 import { useTooltips } from '../hooks/useTooltips';
 
 // API
-import { chatApi } from '../lib/api';
+import { chatApi, gamesApi } from '../lib/api';
 
 // Components
 import PartiesList from '../components/game/PartiesList';
@@ -343,19 +343,46 @@ export default function Home() {
 
 	const handleSubmitEdit = useCallback(async (content) => {
 		if (editingIndex === null) return;
+
+		try {
+			// 1. Rollback backend AVANT d'envoyer
+			await gamesApi.rollback(partieId, editingIndex);
+		} catch (e) {
+			console.error('Rollback failed:', e);
+			setError({ message: 'Échec du rollback: ' + e.message });
+			return;
+		}
+
+		// 2. Tronquer localement
 		setMessages(prev => prev.slice(0, editingIndex));
 		setEditingIndex(null);
+
+		// 3. Envoyer le nouveau message
 		await handleSendMessage(content);
-	}, [editingIndex, setMessages, handleSendMessage]);
+	}, [editingIndex, partieId, setMessages, handleSendMessage, setError]);
 
 	const handleRegenerate = useCallback(async () => {
 		if (!lastUserMessage) return;
-		setMessages(prev => {
-			const last = prev[prev.length - 1];
-			return last?.role === 'assistant' ? prev.slice(0, -1) : prev;
-		});
+
+		const lastAssistantIndex = messages.length - 1;
+		if (messages[lastAssistantIndex]?.role !== 'assistant') return;
+
+		try {
+			// 1. Rollback: supprimer le dernier échange (user + assistant)
+			// On veut garder jusqu'à l'index du message USER qu'on va re-soumettre
+			await gamesApi.rollback(partieId, messages.length - 2);
+		} catch (e) {
+			console.error('Rollback failed:', e);
+			setError({ message: 'Échec du rollback: ' + e.message });
+			return;
+		}
+
+		// 2. Supprimer les 2 derniers messages localement (user + assistant)
+		setMessages(prev => prev.slice(0, -2));
+
+		// 3. Renvoyer le message user
 		await handleSendMessage(lastUserMessage);
-	}, [lastUserMessage, setMessages, handleSendMessage]);
+	}, [lastUserMessage, messages, partieId, setMessages, handleSendMessage, setError]);
 
 	const handleRetry = useCallback(() => {
 		if (lastUserMessage) handleSendMessage(lastUserMessage);

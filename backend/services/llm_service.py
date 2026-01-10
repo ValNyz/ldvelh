@@ -31,6 +31,7 @@ class LLMService:
         user_message: str,
         sse_writer: SSEWriter,
         is_init_mode: bool = False,
+        temperature: float = None,
         on_complete: Callable[[dict | None, str | None, str], Awaitable[None]]
         | None = None,
         on_narrative_ready: Callable[[str], Awaitable[None]] | None = None,
@@ -42,6 +43,7 @@ class LLMService:
             system_prompt: Prompt système
             user_message: Message utilisateur (contexte)
             sse_writer: Writer SSE pour le streaming
+            temperature: Temperature float to pass to the LLM
             is_init_mode: True si mode World Builder
             on_complete: Callback à la fin avec (parsed, display_text, raw_json)
             on_narrative_ready: Callback dès que le narrative_text est complet
@@ -60,7 +62,9 @@ class LLMService:
             async with self.client.messages.stream(
                 model=settings.model_main,
                 max_tokens=max_tokens,
-                temperature=settings.temperature,
+                temperature=settings.temperature
+                if temperature is None
+                else temperature,
                 system=[
                     {
                         "type": "text",
