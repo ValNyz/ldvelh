@@ -70,7 +70,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     inventory: list[ObjectData] = Field(..., min_length=3, max_length=15)
 
     # Narrative
-    narrative_arcs: list[NarrativeArcData] = Field(..., min_length=4, max_length=10)
+    narrative_arcs: list[NarrativeArcData] = Field(..., min_length=3, max_length=10)
 
     # Relations
     initial_relations: list[RelationData] = Field(..., min_length=5)

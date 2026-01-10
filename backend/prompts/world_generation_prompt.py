@@ -584,7 +584,7 @@ EXAMPLE_JSON_OUTPUT = """{
     "arrival_method": "navette cargo, 3h de retard",
     "arrival_location_ref": "Terminal Quai 7",
     "arrival_date": "Lundi 18 Juillet 2847",
-    "hour": "11h42",
+    "time": "11h42",
     "immediate_sensory_details": [
       "Odeur de sueur et de métal recyclé",
       "Annonce PA grésillante",
