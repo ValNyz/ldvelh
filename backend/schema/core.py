@@ -51,21 +51,44 @@ class CertaintyLevel(str, Enum):
 
 
 class FactType(str, Enum):
-    ACTION = "action"
-    DIALOGUE = "dialogue"
-    DISCOVERY = "discovery"
-    INCIDENT = "incident"
-    ENCOUNTER = "encounter"
+    """
+    Types de faits - catégorisation précise pour éviter les ambiguïtés.
+    Choisir le type le PLUS SPÉCIFIQUE applicable.
+    """
 
+    # === ACTIONS ===
+    ACTION = "action"  # Valentin fait quelque chose de significatif
+    NPC_ACTION = "npc_action"  # Un PNJ fait quelque chose d'observable
 
-class FactDomain(str, Enum):
-    PERSONAL = "personal"
-    PROFESSIONAL = "professional"
-    ROMANTIC = "romantic"
-    SOCIAL = "social"
-    EXPLORATION = "exploration"
-    FINANCIAL = "financial"
-    OTHER = "other"
+    # === COMMUNICATION ===
+    STATEMENT = "statement"  # Déclaration factuelle, opinion exprimée
+    REVELATION = "revelation"  # Information importante/secrète révélée
+    PROMISE = "promise"  # Engagement verbal (je ferai X)
+    REQUEST = "request"  # Demande faite (peux-tu faire X?)
+    REFUSAL = "refusal"  # Refus explicite d'une demande
+    QUESTION = "question"  # Question significative posée
+
+    # === PERCEPTION ===
+    OBSERVATION = "observation"  # Valentin remarque/déduit quelque chose
+    ATMOSPHERE = "atmosphere"  # Ambiance, tension, contexte émotionnel
+
+    # === CHANGEMENTS D'ÉTAT ===
+    STATE_CHANGE = "state_change"  # Changement de relation, statut, humeur
+    ACQUISITION = "acquisition"  # Gain: objet, info, compétence, accès
+    LOSS = "loss"  # Perte: objet, relation, opportunité
+
+    # === SOCIAL ===
+    ENCOUNTER = "encounter"  # Première rencontre avec quelqu'un/quelque chose
+    INTERACTION = "interaction"  # Échange social significatif (pas small talk)
+    CONFLICT = "conflict"  # Tension, désaccord, confrontation
+
+    # === TEMPOREL ===
+    FLASHBACK = "flashback"  # Information sur le passé (backstory)
+    FORESHADOW = "foreshadow"  # Élément annonçant un futur potentiel
+
+    # === META ===
+    DECISION = "decision"  # Choix significatif fait par Valentin
+    REALIZATION = "realization"  # Prise de conscience de Valentin
 
 
 class ParticipantRole(str, Enum):

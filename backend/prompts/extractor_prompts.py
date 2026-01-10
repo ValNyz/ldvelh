@@ -216,51 +216,107 @@ JSON:"""
 # EXTRACTEUR: FAITS (Haiku)
 # =============================================================================
 
-FACTS_SYSTEM = """Tu extrais les faits significatifs d'un texte narratif.
-Un fait = un événement notable à mémoriser pour la cohérence narrative.
+FACTS_SYSTEM = """Tu es un extracteur de faits narratifs. Tu analyses un texte de jeu narratif et extrais les FAITS DISTINCTS qui s'y produisent.
 
-Format:
+## RÈGLES CRITIQUES
+
+### 1. UN FAIT = UNE INFORMATION ATOMIQUE
+- Chaque fait doit capturer UNE SEULE chose qui s'est passée
+- Si une phrase contient 2 informations distinctes → 2 facts séparés
+- Ne PAS résumer plusieurs événements en un seul fact
+
+### 2. ANTI-DUPLICATION (CRITIQUE)
+- Chaque fait a une `semantic_key` unique: `{sujet}:{verbe}:{objet}`
+- Si deux facts auraient la même semantic_key → N'EN GARDER QU'UN
+- Reformuler ≠ nouveau fait. "X révèle Y" et "X dit que Y" = MÊME FAIT
+
+### 3. TYPES DE FAITS (choisir le plus spécifique)
+
+| Type | Quand l'utiliser | Exemple |
+|------|------------------|---------|
+| `revelation` | Information importante/secrète révélée | "X révèle qu'il a un passé criminel" |
+| `statement` | Opinion, déclaration, réflexion exprimée | "X pense que le progrès est une illusion" |
+| `promise` | Engagement à faire quelque chose | "X promet d'aider à trouver Y" |
+| `request` | Demande faite | "X demande à Valentin de l'aider" |
+| `refusal` | Refus explicite | "X refuse de parler de son passé" |
+| `question` | Question significative (pas rhétorique) | "X demande d'où vient Valentin" |
+| `action` | Action physique de Valentin | "Valentin fouille le bureau" |
+| `npc_action` | Action physique d'un PNJ | "X quitte la pièce brusquement" |
+| `observation` | Valentin remarque quelque chose | "Valentin remarque une cicatrice sur X" |
+| `state_change` | Changement de relation/statut/humeur | "L'atmosphère devient tendue" |
+| `encounter` | Première rencontre | "Valentin rencontre X pour la première fois" |
+| `interaction` | Échange social significatif | "X et Valentin partagent un moment de complicité" |
+| `conflict` | Tension, désaccord | "X se montre hostile envers Valentin" |
+| `flashback` | Info sur le passé | "X mentionne avoir travaillé ici il y a 10 ans" |
+| `acquisition` | Gain de quelque chose | "Valentin obtient le code d'accès" |
+| `loss` | Perte de quelque chose | "Valentin perd son badge" |
+| `decision` | Choix significatif de Valentin | "Valentin décide de faire confiance à X" |
+| `realization` | Prise de conscience | "Valentin comprend que X lui a menti" |
+
+### 4. SEMANTIC_KEY
+Format OBLIGATOIRE: `{sujet}:{verbe}:{objet}` en snake_case ASCII (pas d'accents)
+- `morrigan:revele:disparition_createur`
+- `valentin:rencontre:elena`
+- `atmosphere:devient:tendue`
+- `valentin:obtient:code_acces`
+
+### 5. IMPORTANCE (1-5)
+- 5: Change la donne (révélation majeure, mort, trahison)
+- 4: Significatif (nouvelle relation, info importante)
+- 3: Notable (interaction mémorable, décision)
+- 2: Mineur (small talk significatif, observation)
+- 1: Ambiance (atmosphère, détail de décor)
+
+### 6. CE QU'IL NE FAUT PAS EXTRAIRE
+- Small talk sans substance
+- Descriptions purement visuelles sans implication
+- Répétitions d'informations déjà connues
+- Actions triviales (marcher, s'asseoir) sauf si significatives
+
+## FORMAT DE SORTIE
 ```json
 {
   "facts": [
     {
-      "cycle": 5,
-      "fact_type": "dialogue|action|discovery|incident|encounter",
-      "domain": "personal|professional|romantic|social|exploration|financial",
-      "description": "Description concise",
-      "location_ref": "Nom du lieu ou null",
-      "importance": 3,
+      "fact_type": "revelation",
+      "description": "Le créateur de Morrigan a disparu il y a 4 ans sans laisser de trace ni message",
+      "semantic_key": "morrigan:revele:disparition_createur",
+      "importance": 4,
       "participants": [
-        {"entity_ref": "Nom", "role": "actor|target|witness"}
+        {"entity_ref": "Morrigan", "role": "actor"},
+        {"entity_ref": "Valentin", "role": "witness"}
       ]
     }
   ]
 }
 ```
-
-Règles:
-- importance: 1=trivial, 2=mineur, 3=normal, 4=important, 5=majeur
-- Extrais les événements SIGNIFICATIFS, pas chaque micro-action
-- Utilise les noms EXACTS des entités et dans les champs du JSON"""
+"""
 
 
 def build_facts_prompt(
-    narrative_text: str, cycle: int, location: str, known_entities: list[str]
+    narrative_text: str,
+    cycle: int,
+    location: str,
+    known_entities: list[str],
 ) -> str:
-    entities_str = ", ".join(known_entities[:30]) if known_entities else "Aucune"
+    entities_list = ", ".join(known_entities) if known_entities else "Aucune"
 
-    return f"""Texte narratif:
-```
-{narrative_text}
-```
-
-Contexte:
+    return f"""## CONTEXTE
 - Cycle actuel: {cycle}
-- Lieu actuel: {location}
-- Entités connues: {entities_str}
+- Lieu: {location}
+- Entités connues: {entities_list}
 
-Extrais les faits significatifs (importance >= 2).
-JSON:"""
+## TEXTE À ANALYSER
+{narrative_text}
+
+## INSTRUCTIONS
+1. Identifie TOUS les faits distincts dans ce texte
+2. Pour chaque fait, détermine le type le plus spécifique
+3. Génère une semantic_key unique (sujet:verbe:objet)
+4. VÉRIFIE qu'il n'y a pas de doublons (même semantic_key)
+5. Assigne une importance réaliste (la plupart = 2-3)
+
+Retourne UNIQUEMENT le JSON, sans commentaire."""
 
 
 # =============================================================================
@@ -454,7 +510,6 @@ Ne pas réinventer, ne pas extrapoler. Juste extraire ce qui est explicitement o
     {
       "cycle": 5,
       "fact_type": "dialogue|action|discovery|incident|encounter",
-      "domain": "personal|professional|romantic|social|exploration|financial|other",
       "description": "Description concise du fait",
       "location_ref": "Nom du lieu ou null",
       "importance": 3,

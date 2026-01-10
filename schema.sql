@@ -24,11 +24,20 @@ CREATE TYPE certainty_level AS ENUM (
 );
 
 CREATE TYPE fact_type AS ENUM (
-  'action', 'dialogue', 'discovery', 'incident', 'encounter'
-);
-
-CREATE TYPE fact_domain AS ENUM (
-  'personal', 'professional', 'romantic', 'social', 'exploration', 'financial', 'other'
+  -- Actions
+  'action', 'npc_action',
+  -- Communication
+  'statement', 'revelation', 'promise', 'request', 'refusal', 'question',
+  -- Perception
+  'observation', 'atmosphere',
+  -- Changements
+  'state_change', 'acquisition', 'loss',
+  -- Social
+  'encounter', 'interaction', 'conflict',
+  -- Temporel
+  'flashback', 'foreshadow',
+  -- Meta
+  'decision', 'realization'
 );
 
 CREATE TYPE participant_role AS ENUM (
@@ -256,19 +265,20 @@ CREATE TABLE facts (
   cycle INTEGER NOT NULL,
   time VARCHAR(20),
   type fact_type NOT NULL,
-  domain fact_domain DEFAULT 'other',
   description TEXT NOT NULL,
   location_id UUID REFERENCES entities(id) ON DELETE SET NULL,
   importance INTEGER DEFAULT 3 CHECK (importance BETWEEN 1 AND 5),
+  semantic_key VARCHAR(100),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX idx_facts_game ON facts(game_id);
 CREATE INDEX idx_facts_cycle ON facts(game_id, cycle);
 CREATE INDEX idx_facts_type ON facts(game_id, type);
-CREATE INDEX idx_facts_domain ON facts(game_id, domain);
 CREATE INDEX idx_facts_importance ON facts(game_id, importance DESC);
 CREATE INDEX idx_facts_location ON facts(location_id);
+CREATE UNIQUE INDEX idx_facts_dedup ON facts(game_id, cycle, semantic_key) 
+  WHERE semantic_key IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION prevent_fact_update()
 RETURNS TRIGGER
@@ -700,11 +710,11 @@ CREATE OR REPLACE FUNCTION create_fact(
   p_cycle INTEGER,
   p_type fact_type,
   p_description TEXT,
-  p_domain fact_domain DEFAULT 'other',
   p_location_id UUID DEFAULT NULL,
   p_time VARCHAR(5) DEFAULT NULL,
   p_importance INTEGER DEFAULT 3,
-  p_participants JSONB DEFAULT '[]'
+  p_participants JSONB DEFAULT '[]',
+  p_semantic_key VARCHAR(100) DEFAULT NULL
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -714,8 +724,21 @@ DECLARE
   v_participant JSONB;
   v_entity_id UUID;
 BEGIN
-  INSERT INTO facts (game_id, cycle, type, domain, description, location_id, time, importance)
-  VALUES (p_game_id, p_cycle, p_type, p_domain, p_description, p_location_id, p_time, p_importance)
+  -- Vérifier doublon si semantic_key fournie
+  IF p_semantic_key IS NOT NULL THEN
+    SELECT id INTO v_fact_id
+    FROM facts
+    WHERE game_id = p_game_id 
+      AND cycle = p_cycle 
+      AND semantic_key = p_semantic_key;
+    
+    IF v_fact_id IS NOT NULL THEN
+      RETURN v_fact_id;
+    END IF;
+  END IF;
+
+  INSERT INTO facts (game_id, cycle, type, description, location_id, time, importance, semantic_key)
+  VALUES (p_game_id, p_cycle, p_type, p_description, p_location_id, p_time, p_importance, p_semantic_key)
   RETURNING id INTO v_fact_id;
   
   FOR v_participant IN SELECT * FROM jsonb_array_elements(p_participants)
@@ -1191,9 +1214,9 @@ SELECT
   f.cycle,
   f.time,
   f.type,
-  f.domain,
   f.description,
   f.importance,
+  f.semantic_key,
   l.name AS location_name,
   array_agg(
     jsonb_build_object('name', e.name, 'role', fp.role)
@@ -1221,59 +1244,9 @@ LEFT JOIN entities e ON c.entity_id = e.id
 WHERE c.resolved = false;
 
 -- ============================================================================
--- GRANTS: SERVICE_ROLE ACCESS
+-- GRANTS
 -- ============================================================================
 
-GRANT ALL ON games TO postgres;
-GRANT ALL ON entities TO postgres;
-GRANT ALL ON entity_protagonists TO postgres;
-GRANT ALL ON entity_characters TO postgres;
-GRANT ALL ON entity_locations TO postgres;
-GRANT ALL ON entity_objects TO postgres;
-GRANT ALL ON entity_ais TO postgres;
-GRANT ALL ON entity_organizations TO postgres;
-GRANT ALL ON skills TO postgres;
-GRANT ALL ON attributes TO postgres;
-GRANT ALL ON relations TO postgres;
-GRANT ALL ON relations_social TO postgres;
-GRANT ALL ON relations_professional TO postgres;
-GRANT ALL ON relations_spatial TO postgres;
-GRANT ALL ON relations_ownership TO postgres;
-GRANT ALL ON facts TO postgres;
-GRANT ALL ON fact_participants TO postgres;
-GRANT ALL ON beliefs TO postgres;
-GRANT ALL ON contradictions TO postgres;
-GRANT ALL ON events TO postgres;
-GRANT ALL ON event_participants TO postgres;
-GRANT ALL ON commitments TO postgres;
-GRANT ALL ON commitment_arcs TO postgres;
-GRANT ALL ON commitment_entities TO postgres;
-GRANT ALL ON chat_messages TO postgres;
-GRANT ALL ON cycle_summaries TO postgres;
-GRANT ALL ON extraction_logs TO postgres;
-
-GRANT SELECT ON v_active_entities TO postgres;
-GRANT SELECT ON v_active_relations TO postgres;
-GRANT SELECT ON v_current_attributes TO postgres;
-GRANT SELECT ON v_current_skills TO postgres;
-GRANT SELECT ON v_beliefs TO postgres;
-GRANT SELECT ON v_upcoming_events TO postgres;
-GRANT SELECT ON v_inventory TO postgres;
-GRANT SELECT ON v_characters_context TO postgres;
-GRANT SELECT ON v_active_commitments TO postgres;
-GRANT SELECT ON v_recent_facts TO postgres;
-GRANT SELECT ON v_open_contradictions TO postgres;
-
-GRANT EXECUTE ON FUNCTION find_entity(UUID, TEXT, entity_type) TO postgres;
-GRANT EXECUTE ON FUNCTION upsert_entity(UUID, entity_type, VARCHAR, TEXT[], INTEGER, BOOLEAN) TO postgres;
-GRANT EXECUTE ON FUNCTION set_attribute(UUID, UUID, VARCHAR, TEXT, INTEGER, JSONB) TO postgres;
-GRANT EXECUTE ON FUNCTION upsert_relation(UUID, UUID, UUID, relation_type, INTEGER, certainty_level, BOOLEAN, VARCHAR) TO postgres;
-GRANT EXECUTE ON FUNCTION end_relation(UUID, TEXT, TEXT, relation_type, INTEGER, TEXT) TO postgres;
-GRANT EXECUTE ON FUNCTION create_fact(UUID, INTEGER, fact_type, TEXT, fact_domain, UUID, VARCHAR, INTEGER, JSONB) TO postgres;
-GRANT EXECUTE ON FUNCTION set_belief(UUID, UUID, VARCHAR, TEXT, INTEGER, BOOLEAN, certainty_level, UUID) TO postgres;
-GRANT EXECUTE ON FUNCTION set_skill(UUID, UUID, VARCHAR, INTEGER, INTEGER) TO postgres;
-GRANT EXECUTE ON FUNCTION credit_transaction(UUID, INTEGER, INTEGER, TEXT) TO postgres;
-GRANT EXECUTE ON FUNCTION update_gauge(UUID, VARCHAR, NUMERIC, INTEGER) TO postgres;
-GRANT EXECUTE ON FUNCTION rollback_to_cycle(UUID, INTEGER) TO postgres;
-
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO postgres;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres;

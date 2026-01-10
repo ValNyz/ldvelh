@@ -5,7 +5,7 @@ Facts, Beliefs, Character Arcs, Events, Commitments
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .core import (
     ArcDomain,
@@ -13,7 +13,6 @@ from .core import (
     CommitmentType,
     Cycle,
     EntityRef,
-    FactDomain,
     FactType,
     ParticipantRole,
 )
@@ -50,16 +49,36 @@ class FactParticipant(BaseModel):
 
 
 class FactData(BaseModel):
-    """An immutable event that happened"""
+    """
+    An immutable event that happened.
+
+    RÈGLES:
+    - Un fact = UNE information atomique
+    - semantic_key obligatoire pour déduplication
+    - Choisir le type le plus spécifique
+    """
 
     cycle: Cycle
     time: str | None = None
     fact_type: FactType
-    domain: FactDomain = FactDomain.OTHER
     description: str = Field(..., max_length=500)
     location_ref: EntityRef | None = None
     importance: int = Field(default=3, ge=1, le=5)
     participants: list[FactParticipant] = Field(default_factory=list)
+    semantic_key: str = Field(
+        ...,
+        max_length=100,
+        pattern=r"^[a-z0-9_]+:[a-z0-9_]+:[a-z0-9_]+$",
+        description="Format: {sujet}:{verbe}:{objet} en snake_case. Ex: morrigan:revele:disparition_createur",
+    )
+
+    @model_validator(mode="after")
+    def validate_semantic_key_matches_content(self) -> "FactData":
+        """Vérifie que la semantic_key est cohérente"""
+        parts = self.semantic_key.split(":")
+        if len(parts) != 3:
+            raise ValueError("semantic_key doit avoir format sujet:verbe:objet")
+        return self
 
 
 # =============================================================================

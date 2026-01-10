@@ -612,28 +612,93 @@ class KnowledgeGraphPopulator:
     # FACTS
     # =========================================================================
 
-    async def create_fact(self, conn: Connection, data: FactData) -> UUID:
-        """Create an immutable fact"""
+    async def create_fact(self, conn: Connection, fact: FactData) -> UUID | None:
+        """
+        Crée un fait avec déduplication par semantic_key.
+        Retourne None si le fait existe déjà (doublon).
+        """
+        # Vérifier si un fait avec cette semantic_key existe déjà pour ce cycle
+        if fact.semantic_key:
+            existing = await conn.fetchval(
+                """
+                SELECT id FROM facts 
+                WHERE game_id = $1 AND cycle = $2 AND semantic_key = $3
+                """,
+                self.game_id,
+                fact.cycle,
+                fact.semantic_key,
+            )
+            if existing:
+                logger.debug(f"[FACT] Doublon ignoré: {fact.semantic_key}")
+                return None
+
+        # Résoudre la location
         location_id = None
-        if data.location_ref:
-            location_id = self.registry.resolve(data.location_ref)
+        if fact.location_ref:
+            location_id = await self._resolve_entity(
+                conn, fact.location_ref, "location"
+            )
 
-        participants_json = json.dumps(
-            [{"name": p.entity_ref, "role": p.role.value} for p in data.participants]
-        )
+        # Préparer les participants
+        participants_json = []
+        for p in fact.participants:
+            entity_id = await self._resolve_entity(conn, p.entity_ref)
+            if entity_id:
+                participants_json.append(
+                    {
+                        "name": p.entity_ref,
+                        "role": p.role.value if hasattr(p.role, "value") else p.role,
+                    }
+                )
 
-        return await conn.fetchval(
-            "SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+        # Créer le fait
+        fact_id = await conn.fetchval(
+            """
+            SELECT create_fact(
+                $1, $2, $3::fact_type, $4, 
+                $5, $6, $7, $8::jsonb, $9
+            )
+            """,
             self.game_id,
-            data.cycle,
-            data.fact_type.value,
-            data.description,
-            data.domain.value,
+            fact.cycle,
+            fact.fact_type.value,
+            fact.description,
             location_id,
-            data.time,
-            data.importance,
-            participants_json,
+            fact.time,
+            fact.importance,
+            json.dumps(participants_json),
+            fact.semantic_key,
         )
+
+        logger.info(
+            f"[FACT] Créé: [{fact.fact_type.value}] {fact.semantic_key} (imp={fact.importance})"
+        )
+        return fact_id
+
+    async def process_facts(self, conn: Connection, facts: list[FactData]) -> int:
+        """
+        Traite une liste de facts avec déduplication.
+        Retourne le nombre de facts effectivement créés.
+        """
+        created = 0
+        seen_keys = set()
+
+        for fact in facts:
+            # Déduplication locale (même batch)
+            if fact.semantic_key in seen_keys:
+                logger.debug(f"[FACT] Doublon local ignoré: {fact.semantic_key}")
+                continue
+            seen_keys.add(fact.semantic_key)
+
+            # Création avec déduplication DB
+            fact_id = await self.create_fact(conn, fact)
+            if fact_id:
+                created += 1
+
+        logger.info(
+            f"[FACTS] {created}/{len(facts)} facts créés (doublons ignorés: {len(facts) - created})"
+        )
+        return created
 
     # =========================================================================
     # BELIEFS

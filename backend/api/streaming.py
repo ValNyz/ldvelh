@@ -200,16 +200,26 @@ def extract_narrative_from_partial(partial_json: str) -> str | None:
     while i < len(partial_json):
         char = partial_json[i]
 
-        if char == "\\" and i + 1 < len(partial_json):
-            # Caractère échappé
+        if char == "\\":
+            # Vérifier qu'on a le caractère suivant
+            if i + 1 >= len(partial_json):
+                # Séquence d'échappement incomplète, s'arrêter ici
+                # On ne veut pas ajouter le \ littéralement
+                break
+
             next_char = partial_json[i + 1]
             if next_char == "n":
                 content.append("\n")
+            elif next_char == "r":
+                content.append("\r")
+            elif next_char == "t":
+                content.append("\t")
             elif next_char == '"':
                 content.append('"')
             elif next_char == "\\":
                 content.append("\\")
             else:
+                # Autres séquences (\uXXXX, etc.) - garder tel quel pour simplifier
                 content.append(next_char)
             i += 2
         elif char == '"':
