@@ -5,12 +5,16 @@ Gestion des appels à Claude
 
 from collections.abc import Awaitable, Callable
 
+import json
+import logging
 import anthropic
 from schema.world_generation import WorldGeneration
 
 from api.streaming import SSEWriter, build_display_text, extract_narrative_from_partial
 from config import get_settings
 from utils import parse_json_response
+
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -103,6 +107,9 @@ class LLMService:
                 await sse_writer.send_progress(full_json)
 
             parsed = parse_json_response(full_json)
+            logger.info(
+                f"[LLM] JSON généré:\n{json.dumps(parsed, indent=2, ensure_ascii=False)}"
+            )
 
             display_text = None
             if not is_init_mode and parsed:
@@ -251,6 +258,9 @@ Résumé (une phrase):""",
 
             content = response.content[0].text
             parsed = parse_json_response(content)
+            logger.info(
+                f"[LLM] JSON généré:\n{json.dumps(parsed, indent=2, ensure_ascii=False)}"
+            )
 
             if parsed:
                 return WorldGeneration.model_validate(parsed)
