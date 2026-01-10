@@ -145,6 +145,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         """Validate all entity references exist"""
         # Build entity name registry
         known_names = {self.protagonist.name.lower(), self.personal_ai.name.lower()}
+        known_names.add(self.world.name.lower())
         known_names.update(c.name.lower() for c in self.characters)
         known_names.update(l.name.lower() for l in self.locations)
         known_names.update(o.name.lower() for o in self.organizations)

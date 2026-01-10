@@ -2,63 +2,46 @@
 
 import { useMemo } from 'react';
 
-// Étapes de génération alignées avec le schéma WorldGeneration (Python)
-// Ordre basé sur l'ordre de génération dans WorldPopulator.populate()
 const GENERATION_STEPS = [
-	{ key: 'generation_seed_words', label: 'Initialisation', weight: 0 },
-	{ key: 'tone_notes', label: 'Ton narratif', weight: 5 },
-	{ key: 'world', label: 'Création du monde', weight: 10 },
-	{ key: 'protagonist', label: 'Protagoniste', weight: 10 },
+	{ key: 'world', label: 'Création du monde', weight: 15 },
+	{ key: 'protagonist', label: 'Personnage', weight: 15 },
 	{ key: 'personal_ai', label: 'IA personnelle', weight: 5 },
-	{ key: 'organizations', label: 'Organisations', weight: 10 },
+	{ key: 'characters', label: 'Personnages', weight: 20 },
 	{ key: 'locations', label: 'Lieux', weight: 15 },
-	{ key: 'characters', label: 'Personnages', weight: 15 },
-	{ key: 'inventory', label: 'Inventaire', weight: 10 },
-	{ key: 'initial_relations', label: 'Relations', weight: 5 },
-	{ key: 'narrative_arcs', label: 'Arcs narratifs', weight: 5 },
-	{ key: 'arrival_event', label: 'Événement d\'arrivée', weight: 5 }
+	{ key: 'organizations', label: 'Organisations', weight: 5 },
+	{ key: 'inventory', label: 'Inventaire', weight: 5 },
+	{ key: 'narrative_arcs', label: 'Arcs narratifs', weight: 10 },
+	{ key: 'arrival_event', label: 'Événement d\'arrivée', weight: 10 }
 ];
 
-/**
- * Calcule la progression basée sur le JSON partiel reçu
- */
 function calculateProgress(partialJson) {
 	if (!partialJson) return 0;
-
 	let progress = 0;
-
 	for (const step of GENERATION_STEPS) {
-		// Cherche si la clé existe dans le JSON (même partiellement)
-		const keyPattern = new RegExp(`"${step.key}"\\s*:`);
-		if (keyPattern.test(partialJson)) {
+		if (new RegExp(`"${step.key}"\\s*:`).test(partialJson)) {
 			progress += step.weight;
 		}
 	}
-
 	return Math.min(progress, 100);
 }
 
-/**
- * Détermine l'étape actuelle
- */
 function getCurrentStep(partialJson) {
 	if (!partialJson) return GENERATION_STEPS[0];
-
 	let lastFound = GENERATION_STEPS[0];
-
 	for (const step of GENERATION_STEPS) {
-		const keyPattern = new RegExp(`"${step.key}"\\s*:`);
-		if (keyPattern.test(partialJson)) {
+		if (new RegExp(`"${step.key}"\\s*:`).test(partialJson)) {
 			lastFound = step;
 		}
 	}
-
 	return lastFound;
 }
 
-/**
- * Écran de génération du monde
- */
+function extractWorldName(partialJson) {
+	if (!partialJson) return null;
+	const match = partialJson.match(/"world"\s*:\s*\{[^}]*"name"\s*:\s*"([^"]+)"/);
+	return match ? match[1] : null;
+}
+
 export default function WorldGenerationScreen({
 	isGenerating,
 	partialJson,
@@ -68,29 +51,24 @@ export default function WorldGenerationScreen({
 }) {
 	const progress = useMemo(() => calculateProgress(partialJson), [partialJson]);
 	const currentStep = useMemo(() => getCurrentStep(partialJson), [partialJson]);
+	const worldName = useMemo(() => extractWorldName(partialJson), [partialJson]);
 	const isComplete = !isGenerating && worldData?.monde_cree;
 
-	// Extraire les données du nouveau schéma
-	const worldName = worldData?.world?.name;
-	const worldType = worldData?.world?.station_type;
-	const worldAtmosphere = worldData?.world?.atmosphere;
-	const worldPopulation = worldData?.world?.population;
-	const aiName = worldData?.personal_ai?.name;
-	const arrivalLocation = worldData?.arrival_event?.arrival_location_ref;
-	const protagonistName = worldData?.protagonist?.name;
-	const characterCount = worldData?.characters?.length || 0;
-	const locationCount = worldData?.locations?.length || 0;
-
 	return (
-		<div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8">
-			<div className="max-w-md w-full space-y-8">
+		<div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4 md:p-8">
+			<div className="max-w-xl w-full space-y-6">
 				{/* Titre */}
 				<div className="text-center">
 					<h1 className="text-3xl font-bold text-white mb-2">
 						{isComplete ? '✨ Monde créé' : 'Création du monde...'}
 					</h1>
-					{worldName && (
-						<p className="text-xl text-purple-400">{worldName}</p>
+					{(worldData?.monde?.nom || worldName) && (
+						<p className="text-2xl text-purple-400 font-semibold">
+							{worldData?.monde?.nom || worldName}
+						</p>
+					)}
+					{worldData?.monde?.type && (
+						<p className="text-gray-400 mt-1">{worldData.monde.type}</p>
 					)}
 				</div>
 
@@ -110,75 +88,95 @@ export default function WorldGenerationScreen({
 					</div>
 				)}
 
-				{/* Infos du monde généré */}
+				{/* Contenu généré */}
 				{isComplete && worldData && (
-					<div className="bg-gray-800 rounded-lg p-6 space-y-4">
-						{worldType && (
-							<div className="flex items-center gap-3">
-								<span className="text-2xl">🛸</span>
-								<div>
-									<p className="text-gray-400 text-sm">Type</p>
-									<p className="text-white">{worldType}</p>
-								</div>
-							</div>
-						)}
-						{worldAtmosphere && (
-							<div className="flex items-start gap-3">
-								<span className="text-2xl">🌌</span>
-								<div>
-									<p className="text-gray-400 text-sm">Ambiance</p>
-									<p className="text-white text-sm">{worldAtmosphere}</p>
-								</div>
-							</div>
-						)}
-						{worldPopulation && (
-							<div className="flex items-center gap-3">
-								<span className="text-2xl">👥</span>
-								<div>
-									<p className="text-gray-400 text-sm">Population</p>
-									<p className="text-white">{worldPopulation.toLocaleString()} habitants</p>
-								</div>
-							</div>
-						)}
-						{aiName && (
-							<div className="flex items-center gap-3">
-								<span className="text-2xl">🤖</span>
-								<div>
-									<p className="text-gray-400 text-sm">IA personnelle</p>
-									<p className="text-white">{aiName}</p>
-								</div>
-							</div>
-						)}
-						{arrivalLocation && (
-							<div className="flex items-center gap-3">
-								<span className="text-2xl">📍</span>
-								<div>
-									<p className="text-gray-400 text-sm">Point d'arrivée</p>
-									<p className="text-white">{arrivalLocation}</p>
-								</div>
-							</div>
-						)}
-						{/* Stats de génération */}
-						<div className="pt-4 border-t border-gray-700 flex justify-around text-center">
-							<div>
-								<p className="text-2xl font-bold text-purple-400">{characterCount}</p>
-								<p className="text-xs text-gray-500">Personnages</p>
-							</div>
-							<div>
-								<p className="text-2xl font-bold text-pink-400">{locationCount}</p>
-								<p className="text-xs text-gray-500">Lieux</p>
-							</div>
-							<div>
-								<p className="text-2xl font-bold text-blue-400">
-									{worldData?.inventory?.length || 0}
+					<div className="space-y-4">
+						{/* Stats rapides */}
+						<div className="grid grid-cols-4 gap-3">
+							<div className="bg-gray-800 rounded-lg p-3 text-center">
+								<p className="text-2xl font-bold text-purple-400">
+									{worldData.nb_personnages || 0}
 								</p>
-								<p className="text-xs text-gray-500">Objets</p>
+								<p className="text-xs text-gray-400">PNJs</p>
+							</div>
+							<div className="bg-gray-800 rounded-lg p-3 text-center">
+								<p className="text-2xl font-bold text-blue-400">
+									{worldData.nb_lieux || 0}
+								</p>
+								<p className="text-xs text-gray-400">Lieux</p>
+							</div>
+							<div className="bg-gray-800 rounded-lg p-3 text-center">
+								<p className="text-2xl font-bold text-green-400">
+									{worldData.nb_organisations || 0}
+								</p>
+								<p className="text-xs text-gray-400">Orgs</p>
+							</div>
+							<div className="bg-gray-800 rounded-lg p-3 text-center">
+								<p className="text-2xl font-bold text-yellow-400">
+									{worldData.protagoniste?.credits || 0}
+								</p>
+								<p className="text-xs text-gray-400">Crédits</p>
 							</div>
 						</div>
+
+						{/* Ambiance */}
+						{worldData.monde?.atmosphere && (
+							<div className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 rounded-lg p-4 border border-purple-700/50">
+								<p className="text-gray-300 italic">"{worldData.monde.atmosphere}"</p>
+								{worldData.monde?.population && (
+									<p className="text-gray-500 text-sm mt-2">
+										Population : {worldData.monde.population.toLocaleString()} habitants
+									</p>
+								)}
+							</div>
+						)}
+
+						{/* IA Compagnon */}
+						{worldData.ia && (
+							<div className="bg-gray-800 rounded-lg p-4">
+								<div className="flex items-center gap-3 mb-2">
+									<span className="text-2xl">🤖</span>
+									<div>
+										<p className="text-white font-medium">{worldData.ia.nom}</p>
+										<p className="text-gray-400 text-sm">Votre IA personnelle</p>
+									</div>
+								</div>
+								{worldData.ia.personnalite?.length > 0 && (
+									<div className="flex flex-wrap gap-1 mt-2">
+										{worldData.ia.personnalite.map((trait, i) => (
+											<span key={i} className="px-2 py-1 bg-gray-700 rounded text-xs text-gray-300">
+												{trait}
+											</span>
+										))}
+									</div>
+								)}
+								{worldData.ia.quirk && (
+									<p className="text-gray-500 text-sm mt-2 italic">"{worldData.ia.quirk}"</p>
+								)}
+							</div>
+						)}
+
+						{/* Point de départ */}
+						{worldData.arrivee && (
+							<div className="bg-gray-800 rounded-lg p-4 border-l-4 border-purple-500">
+								<p className="text-gray-400 text-sm mb-1">Votre aventure commence...</p>
+								<p className="text-white">
+									📍 {worldData.arrivee.lieu}
+								</p>
+								<p className="text-gray-400 text-sm">
+									{worldData.arrivee.date}
+								</p>
+								{worldData.arrivee.ambiance && (
+									<p className="text-gray-500 text-sm mt-2 italic">
+										{worldData.arrivee.ambiance}
+									</p>
+								)}
+							</div>
+						)}
 					</div>
 				)}
 
-				{/* Spinner pendant génération */}
+				{/* Spinner */}
 				{isGenerating && (
 					<div className="flex justify-center">
 						<div className="relative">

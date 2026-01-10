@@ -126,6 +126,7 @@ RELATION_TYPE_SYNONYMS = {
     "in_relationship": "romantic",
     "romantically_involved": "romantic",
     "partner_of": "romantic",
+    "reports_to": "employed_by",
     "member_of": "employed_by",
     "employed_by": "employed_by",
     "works_for": "employed_by",
@@ -434,9 +435,10 @@ KEY_SYNONYMS = {
     "arrival_date": "arrival_date",
     "date": "arrival_date",
     "starting_date": "arrival_date",
-    "time_of_day": "time_of_day",
-    "moment": "time_of_day",
-    "time": "time_of_day",
+    "time_of_day": "hour",
+    "moment": "hour",
+    "time": "hour",
+    "hour": "hour",
     # Personnages
     "station_arrival_cycle": "station_arrival_cycle",
     "arrival_cycle": "station_arrival_cycle",
@@ -637,13 +639,6 @@ def normalize_arrival_event(event: dict) -> dict:
         return event
 
     result = dict(event)
-
-    if "time_of_day" in result:
-        old_val = result["time_of_day"]
-        new_val = normalize_value(old_val, MOMENT_SYNONYMS)
-        if old_val != new_val:
-            logger.info(f"[Normalizer] time_of_day: '{old_val}' → '{new_val}'")
-        result["time_of_day"] = new_val
 
     # Tronquer
     if "initial_mood" in result:
@@ -884,6 +879,31 @@ def normalize_world_generation(data: dict) -> dict:
                 "protagonist.departure_reason",
             )
         result["protagonist"] = proto
+
+        credits = proto.get("initial_credits", 1400)
+        reason = proto.get("departure_reason", "standard")
+
+        CREDIT_RANGES = {
+            "flight": (100, 600),
+            "breakup": (600, 1800),
+            "opportunity": (1800, 5000),
+            "fresh_start": (800, 2500),
+            "standard": (1200, 2200),
+            "broke": (0, 300),
+            "other": (0, 10000),
+        }
+
+        min_c, max_c = CREDIT_RANGES.get(reason, (0, 10000))
+        if credits < min_c:
+            logger.warning(
+                f"[Normalizer] Credits {credits} → {min_c} (min pour {reason})"
+            )
+            proto["initial_credits"] = min_c
+        elif credits > max_c:
+            logger.warning(
+                f"[Normalizer] Credits {credits} → {max_c} (max pour {reason})"
+            )
+            proto["initial_credits"] = max_c
 
     # === Personal AI ===
     if "personal_ai" in result and isinstance(result["personal_ai"], dict):

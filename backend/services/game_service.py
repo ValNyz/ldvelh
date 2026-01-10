@@ -256,16 +256,43 @@ class GameService:
 
     async def process_init(self, game_id: UUID, world_gen: WorldGeneration) -> dict:
         """Peuple le Knowledge Graph avec la génération du monde"""
-        # Peupler via le WorldPopulator
         populator = WorldPopulator(self.pool, game_id)
         await populator.populate(world_gen)
 
         arrival = world_gen.arrival_event
+
         return {
-            "monde_nom": world_gen.world.name,
-            "monde_type": world_gen.world.station_type,
-            "ia_nom": world_gen.personal_ai.name,
-            "lieu_depart": arrival.arrival_location_ref if arrival else None,
+            "monde": {
+                "nom": world_gen.world.name,
+                "type": world_gen.world.station_type,
+                "atmosphere": world_gen.world.atmosphere,
+                "population": world_gen.world.population,
+                "secteurs": world_gen.world.sectors,
+            },
+            "protagoniste": {
+                "nom": world_gen.protagonist.name,
+                "origine": world_gen.protagonist.origin_location,
+                "raison_depart": world_gen.protagonist.departure_reason.value,
+                "credits": world_gen.protagonist.initial_credits,
+            },
+            "ia": {
+                "nom": world_gen.personal_ai.name,
+                "personnalite": world_gen.personal_ai.personality_traits,
+                "quirk": world_gen.personal_ai.quirk,
+            },
+            "nb_personnages": len(world_gen.characters),
+            "nb_lieux": len(world_gen.locations),
+            "nb_organisations": len(world_gen.organizations),
+            "inventaire_count": len(world_gen.inventory),
+            "arrivee": {
+                "lieu": arrival.arrival_location_ref,
+                "date": arrival.arrival_date,
+                "heure": arrival.hour,
+                "ambiance": arrival.initial_mood,
+                "besoin_immediat": arrival.immediate_need,
+            }
+            if arrival
+            else None,
         }
 
     # =========================================================================
