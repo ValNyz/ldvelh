@@ -4,6 +4,7 @@ Routes FastAPI principales
 """
 
 import time
+import json
 import logging
 import asyncio
 from uuid import UUID
@@ -60,7 +61,6 @@ class ChatRequest(BaseModel):
 class RollbackRequest(BaseModel):
     """Requête de rollback"""
 
-    gameId: UUID
     fromIndex: int
 
 
@@ -128,18 +128,25 @@ async def rename_game(
 # =============================================================================
 
 
+# 2. Remplacer le endpoint rollback
 @router.post("/games/{game_id}/rollback")
 async def rollback_game(
     game_id: UUID, request: RollbackRequest, pool: asyncpg.Pool = Depends(get_pool)
 ):
-    """Rollback à un message spécifique"""
+    """
+    Rollback à un message spécifique.
+
+    Supprime tous les messages à partir de fromIndex (inclus)
+    et rollback le Knowledge Graph au cycle correspondant.
+    """
     service = GameService(pool)
     result = await service.rollback_to_message(game_id, request.fromIndex)
 
-    # Recharger l'état
+    # Recharger l'état et les messages
     new_state = await service.load_game_state(game_id)
+    new_messages = await service.load_chat_messages(game_id)
 
-    return {"success": True, **result, "state": new_state}
+    return {"success": True, **result, "state": new_state, "messages": new_messages}
 
 
 # =============================================================================
@@ -193,21 +200,23 @@ async def _handle_chat(
 
         game_id = request.gameId
         message = request.message
-        game_state = request.gameState
 
-        is_init_mode = not game_state or not game_state.monde_cree
-        is_first_light = (
-            game_state
-            and game_state.monde_cree
-            and game_state.partie
-            and not game_state.partie.get("lieu_actuel")
-        )
+        # =====================================================================
+        # CHARGER L'ÉTAT DEPUIS LA DB (via GameService)
+        # =====================================================================
+        server_state = await game_service.load_game_state(game_id)
 
-        current_cycle = (
-            game_state.partie.get("cycle_actuel", 1)
-            if game_state and game_state.partie
-            else 1
-        )
+        is_init_mode = not server_state.get("monde_cree", False)
+
+        partie = server_state.get("partie", {})
+        current_cycle = partie.get("cycle_actuel", 1)
+        current_time = partie.get("heure", "08h00")
+        current_location = partie.get("lieu_actuel", "")
+        current_day = partie.get("jour")
+        current_date = partie.get("date_jeu")
+        npcs_present = partie.get("pnjs_presents", [])
+
+        is_first_light = server_state.get("monde_cree") and not current_location
 
         # =====================================================================
         # MODE INIT (World Builder)
@@ -280,35 +289,9 @@ async def _handle_chat(
             mode_label = "FIRST_LIGHT" if is_first_light else "LIGHT"
             logger.info(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
 
-            # Construire le contexte
-            current_time = (
-                game_state.partie.get("heure", "8h00") if game_state.partie else "8h00"
-            )
-            current_location = (
-                game_state.partie.get("lieu_actuel", "") if game_state.partie else ""
-            )
-
-            ### TODO Je n'aime pas trop avoir du SQL dans ce fichier, à déplacer. Voir à modifier
             # Si first_light, utiliser l'événement d'arrivée comme contexte initial
             if is_first_light:
-                # Récupérer les infos d'arrivée depuis la BDD
-                async with pool.acquire() as conn:
-                    arrival_info = await conn.fetchrow(
-                        """SELECT key_events FROM cycle_summaries 
-                           WHERE game_id = $1 AND cycle = 1""",
-                        game_id,
-                    )
-
-                if arrival_info and arrival_info["key_events"]:
-                    import json
-
-                    events = (
-                        json.loads(arrival_info["key_events"])
-                        if isinstance(arrival_info["key_events"], str)
-                        else arrival_info["key_events"]
-                    )
-                    current_location = events.get("arrival_location", current_location)
-                    message = message or "Je viens d'arriver sur la station."
+                message = message or "Je viens d'arriver sur la station."
 
             async with pool.acquire() as conn:
                 builder = ContextBuilder(pool, game_id)
@@ -321,6 +304,9 @@ async def _handle_chat(
                 )
 
             context_prompt = build_narrator_context_prompt(context)
+            logger.info(
+                f"[CHAT] context: \n{json.dumps(context.model_dump(), indent=2, default=str, ensure_ascii=False)}"
+            )
 
             # Variable pour stocker la tâche de résumé lancée tôt
             summary_task_holder = {"task": None}
@@ -360,6 +346,26 @@ async def _handle_chat(
                     # Le joueur peut taper mais pas encore envoyer
                     await sse_writer.send_extracting(display_text)
 
+                    # Log des hints pour debug
+                    hints = narration.hints
+                    hints_active = []
+                    if hints.new_entities_mentioned:
+                        hints_active.append(f"entités:{hints.new_entities_mentioned}")
+                    if hints.protagonist_state_changed:
+                        hints_active.append("état_protag")
+                    if hints.relationships_changed:
+                        hints_active.append("relations")
+                    if hints.information_learned:
+                        hints_active.append("infos")
+                    if hints.new_commitment_created:
+                        hints_active.append("new_commit")
+                    if hints.commitment_advanced:
+                        hints_active.append(f"commit_adv:{hints.commitment_advanced}")
+                    if hints.event_scheduled:
+                        hints_active.append("event")
+                    logger.debug(
+                        f"[CHAT] Extraction - hints actifs: {', '.join(hints_active) or 'aucun'}"
+                    )
                     t1 = time.perf_counter()
                     logger.info("[CHAT] Lancement extraction parallèle...")
 
@@ -403,12 +409,18 @@ async def _handle_chat(
                     )
                     t1 = time.perf_counter()
                     # Sauvegarder les messages
+                    segment_summary = summary_task_holder.get("task", "")
                     await game_service.save_messages(
                         game_id=game_id,
                         user_message=message,
                         assistant_message=display_text,
                         cycle=process_result["cycle"],
-                        state_snapshot=process_result["state_snapshot"],
+                        day=process_result.get("day"),
+                        date=process_result.get("date"),
+                        time=process_result.get("time"),
+                        location_ref=process_result["location"],
+                        npcs_present_refs=process_result["npcs_present"],
+                        summary=segment_summary,
                     )
 
                     logger.debug(

@@ -3,6 +3,7 @@ LDVELH - Extraction Service
 Extraction des données narratives en arrière-plan
 """
 
+import time
 import logging
 from uuid import UUID
 import asyncpg
@@ -82,6 +83,74 @@ class ExtractionResult:
                     getattr(self, key).extend(value)
                 elif isinstance(value, str) and value:
                     setattr(self, key, value)
+
+    def log_details(self) -> None:
+        """Log les détails de l'extraction"""
+        if self.segment_summary:
+            logger.info(f"  📝 Résumé: {self.segment_summary[:100]}...")
+
+        if self.gauge_changes:
+            for g in self.gauge_changes:
+                gauge = g.get("gauge", "?")
+                delta = g.get("delta", 0)
+                sign = "+" if delta > 0 else ""
+                logger.info(f"  📊 Jauge: {gauge} {sign}{delta}")
+
+        if self.credit_transactions:
+            for tx in self.credit_transactions:
+                amount = tx.get("amount", 0)
+                sign = "+" if amount > 0 else ""
+                logger.info(f"  💰 Crédits: {sign}{amount}")
+
+        if self.inventory_changes:
+            for inv in self.inventory_changes:
+                action = inv.get("action", "?")
+                obj = inv.get("object_ref") or inv.get("object_hint", "?")[:40]
+                logger.info(f"  🎒 Inventaire: {action} → {obj}")
+
+        if self.entities_created:
+            for e in self.entities_created:
+                etype = e.get("entity_type", "?")
+                name = e.get("name", "?")
+                logger.info(f"  ✨ Entité créée: [{etype}] {name}")
+
+        if self.objects_created:
+            for o in self.objects_created:
+                name = o.get("name", "?")
+                cat = o.get("category", "?")
+                logger.info(f"  📦 Objet créé: {name} ({cat})")
+
+        if self.relations_created:
+            for r in self.relations_created:
+                rel = r.get("relation", {})
+                src = rel.get("source_ref", "?")
+                tgt = rel.get("target_ref", "?")
+                rtype = rel.get("relation_type", "?")
+                logger.info(f"  🔗 Relation: {src} --[{rtype}]--> {tgt}")
+
+        if self.beliefs_updated:
+            for b in self.beliefs_updated:
+                subj = b.get("subject_ref", "?")
+                key = b.get("key", "?")
+                content = b.get("content", "")[:40]
+                logger.info(f"  💭 Croyance: {subj}.{key} = {content}")
+
+        if self.facts:
+            for f in self.facts:
+                ftype = f.get("fact_type", "?")
+                importance = f.get("importance", "?")
+                logger.info(f"  📌 Fait [{ftype}] (imp={importance})")
+
+        if self.commitments_created:
+            for c in self.commitments_created:
+                ctype = c.get("commitment_type", "?")
+                logger.info(f"  🎯 Engagement [{ctype}]")
+
+        if self.events_scheduled:
+            for ev in self.events_scheduled:
+                title = ev.get("title", "?")
+                cycle = ev.get("planned_cycle", "?")
+                logger.info(f"  📅 Événement: {title} (cycle {cycle})")
 
 
 class ParallelExtractionService:
@@ -280,15 +349,18 @@ class ParallelExtractionService:
             )
 
         # Attendre phase 1
+        t0 = time.perf_counter()
         phase1_results = await asyncio.gather(
             *phase1_tasks.values(),
             return_exceptions=True,
         )
+        t1 = time.perf_counter()
+        logger.debug(f"[EXTRACTION] Phase 1 terminée en {t1 - t0:.2f}s")
 
         # Merger les résultats de phase 1
         for key, res in zip(phase1_tasks.keys(), phase1_results):
             if isinstance(res, Exception):
-                print(f"[EXTRACTION] Erreur {key}: {res}")
+                logger.error(f"[EXTRACTION] Erreur {key}: {res}")
             elif res:
                 result.merge(res)
 
@@ -303,29 +375,34 @@ class ParallelExtractionService:
         # PHASE 2: Tous en parallèle (y compris Objets)
         # =====================================================================
         phase2_tasks = {}
+        phase2_names = {}
 
         # Objets (si hints d'acquisition)
         if object_hints:
             phase2_tasks["objects"] = asyncio.create_task(
                 self.extract_objects(narrative_text, object_hints)
             )
+            phase2_names["objects"] = f"Objets ({len(object_hints)})"
 
         # Faits (toujours)
         phase2_tasks["facts"] = asyncio.create_task(
             self.extract_facts(narrative_text, cycle, location, all_known)
         )
+        phase2_names["facts"] = "Faits"
 
         # Relations (si hint)
         if hints.relationships_changed:
             phase2_tasks["relations"] = asyncio.create_task(
                 self.extract_relations(narrative_text, cycle, all_known)
             )
+            phase2_names["relations"] = "Relations"
 
         # Croyances (si hint)
         if hints.information_learned:
             phase2_tasks["beliefs"] = asyncio.create_task(
                 self.extract_beliefs(narrative_text, all_known)
             )
+            phase2_names["beliefs"] = "Croyances"
 
         # Engagements (si hints)
         if (
@@ -340,17 +417,24 @@ class ParallelExtractionService:
             phase2_tasks["commitments"] = asyncio.create_task(
                 self.extract_commitments(narrative_text, all_known, commitment_hints)
             )
+            phase2_names["commitments"] = "Engagements"
+
+        logger.info(f"[EXTRACTION] Phase 2: {list(phase2_names.values())}")
 
         # Attendre phase 2
         if phase2_tasks:
+            t0 = time.perf_counter()
             phase2_results = await asyncio.gather(
                 *phase2_tasks.values(),
                 return_exceptions=True,
             )
 
+            t1 = time.perf_counter()
+            logger.debug(f"[EXTRACTION] Phase 2 terminée en {t1 - t0:.2f}s")
+
             for key, res in zip(phase2_tasks.keys(), phase2_results):
                 if isinstance(res, Exception):
-                    print(f"[EXTRACTION] Erreur {key}: {res}")
+                    logger.error(f"[EXTRACTION] Erreur {key}: {res}")
                 elif res:
                     result.merge(res)
 
@@ -386,6 +470,10 @@ class ParallelExtractionService:
                 summary_task=summary_task,
             )
 
+            # Log détaillé
+            logger.debug(f"[EXTRACTION] Détails cycle {cycle}:")
+            extraction_result.log_details()
+
             # Normaliser et valider
             extraction_data = normalize_narrative_extraction(
                 extraction_result.to_dict()
@@ -416,7 +504,7 @@ class ParallelExtractionService:
             return {"success": True, "stats": stats}
 
         except Exception as e:
-            print(f"[EXTRACTION] Error: {e}")
+            logger.error(f"[EXTRACTION] Error: {e}")
             import traceback
 
             traceback.print_exc()

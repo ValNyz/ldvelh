@@ -27,6 +27,7 @@ from schema import (
     ObjectCreation,
     ObjectData,
     OrganizationData,
+    RelationData,
     RelationType,
     WorldData,
     WorldGeneration,
@@ -216,7 +217,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             f"Arrivée sur la station via {arrival.arrival_method}. {arrival.optional_incident or ''}",
             "exploration",
             location_id,
-            arrival.hour,
+            arrival.time,
             4,
             json.dumps([{"name": "Valentin", "role": "actor"}]),
         )
@@ -405,7 +406,31 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     ) -> UUID:
         """Process a new entity creation (PNJ, lieu, organisation)"""
         if creation.entity_type == EntityType.CHARACTER:
-            return await self.create_character(conn, creation.character_data, cycle)
+            entity_id = await self.create_character(
+                conn, creation.character_data, cycle
+            )
+            if creation.character_data.workplace_ref:
+                await self.create_relation(
+                    conn,
+                    RelationData(
+                        source_ref=creation.character_data.name,
+                        target_ref=creation.character_data.workplace_ref,
+                        relation_type=RelationType.WORKS_AT,
+                    ),
+                    cycle,
+                )
+            # Sinon, relation frequents avec le lieu actuel
+            elif hasattr(creation, "encountered_at") and creation.encountered_at:
+                await self.create_relation(
+                    conn,
+                    RelationData(
+                        source_ref=creation.character_data.name,
+                        target_ref=creation.encountered_at,
+                        relation_type=RelationType.FREQUENTS,
+                    ),
+                    cycle,
+                )
+            return entity_id
         elif creation.entity_type == EntityType.LOCATION:
             return await self.create_location(conn, creation.location_data, cycle)
         elif creation.entity_type == EntityType.OBJECT:
@@ -647,7 +672,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
         event_id = await conn.fetchval(
             """INSERT INTO events 
-               (game_id, type, title, description, planned_cycle, hour, 
+               (game_id, type, title, description, planned_cycle, time, 
                 location_id, recurrence, amount)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                RETURNING id""",
@@ -656,7 +681,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             event.title,
             event.description,
             event.planned_cycle,
-            event.hour,
+            event.time,
             location_id,
             json.dumps(event.recurrence) if event.recurrence else None,
             event.amount,

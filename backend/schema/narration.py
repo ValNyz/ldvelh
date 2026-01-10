@@ -120,6 +120,15 @@ class MessageSummary(BaseModel):
     time: Optional[str] = None
 
 
+class PersonalAISummary(BaseModel):
+    """Résumé de l'IA personnelle de Valentin"""
+
+    name: str
+    voice_description: Optional[str] = None
+    personality_traits: list[str] = Field(default_factory=list)
+    quirk: Optional[str] = None
+
+
 # =============================================================================
 # NARRATION CONTEXT (Input complet)
 # =============================================================================
@@ -144,6 +153,11 @@ class NarrationContext(BaseModel):
     # === PROTAGONISTE ===
     protagonist: ProtagonistState
     inventory: list[InventoryItem] = Field(default_factory=list)
+
+    # === IA PERSONNELLE ===
+    personal_ai: Optional[PersonalAISummary] = Field(
+        default=None, description="IA personnelle de Valentin (nom, traits, quirk)"
+    )
 
     # === PNJs ===
     npcs_present: list[NPCSummary] = Field(

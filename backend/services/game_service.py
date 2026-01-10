@@ -9,7 +9,6 @@ from uuid import UUID
 import asyncpg
 
 from config import STATS_DEFAUT
-from kg.context_builder import ContextBuilder
 from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration, NarrationOutput
 from services.state_normalizer import game_state_to_dict, normalize_game_state
@@ -199,38 +198,81 @@ class GameService:
         return {"nom": row["name"], "personnalite": row["traits"]}
 
     async def _load_cycle_info(self, conn, game_id: UUID) -> dict:
-        """Charge les infos du cycle actuel"""
-        # Dernier snapshot depuis les messages
-        snapshot_row = await conn.fetchrow(
+        """Charge les infos du cycle actuel depuis le dernier message assistant"""
+        row = await conn.fetchrow(
             """
-            SELECT cycle, state_snapshot
-            FROM chat_messages
-            WHERE game_id = $1 AND role = 'assistant' AND state_snapshot IS NOT NULL
-            ORDER BY created_at DESC LIMIT 1
-        """,
+            SELECT m.cycle, m.day, m.date, m.time, 
+                   e.name as location_name, m.npcs_present
+            FROM chat_messages m
+            LEFT JOIN entities e ON e.id = m.location_id
+            WHERE m.game_id = $1 AND m.role = 'assistant'
+            ORDER BY m.created_at DESC LIMIT 1
+            """,
             game_id,
         )
 
-        # Infos du cycle depuis cycle_summaries
-        summary_row = await conn.fetchrow(
-            """
-            SELECT cycle, day, date FROM cycle_summaries
-            WHERE game_id = $1 ORDER BY cycle DESC LIMIT 1
-        """,
+        # Si on a un message, utiliser son état
+        if row:
+            npc_names = []
+            if row["npcs_present"]:
+                npc_rows = await conn.fetch(
+                    """SELECT name FROM entities WHERE id = ANY($1)""",
+                    row["npcs_present"],
+                )
+                npc_names = [r["name"] for r in npc_rows]
+
+            day = row["day"] or "Lundi"
+            date = row["date"]
+            if day and date and date.startswith(day):
+                date = date[len(day) :].strip()
+
+            return {
+                "cycle": row["cycle"],
+                "day": row["day"] or "Lundi",
+                "date": row["date"],
+                "time": row["time"] or "08h00",
+                "location": row["location_name"],
+                "npcs_present": npc_names,
+            }
+
+        # Sinon, fallback sur les infos d'arrivée (first_light)
+        arrival_row = await conn.fetchrow(
+            """SELECT day, date, key_events FROM cycle_summaries 
+               WHERE game_id = $1 AND cycle = 1""",
             game_id,
         )
 
-        snapshot = {}
-        if snapshot_row and snapshot_row["state_snapshot"]:
-            snapshot = json.loads(snapshot_row["state_snapshot"])
+        if arrival_row and arrival_row["key_events"]:
+            day = arrival_row["day"] or "Lundi"
+            date = arrival_row["date"]
+            if day and date and date.startswith(day):
+                date = date[len(day) :].strip()
 
+            events = (
+                json.loads(arrival_row["key_events"])
+                if isinstance(arrival_row["key_events"], str)
+                else arrival_row["key_events"]
+            )
+
+            return {
+                "cycle": 1,
+                "day": arrival_row["day"] or "Lundi",
+                "date": arrival_row["date"],
+                "time": events.get("hour", "08h00"),
+                "location": events.get("arrival_location"),
+                "npcs_present": [events["first_npc_encountered"]]
+                if events.get("first_npc_encountered")
+                else [],
+            }
+
+        # Fallback total (monde pas encore créé)
         return {
-            "cycle": snapshot_row["cycle"] if snapshot_row else 0,
-            "day": summary_row["day"] if summary_row else "Lundi",
-            "date": summary_row["date"] if summary_row else None,
-            "time": snapshot.get("time", "08h00"),
-            "location": snapshot.get("location"),
-            "npcs_present": snapshot.get("npcs_present", []),
+            "cycle": 0,
+            "day": "Lundi",
+            "date": None,
+            "time": "08h00",
+            "location": None,
+            "npcs_present": [],
         }
 
     async def load_chat_messages(self, game_id: UUID) -> list[dict]:
@@ -287,13 +329,31 @@ class GameService:
             "arrivee": {
                 "lieu": arrival.arrival_location_ref,
                 "date": arrival.arrival_date,
-                "heure": arrival.hour,
+                "heure": arrival.time,
                 "ambiance": arrival.initial_mood,
                 "besoin_immediat": arrival.immediate_need,
             }
             if arrival
             else None,
         }
+
+    async def get_arrival_info(self, game_id: UUID) -> dict | None:
+        """Récupère les infos d'arrivée initiales (cycle 1)"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT key_events FROM cycle_summaries 
+                   WHERE game_id = $1 AND cycle = 1""",
+                game_id,
+            )
+
+        if row and row["key_events"]:
+            events = (
+                json.loads(row["key_events"])
+                if isinstance(row["key_events"], str)
+                else row["key_events"]
+            )
+            return events
+        return None
 
     # =========================================================================
     # PROCESS LIGHT (Narration)
@@ -303,8 +363,8 @@ class GameService:
         self, game_id: UUID, narration: NarrationOutput, current_cycle: int
     ) -> dict:
         """Traite la sortie du narrateur et met à jour le cycle"""
-        new_cycle = current_cycle + 1
-        new_time = narration.time.new_time if narration.time else "08h00"
+        new_cycle = current_cycle + 1 if narration.day_transition else current_cycle
+        new_time = narration.time.new_time if narration.time else ""
         location = narration.current_location
         npcs = narration.npcs_present or []
 
@@ -364,29 +424,6 @@ class GameService:
         }
 
     # =========================================================================
-    # CONTEXTE NARRATION
-    # =========================================================================
-
-    async def build_narration_context(
-        self,
-        game_id: UUID,
-        player_input: str,
-        current_cycle: int,
-        current_time: str,
-        current_location: str,
-    ) -> dict:
-        """Construit le contexte pour le narrateur depuis le KG"""
-        async with self.pool.acquire() as conn:
-            builder = ContextBuilder(self.pool, game_id)
-            return await builder.build(
-                conn=conn,
-                player_input=player_input,
-                current_cycle=current_cycle,
-                current_time=current_time,
-                current_location_name=current_location,
-            )
-
-    # =========================================================================
     # MESSAGES
     # =========================================================================
 
@@ -396,29 +433,57 @@ class GameService:
         user_message: str,
         assistant_message: str,
         cycle: int,
-        state_snapshot: dict | None = None,
+        day: str | None = None,
+        date: str | None = None,
+        time: str | None = None,
+        location_ref: str | None = None,
+        npcs_present_refs: list[str] | None = None,
+        summary: str | None = None,
     ) -> tuple[UUID, UUID]:
         """Sauvegarde une paire de messages (user + assistant)"""
         async with self.pool.acquire() as conn:
+            # Résoudre location_ref → UUID
+            location_id = None
+            if location_ref:
+                location_id = await conn.fetchval(
+                    """SELECT id FROM entities 
+                       WHERE game_id = $1 AND LOWER(name) = LOWER($2) AND removed_cycle IS NULL""",
+                    game_id,
+                    location_ref,
+                )
+
+            # Résoudre npcs_present_refs → UUID[]
+            npc_ids = []
+            if npcs_present_refs:
+                rows = await conn.fetch(
+                    """SELECT id FROM entities 
+                       WHERE game_id = $1 AND LOWER(name) = ANY($2) AND removed_cycle IS NULL""",
+                    game_id,
+                    [n.lower() for n in npcs_present_refs],
+                )
+                npc_ids = [r["id"] for r in rows]
+
             user_id = await conn.fetchval(
-                """
-                INSERT INTO chat_messages (game_id, role, content, cycle)
-                VALUES ($1, 'user', $2, $3) RETURNING id
-            """,
+                """INSERT INTO chat_messages (game_id, role, content, cycle)
+                   VALUES ($1, 'user', $2, $3) RETURNING id""",
                 game_id,
                 user_message,
                 cycle,
             )
 
             assistant_id = await conn.fetchval(
-                """
-                INSERT INTO chat_messages (game_id, role, content, cycle, state_snapshot)
-                VALUES ($1, 'assistant', $2, $3, $4) RETURNING id
-            """,
+                """INSERT INTO chat_messages 
+                   (game_id, role, content, cycle, day, date, time, location_id, npcs_present, summary)
+                   VALUES ($1, 'assistant', $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id""",
                 game_id,
                 assistant_message,
                 cycle,
-                json.dumps(state_snapshot) if state_snapshot else None,
+                day,
+                date,
+                time,
+                location_id,
+                npc_ids,
+                summary,
             )
 
         return user_id, assistant_id
@@ -427,30 +492,66 @@ class GameService:
     # ROLLBACK
     # =========================================================================
 
-    async def rollback_to_message(self, game_id: UUID, from_index: int) -> dict:
-        """Rollback à un message spécifique via la fonction SQL"""
+    async def rollback_to_message(self, game_id: UUID, keep_until_index: int) -> dict:
+        """
+        Rollback: supprime tous les messages à partir de keep_until_index (inclus).
+
+        Exemple: messages = [user0, assistant0, user1, assistant1]
+        - keep_until_index=2 → garde [user0, assistant0], supprime [user1, assistant1]
+        - keep_until_index=0 → supprime tout
+
+        Args:
+            game_id: ID de la partie
+            keep_until_index: Index à partir duquel supprimer (inclus)
+
+        Returns:
+            dict avec deleted, target_cycle, rollback_result
+        """
         async with self.pool.acquire() as conn:
-            # Trouver le cycle cible
-            cycles = await conn.fetch(
+            # Récupérer tous les messages ordonnés
+            messages = await conn.fetch(
                 """
-                SELECT cycle FROM chat_messages
+                SELECT id, cycle, created_at FROM chat_messages
                 WHERE game_id = $1 ORDER BY created_at ASC
-            """,
+                """,
                 game_id,
             )
 
-            if from_index >= len(cycles):
-                return {"deleted": 0}
+            if keep_until_index >= len(messages):
+                # Rien à supprimer
+                return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
 
-            target_cycle = cycles[from_index]["cycle"] - 1 if from_index > 0 else 0
+            # Messages à supprimer
+            messages_to_delete = messages[keep_until_index:]
 
-            # Utiliser la fonction SQL de rollback
+            if not messages_to_delete:
+                return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
+
+            # Trouver le cycle cible (dernier cycle à GARDER)
+            if keep_until_index > 0:
+                target_cycle = messages[keep_until_index - 1]["cycle"]
+            else:
+                target_cycle = 0
+
+            # 1. Supprimer les messages concernés
+            ids_to_delete = [m["id"] for m in messages_to_delete]
+            await conn.execute(
+                "DELETE FROM chat_messages WHERE id = ANY($1)",
+                ids_to_delete,
+            )
+
+            # 2. Rollback du KG (facts, relations, attributes, etc.)
             result = await conn.fetchrow(
                 "SELECT * FROM rollback_to_cycle($1, $2)", game_id, target_cycle
             )
 
+            # 3. Mettre à jour le timestamp de la partie
+            await conn.execute(
+                "UPDATE games SET updated_at = NOW() WHERE id = $1", game_id
+            )
+
         return {
-            "deleted": len(cycles) - from_index,
+            "deleted": len(messages_to_delete),
             "target_cycle": target_cycle,
             "rollback_result": dict(result) if result else {},
         }
