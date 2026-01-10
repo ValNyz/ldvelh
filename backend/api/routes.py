@@ -11,7 +11,6 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from utils import normalize_world_generation, normalize_narration_output
 from prompts.narrator_prompt import (
     NARRATOR_SYSTEM_PROMPT,
     build_narrator_context_prompt,
@@ -248,8 +247,7 @@ async def _handle_chat(
                     return
 
                 try:
-                    # Normaliser AVANT validation Pydantic
-                    parsed = normalize_world_generation(parsed)
+                    # Normalisation et validation Pydantic
                     world_gen = WorldGeneration.model_validate(parsed)
 
                     # Peupler le KG
@@ -326,8 +324,7 @@ async def _handle_chat(
 
                 try:
                     t1 = time.perf_counter()
-                    # Normaliser AVANT validation Pydantic
-                    parsed = normalize_narration_output(parsed)
+                    # Normalisation et validation Pydantic
                     narration = NarrationOutput.model_validate(parsed)
                     logger.debug(
                         f"[TIMING] validation + pydantic: {(time.perf_counter() - t1) * 1000:.0f}ms"

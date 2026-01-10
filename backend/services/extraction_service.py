@@ -11,7 +11,6 @@ import asyncio
 from dataclasses import dataclass, field
 
 from kg.specialized_populator import ExtractionPopulator
-from utils import normalize_narrative_extraction
 from prompts.extractor_prompts import (
     SUMMARY_SYSTEM,
     build_summary_prompt,
@@ -475,9 +474,7 @@ class ParallelExtractionService:
             extraction_result.log_details()
 
             # Normaliser et valider
-            extraction_data = normalize_narrative_extraction(
-                extraction_result.to_dict()
-            )
+            extraction_data = extraction_result.to_dict()
 
             # Ajouter cycle et location
             extraction_data["cycle"] = cycle
