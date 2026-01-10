@@ -244,15 +244,24 @@ export default function Home() {
 			setMessages(loadedMessages);
 
 			if (loadedMessages.length > 0) {
+				// Partie en cours
 				setGamePhase(GAME_PHASE.PLAYING);
 			} else if (data.state?.monde_cree) {
-				setWorldData({
-					monde_cree: true,
-					lieu_depart: data.state.partie.lieu_actuel,
-					inventaire: data.state?.valentin?.inventaire || []
-				});
+				// Monde créé mais aventure pas commencée
+				// Utiliser world_info du backend si disponible
+				if (data.world_info) {
+					setWorldData(data.world_info);
+				} else {
+					// Fallback minimal (ancien comportement)
+					setWorldData({
+						monde_cree: true,
+						lieu_depart: data.state.partie?.lieu_actuel,
+						inventaire: data.state?.valentin?.inventaire || []
+					});
+				}
 				setGamePhase(GAME_PHASE.WORLD_READY);
 			} else {
+				// Monde pas encore créé, lancer la génération
 				setGamePhase(GAME_PHASE.GENERATING_WORLD);
 				setLoading(false);
 				generateWorld(id);

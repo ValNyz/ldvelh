@@ -129,6 +129,168 @@ class GameService:
         result["monde_cree"] = monde_cree  # ← Ajouter le flag
         return result
 
+    async def load_world_info(self, game_id: UUID) -> dict | None:
+        """
+        Reconstruit les infos de présentation du monde depuis le KG.
+        Utilisé pour réafficher l'écran WorldReady après rechargement.
+        """
+        async with self.pool.acquire() as conn:
+            # Vérifier si le monde existe
+            monde_cree = await conn.fetchval(
+                """SELECT EXISTS(
+                    SELECT 1 FROM entities 
+                    WHERE game_id = $1 AND type = 'protagonist' AND removed_cycle IS NULL
+                )""",
+                game_id,
+            )
+
+            if not monde_cree:
+                return None
+
+            # Récupérer le monde/station (seule entité location avec attribut 'population')
+            world_row = await conn.fetchrow(
+                """
+                SELECT 
+                    e.name,
+                    el.location_type,
+                    MAX(CASE WHEN a.key = 'atmosphere' THEN a.value END) as atmosphere,
+                    MAX(CASE WHEN a.key = 'population' THEN a.value END) as population
+                FROM entities e
+                JOIN entity_locations el ON el.entity_id = e.id
+                JOIN attributes a ON a.entity_id = e.id AND a.end_cycle IS NULL
+                WHERE e.game_id = $1 
+                  AND e.type = 'location' 
+                  AND e.removed_cycle IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM attributes 
+                      WHERE entity_id = e.id AND key = 'population' AND end_cycle IS NULL
+                  )
+                GROUP BY e.id, e.name, el.location_type
+                LIMIT 1
+                """,
+                game_id,
+            )
+
+            # Compter les entités
+            counts = await conn.fetchrow(
+                """
+                SELECT 
+                    COUNT(*) FILTER (WHERE type = 'character') as nb_personnages,
+                    COUNT(*) FILTER (WHERE type = 'location') as nb_lieux,
+                    COUNT(*) FILTER (WHERE type = 'organization') as nb_organisations
+                FROM entities
+                WHERE game_id = $1 AND removed_cycle IS NULL
+                """,
+                game_id,
+            )
+
+            # Récupérer l'IA (traits est un JSON contenant voice, personality, quirk)
+            ia_row = await conn.fetchrow(
+                """
+                SELECT e.name, ea.traits
+                FROM entities e
+                JOIN entity_ais ea ON ea.entity_id = e.id
+                WHERE e.game_id = $1 AND e.type = 'ai' AND e.removed_cycle IS NULL
+                LIMIT 1
+                """,
+                game_id,
+            )
+
+            # Récupérer le protagoniste avec ses crédits
+            protag_row = await conn.fetchrow(
+                """
+                SELECT e.name, a.value as credits
+                FROM entities e
+                LEFT JOIN attributes a ON a.entity_id = e.id 
+                    AND a.key = 'credits' AND a.end_cycle IS NULL
+                WHERE e.game_id = $1 AND e.type = 'protagonist' AND e.removed_cycle IS NULL
+                LIMIT 1
+                """,
+                game_id,
+            )
+
+            # Récupérer l'événement d'arrivée depuis cycle_summaries
+            arrival_row = await conn.fetchrow(
+                """SELECT key_events, day, date FROM cycle_summaries 
+                   WHERE game_id = $1 AND cycle = 1""",
+                game_id,
+            )
+
+            # Construire le résultat
+            monde = None
+            if world_row:
+                population = world_row["population"]
+                if population and isinstance(population, str):
+                    try:
+                        population = int(population)
+                    except ValueError:
+                        population = None
+                monde = {
+                    "nom": world_row["name"],
+                    "type": world_row["location_type"],
+                    "atmosphere": world_row["atmosphere"],
+                    "population": population,
+                }
+
+            ia = None
+            if ia_row:
+                # traits est un JSON: {"voice": "...", "personality": [...], "quirk": "..."}
+                traits_data = ia_row["traits"]
+                if traits_data and isinstance(traits_data, str):
+                    try:
+                        traits_data = json.loads(traits_data)
+                    except json.JSONDecodeError:
+                        traits_data = {}
+                elif not traits_data:
+                    traits_data = {}
+
+                ia = {
+                    "nom": ia_row["name"],
+                    "personnalite": traits_data.get("personality", []),
+                    "quirk": traits_data.get("quirk"),
+                }
+
+            protagoniste = None
+            if protag_row:
+                credits = protag_row["credits"]
+                if credits:
+                    try:
+                        credits = int(credits)
+                    except (ValueError, TypeError):
+                        credits = 0
+                protagoniste = {
+                    "nom": protag_row["name"],
+                    "credits": credits or 0,
+                }
+
+            arrivee = None
+            if arrival_row and arrival_row["key_events"]:
+                events = (
+                    json.loads(arrival_row["key_events"])
+                    if isinstance(arrival_row["key_events"], str)
+                    else arrival_row["key_events"]
+                )
+                date_str = arrival_row["date"]
+                if arrival_row["day"] and date_str:
+                    date_str = f"{arrival_row['day']} {date_str}"
+                arrivee = {
+                    "lieu": events.get("arrival_location"),
+                    "date": date_str,
+                    "heure": events.get("hour"),
+                    "ambiance": events.get("initial_mood"),
+                }
+
+            return {
+                "monde_cree": True,
+                "monde": monde,
+                "ia": ia,
+                "protagoniste": protagoniste,
+                "nb_personnages": counts["nb_personnages"] if counts else 0,
+                "nb_lieux": counts["nb_lieux"] if counts else 0,
+                "nb_organisations": counts["nb_organisations"] if counts else 0,
+                "arrivee": arrivee,
+            }
+
     async def _load_protagonist_stats(self, conn, game_id: UUID) -> dict:
         """Charge les stats du protagoniste via la vue v_current_attributes"""
         rows = await conn.fetch(

@@ -91,7 +91,18 @@ async def load_game(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
     try:
         state = await service.load_game_state(game_id)
         messages = await service.load_chat_messages(game_id)
-        return {"state": state, "messages": messages}
+
+        # Si le monde est créé mais pas encore de messages,
+        # on charge les infos de présentation du monde
+        world_info = None
+        if state.get("monde_cree") and not messages:
+            world_info = await service.load_world_info(game_id)
+
+        return {
+            "state": state,
+            "messages": messages,
+            "world_info": world_info,
+        }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
