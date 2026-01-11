@@ -107,10 +107,10 @@ def try_repair_json(content: str) -> dict | None:
     except json.JSONDecodeError as e:
         print(f"[JSON] Échec réparation simple: {e}")
         # Tenter une stratégie de troncature
-        return _try_truncate_json(content)
+        return try_truncate_json(content)
 
 
-def _try_truncate_json(content: str) -> dict | None:
+def try_truncate_json(content: str) -> dict | None:
     """
     Stratégie alternative : tronquer jusqu'au dernier point valide.
     Cherche un point de coupure propre en reculant dans le contenu.
@@ -169,3 +169,30 @@ def safe_json_dumps(data: Any, default: str = "{}") -> str:
         return json.dumps(data, ensure_ascii=False)
     except (TypeError, ValueError):
         return default
+
+
+def parse_json(value: Any) -> Any:
+    """
+    Parse JSON value if it's a string, otherwise return as-is.
+    Handles PostgreSQL JSONB/JSON columns that may come as strings.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+    return value
+
+
+def parse_json_list(value: Any) -> list:
+    """
+    Parse JSON value and ensure it returns a list.
+    """
+    parsed = parse_json(value)
+    if parsed is None:
+        return []
+    if isinstance(parsed, list):
+        return parsed
+    return [parsed]

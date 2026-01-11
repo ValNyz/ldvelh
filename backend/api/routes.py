@@ -79,8 +79,11 @@ class RenameRequest(BaseModel):
 async def list_games(pool: asyncpg.Pool = Depends(get_pool)):
     """Liste les parties actives"""
     service = GameService(pool)
-    games = await service.list_games()
-    return {"parties": games}
+    try:
+        games = await service.list_games()
+        return {"parties": games}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/games/{game_id}")
@@ -111,16 +114,22 @@ async def load_game(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
 async def create_game(pool: asyncpg.Pool = Depends(get_pool)):
     """Crée une nouvelle partie"""
     service = GameService(pool)
-    game_id = await service.create_game()
-    return {"gameId": str(game_id)}
+    try:
+        game_id = await service.create_game()
+        return {"gameId": str(game_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.delete("/games/{game_id}")
 async def delete_game(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
     """Supprime une partie"""
     service = GameService(pool)
-    await service.delete_game(game_id)
-    return {"success": True}
+    try:
+        await service.delete_game(game_id)
+        return {"success": True}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.patch("/games/{game_id}")
@@ -129,8 +138,30 @@ async def rename_game(
 ):
     """Renomme une partie"""
     service = GameService(pool)
-    await service.rename_game(game_id, request.name)
-    return {"success": True}
+    try:
+        await service.rename_game(game_id, request.name)
+        return {"success": True}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+# @router.get("/games/{game_id}/world")
+# async def get_world_data(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
+#     """
+#     Récupère les données du monde pour les sidebars.
+#
+#     Returns:
+#         - npcs: Liste des PNJs connus
+#         - locations: Liste des lieux découverts
+#         - quests: Liste des quêtes/arcs actifs
+#         - organizations: Liste des organisations connues
+#     """
+#     service = GameService(pool)
+#     try:
+#         world_data = await service.load_world_data(game_id)
+#         return world_data
+#     except ValueError as e:
+#         raise HTTPException(status_code=404, detail=str(e))
 
 
 # =============================================================================
@@ -150,13 +181,16 @@ async def rollback_game(
     et rollback le Knowledge Graph au cycle correspondant.
     """
     service = GameService(pool)
-    result = await service.rollback_to_message(game_id, request.fromIndex)
+    try:
+        result = await service.rollback_to_message(game_id, request.fromIndex)
 
-    # Recharger l'état et les messages
-    new_state = await service.load_game_state(game_id)
-    new_messages = await service.load_chat_messages(game_id)
+        # Recharger l'état et les messages
+        new_state = await service.load_game_state(game_id)
+        new_messages = await service.load_chat_messages(game_id)
 
-    return {"success": True, **result, "state": new_state, "messages": new_messages}
+        return {"success": True, **result, "state": new_state, "messages": new_messages}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # =============================================================================
@@ -383,7 +417,9 @@ async def _handle_chat(
                         npcs_present=process_result["npcs_present"],
                         summary_task=summary_task_holder.get("task"),
                     )
-                    logger.info(f"[CHAT] Extraction terminée: {extraction_result}")
+                    logger.info(
+                        f"[CHAT] Extraction terminée:\n{json.dumps(extraction_result, indent=2, default=str, ensure_ascii=False)}"
+                    )
                     logger.debug(
                         f"[TIMING] extract_and_populate: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )

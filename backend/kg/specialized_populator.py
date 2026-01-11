@@ -1,5 +1,5 @@
 """
-LDVELH - Specialized Populators
+LDVELH - Specialized Populators (EAV Architecture)
 WorldPopulator: Initial world generation processing
 ExtractionPopulator: Narrative extraction processing
 """
@@ -12,24 +12,18 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from schema import (
-    ArrivalEventData,
-    CommitmentCreation,
+    AttributeKey,
+    AttributeWithVisibility,
     CommitmentType,
     EntityCreation,
     EntityType,
     EntityUpdate,
     FactType,
     InventoryChange,
-    LocationData,
-    NarrativeArcData,
     NarrativeExtraction,
     ObjectCreation,
-    ObjectData,
-    OrganizationData,
     RelationData,
     RelationType,
-    WorldData,
-    WorldGeneration,
 )
 
 from .populator import KnowledgeGraphPopulator
@@ -51,14 +45,13 @@ class WorldPopulator(KnowledgeGraphPopulator):
     Takes a complete WorldGeneration and populates the entire KG.
     """
 
-    async def populate(self, world_gen: WorldGeneration) -> UUID:
+    async def populate(self, world_gen) -> UUID:
         """Main entry point - creates game and populates everything"""
 
         async with self.pool.acquire() as conn:
             async with conn.transaction():
                 # 1. Create game OR rename existing
                 if self.game_id:
-                    # Game already exists, just rename it
                     await conn.execute(
                         "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
                         world_gen.world.name,
@@ -74,25 +67,23 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 await self.create_protagonist(conn, world_gen.protagonist)
 
                 # 4. Create AI
-                await self.create_ai(
-                    conn, world_gen.personal_ai, world_gen.protagonist.name
-                )
+                await self.create_ai(conn, world_gen.personal_ai)
 
-                # 5. Create organizations (before locations for HQ refs)
+                # 5. Create organizations
                 for org in world_gen.organizations:
                     await self.create_organization(conn, org)
 
                 # 6. Create locations (two passes for parent refs)
                 await self._create_locations_two_pass(conn, world_gen.locations)
 
-                # 7. Update organization HQ refs now that locations exist
+                # 7. Update organization HQ refs
                 await self._update_org_headquarters(conn, world_gen.organizations)
 
                 # 8. Create characters
                 for char in world_gen.characters:
                     await self.create_character(conn, char)
 
-                # 9. Create inventory (with protagonist ownership)
+                # 9. Create inventory
                 for obj in world_gen.inventory:
                     await self.create_object(
                         conn, obj, owner_ref=world_gen.protagonist.name
@@ -100,42 +91,13 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
                 # 10. Create all explicit relations
                 protagonist_name = world_gen.protagonist.name
-                protagonist_lives_at = None
-                protagonist_employed_by = None
-
                 for rel in world_gen.initial_relations:
                     result = await self.create_relation(conn, rel)
-
-                    # Tracker les relations critiques du protagoniste
-                    if result and rel.source_ref.lower() == protagonist_name.lower():
-                        if rel.relation_type == RelationType.LIVES_AT:
-                            protagonist_lives_at = rel.target_ref
-                        elif rel.relation_type == RelationType.EMPLOYED_BY:
-                            protagonist_employed_by = rel.target_ref
-
-                    # Log les échecs
                     if result is None:
                         logger.warning(
                             f"[POPULATE] Failed to create relation: "
                             f"{rel.source_ref} --{rel.relation_type.value}--> {rel.target_ref}"
                         )
-
-                # 10b. Vérification des relations critiques du protagoniste (sans fallback)
-                if protagonist_lives_at:
-                    logger.info(
-                        f"[POPULATE] ✓ Protagonist lives_at: {protagonist_lives_at}"
-                    )
-                else:
-                    logger.info("[POPULATE] ✗ Protagonist has NO lives_at relation! ")
-
-                if protagonist_employed_by:
-                    logger.info(
-                        f"[POPULATE] ✓ Protagonist employed_by: {protagonist_employed_by}"
-                    )
-                else:
-                    logger.info(
-                        "[POPULATE] ✗ Protagonist has NO employed_by relation! "
-                    )
 
                 # 11. Create narrative arcs as commitments
                 for arc in world_gen.narrative_arcs:
@@ -147,42 +109,53 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 # 13. Store generation metadata
                 await self._store_generation_meta(conn, world_gen)
 
-                logger.info(
-                    f"World populated: {len(self.registry._by_name)} entities, game_id={self.game_id}"
-                )
+                logger.info(f"World populated: {len(self.registry._by_name)} entities")
 
         return self.game_id
 
-    async def _create_world(self, conn: Connection, world: WorldData) -> UUID:
+    async def _create_world(self, conn: Connection, world) -> UUID:
         """Create the station as top-level location entity"""
         entity_id = await self.upsert_entity(conn, EntityType.LOCATION, world.name)
 
-        await conn.execute(
-            """INSERT INTO entity_locations (entity_id, location_type, accessible)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (entity_id) DO UPDATE SET
-                 location_type = EXCLUDED.location_type""",
-            entity_id,
-            world.station_type,
-            True,
-        )
+        # Set all world attributes
+        attrs = [
+            AttributeWithVisibility(
+                key=AttributeKey.LOCATION_TYPE,
+                value=world.station_type
+                if hasattr(world, "station_type")
+                else "station",
+                known_by_protagonist=True,
+            ),
+            AttributeWithVisibility(
+                key=AttributeKey.ATMOSPHERE,
+                value=world.atmosphere if hasattr(world, "atmosphere") else "",
+                known_by_protagonist=True,
+            ),
+            AttributeWithVisibility(
+                key=AttributeKey.DESCRIPTION,
+                value=world.description if hasattr(world, "description") else "",
+                known_by_protagonist=True,
+            ),
+        ]
+
+        # Add sectors as notable_features
+        if hasattr(world, "sectors") and world.sectors:
+            attrs.append(
+                AttributeWithVisibility(
+                    key=AttributeKey.NOTABLE_FEATURES,
+                    value=json.dumps(world.sectors),
+                    known_by_protagonist=True,
+                )
+            )
 
         await self.set_attributes(
-            conn,
-            entity_id,
-            {
-                "population": world.population,
-                "atmosphere": world.atmosphere,
-                "description": world.description,
-                "sectors": world.sectors,
-                "founding_cycle": world.founding_cycle,
-            },
+            conn, entity_id, attrs, cycle=1, entity_type=EntityType.LOCATION
         )
 
         return entity_id
 
     async def _create_locations_two_pass(
-        self, conn: Connection, locations: list[LocationData]
+        self, conn: Connection, locations: list
     ) -> None:
         """Create locations in two passes to handle parent refs"""
         for loc in locations:
@@ -192,47 +165,45 @@ class WorldPopulator(KnowledgeGraphPopulator):
             await self.create_location(conn, loc)
 
     async def _update_org_headquarters(
-        self, conn: Connection, organizations: list[OrganizationData]
+        self, conn: Connection, organizations: list
     ) -> None:
-        """Update organization HQ refs now that locations exist"""
+        """Update organization HQ refs"""
         for org in organizations:
-            if org.headquarters_ref:
+            if hasattr(org, "headquarters_ref") and org.headquarters_ref:
                 hq_id = self.registry.resolve(org.headquarters_ref)
                 org_id = self.registry.resolve(org.name)
                 if hq_id and org_id:
                     await conn.execute(
-                        """UPDATE entity_organizations 
-                           SET headquarters_id = $1 
-                           WHERE entity_id = $2""",
+                        "UPDATE entity_organizations SET headquarters_id = $1 WHERE entity_id = $2",
                         hq_id,
                         org_id,
                     )
 
-    async def _create_narrative_arc(
-        self, conn: Connection, arc: NarrativeArcData
-    ) -> UUID:
+    async def _create_narrative_arc(self, conn: Connection, arc) -> UUID:
         """Create a narrative arc as a commitment"""
         commitment_id = await conn.fetchval(
             """INSERT INTO commitments 
                (game_id, type, description, created_cycle, deadline_cycle)
                VALUES ($1, $2, $3, $4, $5) RETURNING id""",
             self.game_id,
-            arc.arc_type.value,
+            arc.arc_type.value if hasattr(arc.arc_type, "value") else arc.arc_type,
             f"{arc.title}: {arc.description}",
             1,
-            arc.deadline_cycle,
+            arc.deadline_cycle if hasattr(arc, "deadline_cycle") else None,
         )
 
-        if arc.arc_type == CommitmentType.ARC:
+        if hasattr(arc, "arc_type") and arc.arc_type == CommitmentType.ARC:
             await conn.execute(
                 """INSERT INTO commitment_arcs (commitment_id, objective, obstacle)
                    VALUES ($1, $2, $3)""",
                 commitment_id,
                 arc.title,
-                arc.stakes,
+                arc.stakes if hasattr(arc, "stakes") else "",
             )
 
-        for entity_name in arc.involved_entities:
+        for entity_name in (
+            arc.involved_entities if hasattr(arc, "involved_entities") else []
+        ):
             entity_id = self.registry.resolve(entity_name)
             if entity_id:
                 await conn.execute(
@@ -245,20 +216,18 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
         return commitment_id
 
-    async def _store_arrival_event(
-        self, conn: Connection, arrival: ArrivalEventData
-    ) -> None:
+    async def _store_arrival_event(self, conn: Connection, arrival) -> None:
         """Store arrival event for the narrator"""
         location_id = self.registry.resolve(arrival.arrival_location_ref)
 
         await conn.execute(
-            """SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8)""",
+            "SELECT create_fact($1, $2, $3::fact_type, $4, $5, $6, $7, $8::jsonb)",
             self.game_id,
             1,
             "encounter",
             f"Arrivée sur la station via {arrival.arrival_method}. {arrival.optional_incident or ''}",
             location_id,
-            arrival.time,
+            arrival.time if hasattr(arrival, "time") else None,
             4,
             json.dumps([{"name": "Valentin", "role": "actor"}]),
         )
@@ -275,19 +244,15 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 {
                     "arrival_method": arrival.arrival_method,
                     "arrival_location": arrival.arrival_location_ref,
-                    "sensory_details": arrival.immediate_sensory_details,
-                    "immediate_need": arrival.immediate_need,
-                    "first_npc_encountered": arrival.first_npc_encountered,
                 }
             ),
         )
 
-    async def _store_generation_meta(
-        self, conn: Connection, world_gen: WorldGeneration
-    ) -> None:
-        """Store generation metadata for reference"""
+    async def _store_generation_meta(self, conn: Connection, world_gen) -> None:
+        """Store generation metadata"""
         await conn.execute(
-            """UPDATE games SET updated_at = NOW() WHERE id = $1""", self.game_id
+            "UPDATE games SET updated_at = NOW() WHERE id = $1",
+            self.game_id,
         )
 
         await conn.execute(
@@ -297,7 +262,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
             self.game_id,
             0,
             len(self.registry._by_name),
-            len(world_gen.initial_relations),
+            len(world_gen.initial_relations)
+            if hasattr(world_gen, "initial_relations")
+            else 0,
         )
 
 
@@ -309,14 +276,11 @@ class WorldPopulator(KnowledgeGraphPopulator):
 class ExtractionPopulator(KnowledgeGraphPopulator):
     """
     Specialized populator for processing narrative extractions.
-    Call after each narrative generation to update the KG.
+    Uses unified EAV format for all entity types.
     """
 
     async def process_extraction(self, extraction: NarrativeExtraction) -> dict:
-        """
-        Process a complete narrative extraction.
-        Returns stats about what was processed.
-        """
+        """Process a complete narrative extraction."""
         stats = {
             "facts_created": 0,
             "entities_created": 0,
@@ -326,7 +290,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             "relations_ended": 0,
             "gauges_changed": 0,
             "credits_changed": 0,
-            "beliefs_updated": 0,
             "commitments_created": 0,
             "errors": [],
         }
@@ -338,20 +301,22 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 if not self.registry._by_name:
                     await self.load_registry(conn)
 
-                # 1. Create new entities first (PNJ, lieux, organisations)
+                # 1. Create new entities (unified EAV format)
                 for entity in extraction.entities_created:
                     try:
                         await self._process_entity_creation(conn, entity, cycle)
                         stats["entities_created"] += 1
                     except Exception as e:
+                        logger.error(f"Entity creation error: {e}")
                         stats["errors"].append(f"Entity creation: {e}")
 
-                # 2. Create objects from acquisition (avec relation owns auto)
+                # 2. Create objects from acquisition
                 for obj_creation in extraction.objects_created:
                     try:
                         await self._process_object_creation(conn, obj_creation, cycle)
                         stats["objects_created"] += 1
                     except Exception as e:
+                        logger.error(f"Object creation error: {e}")
                         stats["errors"].append(f"Object creation: {e}")
 
                 # 3. Process entity updates
@@ -370,12 +335,12 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
                 # 5. Create facts
                 for fact in extraction.facts:
-                    await self.create_fact(conn, fact)
-                    stats["facts_created"] += 1
+                    result = await self.create_fact(conn, fact)
+                    if result:
+                        stats["facts_created"] += 1
 
-                # 6. Create new relations (NO owns - handled by objects)
+                # 6. Create new relations (NO owns)
                 for rel_creation in extraction.relations_created:
-                    # Filtrer owns au cas où
                     if rel_creation.relation.relation_type == RelationType.OWNS:
                         continue
                     result = await self.create_relation(
@@ -398,7 +363,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
                 # 8. Process gauge changes
                 for gauge in extraction.gauge_changes:
-                    success, old, new = await self.update_gauge(
+                    success, _, _ = await self.update_gauge(
                         conn, gauge.gauge, gauge.delta, cycle
                     )
                     if success:
@@ -406,7 +371,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
                 # 9. Process credit transactions
                 for tx in extraction.credit_transactions:
-                    success, balance, error = await self.credit_transaction(
+                    success, _, error = await self.credit_transaction(
                         conn, tx.amount, cycle, tx.description
                     )
                     if success:
@@ -414,29 +379,24 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     elif error:
                         stats["errors"].append(f"Credits: {error}")
 
-                # 10. Process inventory changes (lose/use only, acquire handled by objects)
+                # 10. Process inventory changes
                 for inv in extraction.inventory_changes:
                     await self._process_inventory_change(conn, inv, cycle)
 
-                # 11. Update beliefs
-                for belief in extraction.beliefs_updated:
-                    await self.set_belief(conn, belief, cycle)
-                    stats["beliefs_updated"] += 1
-
-                # 12. Create commitments
+                # 11. Create commitments
                 for commit in extraction.commitments_created:
                     await self._create_commitment(conn, commit, cycle)
                     stats["commitments_created"] += 1
 
-                # 13. Resolve commitments
+                # 12. Resolve commitments
                 for resolution in extraction.commitments_resolved:
                     await self._resolve_commitment(conn, resolution, cycle)
 
-                # 14. Schedule events
+                # 13. Schedule events
                 for event in extraction.events_scheduled:
                     await self._schedule_event(conn, event, cycle)
 
-                # 15. Store extraction log
+                # 14. Store extraction log
                 await self._log_extraction(conn, extraction, stats)
 
         return stats
@@ -444,52 +404,86 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     async def _process_entity_creation(
         self, conn: Connection, creation: EntityCreation, cycle: int
     ) -> UUID:
-        """Process a new entity creation (PNJ, lieu, organisation)"""
-        if creation.entity_type == EntityType.CHARACTER:
-            entity_id = await self.create_character(
-                conn, creation.character_data, cycle
+        """
+        Process a new entity creation using unified EAV format.
+        All entity types use attributes list.
+        """
+        # Create base entity
+        entity_id = await self.upsert_entity(
+            conn,
+            creation.entity_type,
+            creation.name,
+            creation.aliases,
+            cycle,
+            creation.known_by_protagonist,
+            creation.unknown_name,
+        )
+
+        # Set all attributes from unified format
+        if creation.attributes:
+            await self.set_attributes(
+                conn,
+                entity_id,
+                creation.attributes,
+                cycle,
+                entity_type=creation.entity_type,
             )
-            if creation.character_data.workplace_ref:
+
+        # Handle FK references
+        if creation.entity_type == EntityType.LOCATION and creation.parent_location_ref:
+            parent_id = self.registry.resolve(creation.parent_location_ref)
+            if parent_id:
+                await conn.execute(
+                    "UPDATE entity_locations SET parent_location_id = $1 WHERE entity_id = $2",
+                    parent_id,
+                    entity_id,
+                )
+
+        if (
+            creation.entity_type == EntityType.ORGANIZATION
+            and creation.headquarters_ref
+        ):
+            hq_id = self.registry.resolve(creation.headquarters_ref)
+            if hq_id:
+                await conn.execute(
+                    "UPDATE entity_organizations SET headquarters_id = $1 WHERE entity_id = $2",
+                    hq_id,
+                    entity_id,
+                )
+
+        if creation.entity_type == EntityType.AI and creation.creator_ref:
+            creator_id = self.registry.resolve(creation.creator_ref)
+            if creator_id:
+                await conn.execute(
+                    "UPDATE entity_ais SET creator_id = $1 WHERE entity_id = $2",
+                    creator_id,
+                    entity_id,
+                )
+
+        # Auto-create spatial relations for characters
+        if creation.entity_type == EntityType.CHARACTER:
+            if creation.workplace_ref:
                 await self.create_relation(
                     conn,
                     RelationData(
-                        source_ref=creation.character_data.name,
-                        target_ref=creation.character_data.workplace_ref,
+                        source_ref=creation.name,
+                        target_ref=creation.workplace_ref,
                         relation_type=RelationType.WORKS_AT,
                     ),
                     cycle,
                 )
-            # Sinon, relation frequents avec le lieu actuel
-            elif hasattr(creation, "encountered_at") and creation.encountered_at:
+            if creation.residence_ref:
                 await self.create_relation(
                     conn,
                     RelationData(
-                        source_ref=creation.character_data.name,
-                        target_ref=creation.encountered_at,
-                        relation_type=RelationType.FREQUENTS,
+                        source_ref=creation.name,
+                        target_ref=creation.residence_ref,
+                        relation_type=RelationType.LIVES_AT,
                     ),
                     cycle,
                 )
-            return entity_id
-        elif creation.entity_type == EntityType.LOCATION:
-            return await self.create_location(conn, creation.location_data, cycle)
-        elif creation.entity_type == EntityType.OBJECT:
-            # Objets décor uniquement (pas les objets acquis)
-            return await self.create_object(conn, creation.object_data, cycle=cycle)
-        elif creation.entity_type == EntityType.ORGANIZATION:
-            return await self.create_organization(
-                conn, creation.organization_data, cycle
-            )
-        else:
-            return await self.upsert_entity(
-                conn,
-                creation.entity_type,
-                creation.name,
-                creation.aliases,
-                cycle,
-                creation.known_by_protagonist,
-                creation.unknown_name,
-            )
+
+        return entity_id
 
     async def _process_object_creation(
         self, conn: Connection, obj_creation: ObjectCreation, cycle: int
@@ -498,40 +492,52 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         Process an object creation from inventory acquisition.
         Creates the object AND the owns relation automatically.
         """
-        # Récupérer le protagoniste
+        # Get protagonist
         protagonist_ids = self.registry.get_by_type(EntityType.PROTAGONIST)
         if not protagonist_ids:
             raise ValueError("Protagonist not found")
         protagonist_id = protagonist_ids[0]
         protagonist_name = self.registry.get_name(protagonist_id)
 
-        # Créer l'ObjectData depuis ObjectCreation
-        object_data = ObjectData(
-            name=obj_creation.name,
-            category=obj_creation.category,
-            description=obj_creation.description,
-            transportable=obj_creation.transportable,
-            stackable=obj_creation.stackable,
-            base_value=obj_creation.base_value,
-            emotional_significance=obj_creation.emotional_significance,
+        # Create entity
+        entity_id = await self.upsert_entity(
+            conn, EntityType.OBJECT, obj_creation.name, cycle=cycle
         )
 
-        # Créer l'objet avec le protagoniste comme owner
-        # create_object crée automatiquement la relation owns
-        object_id = await self.create_object(
-            conn, object_data, owner_ref=protagonist_name, cycle=cycle
+        # Set attributes
+        if obj_creation.attributes:
+            await self.set_attributes(
+                conn,
+                entity_id,
+                obj_creation.attributes,
+                cycle,
+                entity_type=EntityType.OBJECT,
+            )
+
+        # Create owns relation
+        await self.create_relation(
+            conn,
+            RelationData(
+                source_ref=protagonist_name,
+                target_ref=obj_creation.name,
+                relation_type=RelationType.OWNS,
+                quantity=obj_creation.quantity,
+                origin="acquired",
+            ),
+            cycle,
         )
 
-        return object_id
+        return entity_id
 
     async def _process_entity_update(
         self, conn: Connection, update: EntityUpdate, cycle: int
     ) -> None:
-        """Process an entity update"""
+        """Process an entity update using EAV attributes"""
         entity_id = self.registry.resolve(update.entity_ref)
         if not entity_id:
             raise KeyError(f"Entity not found: {update.entity_ref}")
 
+        # Update aliases
         if update.new_aliases:
             await conn.execute(
                 """UPDATE entities SET 
@@ -542,72 +548,57 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 entity_id,
             )
 
-        for attr in update.attributes_changed:
-            value = attr.value
-            if isinstance(value, (list, dict)):
-                value = json.dumps(value)
+        # Update known status
+        if update.now_known:
             await conn.execute(
-                "SELECT set_attribute($1, $2, $3, $4, $5, $6)",
-                self.game_id,
+                "UPDATE entities SET known_by_protagonist = true, updated_at = NOW() WHERE id = $1",
                 entity_id,
-                attr.key,
-                str(value),
+            )
+            if update.real_name:
+                await conn.execute(
+                    "UPDATE entities SET name = $1, updated_at = NOW() WHERE id = $2",
+                    update.real_name,
+                    entity_id,
+                )
+
+        # Update attributes
+        if update.attributes_changed:
+            entity_type = await self._get_entity_type(conn, entity_id)
+            await self.set_attributes(
+                conn,
+                entity_id,
+                update.attributes_changed,
                 cycle,
-                json.dumps(attr.details) if attr.details else None,
+                entity_type=entity_type,
             )
 
+        # Update skills
         for skill in update.skills_changed:
             await self.set_skill(conn, entity_id, skill, cycle)
-
-        if update.arc_updates:
-            arcs_json = json.dumps([arc.model_dump() for arc in update.arc_updates])
-            await conn.execute(
-                "SELECT set_attribute($1, $2, $3, $4, $5, $6)",
-                self.game_id,
-                entity_id,
-                "arcs",
-                arcs_json,
-                cycle,
-                None,
-            )
 
     async def _process_inventory_change(
         self, conn: Connection, change: InventoryChange, cycle: int
     ) -> None:
-        """
-        Process an inventory change.
-
-        - acquire avec object_hint: IGNORÉ (géré par objects_created)
-        - acquire avec object_ref: créer relation owns vers objet existant
-        - lose: terminer relation owns
-        - use: créer un fait
-        """
+        """Process inventory changes (acquire with ref, lose, use)"""
         protagonist_ids = self.registry.get_by_type(EntityType.PROTAGONIST)
         if not protagonist_ids:
             return
-        protagonist_id = protagonist_ids[0]
-        protagonist_name = self.registry.get_name(protagonist_id)
+        protagonist_name = self.registry.get_name(protagonist_ids[0])
 
         if change.action == "acquire":
-            # Si object_hint → ignoré, traité par objects_created
             if change.object_hint:
-                return
+                return  # Handled by objects_created
 
-            # Si object_ref → objet existant, créer relation owns
             if change.object_ref:
-                object_id = self.registry.resolve(change.object_ref)
-                if object_id:
-                    from schema import RelationData
-
-                    await self.create_relation(
-                        conn,
-                        RelationData(
-                            source_ref=protagonist_name,
-                            target_ref=change.object_ref,
-                            relation_type=RelationType.OWNS,
-                        ),
-                        cycle,
-                    )
+                await self.create_relation(
+                    conn,
+                    RelationData(
+                        source_ref=protagonist_name,
+                        target_ref=change.object_ref,
+                        relation_type=RelationType.OWNS,
+                    ),
+                    cycle,
+                )
 
         elif change.action == "lose" and change.object_ref:
             await self.end_relation(
@@ -630,12 +621,11 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     description=f"Utilise {change.object_ref}. {change.reason or ''}",
                     importance=2,
                     participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                    semantic_key=f"valentin:use:{change.object_ref.lower().replace(' ', '_')}",
                 ),
             )
 
-    async def _create_commitment(
-        self, conn: Connection, commit: CommitmentCreation, cycle: int
-    ) -> UUID:
+    async def _create_commitment(self, conn: Connection, commit, cycle: int) -> UUID:
         """Create a narrative commitment"""
         commitment_id = await conn.fetchval(
             """INSERT INTO commitments 
@@ -684,21 +674,20 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
         if commitment:
             fact_id = await conn.fetchval(
-                """SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
+                "SELECT create_fact($1, $2, $3::fact_type, $4, $5, $6, $7, $8::jsonb, $9)",
                 self.game_id,
                 cycle,
-                "encounter",
+                "state_change",
                 resolution.resolution_description,
                 None,
                 None,
                 3,
                 "[]",
+                None,
             )
 
             await conn.execute(
-                """UPDATE commitments SET 
-                   resolved = true, resolution_fact_id = $1
-                   WHERE id = $2""",
+                "UPDATE commitments SET resolved = true, resolution_fact_id = $1 WHERE id = $2",
                 fact_id,
                 commitment["id"],
             )
@@ -713,8 +702,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             """INSERT INTO events 
                (game_id, type, title, description, planned_cycle, time, 
                 location_id, recurrence, amount)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-               RETURNING id""",
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id""",
             self.game_id,
             event.event_type,
             event.title,
@@ -741,7 +729,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     async def _log_extraction(
         self, conn: Connection, extraction: NarrativeExtraction, stats: dict
     ) -> None:
-        """Log the extraction for debugging/analysis"""
+        """Log the extraction"""
         await conn.execute(
             """INSERT INTO extraction_logs 
                (game_id, cycle, entities_created, relations_created,
@@ -766,20 +754,4 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             extraction.cycle,
             extraction.segment_summary,
             json.dumps({"npcs_present": extraction.key_npcs_present}),
-        )
-
-    async def save_cycle_summary(
-        self, conn: Connection, cycle: int, summary: str, key_events: dict
-    ) -> None:
-        """Save or update a cycle summary"""
-        await conn.execute(
-            """INSERT INTO cycle_summaries (game_id, cycle, summary, key_events)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (game_id, cycle) DO UPDATE SET
-                 summary = EXCLUDED.summary,
-                 key_events = EXCLUDED.key_events""",
-            self.game_id,
-            cycle,
-            summary,
-            json.dumps(key_events),
         )

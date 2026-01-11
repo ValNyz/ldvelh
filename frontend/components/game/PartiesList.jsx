@@ -1,18 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import Button, { DangerButton } from '../ui/Button';
+import Button from '../ui/Button';
 
-/**
- * Page de sélection des parties
- */
 export default function PartiesList({
 	parties,
 	loading,
 	error,
 	onSelect,
 	onNew,
-	onDelete
+	onDelete,
+	onSettings
 }) {
 	const [confirmDelete, setConfirmDelete] = useState(null);
 
@@ -27,136 +25,150 @@ export default function PartiesList({
 		});
 	};
 
-	const handleDelete = (id) => {
+	const handleDelete = (e, id) => {
+		e.stopPropagation();
 		onDelete(id);
 		setConfirmDelete(null);
 	};
 
 	return (
-		<div className="min-h-screen bg-gray-900 text-white p-6">
-			<div className="max-w-xl mx-auto">
-				{/* Header */}
-				<div className="mb-8">
-					<h1 className="text-3xl font-bold text-blue-400 mb-2">LDVELH</h1>
-					<p className="text-gray-400">Chroniques de l'Exil Stellaire</p>
+		<div className="min-h-screen bg-gray-950 text-white flex flex-col">
+			{/* Header */}
+			<header className="bg-gray-900/80 border-b border-gray-800/50 px-6 py-4 flex items-center justify-between">
+				<div className="flex items-center gap-3">
+					<span className="text-2xl">🚀</span>
+					<div>
+						<h1 className="text-lg font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+							LDVELH
+						</h1>
+						<p className="text-xs text-gray-500">Chroniques de l'Exil Stellaire</p>
+					</div>
 				</div>
-
-				{/* Nouvelle partie */}
-				<Button
-					onClick={onNew}
-					disabled={loading}
-					loading={loading}
-					className="w-full mb-6"
-					size="lg"
-				>
-					+ Nouvelle partie
-				</Button>
-
-				{/* Erreur */}
-				{error && (
-					<div className="bg-red-900/30 border border-red-700 rounded-lg p-4 mb-6 text-red-400">
-						{error}
-					</div>
+				{onSettings && (
+					<button
+						onClick={onSettings}
+						className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+					>
+						⚙️
+					</button>
 				)}
+			</header>
 
-				{/* Liste des parties */}
-				<h2 className="text-lg font-medium text-gray-300 mb-4">
-					Parties existantes
-				</h2>
+			{/* Contenu */}
+			<div className="flex-1 overflow-auto">
+				<div className="max-w-2xl mx-auto p-6">
+					{/* Nouvelle partie */}
+					<button
+						onClick={onNew}
+						disabled={loading}
+						className="w-full mb-6 px-6 py-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-xl text-white font-medium transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+					>
+						{loading ? (
+							<>
+								<LoadingIcon className="w-5 h-5 animate-spin" />
+								Création...
+							</>
+						) : (
+							<>
+								<span className="text-xl">✨</span>
+								Nouvelle aventure
+							</>
+						)}
+					</button>
 
-				{parties.length === 0 ? (
-					<div className="text-center py-12 text-gray-500">
-						<GamepadIcon className="w-12 h-12 mx-auto mb-3 opacity-50" />
-						<p>Aucune partie sauvegardée</p>
-						<p className="text-sm mt-1">Crée une nouvelle partie pour commencer</p>
-					</div>
-				) : (
-					<div className="space-y-3">
-						{parties.map((partie) => (
-							<div
-								key={partie.id}
-								className="bg-gray-800 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors"
-							>
-								<div className="flex items-center p-4">
-									{/* Infos partie (cliquable) */}
-									<div
-										className="flex-1 cursor-pointer"
-										onClick={() => onSelect(partie.id)}
-									>
-										<h3 className="font-medium text-white mb-1">
-											{partie.nom}
-										</h3>
-										<div className="flex items-center gap-3 text-sm text-gray-400">
-											<span className="flex items-center gap-1">
-												<CycleIcon className="w-4 h-4" />
-												Cycle {partie.cycle_actuel || 1}
-											</span>
-											<span>•</span>
-											<span>{formatDate(partie.updated_at)}</span>
+					{/* Erreur */}
+					{error && (
+						<div className="bg-red-900/30 border border-red-700 rounded-lg p-4 mb-6 text-red-400">
+							{error}
+						</div>
+					)}
+
+					{/* Liste des parties */}
+					<h2 className="text-sm text-gray-500 uppercase tracking-wider mb-4">
+						Parties sauvegardées
+					</h2>
+
+					{parties.length === 0 ? (
+						<div className="text-center py-12 text-gray-500">
+							<span className="text-4xl block mb-3">🎮</span>
+							<p>Aucune partie sauvegardée</p>
+							<p className="text-sm mt-1">Crée une nouvelle aventure pour commencer</p>
+						</div>
+					) : (
+						<div className="space-y-3">
+							{parties.map((partie) => (
+								<div
+									key={partie.id}
+									onClick={() => onSelect(partie.id)}
+									className="group bg-gray-900/80 border border-gray-800 rounded-xl p-4 hover:border-purple-500/50 hover:bg-gray-900 transition-all cursor-pointer"
+								>
+									<div className="flex justify-between items-start">
+										<div>
+											<h3 className="text-white font-medium group-hover:text-purple-400 transition-colors">
+												{partie.nom}
+											</h3>
+											<div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+												<span className="flex items-center gap-1">
+													🔄 Cycle {partie.cycle_actuel || 1}
+												</span>
+												{partie.lieu_actuel && (
+													<span className="flex items-center gap-1">
+														📍 {partie.lieu_actuel}
+													</span>
+												)}
+												<span>{formatDate(partie.updated_at)}</span>
+											</div>
 										</div>
+
+										{/* Bouton supprimer */}
+										{confirmDelete === partie.id ? (
+											<div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+												<button
+													onClick={(e) => handleDelete(e, partie.id)}
+													className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white text-xs rounded transition-colors"
+												>
+													Confirmer
+												</button>
+												<button
+													onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
+													className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded transition-colors"
+												>
+													Annuler
+												</button>
+											</div>
+										) : (
+											<button
+												onClick={(e) => { e.stopPropagation(); setConfirmDelete(partie.id); }}
+												className="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-red-500/10"
+												title="Supprimer"
+											>
+												🗑️
+											</button>
+										)}
 									</div>
-
-									{/* Bouton supprimer */}
-									{confirmDelete === partie.id ? (
-										<div className="flex items-center gap-2">
-											<Button
-												variant="danger"
-												size="sm"
-												onClick={() => handleDelete(partie.id)}
-											>
-												Confirmer
-											</Button>
-											<Button
-												variant="secondary"
-												size="sm"
-												onClick={() => setConfirmDelete(null)}
-											>
-												Annuler
-											</Button>
-										</div>
-									) : (
-										<button
-											onClick={(e) => {
-												e.stopPropagation();
-												setConfirmDelete(partie.id);
-											}}
-											className="p-2 text-gray-500 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
-											title="Supprimer"
-										>
-											<TrashIcon className="w-4 h-4" />
-										</button>
-									)}
 								</div>
-							</div>
-						))}
-					</div>
-				)}
+							))}
+						</div>
+					)}
+				</div>
 			</div>
+
+			{/* Footer */}
+			<footer className="bg-gray-900/80 border-t border-gray-800/50 px-6 py-3 flex items-center justify-between text-xs text-gray-500">
+				<span>v0.1.0 • Made with 💜</span>
+				<div className="flex items-center gap-4">
+					<a href="#" className="hover:text-purple-400 transition-colors">À propos</a>
+					<a href="https://github.com/ValNyz/ldvelh" target="_blank" rel="noopener noreferrer" className="hover:text-purple-400 transition-colors">GitHub</a>
+				</div>
+			</footer>
 		</div>
 	);
 }
 
-// Icons
-function GamepadIcon({ className }) {
+function LoadingIcon({ className }) {
 	return (
 		<svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-			<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-		</svg>
-	);
-}
-
-function CycleIcon({ className }) {
-	return (
-		<svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-			<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-		</svg>
-	);
-}
-
-function TrashIcon({ className }) {
-	return (
-		<svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-			<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+			<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 		</svg>
 	);
 }

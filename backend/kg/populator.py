@@ -1,6 +1,7 @@
 """
-LDVELH - Knowledge Graph Populator
-Réutilisable pour génération initiale ET extraction narrative
+LDVELH - Knowledge Graph Populator (EAV Architecture)
+All entity data stored via attributes table
+Reusable for initial generation AND narrative extraction
 """
 
 from __future__ import annotations
@@ -8,26 +9,28 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from schema import (
-    RelationCategory,
+    AttributeVisibility,
+    AttributeWithVisibility,
     CharacterData,
-    # Core
     EntityType,
-    # Narrative
     FactData,
+    get_attribute_visibility,
     LocationData,
     ObjectData,
     OrganizationData,
     PersonalAIData,
-    # Entities
     ProtagonistData,
-    # Relations
+    RelationCategory,
     RelationData,
     RelationType,
     Skill,
+    VALID_ATTRIBUTE_KEYS_BY_ENTITY,
+    normalize_attribute_key,
+    ATTRIBUTE_NORMALIZERS,
 )
 
 if TYPE_CHECKING:
@@ -43,10 +46,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EntityRegistry:
-    """
-    Tracks entity name → UUID mappings.
-    Shared across populator operations for reference resolution.
-    """
+    """Tracks entity name → UUID mappings."""
 
     _by_name: dict[str, UUID] = field(default_factory=dict)
     _by_type: dict[EntityType, list[UUID]] = field(
@@ -80,15 +80,12 @@ class EntityRegistry:
 
 
 # =============================================================================
-# BASE POPULATOR
+# KNOWLEDGE GRAPH POPULATOR
 # =============================================================================
 
 
 class KnowledgeGraphPopulator:
-    """
-    Core populator with reusable methods for all entity types.
-    Use directly or subclass for specific use cases.
-    """
+    """Core populator with EAV-based entity creation."""
 
     def __init__(self, pool: Pool, game_id: UUID | None = None):
         self.pool = pool
@@ -108,7 +105,7 @@ class KnowledgeGraphPopulator:
         return self.game_id
 
     async def load_registry(self, conn: Connection) -> None:
-        """Load existing entities into registry (for continuing a game)"""
+        """Load existing entities into registry"""
         if not self.game_id:
             raise ValueError("game_id must be set before loading registry")
 
@@ -118,7 +115,6 @@ class KnowledgeGraphPopulator:
         )
         for row in rows:
             self.registry.register(row["name"], row["id"], EntityType(row["type"]))
-
         logger.info(f"Loaded {len(rows)} entities into registry")
 
     # =========================================================================
@@ -147,34 +143,113 @@ class KnowledgeGraphPopulator:
             unknown_name,
         )
         self.registry.register(name, entity_id, entity_type)
+
+        # Insert into typed table (FK only, no data)
+        await self._insert_typed_entity_row(conn, entity_type, entity_id)
+
         return entity_id
+
+    async def _insert_typed_entity_row(
+        self, conn: Connection, entity_type: EntityType, entity_id: UUID
+    ) -> None:
+        """Insert empty row in typed entity table (for FK constraints)"""
+        table_map = {
+            EntityType.PROTAGONIST: "entity_protagonists",
+            EntityType.CHARACTER: "entity_characters",
+            EntityType.LOCATION: "entity_locations",
+            EntityType.OBJECT: "entity_objects",
+            EntityType.AI: "entity_ais",
+            EntityType.ORGANIZATION: "entity_organizations",
+        }
+        table = table_map.get(entity_type)
+        if table:
+            await conn.execute(
+                f"INSERT INTO {table} (entity_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                entity_id,
+            )
+
+    # =========================================================================
+    # ATTRIBUTES
+    # =========================================================================
 
     async def set_attributes(
         self,
         conn: Connection,
         entity_id: UUID,
-        attrs: dict[str, str | int | float | list | dict],
+        attrs: dict[str, Any] | list[AttributeWithVisibility],
         cycle: int = 1,
-        known_by_protagonist: bool = True,
-    ) -> None:
-        """Set multiple attributes on an entity"""
-        for key, value in attrs.items():
-            # Convert complex types to JSON string
-            if isinstance(value, (list, dict)):
-                value = json.dumps(value)
-            elif not isinstance(value, str):
-                value = str(value)
+        known_by_protagonist: bool | None = None,
+        entity_type: EntityType | None = None,
+    ) -> int:
+        """
+        Set multiple attributes on an entity.
+        Returns number of attributes set.
+        """
+        # Get entity type FIRST if not provided (needed for normalization)
+        if entity_type is None:
+            entity_type = await self._get_entity_type(conn, entity_id)
 
+        # Choose normalizer based on entity type
+        normalizer = ATTRIBUTE_NORMALIZERS.get(entity_type, normalize_attribute_key)
+
+        # Convert dict → list with entity-specific normalization
+        if isinstance(attrs, dict):
+            converted = []
+            for k, v in attrs.items():
+                try:
+                    key = normalizer(k)  # ← Utilise le normaliseur typé
+                    str_value = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
+                    converted.append(AttributeWithVisibility(key=key, value=str_value))
+                except ValueError:
+                    logger.warning(
+                        f"[set_attributes] Unknown key '{k}' for {entity_type.value}"
+                    )
+            attrs = converted
+
+        valid_keys = VALID_ATTRIBUTE_KEYS_BY_ENTITY.get(entity_type, set())
+        count = 0
+
+        for attr in attrs:
+            # Validate key for entity type
+            if attr.key not in valid_keys:
+                logger.warning(
+                    f"[ATTR] Skipping invalid key '{attr.key.value}' for {entity_type.value}"
+                )
+                continue
+
+            # Determine visibility
+            if known_by_protagonist is not None:
+                known = known_by_protagonist
+            elif hasattr(attr, "known_by_protagonist"):
+                known = attr.known_by_protagonist
+            else:
+                visibility = get_attribute_visibility(attr.key)
+                known = visibility != AttributeVisibility.NEVER
+
+            # Insert
             await conn.execute(
                 "SELECT set_attribute($1, $2, $3, $4, $5, $6, $7)",
                 self.game_id,
                 entity_id,
-                key,
-                value,
+                attr.key.value,
+                attr.value,
                 cycle,
-                None,
-                known_by_protagonist,
+                json.dumps(attr.details) if attr.details else None,
+                known,
             )
+            count += 1
+            logger.debug(
+                f"[ATTR] {attr.key.value}={attr.value[:50]}... (known={known})"
+            )
+
+        return count
+
+    async def _get_entity_type(self, conn: Connection, entity_id: UUID) -> EntityType:
+        """Get entity type from DB"""
+        row = await conn.fetchrow("SELECT type FROM entities WHERE id = $1", entity_id)
+        if not row:
+            raise ValueError(f"Entity not found: {entity_id}")
+        return EntityType(row["type"])
 
     async def set_skill(
         self, conn: Connection, entity_id: UUID, skill: Skill, cycle: int = 1
@@ -209,7 +284,7 @@ class KnowledgeGraphPopulator:
         return True
 
     # =========================================================================
-    # TYPED ENTITY CREATION
+    # TYPED ENTITY CREATION (all use attributes)
     # =========================================================================
 
     async def create_protagonist(
@@ -220,34 +295,12 @@ class KnowledgeGraphPopulator:
             conn, EntityType.PROTAGONIST, data.name, cycle=cycle
         )
 
-        await conn.execute(
-            """INSERT INTO entity_protagonists 
-               (entity_id, origin_location, departure_reason, backstory)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (entity_id) DO UPDATE SET
-                 origin_location = EXCLUDED.origin_location,
-                 departure_reason = EXCLUDED.departure_reason,
-                 backstory = EXCLUDED.backstory""",
-            entity_id,
-            data.origin_location,
-            data.departure_story,
-            data.backstory,
-        )
-
+        # Set all attributes
         await self.set_attributes(
-            conn,
-            entity_id,
-            {
-                "credits": data.initial_credits,
-                "energy": data.initial_energy,
-                "morale": data.initial_morale,
-                "health": data.initial_health,
-                "hobbies": data.hobbies,
-                "departure_reason": data.departure_reason.value,
-            },
-            cycle,
+            conn, entity_id, data.attributes, cycle, entity_type=EntityType.PROTAGONIST
         )
 
+        # Set skills
         for skill in data.skills:
             await self.set_skill(conn, entity_id, skill, cycle)
 
@@ -271,43 +324,14 @@ class KnowledgeGraphPopulator:
             unknown_name=unknown_name,
         )
 
-        await conn.execute(
-            """INSERT INTO entity_characters 
-               (entity_id, species, gender, pronouns, station_arrival_cycle,
-                origin_location, physical_description, traits)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               ON CONFLICT (entity_id) DO UPDATE SET
-                 species = EXCLUDED.species,
-                 gender = EXCLUDED.gender,
-                 pronouns = EXCLUDED.pronouns,
-                 physical_description = EXCLUDED.physical_description,
-                 traits = EXCLUDED.traits""",
-            entity_id,
-            data.species,
-            data.gender,
-            data.pronouns,
-            data.station_arrival_cycle,
-            data.origin_location,
-            data.physical_description,
-            json.dumps(data.personality_traits),
+        # Set all attributes
+        await self.set_attributes(
+            conn, entity_id, data.attributes, cycle, entity_type=EntityType.CHARACTER
         )
 
-        # Store arcs as attributes
-        arcs_data = [arc.model_dump() for arc in data.arcs]
-        attrs = {
-            "occupation": data.occupation,
-            "arcs": arcs_data,
-            "romantic_potential": data.romantic_potential,
-            "is_mandatory": data.is_mandatory,
-        }
-        if data.age:
-            attrs["age"] = data.age
-
-        await self.set_attributes(conn, entity_id, attrs, cycle)
-
-        # AUTO-CREATE SPATIAL RELATIONS
+        # Auto-create spatial relations
         if data.workplace_ref:
-            result = await self.create_relation(
+            await self.create_relation(
                 conn,
                 RelationData(
                     source_ref=data.name,
@@ -316,17 +340,9 @@ class KnowledgeGraphPopulator:
                 ),
                 cycle,
             )
-            if result:
-                logger.debug(
-                    f"[CHARACTER] Auto-created works_at: {data.name} -> {data.workplace_ref}"
-                )
-            else:
-                logger.warning(
-                    f"[CHARACTER] Failed to create works_at for {data.name} -> {data.workplace_ref}"
-                )
 
         if data.residence_ref:
-            result = await self.create_relation(
+            await self.create_relation(
                 conn,
                 RelationData(
                     source_ref=data.name,
@@ -335,14 +351,6 @@ class KnowledgeGraphPopulator:
                 ),
                 cycle,
             )
-            if result:
-                logger.debug(
-                    f"[CHARACTER] Auto-created lives_at: {data.name} -> {data.residence_ref}"
-                )
-            else:
-                logger.warning(
-                    f"[CHARACTER] Failed to create lives_at for {data.name} -> {data.residence_ref}"
-                )
 
         return entity_id
 
@@ -354,38 +362,20 @@ class KnowledgeGraphPopulator:
             conn, EntityType.LOCATION, data.name, cycle=cycle
         )
 
-        parent_id = None
+        # Set parent_location_id FK
         if data.parent_location_ref:
             parent_id = self.registry.resolve(data.parent_location_ref)
+            if parent_id:
+                await conn.execute(
+                    "UPDATE entity_locations SET parent_location_id = $1 WHERE entity_id = $2",
+                    parent_id,
+                    entity_id,
+                )
 
-        await conn.execute(
-            """INSERT INTO entity_locations 
-               (entity_id, location_type, sector, parent_location_id, accessible)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (entity_id) DO UPDATE SET
-                 location_type = EXCLUDED.location_type,
-                 sector = EXCLUDED.sector,
-                 parent_location_id = EXCLUDED.parent_location_id,
-                 accessible = EXCLUDED.accessible""",
-            entity_id,
-            data.location_type,
-            data.sector,
-            parent_id,
-            data.accessible,
+        # Set all attributes
+        await self.set_attributes(
+            conn, entity_id, data.attributes, cycle, entity_type=EntityType.LOCATION
         )
-
-        attrs = {
-            "description": data.description,
-            "atmosphere": data.atmosphere,
-        }
-        if data.notable_features:
-            attrs["notable_features"] = data.notable_features
-        if data.typical_crowd:
-            attrs["typical_crowd"] = data.typical_crowd
-        if data.operating_hours:
-            attrs["operating_hours"] = data.operating_hours
-
-        await self.set_attributes(conn, entity_id, attrs, cycle)
 
         return entity_id
 
@@ -401,32 +391,16 @@ class KnowledgeGraphPopulator:
             conn, EntityType.OBJECT, data.name, cycle=cycle
         )
 
-        await conn.execute(
-            """INSERT INTO entity_objects 
-               (entity_id, category, transportable, stackable, base_value)
-               VALUES ($1, $2, $3, $4, $5)
-               ON CONFLICT (entity_id) DO UPDATE SET
-                 category = EXCLUDED.category,
-                 transportable = EXCLUDED.transportable,
-                 stackable = EXCLUDED.stackable,
-                 base_value = EXCLUDED.base_value""",
-            entity_id,
-            data.category,
-            data.transportable,
-            data.stackable,
-            data.base_value,
+        # Set all attributes
+        await self.set_attributes(
+            conn, entity_id, data.attributes, cycle, entity_type=EntityType.OBJECT
         )
-
-        attrs = {"description": data.description}
-        if data.emotional_significance:
-            attrs["emotional_significance"] = data.emotional_significance
-        await self.set_attributes(conn, entity_id, attrs, cycle)
 
         # Create ownership relation if owner specified
         if owner_ref:
             owner_id = self.registry.resolve(owner_ref)
             if owner_id:
-                rel_id = await self.create_relation(
+                await self.create_relation(
                     conn,
                     RelationData(
                         source_ref=owner_ref,
@@ -448,79 +422,56 @@ class KnowledgeGraphPopulator:
             conn, EntityType.ORGANIZATION, data.name, cycle=cycle
         )
 
-        hq_id = None
+        # Set headquarters FK
         if data.headquarters_ref:
             hq_id = self.registry.resolve(data.headquarters_ref)
+            if hq_id:
+                await conn.execute(
+                    "UPDATE entity_organizations SET headquarters_id = $1 WHERE entity_id = $2",
+                    hq_id,
+                    entity_id,
+                )
 
-        await conn.execute(
-            """INSERT INTO entity_organizations 
-               (entity_id, org_type, domain, size, founding_cycle, headquarters_id)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               ON CONFLICT (entity_id) DO UPDATE SET
-                 org_type = EXCLUDED.org_type,
-                 domain = EXCLUDED.domain,
-                 size = EXCLUDED.size""",
-            entity_id,
-            data.org_type,
-            data.domain,
-            data.size,
-            data.founding_cycle,
-            hq_id,
-        )
-
+        # Set all attributes
         await self.set_attributes(
-            conn,
-            entity_id,
-            {
-                "description": data.description,
-                "reputation": data.reputation,
-                "is_employer": data.is_employer,
-            },
-            cycle,
+            conn, entity_id, data.attributes, cycle, entity_type=EntityType.ORGANIZATION
         )
 
         return entity_id
 
     async def create_ai(
-        self, conn: Connection, data: PersonalAIData, creator_ref: str, cycle: int = 1
+        self, conn: Connection, data: PersonalAIData, cycle: int = 1
     ) -> UUID:
         """Create a personal AI entity"""
         entity_id = await self.upsert_entity(
             conn, EntityType.AI, data.name, cycle=cycle
         )
 
-        creator_id = self.registry.resolve(creator_ref)
+        # Set creator FK
+        if data.creator_ref:
+            creator_id = self.registry.resolve(data.creator_ref)
+            if creator_id:
+                await conn.execute(
+                    "UPDATE entity_ais SET creator_id = $1 WHERE entity_id = $2",
+                    creator_id,
+                    entity_id,
+                )
 
-        await conn.execute(
-            """INSERT INTO entity_ais 
-               (entity_id, creator_id, substrate, traits)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (entity_id) DO UPDATE SET
-                 substrate = EXCLUDED.substrate,
-                 traits = EXCLUDED.traits""",
-            entity_id,
-            creator_id,
-            data.substrate,
-            json.dumps(
-                {
-                    "voice": data.voice_description,
-                    "personality": data.personality_traits,
-                    "quirk": data.quirk,
-                }
-            ),
+                # Create ownership relation
+                await self.create_relation(
+                    conn,
+                    RelationData(
+                        source_ref=data.creator_ref,
+                        target_ref=data.name,
+                        relation_type=RelationType.OWNS,
+                    ),
+                    cycle,
+                )
+
+        # Set all attributes
+        await self.set_attributes(
+            conn, entity_id, data.attributes, cycle, entity_type=EntityType.AI
         )
-
-        # Create ownership relation
-        if creator_id:
-            await self.create_relation(
-                conn,
-                RelationData(
-                    source_ref=creator_ref,
-                    target_ref=data.name,
-                    relation_type=RelationType.OWNS,
-                ),
-                cycle,
-            )
 
         return entity_id
 
@@ -553,7 +504,6 @@ class KnowledgeGraphPopulator:
 
         # Handle typed relation data
         await self._insert_typed_relation_data(conn, rel_id, data)
-
         return rel_id
 
     async def _insert_typed_relation_data(
@@ -562,7 +512,6 @@ class KnowledgeGraphPopulator:
         """Insert into the appropriate typed relation table"""
         rt = data.relation_type
 
-        # Social relations
         if rt.category == RelationCategory.SOCIAL:
             social = data.social
             if social:
@@ -572,17 +521,14 @@ class KnowledgeGraphPopulator:
                        VALUES ($1, $2, $3, $4, $5)
                        ON CONFLICT (relation_id) DO UPDATE SET
                          level = COALESCE(EXCLUDED.level, relations_social.level),
-                         context = COALESCE(EXCLUDED.context, relations_social.context),
-                         romantic_stage = COALESCE(EXCLUDED.romantic_stage, relations_social.romantic_stage),
-                         family_bond = COALESCE(EXCLUDED.family_bond, relations_social.family_bond)""",
+                         context = COALESCE(EXCLUDED.context, relations_social.context)""",
                     rel_id,
-                    social.level if social else None,
-                    social.context if social else None,
-                    social.romantic_stage if social else None,
-                    social.family_bond if social else None,
+                    social.level,
+                    social.context,
+                    social.romantic_stage,
+                    social.family_bond,
                 )
 
-        # Professional relations
         elif rt.category == RelationCategory.PROFESSIONAL:
             prof = data.professional
             if prof:
@@ -591,31 +537,25 @@ class KnowledgeGraphPopulator:
                        (relation_id, position, position_start_cycle, part_time)
                        VALUES ($1, $2, $3, $4)
                        ON CONFLICT (relation_id) DO UPDATE SET
-                         position = COALESCE(EXCLUDED.position, relations_professional.position),
-                         position_start_cycle = COALESCE(EXCLUDED.position_start_cycle, relations_professional.position_start_cycle),
-                         part_time = COALESCE(EXCLUDED.part_time, relations_professional.part_time)""",
+                         position = COALESCE(EXCLUDED.position, relations_professional.position)""",
                     rel_id,
                     prof.position,
                     prof.position_start_cycle,
                     prof.part_time,
                 )
 
-        # Spatial relations
         elif rt.category == RelationCategory.SPATIAL:
             spatial = data.spatial
             if spatial:
                 await conn.execute(
                     """INSERT INTO relations_spatial (relation_id, regularity, time_of_day)
                        VALUES ($1, $2, $3)
-                       ON CONFLICT (relation_id) DO UPDATE SET
-                         regularity = COALESCE(EXCLUDED.regularity, relations_spatial.regularity),
-                         time_of_day = COALESCE(EXCLUDED.time_of_day, relations_spatial.time_of_day)""",
+                       ON CONFLICT (relation_id) DO NOTHING""",
                     rel_id,
                     spatial.regularity,
                     spatial.time_of_day,
                 )
 
-        # Ownership relations
         elif rt.category == RelationCategory.OWNERSHIP:
             own = data.ownership
             await conn.execute(
@@ -623,10 +563,7 @@ class KnowledgeGraphPopulator:
                    (relation_id, quantity, origin, amount, acquisition_cycle)
                    VALUES ($1, $2, $3, $4, $5)
                    ON CONFLICT (relation_id) DO UPDATE SET
-                     quantity = COALESCE(EXCLUDED.quantity, relations_ownership.quantity),
-                     origin = COALESCE(EXCLUDED.origin, relations_ownership.origin),
-                     amount = COALESCE(EXCLUDED.amount, relations_ownership.amount),
-                     acquisition_cycle = COALESCE(EXCLUDED.acquisition_cycle, relations_ownership.acquisition_cycle)""",
+                     quantity = COALESCE(EXCLUDED.quantity, relations_ownership.quantity)""",
                 rel_id,
                 own.quantity if own else 1,
                 own.origin if own else None,
@@ -644,7 +581,7 @@ class KnowledgeGraphPopulator:
         reason: str | None = None,
     ) -> bool:
         """End an existing relation"""
-        result = await conn.fetchval(
+        return await conn.fetchval(
             "SELECT end_relation($1, $2, $3, $4, $5, $6)",
             self.game_id,
             source_ref,
@@ -653,7 +590,6 @@ class KnowledgeGraphPopulator:
             cycle,
             reason,
         )
-        return result
 
     async def mark_relation_known(
         self,
@@ -684,52 +620,30 @@ class KnowledgeGraphPopulator:
     # =========================================================================
 
     async def create_fact(self, conn: Connection, fact: FactData) -> UUID | None:
-        """
-        Crée un fait avec déduplication par semantic_key.
-        Retourne None si le fait existe déjà (doublon).
-        """
-        # Vérifier si un fait avec cette semantic_key existe déjà pour ce cycle
+        """Create a fact with deduplication"""
         if fact.semantic_key:
             existing = await conn.fetchval(
-                """
-                SELECT id FROM facts 
-                WHERE game_id = $1 AND cycle = $2 AND semantic_key = $3
-                """,
+                "SELECT id FROM facts WHERE game_id = $1 AND cycle = $2 AND semantic_key = $3",
                 self.game_id,
                 fact.cycle,
                 fact.semantic_key,
             )
             if existing:
-                logger.debug(f"[FACT] Doublon ignoré: {fact.semantic_key}")
+                logger.debug(f"[FACT] Duplicate ignored: {fact.semantic_key}")
                 return None
 
-        # Résoudre la location
         location_id = None
         if fact.location_ref:
-            location_id = await self._resolve_entity(
-                conn, fact.location_ref, "location"
-            )
+            location_id = self.registry.resolve(fact.location_ref)
 
-        # Préparer les participants
         participants_json = []
         for p in fact.participants:
-            entity_id = await self._resolve_entity(conn, p.entity_ref)
+            entity_id = self.registry.resolve(p.entity_ref)
             if entity_id:
-                participants_json.append(
-                    {
-                        "name": p.entity_ref,
-                        "role": p.role.value if hasattr(p.role, "value") else p.role,
-                    }
-                )
+                participants_json.append({"name": p.entity_ref, "role": p.role.value})
 
-        # Créer le fait
         fact_id = await conn.fetchval(
-            """
-            SELECT create_fact(
-                $1, $2, $3::fact_type, $4, 
-                $5, $6, $7, $8::jsonb, $9
-            )
-            """,
+            "SELECT create_fact($1, $2, $3::fact_type, $4, $5, $6, $7, $8::jsonb, $9)",
             self.game_id,
             fact.cycle,
             fact.fact_type.value,
@@ -741,34 +655,24 @@ class KnowledgeGraphPopulator:
             fact.semantic_key,
         )
 
-        logger.info(
-            f"[FACT] Créé: [{fact.fact_type.value}] {fact.semantic_key} (imp={fact.importance})"
-        )
+        logger.info(f"[FACT] Created: [{fact.fact_type.value}] {fact.semantic_key}")
         return fact_id
 
     async def process_facts(self, conn: Connection, facts: list[FactData]) -> int:
-        """
-        Traite une liste de facts avec déduplication.
-        Retourne le nombre de facts effectivement créés.
-        """
+        """Process a list of facts with deduplication"""
         created = 0
         seen_keys = set()
 
         for fact in facts:
-            # Déduplication locale (même batch)
             if fact.semantic_key in seen_keys:
-                logger.debug(f"[FACT] Doublon local ignoré: {fact.semantic_key}")
                 continue
             seen_keys.add(fact.semantic_key)
 
-            # Création avec déduplication DB
             fact_id = await self.create_fact(conn, fact)
             if fact_id:
                 created += 1
 
-        logger.info(
-            f"[FACTS] {created}/{len(facts)} facts créés (doublons ignorés: {len(facts) - created})"
-        )
+        logger.info(f"[FACTS] {created}/{len(facts)} facts created")
         return created
 
     # =========================================================================
@@ -818,8 +722,6 @@ class KnowledgeGraphPopulator:
     ) -> UUID:
         """Save a chat message"""
         location_id = self.registry.resolve(location_ref) if location_ref else None
-
-        # Resolve NPC refs to UUIDs
         npc_ids = []
         if npcs_present:
             for npc_ref in npcs_present:
@@ -829,10 +731,8 @@ class KnowledgeGraphPopulator:
 
         return await conn.fetchval(
             """INSERT INTO chat_messages 
-               (game_id, role, content, cycle, date, location_id, 
-                npcs_present, summary)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-               RETURNING id""",
+               (game_id, role, content, cycle, date, location_id, npcs_present, summary)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
             self.game_id,
             role,
             content,
@@ -852,30 +752,13 @@ class KnowledgeGraphPopulator:
         )
         return dict(row) if row else None
 
-    async def get_messages_since(
-        self, conn: Connection, since_cycle: int, limit: int = 100
-    ) -> list[dict]:
-        """Get messages from a cycle onwards"""
-        rows = await conn.fetch(
-            """SELECT * FROM chat_messages 
-               WHERE game_id = $1 AND cycle >= $2
-               ORDER BY created_at ASC
-               LIMIT $3""",
-            self.game_id,
-            since_cycle,
-            limit,
-        )
-        return [dict(row) for row in rows]
-
     async def get_recent_messages(
         self, conn: Connection, limit: int = 20
     ) -> list[dict]:
         """Get the most recent messages"""
         rows = await conn.fetch(
             """SELECT * FROM chat_messages 
-               WHERE game_id = $1
-               ORDER BY created_at DESC
-               LIMIT $2""",
+               WHERE game_id = $1 ORDER BY created_at DESC LIMIT $2""",
             self.game_id,
             limit,
         )
@@ -900,10 +783,8 @@ class KnowledgeGraphPopulator:
                (game_id, cycle, date, summary, key_events, modified_relations)
                VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (game_id, cycle) DO UPDATE SET
-                 date = COALESCE(EXCLUDED.date, cycle_summaries.date),
                  summary = EXCLUDED.summary,
-                 key_events = COALESCE(EXCLUDED.key_events, cycle_summaries.key_events),
-                 modified_relations = COALESCE(EXCLUDED.modified_relations, cycle_summaries.modified_relations)
+                 key_events = COALESCE(EXCLUDED.key_events, cycle_summaries.key_events)
                RETURNING id""",
             self.game_id,
             cycle,
@@ -917,80 +798,8 @@ class KnowledgeGraphPopulator:
     # ROLLBACK
     # =========================================================================
 
-    async def rollback_to_message(
-        self, conn: Connection, message_id: UUID, include_message: bool = False
-    ) -> dict:
-        """
-        Rollback the game state to just before (or at) a specific message.
-
-        Args:
-            message_id: The message to rollback to
-            include_message: If True, keep this message. If False, delete it too.
-
-        Returns:
-            Stats about what was rolled back
-        """
-        # Get the message
-        message = await self.get_message(conn, message_id)
-        if not message:
-            raise ValueError(f"Message {message_id} not found")
-
-        target_cycle = message["cycle"]
-        message_created_at = message["created_at"]
-
-        # If we want to include the message, we rollback to its cycle
-        # If we want to exclude it, we rollback to cycle - 1
-        rollback_cycle = target_cycle if include_message else target_cycle - 1
-
-        # Call the SQL rollback function
-        result = await conn.fetchrow(
-            "SELECT * FROM rollback_to_cycle($1, $2)", self.game_id, rollback_cycle
-        )
-
-        stats = {
-            "rolled_back_to_cycle": rollback_cycle,
-            "deleted_facts": result["deleted_facts"],
-            "deleted_events": result["deleted_events"],
-            "deleted_commitments": result["deleted_commitments"],
-            "reverted_attributes": result["reverted_attributes"],
-            "reverted_relations": result["reverted_relations"],
-            "deleted_messages": 0,
-        }
-
-        # Delete messages after the target
-        if include_message:
-            # Delete messages created AFTER this one
-            deleted = await conn.execute(
-                """DELETE FROM chat_messages 
-                   WHERE game_id = $1 AND created_at > $2""",
-                self.game_id,
-                message_created_at,
-            )
-        else:
-            # Delete this message and all after
-            deleted = await conn.execute(
-                """DELETE FROM chat_messages 
-                   WHERE game_id = $1 AND created_at >= $2""",
-                self.game_id,
-                message_created_at,
-            )
-
-        stats["deleted_messages"] = int(deleted.split()[-1]) if deleted else 0
-
-        # Clear registry and reload (state has changed)
-        self.registry = EntityRegistry()
-        await self.load_registry(conn)
-
-        return stats
-
     async def rollback_to_cycle(self, conn: Connection, target_cycle: int) -> dict:
-        """
-        Rollback the game state to a specific cycle.
-        All data after target_cycle will be deleted.
-
-        Returns:
-            Stats about what was rolled back
-        """
+        """Rollback the game state to a specific cycle"""
         result = await conn.fetchrow(
             "SELECT * FROM rollback_to_cycle($1, $2)", self.game_id, target_cycle
         )
@@ -1004,74 +813,13 @@ class KnowledgeGraphPopulator:
             "reverted_relations": result["reverted_relations"],
         }
 
-        # Delete messages after target cycle
         await conn.execute(
             "DELETE FROM chat_messages WHERE game_id = $1 AND cycle > $2",
             self.game_id,
             target_cycle,
         )
 
-        # Clear registry and reload
         self.registry = EntityRegistry()
         await self.load_registry(conn)
 
         return stats
-
-    async def get_rollback_preview(self, conn: Connection, message_id: UUID) -> dict:
-        """
-        Preview what would be affected by a rollback without doing it.
-        Useful for showing user what they'll lose.
-        """
-        message = await self.get_message(conn, message_id)
-        if not message:
-            raise ValueError(f"Message {message_id} not found")
-
-        target_cycle = message["cycle"]
-
-        # Count what would be deleted
-        counts = {}
-
-        counts["messages"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM chat_messages WHERE game_id = $1 AND cycle > $2",
-            self.game_id,
-            target_cycle,
-        )
-
-        counts["facts"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM facts WHERE game_id = $1 AND cycle > $2",
-            self.game_id,
-            target_cycle,
-        )
-
-        counts["events"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM events WHERE game_id = $1 AND planned_cycle > $2",
-            self.game_id,
-            target_cycle,
-        )
-
-        counts["new_entities"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM entities WHERE game_id = $1 AND created_cycle > $2",
-            self.game_id,
-            target_cycle,
-        )
-
-        counts["modified_attributes"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM attributes WHERE game_id = $1 AND start_cycle > $2",
-            self.game_id,
-            target_cycle,
-        )
-
-        counts["new_relations"] = await conn.fetchval(
-            "SELECT COUNT(*) FROM relations WHERE game_id = $1 AND start_cycle > $2",
-            self.game_id,
-            target_cycle,
-        )
-
-        return {
-            "target_message_id": message_id,
-            "target_cycle": target_cycle,
-            "target_content_preview": message["content"][:200] + "..."
-            if len(message["content"]) > 200
-            else message["content"],
-            "will_delete": counts,
-        }
