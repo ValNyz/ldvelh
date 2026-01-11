@@ -31,7 +31,7 @@ class GameService:
                 SELECT 
                     g.id, g.name, g.created_at, g.updated_at,
                     COALESCE(MAX(m.cycle), 0) AS current_cycle,
-                    (SELECT day FROM cycle_summaries 
+                    (SELECT date FROM cycle_summaries 
                      WHERE game_id = g.id ORDER BY cycle DESC LIMIT 1) AS jour
                 FROM games g
                 LEFT JOIN chat_messages m ON m.game_id = g.id
@@ -109,7 +109,6 @@ class GameService:
             "id": game_id,
             "nom": game["name"],
             "cycle_actuel": cycle_info["cycle"],
-            "jour": cycle_info["day"],
             "date_jeu": cycle_info["date"],
             "heure": cycle_info["time"],
             "lieu_actuel": cycle_info["location"],
@@ -211,7 +210,7 @@ class GameService:
 
             # Récupérer l'événement d'arrivée depuis cycle_summaries
             arrival_row = await conn.fetchrow(
-                """SELECT key_events, day, date FROM cycle_summaries 
+                """SELECT key_events, date FROM cycle_summaries 
                    WHERE game_id = $1 AND cycle = 1""",
                 game_id,
             )
@@ -270,12 +269,9 @@ class GameService:
                     if isinstance(arrival_row["key_events"], str)
                     else arrival_row["key_events"]
                 )
-                date_str = arrival_row["date"]
-                if arrival_row["day"] and date_str:
-                    date_str = f"{arrival_row['day']} {date_str}"
                 arrivee = {
                     "lieu": events.get("arrival_location"),
-                    "date": date_str,
+                    "date": arrival_row["date"],
                     "heure": events.get("hour"),
                     "ambiance": events.get("initial_mood"),
                 }
@@ -363,7 +359,7 @@ class GameService:
         """Charge les infos du cycle actuel depuis le dernier message assistant"""
         row = await conn.fetchrow(
             """
-            SELECT m.cycle, m.day, m.date, m.time, 
+            SELECT m.cycle, m.date, m.time, 
                    e.name as location_name, m.npcs_present
             FROM chat_messages m
             LEFT JOIN entities e ON e.id = m.location_id
@@ -383,14 +379,8 @@ class GameService:
                 )
                 npc_names = [r["name"] for r in npc_rows]
 
-            day = row["day"] or "Lundi"
-            date = row["date"]
-            if day and date and date.startswith(day):
-                date = date[len(day) :].strip()
-
             return {
                 "cycle": row["cycle"],
-                "day": row["day"] or "Lundi",
                 "date": row["date"],
                 "time": row["time"] or "08h00",
                 "location": row["location_name"],
@@ -399,17 +389,12 @@ class GameService:
 
         # Sinon, fallback sur les infos d'arrivée (first_light)
         arrival_row = await conn.fetchrow(
-            """SELECT day, date, key_events FROM cycle_summaries 
+            """SELECT date, key_events FROM cycle_summaries 
                WHERE game_id = $1 AND cycle = 1""",
             game_id,
         )
 
         if arrival_row and arrival_row["key_events"]:
-            day = arrival_row["day"] or "Lundi"
-            date = arrival_row["date"]
-            if day and date and date.startswith(day):
-                date = date[len(day) :].strip()
-
             events = (
                 json.loads(arrival_row["key_events"])
                 if isinstance(arrival_row["key_events"], str)
@@ -418,7 +403,6 @@ class GameService:
 
             return {
                 "cycle": 1,
-                "day": arrival_row["day"] or "Lundi",
                 "date": arrival_row["date"],
                 "time": events.get("hour", "08h00"),
                 "location": events.get("arrival_location"),
@@ -429,9 +413,8 @@ class GameService:
 
         # Fallback total (monde pas encore créé)
         return {
-            "cycle": 0,
-            "day": "Lundi",
-            "date": None,
+            "cycle": 1,
+            "date": "Lundi 1er janvier 2475",
             "time": "08h00",
             "location": None,
             "npcs_present": [],
@@ -534,32 +517,29 @@ class GameService:
             # Récupérer le jour/date actuels
             current = await conn.fetchrow(
                 """
-                SELECT day, date FROM cycle_summaries
+                SELECT date FROM cycle_summaries
                 WHERE game_id = $1 ORDER BY cycle DESC LIMIT 1
             """,
                 game_id,
             )
 
-            current_day = current["day"] if current else "Lundi"
             current_date = current["date"] if current else None
 
             # Gérer le changement de jour si présent
-            new_day, new_date = current_day, current_date
+            new_date = current_date
             if narration.day_transition:
                 dt = narration.day_transition
-                new_day = getattr(dt, "new_day", None)  # "Mardi" par exemple
-                new_date = getattr(dt, "new_date", None)  # "15 Mars 2847"
+                new_date = getattr(dt, "new_date", None)  # "Mardi 15 Mars 2847"
 
             # Mettre à jour cycle_summaries
             await conn.execute(
                 """
-                INSERT INTO cycle_summaries (game_id, cycle, day, date)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (game_id, cycle) DO UPDATE SET day = $3, date = $4
+                INSERT INTO cycle_summaries (game_id, cycle, date)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (game_id, cycle) DO UPDATE SET date = $3
             """,
                 game_id,
                 new_cycle,
-                new_day,
                 new_date,
             )
 
@@ -580,7 +560,6 @@ class GameService:
             "time": new_time,
             "location": location,
             "npcs_present": npcs,
-            "day": new_day,
             "date": new_date,
             "state_snapshot": state_snapshot,
         }
@@ -595,7 +574,6 @@ class GameService:
         user_message: str,
         assistant_message: str,
         cycle: int,
-        day: str | None = None,
         date: str | None = None,
         time: str | None = None,
         location_ref: str | None = None,
@@ -635,12 +613,11 @@ class GameService:
 
             assistant_id = await conn.fetchval(
                 """INSERT INTO chat_messages 
-                   (game_id, role, content, cycle, day, date, time, location_id, npcs_present, summary)
-                   VALUES ($1, 'assistant', $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id""",
+                   (game_id, role, content, cycle, date, time, location_id, npcs_present, summary)
+                   VALUES ($1, 'assistant', $2, $3, $4, $5, $6, $7, $8) RETURNING id""",
                 game_id,
                 assistant_message,
                 cycle,
-                day,
                 date,
                 time,
                 location_id,

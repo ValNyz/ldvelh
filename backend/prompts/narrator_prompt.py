@@ -205,7 +205,6 @@ Description de l'environnement avec **emphase** sur les détails.
   "time": {{"new_time": "23h45", "ellipse": false, "ellipse_summary": null}},
   "day_transition": {{
     "new_cycle": 5,
-    "new_day": 5,
     "new_date": "Samedi 18 Mars 2847",
     "night_summary": "Nuit agitée, rêves confus."
   }},
@@ -239,7 +238,7 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
 
     # Temps
     lines.append("### TEMPS")
-    lines.append(f"- Cycle: {context.current_cycle} | Jour: {context.current_day}")
+    lines.append(f"- Cycle: {context.current_cycle}")
     lines.append(f"- Date: {context.current_date}")
     lines.append(f"- Heure: {context.current_time}")
     lines.append("")

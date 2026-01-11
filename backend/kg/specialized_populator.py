@@ -99,8 +99,43 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     )
 
                 # 10. Create all explicit relations
+                protagonist_name = world_gen.protagonist.name
+                protagonist_lives_at = None
+                protagonist_employed_by = None
+
                 for rel in world_gen.initial_relations:
-                    await self.create_relation(conn, rel)
+                    result = await self.create_relation(conn, rel)
+
+                    # Tracker les relations critiques du protagoniste
+                    if result and rel.source_ref.lower() == protagonist_name.lower():
+                        if rel.relation_type == RelationType.LIVES_AT:
+                            protagonist_lives_at = rel.target_ref
+                        elif rel.relation_type == RelationType.EMPLOYED_BY:
+                            protagonist_employed_by = rel.target_ref
+
+                    # Log les échecs
+                    if result is None:
+                        logger.warning(
+                            f"[POPULATE] Failed to create relation: "
+                            f"{rel.source_ref} --{rel.relation_type.value}--> {rel.target_ref}"
+                        )
+
+                # 10b. Vérification des relations critiques du protagoniste (sans fallback)
+                if protagonist_lives_at:
+                    logger.info(
+                        f"[POPULATE] ✓ Protagonist lives_at: {protagonist_lives_at}"
+                    )
+                else:
+                    logger.info("[POPULATE] ✗ Protagonist has NO lives_at relation! ")
+
+                if protagonist_employed_by:
+                    logger.info(
+                        f"[POPULATE] ✓ Protagonist employed_by: {protagonist_employed_by}"
+                    )
+                else:
+                    logger.info(
+                        "[POPULATE] ✗ Protagonist has NO employed_by relation! "
+                    )
 
                 # 11. Create narrative arcs as commitments
                 for arc in world_gen.narrative_arcs:
@@ -230,11 +265,10 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
         await conn.execute(
             """INSERT INTO cycle_summaries 
-               (game_id, cycle, day, date, summary, key_events)
-               VALUES ($1, $2, $3, $4, $5, $6)""",
+               (game_id, cycle, date, summary, key_events)
+               VALUES ($1, $2, $3, $4, $5)""",
             self.game_id,
             1,
-            arrival.arrival_date.split()[0],
             arrival.arrival_date,
             f"Jour 1: Arrivée. Humeur: {arrival.initial_mood}",
             json.dumps(
@@ -453,7 +487,8 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 creation.name,
                 creation.aliases,
                 cycle,
-                creation.confirmed,
+                creation.known_by_protagonist,
+                creation.unknown_name,
             )
 
     async def _process_object_creation(

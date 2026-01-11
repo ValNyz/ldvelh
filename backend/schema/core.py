@@ -12,7 +12,6 @@ from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
 
 from .synonyms import (
     ARC_DOMAIN_SYNONYMS,
-    CERTAINTY_SYNONYMS,
     COMMITMENT_TYPE_SYNONYMS,
     DEPARTURE_REASON_SYNONYMS,
     ENTITY_TYPE_SYNONYMS,
@@ -164,13 +163,6 @@ _RELATION_CATEGORY_MAP: dict[RelationType, RelationCategory] = {
 }
 
 
-class CertaintyLevel(str, Enum):
-    CERTAIN = "certain"
-    PROBABLE = "probable"
-    RUMOR = "rumor"
-    UNCERTAIN = "uncertain"
-
-
 class FactType(str, Enum):
     ACTION = "action"
     NPC_ACTION = "npc_action"
@@ -314,11 +306,6 @@ def normalize_relation_type(value: Any) -> str:
     return _normalize_enum_value(
         value, RELATION_TYPE_SYNONYMS, RelationType, "relation_type"
     )
-
-
-def normalize_certainty(value: Any) -> str:
-    """Normalise CertaintyLevel"""
-    return _normalize_enum_value(value, CERTAINTY_SYNONYMS, CertaintyLevel, "certainty")
 
 
 def normalize_fact_type(value: Any) -> str:
