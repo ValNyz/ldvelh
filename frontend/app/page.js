@@ -1,24 +1,26 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 // Hooks
 import { useGameState, useParties } from '../hooks/useGameState';
 import { useStreaming } from '../hooks/useStreaming';
 import { useGamePreferences } from '../hooks/useLocalStorage';
 import { useTooltips } from '../hooks/useTooltips';
+import { useWorldData } from '../hooks/useWorldData';
 
 // API
-import { chatApi, gamesApi } from '../lib/api';
+import { stateApi } from '../lib/api';
 
 // Components
 import PartiesList from '../components/game/PartiesList';
 import GameHeader from '../components/game/GameHeader';
+import StatsBar from '../components/game/StatsBar';
 import MessageList from '../components/game/MessageList';
 import InputArea from '../components/game/InputArea';
 import SettingsPanel, { DebugStatePanel } from '../components/game/SettingsPanel';
 import WorldGenerationScreen from '../components/game/WorldGenerationScreen';
-import Modal from '../components/ui/Modal';
+import { InventorySidebar, WorldSidebar } from '../components/game/Sidebars';
 
 // ============================================================================
 // PHASES DU JEU
@@ -69,10 +71,20 @@ export default function Home() {
 	// État d'extraction (narratif affiché, KG en cours de mise à jour)
 	const [isExtracting, setIsExtracting] = useState(false);
 
+	// Sidebars
+	const [activeSidebar, setActiveSidebar] = useState(null); // null | 'inventory' | 'world'
+
+	// Hook pour les données du monde (PNJs, lieux, quêtes)
+	const isPlaying = gamePhase === GAME_PHASE.PLAYING;
+	const {
+		worldData: sidebarWorldData,
+		loading: worldLoading,
+		refresh: refreshWorld
+	} = useWorldData(partieId, isPlaying);
+
 	// Streaming avec callbacks
-	const { startStream, cancel, isStreaming, rawJson } = useStreaming({
+	const { startStream, cancel, isStreaming } = useStreaming({
 		onChunk: (content) => {
-			// Mode LIGHT : afficher le narratif en streaming
 			setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.role === 'assistant' && last.streaming) {
@@ -82,15 +94,10 @@ export default function Home() {
 			});
 		},
 		onProgress: (rawJson) => {
-			// Mode INIT : mettre à jour la progression
 			setWorldGenProgress(rawJson);
 		},
 		onExtracting: (displayText) => {
-			// Narratif terminé, extraction en cours
-			// Le joueur peut commencer à préparer sa réponse
 			setIsExtracting(true);
-
-			// Finaliser l'affichage du message
 			setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.role === 'assistant') {
@@ -160,6 +167,7 @@ export default function Home() {
 		onSaved: () => {
 			setSaving(false);
 			refreshTooltips();
+			refreshWorld(); // Rafraîchir les données du monde après extraction
 		},
 		onError: (err, details) => {
 			setError({ message: err, details, recoverable: true });
@@ -176,6 +184,14 @@ export default function Home() {
 	useEffect(() => {
 		loadParties();
 	}, [loadParties]);
+
+	// =========================================================================
+	// SIDEBAR HANDLER
+	// =========================================================================
+
+	const toggleSidebar = useCallback((sidebar) => {
+		setActiveSidebar(prev => prev === sidebar ? null : sidebar);
+	}, []);
 
 	// =========================================================================
 	// GÉNÉRATION DU MONDE
@@ -221,6 +237,7 @@ export default function Home() {
 			replaceGameState(null);
 			setWorldGenProgress('');
 			setWorldData(null);
+			setActiveSidebar(null);
 			await loadParties();
 
 			setGamePhase(GAME_PHASE.GENERATING_WORLD);
@@ -235,6 +252,7 @@ export default function Home() {
 	const handleLoadGame = useCallback(async (id) => {
 		setLoading(true);
 		setError(null);
+		setActiveSidebar(null);
 		try {
 			const data = await loadPartie(id);
 			setPartieId(id);
@@ -248,15 +266,11 @@ export default function Home() {
 			setMessages(loadedMessages);
 
 			if (loadedMessages.length > 0) {
-				// Partie en cours
 				setGamePhase(GAME_PHASE.PLAYING);
 			} else if (data.state?.monde_cree) {
-				// Monde créé mais aventure pas commencée
-				// Utiliser world_info du backend si disponible
 				if (data.world_info) {
 					setWorldData(data.world_info);
 				} else {
-					// Fallback minimal (ancien comportement)
 					setWorldData({
 						monde_cree: true,
 						lieu_depart: data.state.partie?.lieu_actuel,
@@ -265,7 +279,6 @@ export default function Home() {
 				}
 				setGamePhase(GAME_PHASE.WORLD_READY);
 			} else {
-				// Monde pas encore créé, lancer la génération
 				setGamePhase(GAME_PHASE.GENERATING_WORLD);
 				setLoading(false);
 				generateWorld(id);
@@ -285,6 +298,7 @@ export default function Home() {
 				resetGame();
 				setGamePhase(GAME_PHASE.LIST);
 				setWorldData(null);
+				setActiveSidebar(null);
 			}
 			await loadParties();
 		} catch (e) {
@@ -304,6 +318,7 @@ export default function Home() {
 		setGamePhase(GAME_PHASE.LIST);
 		setWorldData(null);
 		setWorldGenProgress('');
+		setActiveSidebar(null);
 		loadParties();
 	}, [resetGame, loadParties]);
 
@@ -358,19 +373,16 @@ export default function Home() {
 		if (editingIndex === null) return;
 
 		try {
-			// 1. Rollback backend AVANT d'envoyer
-			await gamesApi.rollback(partieId, editingIndex);
+			await stateApi.rollback(partieId, editingIndex);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			setError({ message: 'Échec du rollback: ' + e.message });
 			return;
 		}
 
-		// 2. Tronquer localement
 		setMessages(prev => prev.slice(0, editingIndex));
 		setEditingIndex(null);
 
-		// 3. Envoyer le nouveau message
 		await handleSendMessage(content);
 	}, [editingIndex, partieId, setMessages, handleSendMessage, setError]);
 
@@ -381,19 +393,15 @@ export default function Home() {
 		if (messages[lastAssistantIndex]?.role !== 'assistant') return;
 
 		try {
-			// 1. Rollback: supprimer le dernier échange (user + assistant)
-			// On veut garder jusqu'à l'index du message USER qu'on va re-soumettre
-			await gamesApi.rollback(partieId, messages.length - 2);
+			await stateApi.rollback(partieId, messages.length - 2);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			setError({ message: 'Échec du rollback: ' + e.message });
 			return;
 		}
 
-		// 2. Supprimer les 2 derniers messages localement (user + assistant)
 		setMessages(prev => prev.slice(0, -2));
 
-		// 3. Renvoyer le message user
 		await handleSendMessage(lastUserMessage);
 	}, [lastUserMessage, messages, partieId, setMessages, handleSendMessage, setError]);
 
@@ -435,7 +443,7 @@ export default function Home() {
 	// Écran de démarrage de l'aventure
 	if (gamePhase === GAME_PHASE.STARTING_ADVENTURE && messages.length === 0) {
 		return (
-			<div className="min-h-screen bg-gray-900 flex items-center justify-center">
+			<div className="min-h-screen bg-gray-950 flex items-center justify-center">
 				<div className="text-center space-y-4">
 					<div className="relative">
 						<div className="w-16 h-16 border-4 border-gray-700 rounded-full mx-auto" />
@@ -447,51 +455,79 @@ export default function Home() {
 		);
 	}
 
-	// Écran de jeu normal
+	// =========================================================================
+	// ÉCRAN DE JEU PRINCIPAL
+	// =========================================================================
 	return (
-		<div className="h-screen flex flex-col bg-gray-900 text-white">
-			<GameHeader
-				partieName={partieName}
-				gameState={gameState}
-				onRename={handleRenameGame}
-				onShowSettings={() => setShowSettings(!showSettings)}
-				onShowState={() => setShowState(!showState)}
-				onQuit={handleQuit}
-			/>
+		<div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
+			<div className="flex-1 flex overflow-hidden">
 
-			<SettingsPanel
-				isOpen={showSettings}
-				fontSize={fontSize}
-				onFontSizeChange={(delta) => setFontSize(prev => Math.min(24, Math.max(10, prev + delta)))}
-				onDelete={() => handleDeleteGame(partieId)}
-				onClose={() => setShowSettings(false)}
-			/>
+				{/* Sidebar Inventaire (gauche) */}
+				<InventorySidebar
+					isOpen={activeSidebar === 'inventory'}
+					onClose={() => setActiveSidebar(null)}
+					inventaire={gameState?.valentin?.inventaire}
+				/>
 
-			<DebugStatePanel isOpen={showState} gameState={gameState} />
+				{/* Zone principale */}
+				<div className="flex-1 flex flex-col min-w-0">
+					<GameHeader
+						partieName={partieName}
+						gameState={gameState}
+						onRename={handleRenameGame}
+						onToggleInventory={() => toggleSidebar('inventory')}
+						onToggleWorld={() => toggleSidebar('world')}
+						onShowSettings={() => setShowSettings(!showSettings)}
+						onQuit={handleQuit}
+						activeSidebar={activeSidebar}
+						showSettings={showSettings}
+					/>
 
-			<MessageList
-				messages={messages}
-				loading={loading}
-				saving={saving}
-				error={error}
-				fontSize={fontSize}
-				editingIndex={editingIndex}
-				onEdit={handleEdit}
-				onCancelEdit={handleCancelEdit}
-				onSubmitEdit={handleSubmitEdit}
-				onRegenerate={handleRegenerate}
-				onCancel={handleCancel}
-				onClearError={clearError}
-				onRetry={handleRetry}
-				tooltipMap={tooltipMap}
-			/>
+					<SettingsPanel
+						isOpen={showSettings}
+						fontSize={fontSize}
+						onFontSizeChange={(delta) => setFontSize(prev => Math.min(24, Math.max(10, prev + delta)))}
+						onDelete={() => handleDeleteGame(partieId)}
+						onClose={() => setShowSettings(false)}
+					/>
 
-			<InputArea
-				onSend={handleSendMessage}
-				disableInput={loading && !isExtracting}
-				disableSend={loading || isExtracting}
-				fontSize={fontSize}
-			/>
+					<DebugStatePanel isOpen={showState} gameState={gameState} />
+
+					<StatsBar gameState={gameState} />
+
+					<MessageList
+						messages={messages}
+						loading={loading}
+						saving={saving}
+						error={error}
+						fontSize={fontSize}
+						editingIndex={editingIndex}
+						onEdit={handleEdit}
+						onCancelEdit={handleCancelEdit}
+						onSubmitEdit={handleSubmitEdit}
+						onRegenerate={handleRegenerate}
+						onCancel={handleCancel}
+						onClearError={clearError}
+						onRetry={handleRetry}
+						tooltipMap={tooltipMap}
+					/>
+
+					<InputArea
+						onSend={handleSendMessage}
+						disableInput={loading && !isExtracting}
+						disableSend={loading || isExtracting}
+						fontSize={fontSize}
+					/>
+				</div>
+
+				{/* Sidebar Monde (droite) */}
+				<WorldSidebar
+					isOpen={activeSidebar === 'world'}
+					onClose={() => setActiveSidebar(null)}
+					worldData={sidebarWorldData}
+					loading={worldLoading}
+				/>
+			</div>
 		</div>
 	);
 }

@@ -11,7 +11,6 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
  * Construit l'URL complète de l'API
  */
 export function apiUrl(path) {
-	// Si le path commence déjà par /api, ne pas le doubler
 	const cleanPath = path.startsWith('/api') ? path : `/api${path}`;
 	return `${API_BASE_URL}${cleanPath}`;
 }
@@ -89,7 +88,7 @@ export const api = {
 	 * POST avec streaming SSE
 	 */
 	async stream(path, body = {}, handlers = {}) {
-		const { onChunk, onProgress, onDone, onSaved, onError } = handlers;
+		const { onChunk, onProgress, onExtracting, onDone, onSaved, onError } = handlers;
 
 		const res = await fetch(apiUrl(path), {
 			method: 'POST',
@@ -97,7 +96,6 @@ export const api = {
 			body: JSON.stringify(body)
 		});
 
-		// Si pas de streaming, traiter comme JSON normal
 		if (!res.headers.get('content-type')?.includes('text/event-stream')) {
 			const data = await res.json();
 			if (data.error) {
@@ -108,7 +106,6 @@ export const api = {
 			return { success: true, data };
 		}
 
-		// Traiter le stream SSE
 		const reader = res.body.getReader();
 		const decoder = new TextDecoder();
 		let fullJson = '';
@@ -133,6 +130,9 @@ export const api = {
 							case 'progress':
 								fullJson = data.rawJson || fullJson;
 								onProgress?.(fullJson);
+								break;
+							case 'extracting':
+								onExtracting?.(data.displayText);
 								break;
 							case 'done':
 								onDone?.(data.displayText, data.state);
@@ -165,51 +165,53 @@ export const api = {
 };
 
 // ============================================================================
-// API ENDPOINTS
+// GAMES API - CRUD des parties (métadonnées)
 // ============================================================================
 
 export const gamesApi = {
-	/**
-	 * Liste toutes les parties
-	 */
+	/** Liste toutes les parties */
 	list: () => api.get('/games'),
 
-	/**
-	 * Crée une nouvelle partie
-	 */
+	/** Crée une nouvelle partie */
 	create: () => api.post('/games'),
 
-	/**
-	 * Charge une partie
-	 */
-	load: (gameId) => api.get(`/games/${gameId}`),
-
-	/**
-	 * Supprime une partie
-	 */
+	/** Supprime une partie */
 	delete: (gameId) => api.delete(`/games/${gameId}`),
 
-	/**
-	 * Renomme une partie
-	 */
-	rename: (gameId, name) => api.patch(`/games/${gameId}`, { name }),
+	/** Renomme une partie */
+	rename: (gameId, name) => api.patch(`/games/${gameId}`, { gameId, name })
+};
 
-	/**
-	 * Rollback à un message
-	 */
+// ============================================================================
+// STATE API - Données de jeu (state, monde, rollback)
+// ============================================================================
+
+export const stateApi = {
+	/** Charge l'état complet d'une partie (state + messages + world_info) */
+	load: (gameId) => api.get(`/games/${gameId}`),
+
+	/** Récupère les données du monde pour les sidebars (PNJs, lieux, quêtes, organisations) */
+	getWorld: (gameId) => api.get(`/games/${gameId}/world`),
+
+	/** Rollback à un message spécifique */
 	rollback: (gameId, fromIndex) => api.post(`/games/${gameId}/rollback`, { fromIndex })
 };
 
+// ============================================================================
+// CHAT API - Messages
+// ============================================================================
+
 export const chatApi = {
-	/**
-	 * Envoie un message avec streaming
-	 */
-	send: (gameId, message, handlers) => api.stream('/chat', { gameId, message }, handlers)
+	/** Envoie un message avec streaming SSE */
+	send: (gameId, message, gameState, handlers) =>
+		api.stream('/chat', { gameId, message, gameState }, handlers)
 };
 
+// ============================================================================
+// TOOLTIPS API - Enrichissement UI
+// ============================================================================
+
 export const tooltipsApi = {
-	/**
-	 * Récupère les tooltips pour une partie
-	 */
+	/** Récupère les tooltips pour une partie */
 	get: (partieId) => api.get('/tooltips', { partieId })
 };
