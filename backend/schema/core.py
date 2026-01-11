@@ -13,6 +13,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from .synonyms import (
@@ -870,15 +871,31 @@ TYPED_ATTRIBUTE_CLASSES: dict[EntityType, type[BaseModel]] = {
 class TemporalValidationMixin:
     """Mixin for models needing temporal coherence validation"""
 
-    @staticmethod
-    def is_temporally_valid(
-        arrival_cycle: int | None, founding_cycle: int | None, context: str = ""
-    ) -> bool:
-        if arrival_cycle is not None and founding_cycle is not None:
-            if arrival_cycle < founding_cycle:
+    @model_validator(mode="after")
+    def enforce_temporal_coherence(self):
+        arrival = getattr(self, "arrival_cycle", None)
+        founding = getattr(self, "founding_cycle", None)
+
+        if arrival is not None and founding is not None:
+            if arrival < founding:
                 logger.warning(
-                    f"[Temporal] {context}: arrival_cycle ({arrival_cycle}) "
-                    f"before founding_cycle ({founding_cycle}) - filtering"
+                    f"[Temporal] {self.__class__.__name__}: arrival_cycle ({arrival}) "
+                    f"before founding_cycle ({founding}) - correcting to founding_cycle"
                 )
-                return False
-        return True
+                self.arrival_cycle = founding
+
+        return self
+
+    #
+    # @staticmethod
+    # def is_temporally_valid(
+    #     arrival_cycle: int | None, founding_cycle: int | None, context: str = ""
+    # ) -> bool:
+    #     if arrival_cycle is not None and founding_cycle is not None:
+    #         if arrival_cycle < founding_cycle:
+    #             logger.warning(
+    #                 f"[Temporal] {context}: arrival_cycle ({arrival_cycle}) "
+    #                 f"before founding_cycle ({founding_cycle}) - filtering"
+    #             )
+    #             return False
+    #     return True
