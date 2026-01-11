@@ -8,7 +8,13 @@ import logging
 from enum import Enum
 from typing import Annotated, Any
 
-from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from .synonyms import (
     ARC_DOMAIN_SYNONYMS,
@@ -20,6 +26,7 @@ from .synonyms import (
     ORG_SIZE_SYNONYMS,
     PARTICIPANT_ROLE_SYNONYMS,
     RELATION_TYPE_SYNONYMS,
+    normalize_key,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,6 +244,191 @@ class OrgSize(str, Enum):
     STATION_WIDE = "station-wide"
 
 
+class AttributeKey(str, Enum):
+    """
+    Clés d'attributs autorisées.
+    Validation stricte par type d'entité via VALID_KEYS_BY_ENTITY.
+    """
+
+    # === SHARED (multi-types) ===
+    DESCRIPTION = "description"
+    HISTORY = "history"
+    SECRET = "secret"
+    REPUTATION = "reputation"
+
+    # === CHARACTER ===
+    MOOD = "mood"
+    AGE = "age"
+    VOICE = "voice"
+    QUIRK = "quirk"
+    ORIGIN = "origin"
+    MOTIVATION = "motivation"
+    FINANCIAL_STATUS = "financial_status"
+    HEALTH_STATUS = "health_status"
+    RELATIONSHIP_STATUS = "relationship_status"
+    ARCS = "arcs"
+
+    # === LOCATION ===
+    ATMOSPHERE = "atmosphere"
+    CROWD_LEVEL = "crowd_level"
+    NOISE_LEVEL = "noise_level"
+    CLEANLINESS = "cleanliness"
+    PRICE_RANGE = "price_range"
+    OPERATING_HOURS = "operating_hours"
+    NOTABLE_FEATURES = "notable_features"
+    TYPICAL_CROWD = "typical_crowd"
+
+    # === OBJECT ===
+    CONDITION = "condition"
+    HIDDEN_FUNCTION = "hidden_function"
+    EMOTIONAL_SIGNIFICANCE = "emotional_significance"
+    ACTUAL_VALUE = "actual_value"
+
+    # === ORGANIZATION ===
+    PUBLIC_FACADE = "public_facade"
+    TRUE_PURPOSE = "true_purpose"
+    INFLUENCE_LEVEL = "influence_level"
+
+    # === PROTAGONIST ===
+    CREDITS = "credits"
+    ENERGY = "energy"
+    MORALE = "morale"
+    HEALTH = "health"
+    HOBBIES = "hobbies"
+    DEPARTURE_REASON = "departure_reason"
+
+
+class AttributeVisibility(str, Enum):
+    """Visibilité par défaut d'un attribut pour le protagoniste"""
+
+    ALWAYS = "always"  # Observable directement → known=true
+    NEVER = "never"  # Caché par défaut → known=false
+    CONDITIONAL = "conditional"  # Dépend du contexte narratif → analyse requise
+
+
+# =============================================================================
+# ATTRIBUTE VISIBILITY MAPPING
+# =============================================================================
+
+ATTRIBUTE_DEFAULT_VISIBILITY: dict[AttributeKey, AttributeVisibility] = {
+    # === ALWAYS (Valentin observe/perçoit directement) ===
+    AttributeKey.DESCRIPTION: AttributeVisibility.ALWAYS,
+    AttributeKey.MOOD: AttributeVisibility.ALWAYS,
+    AttributeKey.VOICE: AttributeVisibility.ALWAYS,
+    AttributeKey.QUIRK: AttributeVisibility.ALWAYS,
+    AttributeKey.ATMOSPHERE: AttributeVisibility.ALWAYS,
+    AttributeKey.CROWD_LEVEL: AttributeVisibility.ALWAYS,
+    AttributeKey.NOISE_LEVEL: AttributeVisibility.ALWAYS,
+    AttributeKey.CLEANLINESS: AttributeVisibility.ALWAYS,
+    AttributeKey.NOTABLE_FEATURES: AttributeVisibility.ALWAYS,
+    AttributeKey.TYPICAL_CROWD: AttributeVisibility.ALWAYS,
+    AttributeKey.CONDITION: AttributeVisibility.ALWAYS,
+    AttributeKey.PUBLIC_FACADE: AttributeVisibility.ALWAYS,
+    # Protagonist (toujours connu de lui-même)
+    AttributeKey.CREDITS: AttributeVisibility.ALWAYS,
+    AttributeKey.ENERGY: AttributeVisibility.ALWAYS,
+    AttributeKey.MORALE: AttributeVisibility.ALWAYS,
+    AttributeKey.HEALTH: AttributeVisibility.ALWAYS,
+    AttributeKey.HOBBIES: AttributeVisibility.ALWAYS,
+    AttributeKey.DEPARTURE_REASON: AttributeVisibility.ALWAYS,
+    # === NEVER (secrets, doit être révélé explicitement) ===
+    AttributeKey.HISTORY: AttributeVisibility.NEVER,
+    AttributeKey.SECRET: AttributeVisibility.NEVER,
+    AttributeKey.MOTIVATION: AttributeVisibility.NEVER,
+    AttributeKey.ARCS: AttributeVisibility.NEVER,
+    AttributeKey.HIDDEN_FUNCTION: AttributeVisibility.NEVER,
+    AttributeKey.ACTUAL_VALUE: AttributeVisibility.NEVER,
+    AttributeKey.TRUE_PURPOSE: AttributeVisibility.NEVER,
+    # === CONDITIONAL (peut être déduit, mentionné, ou affiché) ===
+    AttributeKey.REPUTATION: AttributeVisibility.CONDITIONAL,
+    AttributeKey.AGE: AttributeVisibility.CONDITIONAL,
+    AttributeKey.ORIGIN: AttributeVisibility.CONDITIONAL,
+    AttributeKey.FINANCIAL_STATUS: AttributeVisibility.CONDITIONAL,
+    AttributeKey.HEALTH_STATUS: AttributeVisibility.CONDITIONAL,
+    AttributeKey.RELATIONSHIP_STATUS: AttributeVisibility.CONDITIONAL,
+    AttributeKey.PRICE_RANGE: AttributeVisibility.CONDITIONAL,
+    AttributeKey.OPERATING_HOURS: AttributeVisibility.CONDITIONAL,
+    AttributeKey.EMOTIONAL_SIGNIFICANCE: AttributeVisibility.CONDITIONAL,
+    AttributeKey.INFLUENCE_LEVEL: AttributeVisibility.CONDITIONAL,
+}
+
+
+# =============================================================================
+# VALID KEYS BY ENTITY TYPE (validation stricte)
+# =============================================================================
+
+VALID_ATTRIBUTE_KEYS_BY_ENTITY: dict[EntityType, set[AttributeKey]] = {
+    EntityType.CHARACTER: {
+        # Shared
+        AttributeKey.DESCRIPTION,
+        AttributeKey.HISTORY,
+        AttributeKey.SECRET,
+        AttributeKey.REPUTATION,
+        # Character-specific
+        AttributeKey.MOOD,
+        AttributeKey.AGE,
+        AttributeKey.VOICE,
+        AttributeKey.QUIRK,
+        AttributeKey.ORIGIN,
+        AttributeKey.MOTIVATION,
+        AttributeKey.FINANCIAL_STATUS,
+        AttributeKey.HEALTH_STATUS,
+        AttributeKey.RELATIONSHIP_STATUS,
+        AttributeKey.ARCS,
+    },
+    EntityType.LOCATION: {
+        # Shared
+        AttributeKey.DESCRIPTION,
+        AttributeKey.HISTORY,
+        AttributeKey.SECRET,
+        # Location-specific
+        AttributeKey.ATMOSPHERE,
+        AttributeKey.CROWD_LEVEL,
+        AttributeKey.NOISE_LEVEL,
+        AttributeKey.CLEANLINESS,
+        AttributeKey.PRICE_RANGE,
+        AttributeKey.OPERATING_HOURS,
+        AttributeKey.NOTABLE_FEATURES,
+        AttributeKey.TYPICAL_CROWD,
+    },
+    EntityType.OBJECT: {
+        # Shared
+        AttributeKey.DESCRIPTION,
+        AttributeKey.HISTORY,
+        # Object-specific
+        AttributeKey.CONDITION,
+        AttributeKey.HIDDEN_FUNCTION,
+        AttributeKey.EMOTIONAL_SIGNIFICANCE,
+        AttributeKey.ACTUAL_VALUE,
+    },
+    EntityType.ORGANIZATION: {
+        # Shared
+        AttributeKey.DESCRIPTION,
+        AttributeKey.HISTORY,
+        AttributeKey.SECRET,
+        AttributeKey.REPUTATION,
+        # Organization-specific
+        AttributeKey.PUBLIC_FACADE,
+        AttributeKey.TRUE_PURPOSE,
+        AttributeKey.INFLUENCE_LEVEL,
+    },
+    EntityType.PROTAGONIST: {
+        AttributeKey.DESCRIPTION,
+        AttributeKey.CREDITS,
+        AttributeKey.ENERGY,
+        AttributeKey.MORALE,
+        AttributeKey.HEALTH,
+        AttributeKey.HOBBIES,
+        AttributeKey.DEPARTURE_REASON,
+    },
+    EntityType.AI: {
+        AttributeKey.DESCRIPTION,
+        AttributeKey.QUIRK,
+        AttributeKey.VOICE,
+    },
+}
+
+
 # =============================================================================
 # TYPE ALIASES
 # =============================================================================
@@ -349,6 +541,27 @@ def normalize_org_size(value: Any) -> str:
     return _normalize_enum_value(value, ORG_SIZE_SYNONYMS, OrgSize, "org_size")
 
 
+def get_attribute_visibility(key: AttributeKey) -> AttributeVisibility:
+    """Retourne la visibilité par défaut d'un attribut."""
+    return ATTRIBUTE_DEFAULT_VISIBILITY.get(key, AttributeVisibility.CONDITIONAL)
+
+
+def validate_attribute_for_entity(key: AttributeKey, entity_type: EntityType) -> bool:
+    """
+    Valide qu'une clé est autorisée pour un type d'entité.
+    Raises ValueError si invalide.
+    """
+    valid_keys = VALID_ATTRIBUTE_KEYS_BY_ENTITY.get(entity_type, set())
+
+    if key not in valid_keys:
+        raise ValueError(
+            f"Attribute '{key.value}' is not valid for entity type '{entity_type.value}'. "
+            f"Valid keys: {sorted(k.value for k in valid_keys)}"
+        )
+
+    return True
+
+
 # =============================================================================
 # TEMPORAL VALIDATION
 # =============================================================================
@@ -389,8 +602,34 @@ class Skill(BaseModel):
 
 
 class Attribute(BaseModel):
-    """A key-value attribute for any entity"""
+    """
+    A key-value attribute for any entity.
+    Key is normalized and validated against AttributeKey enum.
+    """
 
-    key: Name  # 100 chars
+    key: AttributeKey
     value: str
     details: dict | None = None
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        """Normalise la clé vers AttributeKey."""
+        return normalize_key(v)
+
+
+class AttributeWithVisibility(BaseModel):
+    """
+    Attribute avec flag de visibilité explicite.
+    Utilisé après l'analyse de visibilité.
+    """
+
+    key: AttributeKey
+    value: str
+    details: dict | None = None
+    known_by_protagonist: bool = True
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        return normalize_key(v)

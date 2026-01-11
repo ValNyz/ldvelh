@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from schema import (
@@ -16,6 +16,9 @@ from schema import (
     CharacterData,
     # Core
     EntityType,
+    Attribute,
+    AttributeVisibility,
+    get_attribute_visibility,
     # Narrative
     FactData,
     LocationData,
@@ -28,6 +31,7 @@ from schema import (
     RelationData,
     RelationType,
     Skill,
+    VALID_ATTRIBUTE_KEYS_BY_ENTITY,
 )
 
 if TYPE_CHECKING:
@@ -153,28 +157,92 @@ class KnowledgeGraphPopulator:
         self,
         conn: Connection,
         entity_id: UUID,
-        attrs: dict[str, str | int | float | list | dict],
+        attrs: dict[str, Any] | list[Attribute],
         cycle: int = 1,
-        known_by_protagonist: bool = True,
+        known_by_protagonist: bool | None = None,
+        entity_type: EntityType | None = None,
     ) -> None:
-        """Set multiple attributes on an entity"""
-        for key, value in attrs.items():
-            # Convert complex types to JSON string
-            if isinstance(value, (list, dict)):
-                value = json.dumps(value)
-            elif not isinstance(value, str):
-                value = str(value)
+        """
+        Set multiple attributes on an entity with strict validation.
 
+        Args:
+            conn: Database connection
+            entity_id: Target entity UUID
+            attrs: Dict of key -> value OR list of Attribute (both normalized via Pydantic)
+            cycle: Current cycle
+            known_by_protagonist: Override visibility (None = auto-detect)
+            entity_type: Entity type for validation (fetched if None)
+        """
+        # Convertir dict → list[Attribute] (avec conversion des valeurs)
+        if isinstance(attrs, dict):
+            converted = []
+            for k, v in attrs.items():
+                # Convertir la valeur en string avant de créer l'Attribute
+                if isinstance(v, (list, dict)):
+                    str_value = json.dumps(v)
+                elif not isinstance(v, str):
+                    str_value = str(v)
+                else:
+                    str_value = v
+                converted.append(Attribute(key=k, value=str_value))
+            attrs = converted
+
+        # Récupérer le type d'entité si non fourni
+        if entity_type is None:
+            entity_type = await self._get_entity_type(conn, entity_id)
+
+        valid_keys = VALID_ATTRIBUTE_KEYS_BY_ENTITY.get(entity_type, set())
+
+        for attr in attrs:
+            # attr.key est déjà un AttributeKey validé par Pydantic
+            # attr.value est déjà une string (converti en amont si dict passé)
+
+            # 1. Valider pour ce type d'entité (strict)
+            if attr.key not in valid_keys:
+                raise ValueError(
+                    f"Attribute '{attr.key.value}' is not valid for "
+                    f"entity type '{entity_type.value}'. "
+                    f"Valid keys: {sorted(k.value for k in valid_keys)}"
+                )
+
+            # 2. Déterminer la visibilité
+            if known_by_protagonist is not None:
+                known = known_by_protagonist
+            else:
+                visibility = get_attribute_visibility(attr.key)
+                if visibility == AttributeVisibility.ALWAYS:
+                    known = True
+                elif visibility == AttributeVisibility.NEVER:
+                    known = False
+                else:
+                    # CONDITIONAL: default to True (sera affiné par extracteur visibilité)
+                    known = True
+
+            # 3. Insérer
             await conn.execute(
                 "SELECT set_attribute($1, $2, $3, $4, $5, $6, $7)",
                 self.game_id,
                 entity_id,
-                key,
-                value,
+                attr.key.value,
+                attr.value,
                 cycle,
-                None,
-                known_by_protagonist,
+                json.dumps(attr.details) if attr.details else None,
+                known,
             )
+
+            logger.debug(
+                f"[ATTRIBUTE] {attr.key.value}={attr.value[:50]}... (known={known})"
+            )
+
+    async def _get_entity_type(self, conn: Connection, entity_id: UUID) -> EntityType:
+        """Récupère le type d'une entité depuis la BDD."""
+        row = await conn.fetchrow(
+            "SELECT type FROM entities WHERE id = $1",
+            entity_id,
+        )
+        if not row:
+            raise ValueError(f"Entity not found: {entity_id}")
+        return EntityType(row["type"])
 
     async def set_skill(
         self, conn: Connection, entity_id: UUID, skill: Skill, cycle: int = 1
