@@ -1,38 +1,80 @@
 """
 LDVELH - Entity Schema Models (EAV Architecture)
-Simplified models - all type-specific data goes through attributes
+Uses typed attribute classes for entity-specific normalization
 """
 
+import json
 import logging
+from typing import Any
+
 from pydantic import BaseModel, Field, field_validator
 
 from .core import (
+    ATTRIBUTE_NORMALIZERS,
     AttributeKey,
     AttributeWithVisibility,
     Cycle,
     DepartureReason,
     EntityRef,
+    EntityType,
     Label,
     Name,
     Skill,
     Tag,
+    normalize_attribute_key,
 )
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# BASE ENTITY DATA (all types use this pattern)
+# HELPER: Convert raw dict/list to typed attributes
+# =============================================================================
+
+
+def _parse_attributes(
+    raw_attrs: list[dict] | list[AttributeWithVisibility],
+    entity_type: EntityType,
+) -> list[AttributeWithVisibility]:
+    """
+    Parse raw attribute dicts into AttributeWithVisibility objects
+    with entity-specific key normalization.
+    """
+
+    normalizer = ATTRIBUTE_NORMALIZERS.get(entity_type, normalize_attribute_key)
+    result = []
+
+    for item in raw_attrs:
+        if isinstance(item, AttributeWithVisibility):
+            result.append(item)
+        elif isinstance(item, dict):
+            try:
+                key = normalizer(item.get("key", ""))
+                result.append(
+                    AttributeWithVisibility(
+                        key=key,
+                        value=str(item.get("value", "")),
+                        details=item.get("details"),
+                        known_by_protagonist=item.get(
+                            "known", item.get("known_by_protagonist", False)
+                        ),
+                    )
+                )
+            except ValueError as e:
+                logger.warning(f"[_parse_attributes] Skipping invalid attribute: {e}")
+
+    return result
+
+
+# =============================================================================
+# BASE ENTITY DATA
 # =============================================================================
 
 
 class EntityData(BaseModel):
-    """
-    Base class for entity data.
-    All type-specific information is stored as attributes.
-    """
+    """Base class for entity data with attributes."""
 
-    name: Name  # 100 chars
+    name: Name
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
 
     def get_attribute(self, key: AttributeKey) -> str | None:
@@ -62,38 +104,17 @@ class EntityData(BaseModel):
 class WorldData(BaseModel):
     """The space station/habitat - top-level location"""
 
-    name: Name  # 100 chars
+    name: Name
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
     sectors: list[str] = Field(..., min_length=2, max_length=10)
-    founding_cycle: Cycle = Field(
-        default=-5000,
-        le=-100,
-        description="When station was founded. -5000 = ~13 years ago",
-    )
+    founding_cycle: Cycle = Field(default=-5000, le=-100)
 
-    # Convenience properties
-    @property
-    def station_type(self) -> str | None:
-        return self._get_attr("location_type")
-
-    @property
-    def population(self) -> int | None:
-        val = self._get_attr("population")
-        return int(val) if val else None
-
-    @property
-    def atmosphere(self) -> str | None:
-        return self._get_attr("atmosphere")
-
-    @property
-    def description(self) -> str | None:
-        return self._get_attr("description")
-
-    def _get_attr(self, key: str) -> str | None:
-        for attr in self.attributes:
-            if attr.key.value == key:
-                return attr.value
-        return None
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _parse_attrs(cls, v: Any) -> list[AttributeWithVisibility]:
+        if isinstance(v, list):
+            return _parse_attributes(v, EntityType.LOCATION)
+        return v
 
 
 # =============================================================================
@@ -102,39 +123,25 @@ class WorldData(BaseModel):
 
 
 class ProtagonistData(BaseModel):
-    """The player character - uses attributes for all state"""
+    """The player character"""
 
-    name: Tag = "Valentin"  # 50 chars
+    name: Tag = "Valentin"
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
     skills: list[Skill] = Field(default_factory=list, min_length=2, max_length=6)
 
-    # Required attributes that must be provided
-    @field_validator("attributes")
+    @field_validator("attributes", mode="before")
     @classmethod
-    def validate_required_attrs(cls, v: list) -> list:
-        """Ensure critical attributes are present"""
-        keys = {attr.key for attr in v}
-        required = {
-            AttributeKey.CREDITS,
-            AttributeKey.ENERGY,
-            AttributeKey.MORALE,
-            AttributeKey.HEALTH,
-        }
-        missing = required - keys
-        if missing:
-            logger.warning(
-                f"[Protagonist] Missing required attributes: {[k.value for k in missing]}"
-            )
+    def _parse_attrs(cls, v: Any) -> list[AttributeWithVisibility]:
+        if isinstance(v, list):
+            return _parse_attributes(v, EntityType.PROTAGONIST)
         return v
 
-    # Convenience factory
     @classmethod
     def create(
         cls,
         name: str = "Valentin",
         origin_location: str = "",
         departure_reason: DepartureReason = DepartureReason.FRESH_START,
-        departure_story: str = "",
         backstory: str = "",
         hobbies: list[str] | None = None,
         skills: list[Skill] | None = None,
@@ -145,55 +152,19 @@ class ProtagonistData(BaseModel):
     ) -> "ProtagonistData":
         """Factory with convenient parameter names"""
         attrs = [
-            AttributeWithVisibility(
-                key=AttributeKey.CREDITS,
-                value=str(initial_credits),
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.ENERGY,
-                value=str(initial_energy),
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.MORALE,
-                value=str(initial_morale),
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.HEALTH,
-                value=str(initial_health),
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.ORIGIN,
-                value=origin_location,
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.DEPARTURE_REASON,
-                value=departure_reason.value,
-                known_by_protagonist=True,
-            ),
+            {"key": "credits", "value": str(initial_credits), "known": True},
+            {"key": "energy", "value": str(initial_energy), "known": True},
+            {"key": "morale", "value": str(initial_morale), "known": True},
+            {"key": "health", "value": str(initial_health), "known": True},
+            {"key": "origin", "value": origin_location, "known": True},
+            {"key": "departure_reason", "value": departure_reason.value, "known": True},
         ]
         if hobbies:
-            import json
-
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.HOBBIES,
-                    value=json.dumps(hobbies),
-                    known_by_protagonist=True,
-                )
+                {"key": "hobbies", "value": json.dumps(hobbies), "known": True}
             )
         if backstory:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.DESCRIPTION,
-                    value=backstory,
-                    known_by_protagonist=True,
-                )
-            )
+            attrs.append({"key": "backstory", "value": backstory, "known": True})
 
         return cls(name=name, attributes=attrs, skills=skills or [])
 
@@ -206,9 +177,16 @@ class ProtagonistData(BaseModel):
 class PersonalAIData(BaseModel):
     """The protagonist's AI companion"""
 
-    name: Label  # 30 chars
+    name: Label
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
-    creator_ref: EntityRef | None = None  # FK reference
+    creator_ref: EntityRef | None = None
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _parse_attrs(cls, v: Any) -> list[AttributeWithVisibility]:
+        if isinstance(v, list):
+            return _parse_attributes(v, EntityType.AI)
+        return v
 
     @classmethod
     def create(
@@ -221,31 +199,20 @@ class PersonalAIData(BaseModel):
         creator_ref: str | None = None,
     ) -> "PersonalAIData":
         """Factory with convenient parameter names"""
-        import json
-
         attrs = []
         if voice_description:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.VOICE,
-                    value=voice_description,
-                    known_by_protagonist=True,
-                )
-            )
+            attrs.append({"key": "voice", "value": voice_description, "known": True})
         if quirk:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.QUIRK, value=quirk, known_by_protagonist=True
-                )
-            )
+            attrs.append({"key": "quirk", "value": quirk, "known": True})
         if personality_traits:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.DESCRIPTION,
-                    value=json.dumps(personality_traits),
-                    known_by_protagonist=True,
-                )
+                {
+                    "key": "traits",
+                    "value": json.dumps(personality_traits),
+                    "known": False,
+                }
             )
+        attrs.append({"key": "substrate", "value": substrate, "known": True})
 
         return cls(name=name, attributes=attrs, creator_ref=creator_ref)
 
@@ -256,17 +223,21 @@ class PersonalAIData(BaseModel):
 
 
 class CharacterData(BaseModel):
-    """
-    An NPC in the world.
-    All character-specific data stored as attributes.
-    """
+    """An NPC in the world."""
 
-    name: Name  # 100 chars
+    name: Name
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
-
-    # FK references (resolved by populator)
     workplace_ref: EntityRef | None = None
     residence_ref: EntityRef | None = None
+    known_by_protagonist: bool = True
+    unknown_name: str | None = None
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _parse_attrs(cls, v: Any) -> list[AttributeWithVisibility]:
+        if isinstance(v, list):
+            return _parse_attributes(v, EntityType.CHARACTER)
+        return v
 
     @classmethod
     def create(
@@ -276,123 +247,79 @@ class CharacterData(BaseModel):
         gender: str = "non-spécifié",
         pronouns: str = "iel",
         age: int | None = None,
-        physical_description: str = "",
-        personality_traits: list[str] | None = None,
+        description: str = "",
+        traits: list[str] | None = None,
         occupation: str = "",
-        origin_location: str | None = None,
-        station_arrival_cycle: int = -100,
+        origin: str | None = None,
+        arrival_cycle: int = -100,
         mood: str | None = None,
+        motivation: str | None = None,
         arcs: list[dict] | None = None,
         workplace_ref: str | None = None,
         residence_ref: str | None = None,
-        known_by_protagonist: bool = True,
+        known_by_protagonist: bool = False,
+        romantic_potential: bool = False,
+        is_mandatory: bool = False,
     ) -> "CharacterData":
         """Factory with convenient parameter names"""
-        import json
-        from .core import get_attribute_visibility, AttributeVisibility
-
-        attrs = []
-
-        def add_attr(key: AttributeKey, value: str, force_known: bool | None = None):
-            if force_known is not None:
-                known = force_known
-            else:
-                vis = get_attribute_visibility(key)
-                known = vis == AttributeVisibility.ALWAYS or (
-                    vis == AttributeVisibility.CONDITIONAL and known_by_protagonist
-                )
-            attrs.append(
-                AttributeWithVisibility(
-                    key=key, value=value, known_by_protagonist=known
-                )
-            )
-
-        # Observable attributes (ALWAYS visible)
-        add_attr(AttributeKey.DESCRIPTION, physical_description, True)
-        if mood:
-            add_attr(AttributeKey.MOOD, mood, True)
-
-        # Conditionally visible
-        if species:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.DESCRIPTION,
-                    value=f"species:{species}",
-                    details={"species": species},
-                    known_by_protagonist=known_by_protagonist,
-                )
-            )
-        # Store species/gender/pronouns in details of description or separate
-        # Actually, let's add dedicated handling
-
-        # Build attributes properly
         attrs = [
-            AttributeWithVisibility(
-                key=AttributeKey.DESCRIPTION,
-                value=physical_description,
-                known_by_protagonist=True,
-            ),
+            {"key": "species", "value": species, "known": True},
+            {"key": "gender", "value": gender, "known": True},
+            {"key": "pronouns", "value": pronouns, "known": True},
+            {"key": "description", "value": description, "known": True},
         ]
-
-        if personality_traits:
-            # Traits stored as JSON, visible if meeting the character
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.QUIRK,
-                    value=json.dumps(personality_traits),
-                    known_by_protagonist=known_by_protagonist,
-                )
-            )
-
-        if mood:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.MOOD, value=mood, known_by_protagonist=True
-                )
-            )
 
         if age:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.AGE,
-                    value=str(age),
-                    known_by_protagonist=known_by_protagonist,
-                )
+                {"key": "age", "value": str(age), "known": known_by_protagonist}
             )
-
-        if origin_location:
+        if traits:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.ORIGIN,
-                    value=origin_location,
-                    known_by_protagonist=False,  # Usually not known
-                )
+                {
+                    "key": "traits",
+                    "value": json.dumps(traits),
+                    "known": known_by_protagonist,
+                }
             )
-
+        if occupation:
+            attrs.append(
+                {
+                    "key": "occupation",
+                    "value": occupation,
+                    "known": known_by_protagonist,
+                }
+            )
+        if mood:
+            attrs.append({"key": "mood", "value": mood, "known": True})
+        if origin:
+            attrs.append({"key": "origin", "value": origin, "known": False})
+        if arrival_cycle:
+            attrs.append(
+                {"key": "arrival_cycle", "value": str(arrival_cycle), "known": False}
+            )
+        if motivation:
+            attrs.append({"key": "motivation", "value": motivation, "known": False})
         if arcs:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.ARCS,
-                    value=json.dumps(arcs),
-                    known_by_protagonist=False,  # Meta-narrative
-                )
-            )
+            attrs.append({"key": "arcs", "value": json.dumps(arcs), "known": False})
 
-        # Store structured character data in details
-        base_details = {
-            "species": species,
-            "gender": gender,
-            "pronouns": pronouns,
-            "occupation": occupation,
-            "arrival_cycle": station_arrival_cycle,
-        }
-        attrs[0].details = base_details
+        # Meta attributes (never visible to protagonist)
+        attrs.append(
+            {
+                "key": "romantic_potential",
+                "value": str(romantic_potential).lower(),
+                "known": False,
+            }
+        )
+        attrs.append(
+            {"key": "is_mandatory", "value": str(is_mandatory).lower(), "known": False}
+        )
 
         return cls(
             name=name,
             attributes=attrs,
             workplace_ref=workplace_ref,
             residence_ref=residence_ref,
+            known_by_protagonist=known_by_protagonist,
         )
 
 
@@ -404,11 +331,16 @@ class CharacterData(BaseModel):
 class LocationData(BaseModel):
     """A place in the station"""
 
-    name: Name  # 100 chars
+    name: Name
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
-
-    # FK reference
     parent_location_ref: EntityRef | None = None
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _parse_attrs(cls, v: Any) -> list[AttributeWithVisibility]:
+        if isinstance(v, list):
+            return _parse_attributes(v, EntityType.LOCATION)
+        return v
 
     @classmethod
     def create(
@@ -426,61 +358,33 @@ class LocationData(BaseModel):
         price_range: str | None = None,
     ) -> "LocationData":
         """Factory with convenient parameter names"""
-        import json
-
         attrs = [
-            AttributeWithVisibility(
-                key=AttributeKey.DESCRIPTION,
-                value=description,
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.ATMOSPHERE, value=atmosphere, known_by_protagonist=True
-            ),
+            {"key": "description", "value": description, "known": True},
+            {"key": "atmosphere", "value": atmosphere, "known": True},
+            {"key": "location_type", "value": location_type, "known": True},
+            {"key": "accessible", "value": str(accessible).lower(), "known": True},
         ]
 
-        # Store structured location data in details of first attr
-        attrs[0].details = {
-            "location_type": location_type,
-            "sector": sector,
-            "accessible": accessible,
-        }
-
+        if sector:
+            attrs.append({"key": "sector", "value": sector, "known": True})
         if notable_features:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.NOTABLE_FEATURES,
-                    value=json.dumps(notable_features),
-                    known_by_protagonist=True,
-                )
+                {
+                    "key": "notable_features",
+                    "value": json.dumps(notable_features),
+                    "known": True,
+                }
             )
-
         if typical_crowd:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.TYPICAL_CROWD,
-                    value=typical_crowd,
-                    known_by_protagonist=True,
-                )
+                {"key": "typical_crowd", "value": typical_crowd, "known": True}
             )
-
         if operating_hours:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.OPERATING_HOURS,
-                    value=operating_hours,
-                    known_by_protagonist=True,
-                )
+                {"key": "operating_hours", "value": operating_hours, "known": True}
             )
-
         if price_range:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.PRICE_RANGE,
-                    value=price_range,
-                    known_by_protagonist=True,
-                )
-            )
+            attrs.append({"key": "price_range", "value": price_range, "known": True})
 
         return cls(name=name, attributes=attrs, parent_location_ref=parent_location_ref)
 
@@ -493,9 +397,16 @@ class LocationData(BaseModel):
 class ObjectData(BaseModel):
     """An item that can be owned"""
 
-    name: Name  # 100 chars
+    name: Name
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
     quantity: int = Field(default=1, ge=1)
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _parse_attrs(cls, v: Any) -> list[AttributeWithVisibility]:
+        if isinstance(v, list):
+            return _parse_attributes(v, EntityType.OBJECT)
+        return v
 
     @classmethod
     def create(
@@ -512,37 +423,26 @@ class ObjectData(BaseModel):
     ) -> "ObjectData":
         """Factory with convenient parameter names"""
         attrs = [
-            AttributeWithVisibility(
-                key=AttributeKey.DESCRIPTION,
-                value=description,
-                known_by_protagonist=True,
-            ),
+            {"key": "category", "value": category, "known": True},
+            {"key": "description", "value": description, "known": True},
+            {
+                "key": "transportable",
+                "value": str(transportable).lower(),
+                "known": True,
+            },
+            {"key": "stackable", "value": str(stackable).lower(), "known": True},
+            {"key": "base_value", "value": str(base_value), "known": True},
         ]
 
-        # Store structured object data in details
-        attrs[0].details = {
-            "category": category,
-            "transportable": transportable,
-            "stackable": stackable,
-            "base_value": base_value,
-        }
-
         if condition:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.CONDITION,
-                    value=condition,
-                    known_by_protagonist=True,
-                )
-            )
-
+            attrs.append({"key": "condition", "value": condition, "known": True})
         if emotional_significance:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.EMOTIONAL_SIGNIFICANCE,
-                    value=emotional_significance,
-                    known_by_protagonist=True,
-                )
+                {
+                    "key": "emotional_significance",
+                    "value": emotional_significance,
+                    "known": True,
+                }
             )
 
         return cls(name=name, attributes=attrs, quantity=quantity)
@@ -556,11 +456,16 @@ class ObjectData(BaseModel):
 class OrganizationData(BaseModel):
     """A company, faction, or group"""
 
-    name: Name  # 100 chars
+    name: Name
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
-
-    # FK reference
     headquarters_ref: EntityRef | None = None
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _parse_attrs(cls, v: Any) -> list[AttributeWithVisibility]:
+        if isinstance(v, list):
+            return _parse_attributes(v, EntityType.ORGANIZATION)
+        return v
 
     @classmethod
     def create(
@@ -576,53 +481,36 @@ class OrganizationData(BaseModel):
         public_facade: str | None = None,
         true_purpose: str | None = None,
         influence_level: str | None = None,
+        is_employer: bool = False,
     ) -> "OrganizationData":
         """Factory with convenient parameter names"""
         attrs = [
-            AttributeWithVisibility(
-                key=AttributeKey.DESCRIPTION,
-                value=description,
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.REPUTATION, value=reputation, known_by_protagonist=True
-            ),
+            {"key": "org_type", "value": org_type, "known": True},
+            {"key": "domain", "value": domain, "known": True},
+            {"key": "size", "value": size, "known": True},
+            {"key": "description", "value": description, "known": True},
+            {"key": "reputation", "value": reputation, "known": True},
         ]
 
-        # Store structured org data in details
-        attrs[0].details = {
-            "org_type": org_type,
-            "domain": domain,
-            "size": size,
-            "founding_cycle": founding_cycle,
-        }
-
+        if founding_cycle:
+            attrs.append(
+                {"key": "founding_cycle", "value": str(founding_cycle), "known": True}
+            )
         if public_facade:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.PUBLIC_FACADE,
-                    value=public_facade,
-                    known_by_protagonist=True,
-                )
+                {"key": "public_facade", "value": public_facade, "known": True}
             )
-
         if true_purpose:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.TRUE_PURPOSE,
-                    value=true_purpose,
-                    known_by_protagonist=False,  # Secret
-                )
-            )
-
+            attrs.append({"key": "true_purpose", "value": true_purpose, "known": False})
         if influence_level:
             attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.INFLUENCE_LEVEL,
-                    value=influence_level,
-                    known_by_protagonist=True,
-                )
+                {"key": "influence_level", "value": influence_level, "known": True}
             )
+
+        # Meta
+        attrs.append(
+            {"key": "is_employer", "value": str(is_employer).lower(), "known": False}
+        )
 
         return cls(name=name, attributes=attrs, headquarters_ref=headquarters_ref)
 
@@ -638,26 +526,13 @@ def attrs_to_dict(attributes: list[AttributeWithVisibility]) -> dict:
 
 
 def attrs_from_dict(
-    data: dict, known_by_protagonist: bool = True
+    data: dict, entity_type: EntityType, known_by_protagonist: bool = True
 ) -> list[AttributeWithVisibility]:
-    """Convert dict to attribute list"""
-    from .synonyms import normalize_key
-    import json
-
-    attrs = []
-    for key, value in data.items():
-        try:
-            normalized_key = normalize_key(key)
-            str_value = (
-                json.dumps(value) if isinstance(value, (list, dict)) else str(value)
-            )
-            attrs.append(
-                AttributeWithVisibility(
-                    key=normalized_key,
-                    value=str_value,
-                    known_by_protagonist=known_by_protagonist,
-                )
-            )
-        except ValueError:
-            logger.warning(f"[attrs_from_dict] Unknown attribute key: {key}")
-    return attrs
+    """Convert dict to attribute list with entity-specific normalization"""
+    return _parse_attributes(
+        [
+            {"key": k, "value": v, "known": known_by_protagonist}
+            for k, v in data.items()
+        ],
+        entity_type,
+    )

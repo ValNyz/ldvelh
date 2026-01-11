@@ -29,6 +29,8 @@ from schema import (
     RelationType,
     Skill,
     VALID_ATTRIBUTE_KEYS_BY_ENTITY,
+    normalize_attribute_key,
+    ATTRIBUTE_NORMALIZERS,
 )
 
 if TYPE_CHECKING:
@@ -183,23 +185,26 @@ class KnowledgeGraphPopulator:
         Set multiple attributes on an entity.
         Returns number of attributes set.
         """
-        from .synonyms import normalize_key
+        # Get entity type FIRST if not provided (needed for normalization)
+        if entity_type is None:
+            entity_type = await self._get_entity_type(conn, entity_id)
 
-        # Convert dict → list
+        # Choose normalizer based on entity type
+        normalizer = ATTRIBUTE_NORMALIZERS.get(entity_type, normalize_attribute_key)
+
+        # Convert dict → list with entity-specific normalization
         if isinstance(attrs, dict):
             converted = []
             for k, v in attrs.items():
                 try:
-                    key = normalize_key(k)
+                    key = normalizer(k)  # ← Utilise le normaliseur typé
                     str_value = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
                     converted.append(AttributeWithVisibility(key=key, value=str_value))
                 except ValueError:
-                    logger.warning(f"[set_attributes] Unknown key: {k}")
+                    logger.warning(
+                        f"[set_attributes] Unknown key '{k}' for {entity_type.value}"
+                    )
             attrs = converted
-
-        # Get entity type if not provided
-        if entity_type is None:
-            entity_type = await self._get_entity_type(conn, entity_id)
 
         valid_keys = VALID_ATTRIBUTE_KEYS_BY_ENTITY.get(entity_type, set())
         count = 0

@@ -2866,6 +2866,306 @@ KEY_SYNONYMS = {
     "running_from": "departure_reason",
 }
 
+# =============================================================================
+# ATTRIBUTE KEY SYNONYMS BY ENTITY TYPE
+# =============================================================================
+
+# --- SHARED (utilisable par tous les types) ---
+SHARED_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    # description
+    "description": "description",
+    "desc": "description",
+    "appearance": "description",
+    "look": "description",
+    "looks": "description",
+    "visual": "description",
+    # history
+    "history": "history",
+    "background": "history",
+    "past": "history",
+    "lore": "history",
+    # secret
+    "secret": "secret",
+    "hidden": "secret",
+    "secrets": "secret",
+    # reputation
+    "reputation": "reputation",
+    "fame": "reputation",
+    "standing": "reputation",
+    "renown": "reputation",
+}
+
+# --- CHARACTER ---
+CHARACTER_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    # species
+    "species": "species",
+    "race": "species",
+    "kind": "species",
+    # gender
+    "gender": "gender",
+    "sex": "gender",
+    # pronouns
+    "pronouns": "pronouns",
+    "pronoun": "pronouns",
+    # arrival_cycle
+    "arrival_cycle": "arrival_cycle",
+    "station_arrival_cycle": "arrival_cycle",
+    "arrived_cycle": "arrival_cycle",
+    # traits
+    "traits": "traits",
+    "personality_traits": "traits",
+    "personality": "traits",
+    # mood
+    "mood": "mood",
+    "emotion": "mood",
+    "feeling": "mood",
+    "demeanor": "mood",
+    "attitude": "mood",
+    # age
+    "age": "age",
+    "years_old": "age",
+    # voice
+    "voice": "voice",
+    "tone": "voice",
+    "speech": "voice",
+    # quirk
+    "quirk": "quirk",
+    "quirks": "quirk",
+    "habit": "quirk",
+    "tic": "quirk",
+    "mannerism": "quirk",
+    # origin
+    "origin": "origin",
+    "origin_location": "origin",
+    "hometown": "origin",
+    "birthplace": "origin",
+    "home": "origin",
+    # occupation
+    "occupation": "occupation",
+    "job": "occupation",
+    "profession": "occupation",
+    "role": "occupation",
+    "position": "occupation",
+    # motivation
+    "motivation": "motivation",
+    "motivations": "motivation",
+    "goal": "motivation",
+    "goals": "motivation",
+    "desire": "motivation",
+    "wants": "motivation",
+    # status fields
+    "financial_status": "financial_status",
+    "wealth": "financial_status",
+    "health_status": "health_status",
+    "medical_condition": "health_status",
+    "relationship_status": "relationship_status",
+    "marital_status": "relationship_status",
+    # arcs
+    "arcs": "arcs",
+    "arc": "arcs",
+    "character_arcs": "arcs",
+    "story_arcs": "arcs",
+    # meta
+    "romantic_potential": "romantic_potential",
+    "is_mandatory": "is_mandatory",
+    "mandatory": "is_mandatory",
+}
+
+# --- LOCATION ---
+LOCATION_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    # location_type
+    "location_type": "location_type",
+    "type": "location_type",
+    "place_type": "location_type",
+    # sector
+    "sector": "sector",
+    "district": "sector",
+    "zone": "sector",
+    "area": "sector",
+    # accessible
+    "accessible": "accessible",
+    "access": "accessible",
+    "open": "accessible",
+    # atmosphere
+    "atmosphere": "atmosphere",
+    "ambiance": "atmosphere",
+    "ambience": "atmosphere",
+    "vibe": "atmosphere",
+    "feel": "atmosphere",
+    # crowd_level
+    "crowd_level": "crowd_level",
+    "crowdedness": "crowd_level",
+    "busy": "crowd_level",
+    # noise_level
+    "noise_level": "noise_level",
+    "noise": "noise_level",
+    "sound_level": "noise_level",
+    # cleanliness
+    "cleanliness": "cleanliness",
+    "clean": "cleanliness",
+    "tidiness": "cleanliness",
+    # price_range
+    "price_range": "price_range",
+    "prices": "price_range",
+    "cost": "price_range",
+    # operating_hours
+    "operating_hours": "operating_hours",
+    "hours": "operating_hours",
+    "opening_hours": "operating_hours",
+    "schedule": "operating_hours",
+    # notable_features
+    "notable_features": "notable_features",
+    "features": "notable_features",
+    "highlights": "notable_features",
+    # typical_crowd
+    "typical_crowd": "typical_crowd",
+    "clientele": "typical_crowd",
+    "regulars": "typical_crowd",
+    "visitors": "typical_crowd",
+}
+
+# --- OBJECT ---
+OBJECT_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    # category
+    "category": "category",
+    "type": "category",
+    "item_type": "category",
+    "object_type": "category",
+    # transportable
+    "transportable": "transportable",
+    "portable": "transportable",
+    "carriable": "transportable",
+    # stackable
+    "stackable": "stackable",
+    "stacks": "stackable",
+    # base_value
+    "base_value": "base_value",
+    "value": "base_value",
+    "price": "base_value",
+    "worth": "base_value",
+    # condition
+    "condition": "condition",
+    "state": "condition",
+    "quality": "condition",
+    "wear": "condition",
+    # hidden_function
+    "hidden_function": "hidden_function",
+    "secret_function": "hidden_function",
+    "hidden_use": "hidden_function",
+    # emotional_significance
+    "emotional_significance": "emotional_significance",
+    "sentimental_value": "emotional_significance",
+    "meaning": "emotional_significance",
+    # actual_value
+    "actual_value": "actual_value",
+    "real_value": "actual_value",
+    "true_value": "actual_value",
+}
+
+# --- ORGANIZATION ---
+ORGANIZATION_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    # org_type
+    "org_type": "org_type",
+    "type": "org_type",
+    "organization_type": "org_type",
+    "company_type": "org_type",
+    # domain
+    "domain": "domain",
+    "field": "domain",
+    "sector": "domain",
+    "industry": "domain",
+    # size
+    "size": "size",
+    "scale": "size",
+    # founding_cycle
+    "founding_cycle": "founding_cycle",
+    "founded": "founding_cycle",
+    "created_cycle": "founding_cycle",
+    # public_facade
+    "public_facade": "public_facade",
+    "facade": "public_facade",
+    "public_image": "public_facade",
+    "front": "public_facade",
+    # true_purpose
+    "true_purpose": "true_purpose",
+    "real_purpose": "true_purpose",
+    "hidden_agenda": "true_purpose",
+    "real_goal": "true_purpose",
+    # influence_level
+    "influence_level": "influence_level",
+    "influence": "influence_level",
+    "power": "influence_level",
+    "reach": "influence_level",
+    # is_employer
+    "is_employer": "is_employer",
+    "employer": "is_employer",
+}
+
+# --- PROTAGONIST ---
+PROTAGONIST_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    # credits
+    "credits": "credits",
+    "money": "credits",
+    "cash": "credits",
+    "balance": "credits",
+    "funds": "credits",
+    # energy
+    "energy": "energy",
+    "stamina": "energy",
+    "fatigue": "energy",
+    # morale
+    "morale": "morale",
+    "spirits": "morale",
+    "happiness": "morale",
+    "mood": "morale",
+    # health
+    "health": "health",
+    "hp": "health",
+    "life": "health",
+    # hobbies
+    "hobbies": "hobbies",
+    "hobby": "hobbies",
+    "interests": "hobbies",
+    "pastimes": "hobbies",
+    # departure_reason
+    "departure_reason": "departure_reason",
+    "why_left": "departure_reason",
+    "reason_for_leaving": "departure_reason",
+    # backstory
+    "backstory": "backstory",
+    "background": "backstory",
+    "history": "backstory",
+    # origin
+    "origin": "origin",
+    "origin_location": "origin",
+    "hometown": "origin",
+}
+
+# --- AI ---
+AI_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    # substrate
+    "substrate": "substrate",
+    "platform": "substrate",
+    "host": "substrate",
+    "hardware": "substrate",
+    # creation_cycle
+    "creation_cycle": "creation_cycle",
+    "created_cycle": "creation_cycle",
+    "birth_cycle": "creation_cycle",
+    # voice (shared with character)
+    "voice": "voice",
+    "voice_description": "voice",
+    "tone": "voice",
+    # quirk (shared with character)
+    "quirk": "quirk",
+    "quirks": "quirk",
+    "personality_quirk": "quirk",
+    # traits
+    "traits": "traits",
+    "personality_traits": "traits",
+    "personality": "traits",
+}
+
 
 # =============================================================================
 # KEY NORMALIZATION FUNCTIONS

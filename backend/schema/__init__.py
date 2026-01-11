@@ -38,9 +38,11 @@ from .core import (
     Skill,
     TemporalValidationMixin,
     # Mappings
+    ATTRIBUTE_NORMALIZERS,
     ATTRIBUTE_DEFAULT_VISIBILITY,
     VALID_ATTRIBUTE_KEYS_BY_ENTITY,
     # Normalizers
+    normalize_attribute_key,
     get_attribute_visibility,
     normalize_arc_domain,
     normalize_commitment_type,
@@ -57,7 +59,7 @@ from .core import (
 # Synonyms
 from .synonyms import (
     ARC_DOMAIN_SYNONYMS,
-    ATTRIBUTE_KEY_SYNONYMS,
+    # ATTRIBUTE_KEY_SYNONYMS,
     COMMITMENT_TYPE_SYNONYMS,
     DEPARTURE_REASON_SYNONYMS,
     ENTITY_TYPE_SYNONYMS,
@@ -85,37 +87,24 @@ from .entities import (
 
 # Relation models
 from .relations import (
-    OwnershipDetails,
-    ProfessionalDetails,
+    RelationOwnershipData,
+    RelationProfessionalData,
     RelationData,
-    SocialDetails,
-    SpatialDetails,
+    RelationSocialData,
+    RelationSpatialData,
 )
 
 # Narrative models
 from .narrative import (
-    ArrivalEventData,
     CharacterArc,
     CommitmentCreation,
     FactData,
     FactParticipant,
-    NarrationContext,
-    NarrationHints,
     NarrativeArcData,
-    WorldGeneration,
     # Context sub-models
-    CommitmentSummary,
-    EventSummary,
-    GaugeState,
-    InventoryItem,
-    LocationSummary,
-    MessageSummary,
-    NPCSummary,
-    ArcSummary,
-    PersonalAISummary,
-    ProtagonistState,
-    RecentFact,
 )
+
+from .narration import NarrationContext, NarrationHints, NarrationOutput
 
 # Extraction models (unified EAV format)
 from .extraction import (
@@ -139,7 +128,21 @@ from .extraction import (
     # Complete extraction
     NarrativeExtraction,
     NarrativeWithExtraction,
+    CommitmentSummary,
+    EventSummary,
+    GaugeState,
+    InventoryItem,
+    LocationSummary,
+    MessageSummary,
+    NPCSummary,
+    ArcSummary,
+    PersonalAISummary,
+    ProtagonistState,
+    RecentFact,
 )
+
+from .world_generation import ArrivalEventData, WorldGeneration, WorldData
+
 
 __all__ = [
     # === CORE ===
@@ -156,6 +159,7 @@ __all__ = [
     "ParticipantRole",
     "RelationCategory",
     "RelationType",
+    "ATTRIBUTE_NORMALIZERS"
     # Text types
     "Backstory",
     "FullText",
@@ -179,6 +183,7 @@ __all__ = [
     "ATTRIBUTE_DEFAULT_VISIBILITY",
     "VALID_ATTRIBUTE_KEYS_BY_ENTITY",
     # Normalizers
+    "normalize_attribute_key",
     "get_attribute_visibility",
     "normalize_arc_domain",
     "normalize_commitment_type",
@@ -214,11 +219,13 @@ __all__ = [
     "attrs_from_dict",
     "attrs_to_dict",
     # === RELATIONS ===
-    "OwnershipDetails",
-    "ProfessionalDetails",
     "RelationData",
-    "SocialDetails",
-    "SpatialDetails",
+    "RelationType",
+    "RelationCategory",
+    "RelationSpatialData",
+    "RelationSocialData",
+    "RelationProfessionalData",
+    "RelationOwnershipData",
     # === NARRATIVE ===
     "ArrivalEventData",
     "CharacterArc",
