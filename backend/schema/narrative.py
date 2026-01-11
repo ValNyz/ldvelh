@@ -177,7 +177,7 @@ class NarrativeArcData(BaseModel):
     arc_type: CommitmentType
     domain: ArcDomain = ArcDomain.PERSONAL
     description: LongText  # 400 chars
-    involved_entities: list[EntityRef] = Field(..., min_length=1)
+    involved_entities: list[EntityRef] = Field(..., default_factory=list)
     potential_triggers: list[str] = Field(..., min_length=1, max_length=4)
     stakes: ShortText  # 200 chars
     deadline_cycle: Cycle | None = Field(default=None, ge=1)

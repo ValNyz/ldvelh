@@ -114,6 +114,10 @@ export default function Home() {
 				setWorldData(state);
 				setGamePhase(GAME_PHASE.WORLD_READY);
 
+				if (state.monde?.nom) {
+					setPartieName(state.monde.nom);
+				}
+
 				setGameState({
 					partie: {
 						cycle_actuel: state.evenement_arrivee?.cycle || 1,
@@ -234,7 +238,7 @@ export default function Home() {
 		try {
 			const data = await loadPartie(id);
 			setPartieId(id);
-			setPartieName(data.partie?.nom || data.name || 'Partie');
+			setPartieName(data.state?.partie?.nom || 'Nouvelle partie');
 
 			if (data.state) {
 				replaceGameState(data.state);

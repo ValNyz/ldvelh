@@ -31,7 +31,7 @@ class GameService:
                 SELECT 
                     g.id, g.name, g.created_at, g.updated_at,
                     COALESCE(MAX(m.cycle), 0) AS current_cycle,
-                    (SELECT FROM cycle_summaries 
+                    (SELECT date FROM cycle_summaries 
                      WHERE game_id = g.id ORDER BY cycle DESC LIMIT 1) AS jour
                 FROM games g
                 LEFT JOIN chat_messages m ON m.game_id = g.id
@@ -535,7 +535,7 @@ class GameService:
             await conn.execute(
                 """
                 INSERT INTO cycle_summaries (game_id, cycle, date)
-                VALUES ($1, $2, $3, $4)
+                VALUES ($1, $2, $3)
                 ON CONFLICT (game_id, cycle) DO UPDATE SET date = $3
             """,
                 game_id,

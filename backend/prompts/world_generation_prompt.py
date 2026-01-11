@@ -138,9 +138,10 @@ Interconnectés mais pas tous liés à Valentin.
 JSON valide uniquement. Pas de markdown, pas de commentaires.
 
 **LIMITES** :
-- Maximum 4 personnages
+- Minimum 3 Arcs narratifs globaux
+- Maximum 6 personnages
 - Maximum 5 lieux
-- Maximum 5 organisations
+- Maximum 4 organisations
 - Descriptions max 300 caractères
 """
 
