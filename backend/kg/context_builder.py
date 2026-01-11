@@ -90,8 +90,8 @@ class ContextBuilder:
         return NarrationContext(
             # Temps
             current_cycle=current_cycle,
-            current_date=date,
             current_time=current_time,
+            current_date=date,
             # Espace
             current_location=current_location,
             connected_locations=connected_locations,
@@ -164,7 +164,7 @@ class ContextBuilder:
             return row["date"]
 
         # Fallback : pas encore de cycle_summaries
-        return "Lundi 1er janvie 2875"
+        return "Lundi 1er janvier 2875"
 
     # =========================================================================
     # PROTAGONIST
