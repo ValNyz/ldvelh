@@ -2,12 +2,14 @@
 LDVELH - World Generation Schema
 Modèle spécifique pour la génération initiale du monde
 Avec validation SOFT des références (filtrage au lieu d'erreur)
+Architecture EAV : données dans attributes
 """
 
 import logging
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
+    AttributeKey,
     EntityRef,
     Mood,
     Name,
@@ -42,6 +44,53 @@ WORLD_GENERATION_SOFT_MINIMUMS: dict[str, tuple[int, str]] = {
     "narrative_arcs": (3, "3+ arcs recommended for richer storytelling"),
     "initial_relations": (5, "5+ relations expected for world coherence"),
 }
+
+
+# =============================================================================
+# HELPER FUNCTIONS FOR EAV ACCESS
+# =============================================================================
+
+
+def get_entity_attribute(entity, key: str | AttributeKey, default=None):
+    """
+    Get an attribute value from an entity's attributes list.
+    Works with both AttributeKey enum and string keys.
+    """
+    if not hasattr(entity, "attributes"):
+        return default
+
+    # Normalize key to string for comparison
+    key_str = key.value if isinstance(key, AttributeKey) else key
+
+    for attr in entity.attributes:
+        attr_key = attr.key.value if hasattr(attr.key, "value") else str(attr.key)
+        if attr_key == key_str:
+            return attr.value
+    return default
+
+
+def get_entity_attribute_int(entity, key: str | AttributeKey, default: int = 0) -> int:
+    """Get an attribute as integer."""
+    value = get_entity_attribute(entity, key)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def get_entity_attribute_float(
+    entity, key: str | AttributeKey, default: float = 0.0
+) -> float:
+    """Get an attribute as float."""
+    value = get_entity_attribute(entity, key)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
 
 
 # =============================================================================
@@ -144,7 +193,16 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             }
             for loc in data["locations"]:
                 if isinstance(loc, dict):
-                    loc_type = loc.get("location_type", "").lower()
+                    # EAV: look for location_type in attributes
+                    loc_type = ""
+                    attrs = loc.get("attributes", [])
+                    for attr in attrs:
+                        if (
+                            isinstance(attr, dict)
+                            and attr.get("key") == "location_type"
+                        ):
+                            loc_type = attr.get("value", "").lower()
+                            break
                     if any(t in loc_type for t in arrival_types):
                         arrival_location = loc.get("name", arrival_location)
                         break
@@ -185,8 +243,15 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         cls, v: list[CharacterData]
     ) -> list[CharacterData]:
         """Ensure species diversity - soft validation"""
-        species = [c.species.lower() for c in v]
-        if species.count("human") == len(species):
+        species_list = []
+        for c in v:
+            species = get_entity_attribute(c, "species")
+            if species:
+                species_list.append(species.lower())
+            else:
+                species_list.append("unknown")
+
+        if species_list and species_list.count("human") == len(species_list):
             logger.warning(
                 "[Validation] All characters are human - diversity encouraged"
             )
@@ -196,7 +261,11 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     @classmethod
     def validate_essential_locations(cls, v: list[LocationData]) -> list[LocationData]:
         """Ensure we have arrival point and residence - soft validation"""
-        types = [loc.location_type.lower() for loc in v]
+        types = []
+        for loc in v:
+            loc_type = get_entity_attribute(loc, "location_type")
+            if loc_type:
+                types.append(loc_type.lower())
 
         residence_types = {
             "apartment",
@@ -224,8 +293,12 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
         valid_chars = []
         for char in self.characters:
-            if self.is_temporally_valid(
-                char.station_arrival_cycle, founding, f"Character '{char.name}'"
+            arrival_cycle = get_entity_attribute_int(char, "arrival_cycle", None)
+            if arrival_cycle is None:
+                # No arrival_cycle specified, keep the character
+                valid_chars.append(char)
+            elif self.is_temporally_valid(
+                arrival_cycle, founding, f"Character '{char.name}'"
             ):
                 valid_chars.append(char)
 
@@ -234,8 +307,9 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
         valid_orgs = []
         for org in self.organizations:
-            if org.founding_cycle is None or self.is_temporally_valid(
-                org.founding_cycle, founding, f"Organization '{org.name}'"
+            org_founding = get_entity_attribute_int(org, "founding_cycle", None)
+            if org_founding is None or self.is_temporally_valid(
+                org_founding, founding, f"Organization '{org.name}'"
             ):
                 valid_orgs.append(org)
 
@@ -408,7 +482,8 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         """Find a suitable arrival location from existing locations"""
         arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
         for loc in self.locations:
-            if loc.location_type.lower() in arrival_types:
+            loc_type = get_entity_attribute(loc, "location_type")
+            if loc_type and loc_type.lower() in arrival_types:
                 return loc.name
         if self.locations:
             return self.locations[0].name
@@ -437,8 +512,13 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     @model_validator(mode="after")
     def validate_inventory_for_departure(self) -> "WorldGeneration":
         """Check inventory matches departure reason - soft validation"""
-        reason = self.protagonist.departure_reason
-        credits = self.protagonist.initial_credits
+        # Get departure_reason from protagonist attributes
+        reason_str = get_entity_attribute(self.protagonist, "departure_reason")
+        if not reason_str:
+            reason_str = "other"
+
+        # Get credits from protagonist attributes
+        credits = get_entity_attribute_int(self.protagonist, "credits", 1400)
 
         expected_ranges = {
             "flight": (100, 600),
@@ -450,11 +530,11 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             "other": (0, 10000),
         }
 
-        min_c, max_c = expected_ranges.get(reason.value, (0, 10000))
+        min_c, max_c = expected_ranges.get(reason_str, (0, 10000))
         if not (min_c <= credits <= max_c):
             logger.warning(
                 f"[Validation] Credits ({credits}) unusual for departure_reason "
-                f"'{reason.value}' (expected {min_c}-{max_c})"
+                f"'{reason_str}' (expected {min_c}-{max_c})"
             )
 
         return self

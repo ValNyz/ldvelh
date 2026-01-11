@@ -3,7 +3,9 @@ LDVELH - Schema Package (EAV Architecture)
 Central exports for all schema models
 """
 
-# Core enums and types
+# =============================================================================
+# CORE - Enums, types, base models, attribute definitions
+# =============================================================================
 from .core import (
     # Enums
     ArcDomain,
@@ -18,7 +20,7 @@ from .core import (
     ParticipantRole,
     RelationCategory,
     RelationType,
-    # Text types
+    # Text types (truncated strings)
     Backstory,
     FullText,
     Label,
@@ -37,13 +39,32 @@ from .core import (
     AttributeWithVisibility,
     Skill,
     TemporalValidationMixin,
+    # Typed attribute classes (entity-specific normalization)
+    CharacterAttribute,
+    LocationAttribute,
+    ObjectAttribute,
+    OrganizationAttribute,
+    ProtagonistAttribute,
+    AIAttribute,
+    TYPED_ATTRIBUTE_CLASSES,
     # Mappings
     ATTRIBUTE_NORMALIZERS,
     ATTRIBUTE_DEFAULT_VISIBILITY,
+    ATTRIBUTE_SYNONYMS_BY_ENTITY,
+    ALL_ATTRIBUTE_SYNONYMS,
     VALID_ATTRIBUTE_KEYS_BY_ENTITY,
-    # Normalizers
+    # Normalizers - generic
     normalize_attribute_key,
     get_attribute_visibility,
+    validate_attribute_for_entity,
+    # Normalizers - typed (entity-specific)
+    normalize_attribute_key_for_character,
+    normalize_attribute_key_for_location,
+    normalize_attribute_key_for_object,
+    normalize_attribute_key_for_organization,
+    normalize_attribute_key_for_protagonist,
+    normalize_attribute_key_for_ai,
+    # Normalizers - other enums
     normalize_arc_domain,
     normalize_commitment_type,
     normalize_departure_reason,
@@ -53,13 +74,15 @@ from .core import (
     normalize_org_size,
     normalize_participant_role,
     normalize_relation_type,
-    validate_attribute_for_entity,
 )
 
-# Synonyms
+# =============================================================================
+# SYNONYMS - LLM output normalization dictionaries
+# =============================================================================
 from .synonyms import (
+    # Enum synonyms
     ARC_DOMAIN_SYNONYMS,
-    # ATTRIBUTE_KEY_SYNONYMS,
+    CERTAINTY_SYNONYMS,
     COMMITMENT_TYPE_SYNONYMS,
     DEPARTURE_REASON_SYNONYMS,
     ENTITY_TYPE_SYNONYMS,
@@ -68,10 +91,24 @@ from .synonyms import (
     ORG_SIZE_SYNONYMS,
     PARTICIPANT_ROLE_SYNONYMS,
     RELATION_TYPE_SYNONYMS,
+    # Attribute synonyms by entity type
+    SHARED_ATTRIBUTE_SYNONYMS,
+    CHARACTER_ATTRIBUTE_SYNONYMS,
+    LOCATION_ATTRIBUTE_SYNONYMS,
+    OBJECT_ATTRIBUTE_SYNONYMS,
+    ORGANIZATION_ATTRIBUTE_SYNONYMS,
+    PROTAGONIST_ATTRIBUTE_SYNONYMS,
+    AI_ATTRIBUTE_SYNONYMS,
+    # JSON key synonyms
+    KEY_SYNONYMS,
+    # Utility functions
     normalize_key,
+    normalize_dict_keys,
 )
 
-# Entity models (simplified EAV)
+# =============================================================================
+# ENTITIES - Entity data models (EAV-based)
+# =============================================================================
 from .entities import (
     CharacterData,
     EntityData,
@@ -81,32 +118,57 @@ from .entities import (
     PersonalAIData,
     ProtagonistData,
     WorldData,
+    # Utility functions
     attrs_from_dict,
     attrs_to_dict,
 )
 
-# Relation models
+# =============================================================================
+# RELATIONS - Relation models with typed sub-tables
+# =============================================================================
 from .relations import (
+    RelationData,
     RelationOwnershipData,
     RelationProfessionalData,
-    RelationData,
     RelationSocialData,
     RelationSpatialData,
 )
 
-# Narrative models
+# =============================================================================
+# NARRATIVE - Story elements (facts, arcs, commitments)
+# =============================================================================
 from .narrative import (
     CharacterArc,
     CommitmentCreation,
     FactData,
     FactParticipant,
     NarrativeArcData,
-    # Context sub-models
 )
 
-from .narration import NarrationContext, NarrationHints, NarrationOutput
+# =============================================================================
+# NARRATION - Narrator I/O models and context summaries
+# =============================================================================
+from .narration import (
+    NarrationContext,
+    NarrationHints,
+    NarrationOutput,
+    # Context summary models (used in NarrationContext)
+    ArcSummary,
+    CommitmentSummary,
+    EventSummary,
+    GaugeState,
+    InventoryItem,
+    LocationSummary,
+    MessageSummary,
+    NPCSummary,
+    PersonalAISummary,
+    ProtagonistState,
+    RecentFact,
+)
 
-# Extraction models (unified EAV format)
+# =============================================================================
+# EXTRACTION - LLM extraction output models (unified EAV format)
+# =============================================================================
 from .extraction import (
     # Entity changes
     EntityCreation,
@@ -128,25 +190,25 @@ from .extraction import (
     # Complete extraction
     NarrativeExtraction,
     NarrativeWithExtraction,
-    CommitmentSummary,
-    EventSummary,
-    GaugeState,
-    InventoryItem,
-    LocationSummary,
-    MessageSummary,
-    NPCSummary,
-    ArcSummary,
-    PersonalAISummary,
-    ProtagonistState,
-    RecentFact,
 )
 
-from .world_generation import ArrivalEventData, WorldGeneration, WorldData
+# =============================================================================
+# WORLD GENERATION - Initial world creation models
+# =============================================================================
+from .world_generation import (
+    ArrivalEventData,
+    WorldGeneration,
+    # Note: WorldData is imported from .entities
+)
 
 
+# =============================================================================
+# __all__ - Public API
+# =============================================================================
 __all__ = [
-    # === CORE ===
-    # Enums
+    # =========================================================================
+    # CORE - Enums
+    # =========================================================================
     "ArcDomain",
     "AttributeKey",
     "AttributeVisibility",
@@ -159,8 +221,9 @@ __all__ = [
     "ParticipantRole",
     "RelationCategory",
     "RelationType",
-    "ATTRIBUTE_NORMALIZERS"
-    # Text types
+    # =========================================================================
+    # CORE - Text types
+    # =========================================================================
     "Backstory",
     "FullText",
     "Label",
@@ -171,20 +234,48 @@ __all__ = [
     "ShortText",
     "Tag",
     "Text",
-    # Type aliases
+    # =========================================================================
+    # CORE - Type aliases
+    # =========================================================================
     "Cycle",
     "EntityRef",
-    # Base models
+    # =========================================================================
+    # CORE - Base models
+    # =========================================================================
     "Attribute",
     "AttributeWithVisibility",
     "Skill",
     "TemporalValidationMixin",
-    # Mappings
+    # =========================================================================
+    # CORE - Typed attribute classes
+    # =========================================================================
+    "CharacterAttribute",
+    "LocationAttribute",
+    "ObjectAttribute",
+    "OrganizationAttribute",
+    "ProtagonistAttribute",
+    "AIAttribute",
+    "TYPED_ATTRIBUTE_CLASSES",
+    # =========================================================================
+    # CORE - Mappings
+    # =========================================================================
+    "ATTRIBUTE_NORMALIZERS",
     "ATTRIBUTE_DEFAULT_VISIBILITY",
+    "ATTRIBUTE_SYNONYMS_BY_ENTITY",
+    "ALL_ATTRIBUTE_SYNONYMS",
     "VALID_ATTRIBUTE_KEYS_BY_ENTITY",
-    # Normalizers
+    # =========================================================================
+    # CORE - Normalizers
+    # =========================================================================
     "normalize_attribute_key",
     "get_attribute_visibility",
+    "validate_attribute_for_entity",
+    "normalize_attribute_key_for_character",
+    "normalize_attribute_key_for_location",
+    "normalize_attribute_key_for_object",
+    "normalize_attribute_key_for_organization",
+    "normalize_attribute_key_for_protagonist",
+    "normalize_attribute_key_for_ai",
     "normalize_arc_domain",
     "normalize_commitment_type",
     "normalize_departure_reason",
@@ -195,19 +286,31 @@ __all__ = [
     "normalize_org_size",
     "normalize_participant_role",
     "normalize_relation_type",
-    "validate_attribute_for_entity",
-    # === SYNONYMS ===
+    # =========================================================================
+    # SYNONYMS
+    # =========================================================================
     "ARC_DOMAIN_SYNONYMS",
-    "ATTRIBUTE_KEY_SYNONYMS",
+    "CERTAINTY_SYNONYMS",
     "COMMITMENT_TYPE_SYNONYMS",
     "DEPARTURE_REASON_SYNONYMS",
     "ENTITY_TYPE_SYNONYMS",
     "FACT_TYPE_SYNONYMS",
+    "KEY_SYNONYMS",
     "MOMENT_SYNONYMS",
     "ORG_SIZE_SYNONYMS",
     "PARTICIPANT_ROLE_SYNONYMS",
     "RELATION_TYPE_SYNONYMS",
-    # === ENTITIES ===
+    "SHARED_ATTRIBUTE_SYNONYMS",
+    "CHARACTER_ATTRIBUTE_SYNONYMS",
+    "LOCATION_ATTRIBUTE_SYNONYMS",
+    "OBJECT_ATTRIBUTE_SYNONYMS",
+    "ORGANIZATION_ATTRIBUTE_SYNONYMS",
+    "PROTAGONIST_ATTRIBUTE_SYNONYMS",
+    "AI_ATTRIBUTE_SYNONYMS",
+    "normalize_dict_keys",
+    # =========================================================================
+    # ENTITIES
+    # =========================================================================
     "CharacterData",
     "EntityData",
     "LocationData",
@@ -218,25 +321,61 @@ __all__ = [
     "WorldData",
     "attrs_from_dict",
     "attrs_to_dict",
-    # === RELATIONS ===
+    # =========================================================================
+    # RELATIONS
+    # =========================================================================
     "RelationData",
-    "RelationType",
-    "RelationCategory",
-    "RelationSpatialData",
-    "RelationSocialData",
-    "RelationProfessionalData",
     "RelationOwnershipData",
-    # === NARRATIVE ===
-    "ArrivalEventData",
+    "RelationProfessionalData",
+    "RelationSocialData",
+    "RelationSpatialData",
+    # =========================================================================
+    # NARRATIVE
+    # =========================================================================
     "CharacterArc",
     "CommitmentCreation",
     "FactData",
     "FactParticipant",
+    "NarrativeArcData",
+    # =========================================================================
+    # NARRATION
+    # =========================================================================
     "NarrationContext",
     "NarrationHints",
-    "NarrativeArcData",
-    "WorldGeneration",
-    # Context sub-models
+    "NarrationOutput",
+    # =========================================================================
+    # EXTRACTION - Entity changes
+    # =========================================================================
+    "EntityCreation",
+    "EntityRemoval",
+    "EntityUpdate",
+    "ObjectCreation",
+    # =========================================================================
+    # EXTRACTION - Relation changes
+    # =========================================================================
+    "RelationCreation",
+    "RelationEnd",
+    "RelationUpdate",
+    # =========================================================================
+    # EXTRACTION - Protagonist changes
+    # =========================================================================
+    "CreditTransaction",
+    "GaugeChange",
+    "InventoryChange",
+    # =========================================================================
+    # EXTRACTION - Narrative elements
+    # =========================================================================
+    "CommitmentCreationExtraction",
+    "CommitmentResolutionExtraction",
+    "EventScheduledExtraction",
+    # =========================================================================
+    # EXTRACTION - Complete models
+    # =========================================================================
+    "NarrativeExtraction",
+    "NarrativeWithExtraction",
+    # =========================================================================
+    # EXTRACTION - Context summary models
+    # =========================================================================
     "ArcSummary",
     "CommitmentSummary",
     "EventSummary",
@@ -248,20 +387,9 @@ __all__ = [
     "PersonalAISummary",
     "ProtagonistState",
     "RecentFact",
-    # === EXTRACTION ===
-    "CommitmentCreationExtraction",
-    "CommitmentResolutionExtraction",
-    "CreditTransaction",
-    "EntityCreation",
-    "EntityRemoval",
-    "EntityUpdate",
-    "EventScheduledExtraction",
-    "GaugeChange",
-    "InventoryChange",
-    "NarrativeExtraction",
-    "NarrativeWithExtraction",
-    "ObjectCreation",
-    "RelationCreation",
-    "RelationEnd",
-    "RelationUpdate",
+    # =========================================================================
+    # WORLD GENERATION
+    # =========================================================================
+    "ArrivalEventData",
+    "WorldGeneration",
 ]
