@@ -6,7 +6,6 @@ Modèles pour les relations entre entités
 from pydantic import BaseModel, Field, field_validator
 
 from .core import (
-    CertaintyLevel,
     Cycle,
     EntityRef,
     Label,
@@ -15,7 +14,6 @@ from .core import (
     RelationType,
     ShortText,
     Tag,
-    normalize_certainty,
     normalize_relation_type,
 )
 
@@ -79,9 +77,8 @@ class RelationData(BaseModel):
     source_ref: EntityRef
     target_ref: EntityRef
     relation_type: RelationType
-    certainty: CertaintyLevel = CertaintyLevel.CERTAIN
-    is_true: bool = True
-    source_info: ShortText | None = None  # 200 chars - How this info was learned
+
+    known_by_protagonist: bool = True
 
     # Type-specific data (use the appropriate one based on relation_type)
     social: RelationSocialData | None = None
@@ -97,11 +94,6 @@ class RelationData(BaseModel):
     @classmethod
     def _normalize_relation_type(cls, v):
         return normalize_relation_type(v)
-
-    @field_validator("certainty", mode="before")
-    @classmethod
-    def _normalize_certainty(cls, v):
-        return normalize_certainty(v)
 
     # =========================================================================
     # PROPERTIES
@@ -156,9 +148,7 @@ def create_relation(
         "source_ref": source,
         "target_ref": target,
         "relation_type": rel_type,
-        "certainty": kwargs.pop("certainty", CertaintyLevel.CERTAIN),
-        "is_true": kwargs.pop("is_true", True),
-        "source_info": kwargs.pop("source_info", None),
+        "known_by_protagonist": kwargs.pop("known_by_protagonist", True),
     }
 
     field_name, model_class = _CATEGORY_DATA_CONFIG[rel_type.category]

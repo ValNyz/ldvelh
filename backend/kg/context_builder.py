@@ -48,8 +48,8 @@ class ContextBuilder:
         # Récupérer les infos de base du monde
         world_info = await self._get_world_info(conn)
 
-        # Récupérer le cycle summary actuel pour date/day
-        day_info = await self._get_day_info(conn, current_cycle)
+        # Récupérer le cycle summary actuel pour date
+        date = await self._get_date_info(conn, current_cycle)
 
         # Protagoniste
         protagonist = await self._get_protagonist_state(conn)
@@ -64,7 +64,7 @@ class ContextBuilder:
             conn, current_location_name
         )
 
-        # PNJs
+        # PNJs (filtrés par known_by_protagonist)
         npcs_present = await self._get_npcs_at_location(
             conn, current_location_name, current_time
         )
@@ -90,9 +90,8 @@ class ContextBuilder:
         return NarrationContext(
             # Temps
             current_cycle=current_cycle,
-            current_day=day_info.get("day", current_cycle),
-            current_date=day_info.get("date", f"Jour {current_cycle}"),
             current_time=current_time,
+            current_date=date,
             # Espace
             current_location=current_location,
             connected_locations=connected_locations,
@@ -147,13 +146,13 @@ class ContextBuilder:
 
         return dict(row) if row else {}
 
-    async def _get_day_info(self, conn: Connection, cycle: int) -> dict:
+    async def _get_date_info(self, conn: Connection, cycle: int) -> dict:
         """Récupère les infos du jour (depuis cycle_summaries)"""
         row = await conn.fetchrow(
             """
-            SELECT day, date
+            SELECT date
             FROM cycle_summaries
-            WHERE game_id = $1 AND cycle <= $2 AND day IS NOT NULL
+            WHERE game_id = $1 AND cycle <= $2 AND date IS NOT NULL
             ORDER BY cycle DESC
             LIMIT 1
         """,
@@ -161,11 +160,11 @@ class ContextBuilder:
             cycle,
         )
 
-        if row:
-            return {"day": row["day"], "date": row["date"]}
+        if row and "date" in row:
+            return row["date"]
 
         # Fallback : pas encore de cycle_summaries
-        return {"day": "Lundi", "date": "Jour 1"}
+        return "Lundi 1er janvier 2875"
 
     # =========================================================================
     # PROTAGONIST
@@ -173,7 +172,6 @@ class ContextBuilder:
 
     async def _get_protagonist_state(self, conn: Connection) -> ProtagonistState:
         """Récupère l'état du protagoniste"""
-        # Récupérer l'entité protagoniste
         row = await conn.fetchrow(
             """
             SELECT e.id, e.name, ep.origin_location, ep.departure_reason
@@ -190,7 +188,7 @@ class ContextBuilder:
         protagonist_id = row["id"]
         name = row["name"]
 
-        # Récupérer les attributs
+        # Récupérer les attributs (tous, pas de filtre known pour le protagoniste)
         attrs = await conn.fetch(
             """
             SELECT key, value
@@ -305,7 +303,6 @@ class ContextBuilder:
         if not row:
             return None
 
-        # Les traits sont stockés en JSON dans entity_ais.traits
         traits_data = {}
         if row["traits"]:
             try:
@@ -343,7 +340,6 @@ class ContextBuilder:
         )
 
         if not row:
-            # Fallback
             return LocationSummary(
                 name=name, type="unknown", sector="unknown", atmosphere="", current=True
             )
@@ -361,7 +357,6 @@ class ContextBuilder:
         self, conn: Connection, current_location: str
     ) -> list[LocationSummary]:
         """Récupère les lieux accessibles depuis le lieu actuel"""
-        # Lieux dans le même secteur + parent + enfants
         rows = await conn.fetch(
             """
             WITH current AS (
@@ -413,7 +408,8 @@ class ContextBuilder:
         """Récupère les PNJs présents à un lieu (basé sur works_at, lives_at, frequents)"""
         rows = await conn.fetch(
             """
-            SELECT DISTINCT e.id, e.name, ec.species, ec.gender, ec.traits,
+            SELECT DISTINCT e.id, e.name, e.known_by_protagonist, e.unknown_name,
+                   ec.species, ec.gender, ec.traits,
                    a_occ.value as occupation,
                    rs.level as rel_level, rs.context as rel_context,
                    a_arcs.value as arcs
@@ -427,6 +423,7 @@ class ContextBuilder:
             LEFT JOIN relations_social rs ON rs.relation_id = r_prot.id
             LEFT JOIN attributes a_occ ON a_occ.entity_id = e.id 
                 AND a_occ.key = 'occupation' AND a_occ.end_cycle IS NULL
+                AND a_occ.known_by_protagonist = true
             LEFT JOIN attributes a_arcs ON a_arcs.entity_id = e.id 
                 AND a_arcs.key = 'arcs' AND a_arcs.end_cycle IS NULL
             WHERE e.game_id = $1
@@ -448,7 +445,8 @@ class ContextBuilder:
         """Récupère les PNJs pertinents (connus, impliqués dans des arcs actifs)"""
         rows = await conn.fetch(
             """
-            SELECT DISTINCT e.id, e.name, ec.species, ec.gender, ec.traits,
+            SELECT DISTINCT e.id, e.name, e.known_by_protagonist, e.unknown_name,
+                   ec.species, ec.gender, ec.traits,
                    a_occ.value as occupation,
                    rs.level as rel_level, rs.context as rel_context,
                    a_arcs.value as arcs
@@ -459,11 +457,13 @@ class ContextBuilder:
             LEFT JOIN relations_social rs ON rs.relation_id = r.id
             LEFT JOIN attributes a_occ ON a_occ.entity_id = e.id 
                 AND a_occ.key = 'occupation' AND a_occ.end_cycle IS NULL
+                AND a_occ.known_by_protagonist = true
             LEFT JOIN attributes a_arcs ON a_arcs.entity_id = e.id 
                 AND a_arcs.key = 'arcs' AND a_arcs.end_cycle IS NULL
             WHERE e.game_id = $1
             AND r.type IN ('knows', 'friend_of', 'romantic', 'colleague_of')
             AND r.end_cycle IS NULL
+            AND r.known_by_protagonist = true
             AND e.removed_cycle IS NULL
             ORDER BY rel_level DESC NULLS LAST
             LIMIT 8
@@ -474,12 +474,17 @@ class ContextBuilder:
         return [self._row_to_npc_summary(r) for r in rows]
 
     def _row_to_npc_summary(self, row) -> NPCSummary:
-        """Convertit une row en NPCSummary"""
+        """Convertit une row en NPCSummary avec gestion de known_by_protagonist"""
+        # Utiliser unknown_name si le PNJ n'est pas connu
+        display_name = row["name"]
+        if not row.get("known_by_protagonist", True):
+            display_name = row.get("unknown_name") or "Inconnu(e)"
+
         traits = json.loads(row["traits"]) if row["traits"] else []
         arcs_raw = json.loads(row["arcs"]) if row["arcs"] else []
 
         arcs = []
-        for arc in arcs_raw[:2]:  # Max 2 arcs
+        for arc in arcs_raw[:2]:
             try:
                 arcs.append(
                     ArcSummary(
@@ -497,7 +502,7 @@ class ContextBuilder:
             rel_type = row["rel_context"][:50]
 
         return NPCSummary(
-            name=row["name"],
+            name=display_name,  # Utilise le display_name
             occupation=row["occupation"] or "inconnu",
             species=row["species"] or "human",
             traits=traits[:3] if isinstance(traits, list) else [],
@@ -696,7 +701,7 @@ class ContextBuilder:
         """Récupère les résumés des derniers cycles"""
         rows = await conn.fetch(
             """
-            SELECT cycle, day, date, summary
+            SELECT cycle, date, summary
             FROM cycle_summaries
             WHERE game_id = $1 AND cycle < $2 AND summary IS NOT NULL
             ORDER BY cycle DESC
@@ -709,12 +714,7 @@ class ContextBuilder:
 
         results = []
         for r in reversed(rows):
-            # Formater : "Cycle 3 (Mardi 15 Mars) : résumé..."
-            date_str = (
-                r["date"]
-                if r["day"] in (r["date"] or "")
-                else f"{r['day']} {r['date']}"
-            )
+            date_str = r["date"] or f"Cycle {r['cycle']}"
             results.append(f"Cycle {r['cycle']} ({date_str}) : {r['summary']}")
 
         return results
@@ -760,3 +760,27 @@ class ContextBuilder:
         )
 
         return [r["name"] for r in rows]
+
+    async def get_known_entity_display_names(self, conn: Connection) -> list[dict]:
+        """Récupère les entités avec leur display_name pour le narrateur"""
+        rows = await conn.fetch(
+            """
+            SELECT name, known_by_protagonist, unknown_name, type
+            FROM entities
+            WHERE game_id = $1 AND removed_cycle IS NULL
+            ORDER BY name
+        """,
+            self.game_id,
+        )
+
+        return [
+            {
+                "real_name": r["name"],
+                "display_name": r["name"]
+                if r["known_by_protagonist"]
+                else (r["unknown_name"] or "Inconnu(e)"),
+                "known": r["known_by_protagonist"],
+                "type": r["type"],
+            }
+            for r in rows
+        ]

@@ -145,7 +145,6 @@ class NarrationContext(BaseModel):
 
     # === TEMPS ===
     current_cycle: int
-    current_day: str  # Jour narratif (peut différer du cycle)
     current_date: str  # "Mercredi 15 Mars 2847"
     current_time: str  # "14h30"
 
@@ -295,7 +294,6 @@ class DayTransition(BaseModel):
     """Transition vers un nouveau jour"""
 
     new_cycle: int
-    new_day: str
     new_date: str  # "Jeudi 16 Mars 2847"
     night_summary: Phrase | None = None  # 150 chars
 

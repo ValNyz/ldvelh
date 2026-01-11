@@ -233,7 +233,7 @@ export default function StatsBar({ gameState }) {
 			<div className="flex items-center gap-4 text-emerald-400">
 				<span>Cycle {partie?.cycle_actuel || 1}</span>
 				<span className="text-gray-500">|</span>
-				<span>{partie?.jour || '-'} {partie?.date_jeu || ''}</span>
+				<span>{partie?.date_jeu || '-'}</span>
 				{partie?.heure && (
 					<>
 						<span className="text-gray-500">|</span>

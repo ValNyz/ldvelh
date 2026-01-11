@@ -19,10 +19,6 @@ CREATE TYPE relation_type AS ENUM (
   'owns', 'owes_to'
 );
 
-CREATE TYPE certainty_level AS ENUM (
-  'certain', 'probable', 'rumor', 'uncertain'
-);
-
 CREATE TYPE fact_type AS ENUM (
   -- Actions
   'action', 'npc_action',
@@ -82,7 +78,8 @@ CREATE TABLE entities (
   type entity_type NOT NULL,
   name VARCHAR(255) NOT NULL,
   aliases TEXT[] DEFAULT '{}',
-  confirmed BOOLEAN DEFAULT true,
+  known_by_protagonist BOOLEAN DEFAULT true,
+  unknown_name VARCHAR(255),
   created_cycle INTEGER NOT NULL DEFAULT 1,
   removed_cycle INTEGER,
   removal_reason TEXT,
@@ -97,6 +94,8 @@ CREATE INDEX idx_entities_name ON entities(game_id, name);
 CREATE INDEX idx_entities_aliases ON entities USING GIN(aliases);
 CREATE INDEX idx_entities_active ON entities(game_id) 
   WHERE removed_cycle IS NULL;
+CREATE INDEX idx_entities_known ON entities(game_id) 
+  WHERE known_by_protagonist = true AND removed_cycle IS NULL;
 
 -- ============================================================================
 -- CORE: TYPED ENTITY TABLES
@@ -186,6 +185,7 @@ CREATE TABLE attributes (
   key VARCHAR(100) NOT NULL,
   value TEXT NOT NULL,
   details JSONB,
+  known_by_protagonist BOOLEAN DEFAULT true,
   start_cycle INTEGER NOT NULL,
   end_cycle INTEGER,
   created_at TIMESTAMPTZ DEFAULT now()
@@ -195,6 +195,8 @@ CREATE INDEX idx_attributes_entity ON attributes(entity_id);
 CREATE INDEX idx_attributes_key ON attributes(entity_id, key);
 CREATE INDEX idx_attributes_active ON attributes(entity_id) WHERE end_cycle IS NULL;
 CREATE INDEX idx_attributes_game ON attributes(game_id);
+CREATE INDEX idx_attributes_known ON attributes(entity_id) 
+  WHERE known_by_protagonist = true AND end_cycle IS NULL;
 
 -- ============================================================================
 -- CORE: RELATIONS (parent table)
@@ -209,9 +211,7 @@ CREATE TABLE relations (
   start_cycle INTEGER NOT NULL,
   end_cycle INTEGER,
   end_reason TEXT,
-  certainty certainty_level DEFAULT 'certain',
-  is_true BOOLEAN DEFAULT true,
-  source_info VARCHAR(255),
+  known_by_protagonist BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(game_id, source_id, target_id, type, start_cycle)
 );
@@ -221,6 +221,8 @@ CREATE INDEX idx_relations_source ON relations(source_id);
 CREATE INDEX idx_relations_target ON relations(target_id);
 CREATE INDEX idx_relations_type ON relations(game_id, type);
 CREATE INDEX idx_relations_active ON relations(game_id) WHERE end_cycle IS NULL;
+CREATE INDEX idx_relations_known ON relations(game_id) 
+  WHERE known_by_protagonist = true AND end_cycle IS NULL;
 
 -- ============================================================================
 -- CORE: TYPED RELATION TABLES
@@ -303,28 +305,6 @@ CREATE TABLE fact_participants (
 
 CREATE INDEX idx_fact_participants_fact ON fact_participants(fact_id);
 CREATE INDEX idx_fact_participants_entity ON fact_participants(entity_id);
-
--- ============================================================================
--- CORE: BELIEFS (what the protagonist thinks they know)
--- ============================================================================
-
-CREATE TABLE beliefs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  subject_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  key VARCHAR(100) NOT NULL,
-  content TEXT NOT NULL,
-  is_true BOOLEAN DEFAULT true,
-  certainty certainty_level DEFAULT 'certain',
-  source_fact_id UUID REFERENCES facts(id) ON DELETE SET NULL,
-  acquisition_cycle INTEGER NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(game_id, subject_id, key)
-);
-
-CREATE INDEX idx_beliefs_game ON beliefs(game_id);
-CREATE INDEX idx_beliefs_subject ON beliefs(subject_id);
-CREATE INDEX idx_beliefs_false ON beliefs(game_id) WHERE is_true = false;
 
 -- ============================================================================
 -- CORE: CONTRADICTIONS
@@ -441,7 +421,6 @@ CREATE TABLE chat_messages (
   content TEXT NOT NULL,
   cycle INTEGER NOT NULL,
   time VARCHAR(5),
-  day VARCHAR(10),
   date VARCHAR(50),
   location_id UUID REFERENCES entities(id) ON DELETE SET NULL,
   npcs_present UUID[] DEFAULT '{}',
@@ -462,7 +441,6 @@ CREATE TABLE cycle_summaries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   cycle INTEGER NOT NULL,
-  day VARCHAR(10),
   date VARCHAR(50),
   summary TEXT,
   key_events JSONB,
@@ -553,7 +531,8 @@ CREATE OR REPLACE FUNCTION upsert_entity(
   p_name VARCHAR(255),
   p_aliases TEXT[] DEFAULT '{}',
   p_cycle INTEGER DEFAULT 1,
-  p_confirmed BOOLEAN DEFAULT true
+  p_known_by_protagonist BOOLEAN DEFAULT true,
+  p_unknown_name VARCHAR(255) DEFAULT NULL
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -569,14 +548,15 @@ BEGIN
     
     UPDATE entities SET
       aliases = ARRAY(SELECT DISTINCT unnest(v_existing_aliases || p_aliases)),
-      confirmed = GREATEST(confirmed::int, p_confirmed::int)::boolean,
+	  known_by_protagonist = p_known_by_protagonist,
+      unknown_name = COALESCE(p_unknown_name, unknown_name),
       updated_at = NOW()
     WHERE id = v_id;
     
     RETURN v_id;
   ELSE
-    INSERT INTO entities (game_id, type, name, aliases, created_cycle, confirmed)
-    VALUES (p_game_id, p_type, p_name, p_aliases, p_cycle, p_confirmed)
+    INSERT INTO entities (game_id, type, name, aliases, created_cycle, known_by_protagonist, unknown_name)
+    VALUES (p_game_id, p_type, p_name, p_aliases, p_cycle, p_known_by_protagonist, p_unknown_name)
     RETURNING id INTO v_id;
     
     RETURN v_id;
@@ -590,7 +570,8 @@ CREATE OR REPLACE FUNCTION set_attribute(
   p_key VARCHAR(100),
   p_value TEXT,
   p_cycle INTEGER,
-  p_details JSONB DEFAULT NULL
+  p_details JSONB DEFAULT NULL,
+  p_known_by_protagonist BOOLEAN DEFAULT true
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -614,8 +595,8 @@ BEGIN
     AND key = p_key
     AND end_cycle IS NULL;
   
-  INSERT INTO attributes (game_id, entity_id, key, value, details, start_cycle)
-  VALUES (p_game_id, p_entity_id, p_key, p_value, p_details, p_cycle)
+  INSERT INTO attributes (game_id, entity_id, key, value, details, start_cycle, known_by_protagonist)
+  VALUES (p_game_id, p_entity_id, p_key, p_value, p_details, p_cycle, p_known_by_protagonist)
   RETURNING id INTO v_id;
   
   RETURN v_id;
@@ -628,9 +609,7 @@ CREATE OR REPLACE FUNCTION upsert_relation(
   p_target_id UUID,
   p_type relation_type,
   p_cycle INTEGER DEFAULT 1,
-  p_certainty certainty_level DEFAULT 'certain',
-  p_is_true BOOLEAN DEFAULT true,
-  p_source_info VARCHAR(255) DEFAULT NULL
+  p_known_by_protagonist BOOLEAN DEFAULT true
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -648,20 +627,18 @@ BEGIN
   
   IF v_id IS NOT NULL THEN
     UPDATE relations SET
-      certainty = p_certainty,
-      is_true = p_is_true,
-      source_info = COALESCE(p_source_info, source_info)
+      known_by_protagonist = p_known_by_protagonist
     WHERE id = v_id;
     
     RETURN v_id;
   ELSE
     INSERT INTO relations (
       game_id, source_id, target_id, type,
-      start_cycle, certainty, is_true, source_info
+      start_cycle, known_by_protagonist
     )
     VALUES (
       p_game_id, p_source_id, p_target_id, p_type,
-      p_cycle, p_certainty, p_is_true, p_source_info
+      p_cycle, p_known_by_protagonist
     )
     RETURNING id INTO v_id;
     
@@ -756,41 +733,6 @@ BEGIN
   END LOOP;
   
   RETURN v_fact_id;
-END;
-$func$;
-
-CREATE OR REPLACE FUNCTION set_belief(
-  p_game_id UUID,
-  p_subject_id UUID,
-  p_key VARCHAR(100),
-  p_content TEXT,
-  p_cycle INTEGER,
-  p_is_true BOOLEAN DEFAULT true,
-  p_certainty certainty_level DEFAULT 'certain',
-  p_source_fact_id UUID DEFAULT NULL
-)
-RETURNS UUID
-LANGUAGE plpgsql
-AS $func$
-DECLARE
-  v_id UUID;
-BEGIN
-  INSERT INTO beliefs (
-    game_id, subject_id, key, content, 
-    is_true, certainty, source_fact_id, acquisition_cycle
-  )
-  VALUES (
-    p_game_id, p_subject_id, p_key, p_content,
-    p_is_true, p_certainty, p_source_fact_id, p_cycle
-  )
-  ON CONFLICT (game_id, subject_id, key) DO UPDATE SET
-    content = EXCLUDED.content,
-    is_true = EXCLUDED.is_true,
-    certainty = EXCLUDED.certainty,
-    source_fact_id = COALESCE(EXCLUDED.source_fact_id, beliefs.source_fact_id)
-  RETURNING id INTO v_id;
-  
-  RETURN v_id;
 END;
 $func$;
 
@@ -988,8 +930,6 @@ BEGIN
   UPDATE relations SET end_cycle = NULL, end_reason = NULL
   WHERE game_id = p_game_id AND end_cycle > p_target_cycle;
   
-  DELETE FROM beliefs WHERE game_id = p_game_id AND acquisition_cycle > p_target_cycle;
-  
   DELETE FROM skills WHERE game_id = p_game_id AND start_cycle > p_target_cycle;
   UPDATE skills SET end_cycle = NULL WHERE game_id = p_game_id AND end_cycle > p_target_cycle;
   
@@ -1031,8 +971,7 @@ SELECT
   e_target.type AS target_type,
   e_target.name AS target_name,
   r.start_cycle,
-  r.certainty,
-  r.is_true,
+  r.known_by_protagonist,
   rs.level,
   rs.context,
   rs.romantic_stage,
@@ -1066,7 +1005,8 @@ SELECT
   a.key,
   a.value,
   a.details,
-  a.start_cycle
+  a.start_cycle,
+  a.known_by_protagonist
 FROM attributes a
 JOIN entities e ON a.entity_id = e.id
 WHERE a.end_cycle IS NULL
@@ -1084,21 +1024,6 @@ FROM skills s
 JOIN entities e ON s.entity_id = e.id
 WHERE s.end_cycle IS NULL
   AND e.removed_cycle IS NULL;
-
-CREATE OR REPLACE VIEW v_beliefs AS
-SELECT 
-  b.game_id,
-  b.subject_id,
-  e.name AS subject_name,
-  e.type AS subject_type,
-  b.key,
-  b.content,
-  b.is_true,
-  b.certainty,
-  b.acquisition_cycle
-FROM beliefs b
-JOIN entities e ON b.subject_id = e.id
-WHERE e.removed_cycle IS NULL;
 
 CREATE OR REPLACE VIEW v_upcoming_events AS
 SELECT 

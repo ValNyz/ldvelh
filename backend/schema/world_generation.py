@@ -30,6 +30,20 @@ from .narrative import NarrativeArcData
 
 logger = logging.getLogger(__name__)
 
+
+WORLD_GENERATION_SOFT_MINIMUMS: dict[str, tuple[int, str]] = {
+    "characters": (3, "3+ characters recommended for social dynamics"),
+    "locations": (
+        4,
+        "4+ locations recommended (residence + workplace + social + arrival)",
+    ),
+    "organizations": (1, "At least 1 organization expected"),
+    "inventory": (3, "3+ starting items recommended"),
+    "narrative_arcs": (3, "3+ arcs recommended for richer storytelling"),
+    "initial_relations": (5, "5+ relations expected for world coherence"),
+}
+
+
 # =============================================================================
 # ARRIVAL EVENT
 # =============================================================================
@@ -72,13 +86,13 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     personal_ai: PersonalAIData
 
     # Entities
-    characters: list[CharacterData] = Field(..., min_length=3, max_length=8)
-    locations: list[LocationData] = Field(..., min_length=4, max_length=10)
-    organizations: list[OrganizationData] = Field(..., min_length=1, max_length=5)
-    inventory: list[ObjectData] = Field(..., min_length=3, max_length=15)
+    characters: list[CharacterData] = Field(..., max_length=8)
+    locations: list[LocationData] = Field(..., max_length=10)
+    organizations: list[OrganizationData] = Field(..., max_length=5)
+    inventory: list[ObjectData] = Field(..., max_length=15)
 
     # Narrative
-    narrative_arcs: list[NarrativeArcData] = Field(..., min_length=3, max_length=10)
+    narrative_arcs: list[NarrativeArcData] = Field(..., min_length=1, max_length=10)
 
     # Relations
     initial_relations: list[RelationData] = Field(..., min_length=5)
@@ -89,6 +103,17 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     # =========================================================================
     # VALIDATORS
     # =========================================================================
+
+    @model_validator(mode="after")
+    def validate_soft_minimums(self) -> "WorldGeneration":
+        """Check all list minimums - soft validation (warning, no error)"""
+        for field_name, (minimum, message) in WORLD_GENERATION_SOFT_MINIMUMS.items():
+            value = getattr(self, field_name, [])
+            if len(value) < minimum:
+                logger.warning(
+                    f"[Validation] {field_name}: {len(value)}/{minimum} - {message}"
+                )
+        return self
 
     @model_validator(mode="before")
     @classmethod
