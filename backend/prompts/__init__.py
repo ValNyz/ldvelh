@@ -30,9 +30,6 @@ from prompts.extractor_prompts import (
     # Relations
     RELATIONS_SYSTEM,
     build_relations_prompt,
-    # Croyances
-    BELIEFS_SYSTEM,
-    build_beliefs_prompt,
     # Engagements
     COMMITMENTS_SYSTEM,
     build_commitments_prompt,
@@ -62,8 +59,6 @@ __all__ = [
     "build_facts_prompt",
     "RELATIONS_SYSTEM",
     "build_relations_prompt",
-    "BELIEFS_SYSTEM",
-    "build_beliefs_prompt",
     "COMMITMENTS_SYSTEM",
     "build_commitments_prompt",
     # Helpers

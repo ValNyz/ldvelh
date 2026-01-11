@@ -59,7 +59,9 @@ class IAState(BaseModel):
     """État de l'IA normalisé"""
 
     nom: Optional[str] = None
-    personnalite: Optional[str] = None
+    personnalite: list[str] = Field(default_factory=list)  # Liste de traits
+    voix: Optional[str] = None  # Description de la voix
+    quirk: Optional[str] = None  # Particularité comportementale
     relation: Optional[int] = None
 
 
@@ -155,13 +157,28 @@ def normalize_partie(data: Optional[dict]) -> Optional[PartieState]:
 def normalize_ia(data: Optional[dict]) -> Optional[IAState]:
     """
     Normalise les données de l'IA.
+    Supporte les formats EAV (liste de traits) et ancien (string).
     """
     if not data:
         return None
 
+    # Extraire personnalite (peut être liste ou string)
+    raw_personnalite = data.get("personnalite") or data.get("personality") or []
+
+    # Normaliser en liste
+    if isinstance(raw_personnalite, str):
+        # Ancien format: string → convertir en liste
+        personnalite = [raw_personnalite] if raw_personnalite else []
+    elif isinstance(raw_personnalite, list):
+        personnalite = raw_personnalite
+    else:
+        personnalite = []
+
     return IAState(
         nom=data.get("nom") or data.get("name"),
-        personnalite=data.get("personnalite") or data.get("personality"),
+        personnalite=personnalite,
+        voix=data.get("voix") or data.get("voice"),
+        quirk=data.get("quirk"),
         relation=data.get("relation") or data.get("relationship_level"),
     )
 

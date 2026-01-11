@@ -24,8 +24,6 @@ from prompts.extractor_prompts import (
     build_facts_prompt,
     RELATIONS_SYSTEM,
     build_relations_prompt,
-    BELIEFS_SYSTEM,
-    build_beliefs_prompt,
     COMMITMENTS_SYSTEM,
     build_commitments_prompt,
     should_run_extraction,
@@ -51,7 +49,6 @@ class ExtractionResult:
     gauge_changes: list = field(default_factory=list)
     credit_transactions: list = field(default_factory=list)
     inventory_changes: list = field(default_factory=list)
-    beliefs_updated: list = field(default_factory=list)
     commitments_created: list = field(default_factory=list)
     commitments_resolved: list = field(default_factory=list)
     events_scheduled: list = field(default_factory=list)
@@ -68,7 +65,6 @@ class ExtractionResult:
             "gauge_changes": self.gauge_changes,
             "credit_transactions": self.credit_transactions,
             "inventory_changes": self.inventory_changes,
-            "beliefs_updated": self.beliefs_updated,
             "commitments_created": self.commitments_created,
             "commitments_resolved": self.commitments_resolved,
             "events_scheduled": self.events_scheduled,
@@ -126,13 +122,6 @@ class ExtractionResult:
                 tgt = rel.get("target_ref", "?")
                 rtype = rel.get("relation_type", "?")
                 logger.info(f"  🔗 Relation: {src} --[{rtype}]--> {tgt}")
-
-        if self.beliefs_updated:
-            for b in self.beliefs_updated:
-                subj = b.get("subject_ref", "?")
-                key = b.get("key", "?")
-                content = b.get("content", "")[:40]
-                logger.info(f"  💭 Croyance: {subj}.{key} = {content}")
 
         if self.facts:
             for f in self.facts:
@@ -244,18 +233,6 @@ class ParallelExtractionService:
         )
         return result or {"relations_created": [], "relations_updated": []}
 
-    async def extract_beliefs(
-        self,
-        narrative_text: str,
-        known_entities: list[str],
-    ) -> dict:
-        """Extracteur croyances (Haiku)"""
-        result = await self.llm.extract_light(
-            system_prompt=BELIEFS_SYSTEM,
-            user_message=build_beliefs_prompt(narrative_text, known_entities),
-        )
-        return result or {"beliefs_updated": []}
-
     async def extract_commitments(
         self,
         narrative_text: str,
@@ -294,7 +271,7 @@ class ParallelExtractionService:
 
         Flow:
         - Phase 1: Résumé, État protagoniste, Entités (parallèle)
-        - Phase 2: Objets, Faits, Relations, Croyances, Engagements (parallèle)
+        - Phase 2: Objets, Faits, Relations, Engagements (parallèle)
 
         Args:
             summary_task: Tâche de résumé déjà lancée (optionnel)
@@ -396,13 +373,6 @@ class ParallelExtractionService:
             )
             phase2_names["relations"] = "Relations"
 
-        # Croyances (si hint)
-        if hints.information_learned:
-            phase2_tasks["beliefs"] = asyncio.create_task(
-                self.extract_beliefs(narrative_text, all_known)
-            )
-            phase2_names["beliefs"] = "Croyances"
-
         # Engagements (si hints)
         if (
             hints.new_commitment_created
@@ -476,14 +446,25 @@ class ParallelExtractionService:
             # Normaliser et valider
             extraction_data = extraction_result.to_dict()
 
-            # Ajouter cycle et location
+            # Ajouter cycle et location au niveau racine
             extraction_data["cycle"] = cycle
             extraction_data["current_location_ref"] = location
+            extraction_data["key_npcs_present"] = npcs_present
+
+            # Ajouter cycle à chaque fait (le LLM ne le génère pas)
+            for fact in extraction_data.get("facts", []):
+                if "cycle" not in fact:
+                    fact["cycle"] = cycle
+
+            # Ajouter cycle à chaque relation_created
+            for rel in extraction_data.get("relations_created", []):
+                if "cycle" not in rel:
+                    rel["cycle"] = cycle
 
             try:
                 extraction = NarrativeExtraction.model_validate(extraction_data)
             except Exception as e:
-                print(f"[EXTRACTION] Validation error: {e}")
+                logger.warning(f"[EXTRACTION] Validation error: {e}")
                 extraction = None
 
             # Peupler le KG
@@ -505,36 +486,115 @@ class ParallelExtractionService:
             import traceback
 
             traceback.print_exc()
-            return {"error": str(e)}
+            return {"success": False, "error": str(e)}
 
     async def _process_raw_extraction(
         self, populator: ExtractionPopulator, conn, data: dict, cycle: int
     ) -> dict:
-        """Traite une extraction brute (non validée)"""
+        """Traite une extraction brute (non validée par Pydantic)"""
         stats = {
             "facts_created": 0,
             "entities_created": 0,
             "objects_created": 0,
             "relations_created": 0,
+            "gauges_changed": 0,
+            "credits_changed": 0,
             "errors": [],
         }
 
+        # Traiter les faits
         for fact_data in data.get("facts", []):
             try:
                 from schema import FactData
 
+                # S'assurer que cycle est présent
+                if "cycle" not in fact_data:
+                    fact_data["cycle"] = cycle
+
                 fact = FactData.model_validate(fact_data)
-                await populator.create_fact(conn, fact)
-                stats["facts_created"] += 1
+                result = await populator.create_fact(conn, fact)
+                if result:
+                    stats["facts_created"] += 1
             except Exception as e:
                 stats["errors"].append(f"fact: {e}")
 
+        # Traiter les changements de jauges
+        for gauge_data in data.get("gauge_changes", []):
+            try:
+                gauge = gauge_data.get("gauge")
+                delta = gauge_data.get("delta", 0)
+                if gauge and delta:
+                    success, _, _ = await populator.update_gauge(
+                        conn, gauge, delta, cycle
+                    )
+                    if success:
+                        stats["gauges_changed"] += 1
+            except Exception as e:
+                stats["errors"].append(f"gauge: {e}")
+
+        # Traiter les transactions de crédits
+        for tx_data in data.get("credit_transactions", []):
+            try:
+                amount = tx_data.get("amount", 0)
+                description = tx_data.get("description", "")
+                if amount:
+                    success, _, error = await populator.credit_transaction(
+                        conn, amount, cycle, description
+                    )
+                    if success:
+                        stats["credits_changed"] += 1
+                    elif error:
+                        stats["errors"].append(f"credits: {error}")
+            except Exception as e:
+                stats["errors"].append(f"credits: {e}")
+
+        # Traiter les entités créées
+        for entity_data in data.get("entities_created", []):
+            try:
+                from schema import EntityCreation
+
+                entity = EntityCreation.model_validate(entity_data)
+                await populator._process_entity_creation(conn, entity, cycle)
+                stats["entities_created"] += 1
+            except Exception as e:
+                stats["errors"].append(f"entity: {e}")
+
+        # Traiter les objets créés
+        for obj_data in data.get("objects_created", []):
+            try:
+                from schema import ObjectCreation
+
+                obj = ObjectCreation.model_validate(obj_data)
+                await populator._process_object_creation(conn, obj, cycle)
+                stats["objects_created"] += 1
+            except Exception as e:
+                stats["errors"].append(f"object: {e}")
+
+        # Traiter les relations créées
+        for rel_data in data.get("relations_created", []):
+            try:
+                from schema import RelationData
+
+                # Extraire la relation imbriquée si nécessaire
+                relation_dict = rel_data.get("relation", rel_data)
+
+                # S'assurer que cycle est présent
+                rel_cycle = rel_data.get("cycle", cycle)
+
+                relation = RelationData.model_validate(relation_dict)
+                result = await populator.create_relation(conn, relation, rel_cycle)
+                if result:
+                    stats["relations_created"] += 1
+            except Exception as e:
+                stats["errors"].append(f"relation: {e}")
+
+        # Sauvegarder le résumé du cycle
         if data.get("segment_summary"):
             await populator.save_cycle_summary(
                 conn,
                 cycle,
                 summary=data["segment_summary"],
-                key_events={},
+                key_events={"npcs_present": data.get("key_npcs_present", [])},
             )
 
         return stats

@@ -1,6 +1,7 @@
 """
-LDVELH - Narrative Extraction Schema
-Modèles pour extraire les données du texte narratif généré par le LLM
+LDVELH - Narrative Extraction Schema (EAV Architecture)
+Unified models for extracting data from LLM narrative output
+All entity types use the same attributes-based format
 """
 
 from typing import Literal
@@ -8,7 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
-    Attribute,
+    AttributeKey,
+    AttributeWithVisibility,
     CommitmentType,
     Cycle,
     EntityRef,
@@ -19,62 +21,100 @@ from .core import (
     Phrase,
     ShortText,
     Skill,
-    Tag,
     Text,
     normalize_commitment_type,
     normalize_entity_type,
+    normalize_attribute_key,
 )
-from .entities import CharacterData, LocationData, ObjectData, OrganizationData
-from .narrative import (
-    CharacterArc,
-    FactData,
-)
+from .narrative import FactData
 from .relations import RelationData, RelationType
 
+
 # =============================================================================
-# ENTITY CHANGES
+# ENTITY CREATION (Unified EAV format)
 # =============================================================================
 
 
 class EntityCreation(BaseModel):
-    """A new entity discovered/introduced in the narrative"""
+    """
+    A new entity discovered/introduced in the narrative.
+    All entity types use the same structure with attributes.
+    """
 
     entity_type: EntityType
     name: Name  # 100 chars
     aliases: list[str] = Field(default_factory=list)
+
+    # Visibility
     known_by_protagonist: bool = Field(
         default=True, description="False if Val doesn't know this entity's real name"
     )
     unknown_name: Name | None = Field(
         default=None, description="How Val refers to this entity if unknown"
     )
-    # Type-specific data (one of these based on entity_type)
-    character_data: CharacterData | None = None
-    location_data: LocationData | None = None
-    object_data: ObjectData | None = None  # Pour objets décor uniquement
-    organization_data: OrganizationData | None = None
+
+    # All data as attributes (unified format)
+    attributes: list[AttributeWithVisibility] = Field(default_factory=list)
+
+    # FK references (resolved by populator)
+    parent_location_ref: EntityRef | None = Field(
+        default=None, description="For locations: parent location"
+    )
+    headquarters_ref: EntityRef | None = Field(
+        default=None, description="For organizations: HQ location"
+    )
+    creator_ref: EntityRef | None = Field(
+        default=None, description="For AIs: creator entity"
+    )
+    workplace_ref: EntityRef | None = Field(
+        default=None, description="For characters: workplace"
+    )
+    residence_ref: EntityRef | None = Field(
+        default=None, description="For characters: residence"
+    )
 
     @field_validator("entity_type", mode="before")
     @classmethod
     def _normalize_entity_type(cls, v):
         return normalize_entity_type(v)
 
-    @model_validator(mode="after")
-    def validate_data_matches_type(self) -> "EntityCreation":
-        """Ensure the right data field is populated"""
-        type_to_field = {
-            EntityType.CHARACTER: "character_data",
-            EntityType.LOCATION: "location_data",
-            EntityType.OBJECT: "object_data",
-            EntityType.ORGANIZATION: "organization_data",
-        }
-        expected_field = type_to_field.get(self.entity_type)
-        if expected_field:
-            if getattr(self, expected_field) is None:
-                raise ValueError(
-                    f"Entity type {self.entity_type} requires {expected_field}"
-                )
-        return self
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _normalize_attributes(cls, v):
+        """Convert dict format to AttributeWithVisibility list"""
+        if isinstance(v, list):
+            result = []
+            for item in v:
+                if isinstance(item, dict):
+                    try:
+                        # Utiliser normalize_attribute_key au lieu de normalize_key
+                        key = normalize_attribute_key(item.get("key", ""))
+                        result.append(
+                            AttributeWithVisibility(
+                                key=key,
+                                value=item.get("value", ""),
+                                known_by_protagonist=item.get(
+                                    "known", item.get("known_by_protagonist", True)
+                                ),
+                                details=item.get("details"),
+                            )
+                        )
+                    except ValueError as e:
+                        # Log and skip invalid keys
+                        import logging
+
+                        logging.warning(f"[Extraction] Skipping invalid attribute: {e}")
+                elif isinstance(item, AttributeWithVisibility):
+                    result.append(item)
+            return result
+        return v
+
+    def get_attribute(self, key: AttributeKey) -> str | None:
+        """Get an attribute value by key"""
+        for attr in self.attributes:
+            if attr.key == key:
+                return attr.value
+        return None
 
 
 class EntityUpdate(BaseModel):
@@ -82,14 +122,47 @@ class EntityUpdate(BaseModel):
 
     entity_ref: EntityRef
     new_aliases: list[str] = Field(default_factory=list)
-    attributes_changed: list[Attribute] = Field(default_factory=list)
+    attributes_changed: list[AttributeWithVisibility] = Field(default_factory=list)
     skills_changed: list[Skill] = Field(default_factory=list)
-    arc_updates: list[CharacterArc] = Field(default_factory=list)
     now_known: bool | None = Field(
         default=None, description="Set to True when Val learns the entity's real name"
     )
+    real_name: Name | None = Field(
+        default=None, description="The real name if now_known=True"
+    )
     removed: bool = False
     removal_reason: Text | None = None  # 300 chars
+
+    # @field_validator("attributes", mode="before")
+    # @classmethod
+    # def _normalize_attributes(cls, v):
+    #     """Convert dict format to AttributeWithVisibility list"""
+    #     if isinstance(v, list):
+    #         result = []
+    #         for item in v:
+    #             if isinstance(item, dict):
+    #                 try:
+    #                     # Utiliser normalize_attribute_key au lieu de normalize_key
+    #                     key = normalize_attribute_key(item.get("key", ""))
+    #                     result.append(
+    #                         AttributeWithVisibility(
+    #                             key=key,
+    #                             value=item.get("value", ""),
+    #                             known_by_protagonist=item.get(
+    #                                 "known", item.get("known_by_protagonist", True)
+    #                             ),
+    #                             details=item.get("details"),
+    #                         )
+    #                     )
+    #                 except ValueError as e:
+    #                     # Log and skip invalid keys
+    #                     import logging
+    #
+    #                     logging.warning(f"[Extraction] Skipping invalid attribute: {e}")
+    #             elif isinstance(item, AttributeWithVisibility):
+    #                 result.append(item)
+    #         return result
+    #     return v
 
 
 class EntityRemoval(BaseModel):
@@ -112,13 +185,68 @@ class ObjectCreation(BaseModel):
     """
 
     name: Name  # 100 chars
-    category: Tag  # 50 chars
-    description: ShortText  # 200 chars
-    transportable: bool = True
-    stackable: bool = False
-    base_value: int = Field(default=0, ge=0)
-    emotional_significance: Phrase | None = None  # 150 chars
+    attributes: list[AttributeWithVisibility] = Field(default_factory=list)
+    quantity: int = Field(default=1, ge=1)
     from_hint: ShortText  # 200 chars - The original hint
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def _normalize_attributes(cls, v):
+        """Convert dict or simple format to AttributeWithVisibility list"""
+        if isinstance(v, list):
+            result = []
+            for item in v:
+                if isinstance(item, dict):
+                    result.append(
+                        AttributeWithVisibility(
+                            key=item.get("key"),
+                            value=item.get("value", ""),
+                            known_by_protagonist=item.get("known", True),
+                            details=item.get("details"),
+                        )
+                    )
+                elif isinstance(item, AttributeWithVisibility):
+                    result.append(item)
+            return result
+        return v
+
+    @classmethod
+    def from_extracted(
+        cls,
+        name: str,
+        category: str,
+        description: str,
+        transportable: bool = True,
+        stackable: bool = False,
+        base_value: int = 0,
+        emotional_significance: str | None = None,
+        from_hint: str = "",
+    ) -> "ObjectCreation":
+        """Factory from extracted data"""
+        attrs = [
+            AttributeWithVisibility(
+                key=AttributeKey.DESCRIPTION,
+                value=description,
+                known_by_protagonist=True,
+                details={
+                    "category": category,
+                    "transportable": transportable,
+                    "stackable": stackable,
+                    "base_value": base_value,
+                },
+            ),
+        ]
+
+        if emotional_significance:
+            attrs.append(
+                AttributeWithVisibility(
+                    key=AttributeKey.EMOTIONAL_SIGNIFICANCE,
+                    value=emotional_significance,
+                    known_by_protagonist=True,
+                )
+            )
+
+        return cls(name=name, attributes=attrs, from_hint=from_hint)
 
 
 # =============================================================================
@@ -179,15 +307,13 @@ class CreditTransaction(BaseModel):
 class InventoryChange(BaseModel):
     """
     Item gained, lost, or used.
-
-    Pour les nouveaux objets: utiliser object_hint (pas de création ici).
-    L'extracteur Objets créera l'objet à partir du hint.
+    For new objects: use object_hint (object will be created separately).
     """
 
     action: Literal["acquire", "lose", "use"]
-    # Pour objets existants
+    # For existing objects
     object_ref: EntityRef | None = None
-    # Pour nouveaux objets: description textuelle, pas ObjectData
+    # For new objects: text description, not ObjectData
     object_hint: ShortText | None = None  # 200 chars
     quantity_delta: int = Field(default=1)
     reason: Phrase | None = None  # 150 chars
@@ -208,7 +334,7 @@ class InventoryChange(BaseModel):
 
 
 class CommitmentCreationExtraction(BaseModel):
-    """A new narrative commitment (foreshadowing, secret, etc.) - for extraction"""
+    """A new narrative commitment (foreshadowing, secret, etc.)"""
 
     commitment_type: CommitmentType
     description: LongText  # 400 chars
@@ -224,14 +350,14 @@ class CommitmentCreationExtraction(BaseModel):
 
 
 class CommitmentResolutionExtraction(BaseModel):
-    """A commitment that was resolved - for extraction"""
+    """A commitment that was resolved"""
 
     commitment_description: ShortText  # 200 chars - to match existing
     resolution_description: Text  # 300 chars
 
 
 class EventScheduledExtraction(BaseModel):
-    """An event planned for the future - for extraction"""
+    """An event planned for the future"""
 
     event_type: Literal[
         "appointment", "deadline", "celebration", "recurring", "financial_due"
@@ -267,7 +393,7 @@ class NarrativeExtraction(BaseModel):
     # Facts (immutable events that happened)
     facts: list[FactData] = Field(default_factory=list)
 
-    # Entity changes
+    # Entity changes (unified EAV format)
     entities_created: list[EntityCreation] = Field(default_factory=list)
     entities_updated: list[EntityUpdate] = Field(default_factory=list)
     entities_removed: list[EntityRemoval] = Field(default_factory=list)

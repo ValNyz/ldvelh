@@ -308,10 +308,12 @@ EXAMPLE_JSON_OUTPUT = """{
   
   "world": {
     "name": "Escale Méridienne",
-    "station_type": "station orbitale reconvertie",
-    "population": 12400,
-    "atmosphere": "industrielle fatiguée",
-    "description": "Ancienne station minière reconvertie. Infrastructure vieillissante, population blasée.",
+    "attributes": [
+      {"key": "location_type", "value": "station orbitale reconvertie", "known": true},
+      {"key": "atmosphere", "value": "industrielle fatiguée", "known": true},
+      {"key": "description", "value": "Ancienne station minière reconvertie. Infrastructure vieillissante, population blasée.", "known": true},
+      {"key": "notable_features", "value": "[\\"Quai Central\\", \\"Serres Hautes\\", \\"Quartier Ouvrier\\"]", "known": true}
+    ],
     "sectors": ["Quai Central", "Serres Hautes", "Quartier Ouvrier"],
     "founding_cycle": -4500
   },
@@ -319,239 +321,212 @@ EXAMPLE_JSON_OUTPUT = """{
   "locations": [
     {
       "name": "Terminal Quai 7",
-      "location_type": "terminal",
-      "sector": "Quai Central",
-      "description": "Hall bruyant aux plafonds tachés. Files d'attente permanentes.",
-      "atmosphere": "transit impersonnel",
       "parent_location_ref": null,
-      "accessible": true,
-      "notable_features": ["kiosque à café médiocre", "sièges inconfortables"],
-      "typical_crowd": "voyageurs fatigués, dockers indifférents",
-      "operating_hours": "24/7"
+      "attributes": [
+        {"key": "location_type", "value": "terminal", "known": true},
+        {"key": "sector", "value": "Quai Central", "known": true},
+        {"key": "description", "value": "Hall bruyant aux plafonds tachés. Files d'attente permanentes.", "known": true},
+        {"key": "atmosphere", "value": "transit impersonnel", "known": true},
+        {"key": "accessible", "value": "true", "known": true},
+        {"key": "notable_features", "value": "[\\"kiosque à café médiocre\\", \\"sièges inconfortables\\"]", "known": true},
+        {"key": "typical_crowd", "value": "voyageurs fatigués, dockers indifférents", "known": true},
+        {"key": "operating_hours", "value": "24/7", "known": true}
+      ]
     },
     {
       "name": "Bloc Tournesol",
-      "location_type": "residential_building",
-      "sector": "Quartier Ouvrier",
-      "description": "Immeuble de six étages, façade défraîchie. Ascenseur en panne un jour sur trois.",
-      "atmosphere": "vétuste mais vivant",
       "parent_location_ref": null,
-      "accessible": true,
-      "notable_features": ["hall mal éclairé", "boîtes aux lettres cabossées"],
-      "typical_crowd": "résidents pressés",
-      "operating_hours": null
+      "attributes": [
+        {"key": "location_type", "value": "residential_building", "known": false},
+        {"key": "sector", "value": "Quartier Ouvrier", "known": false},
+        {"key": "description", "value": "Immeuble de six étages, façade défraîchie. Ascenseur en panne un jour sur trois.", "known": false},
+        {"key": "atmosphere", "value": "vétuste mais vivant", "known": false},
+        {"key": "accessible", "value": "true", "known": false},
+        {"key": "notable_features", "value": "[\\"hall mal éclairé\\", \\"boîtes aux lettres cabossées\\"]", "known": false}
+      ]
     },
     {
       "name": "Appartement 4-12",
-      "location_type": "apartment",
-      "sector": "Quartier Ouvrier",
-      "description": "28m², murs fins, vue sur conduit d'aération. Le minimum syndical.",
-      "atmosphere": "exigu et impersonnel",
       "parent_location_ref": "Bloc Tournesol",
-      "accessible": true,
-      "notable_features": ["kitchenette vétuste", "lit qui grince"],
-      "typical_crowd": null,
-      "operating_hours": null
+      "attributes": [
+        {"key": "location_type", "value": "apartment", "known": false},
+        {"key": "sector", "value": "Quartier Ouvrier", "known": false},
+        {"key": "description", "value": "28m², murs fins, vue sur conduit d'aération. Le minimum syndical.", "known": false},
+        {"key": "atmosphere", "value": "exigu et impersonnel", "known": false},
+        {"key": "accessible", "value": "true", "known": false},
+        {"key": "notable_features", "value": "[\\"kitchenette vétuste\\", \\"lit qui grince\\"]", "known": false}
+      ]
     },
     {
       "name": "Serres Hydro-7",
-      "location_type": "workplace",
-      "sector": "Serres Hautes",
-      "description": "Serre industrielle. Humidité constante, éclairage agressif.",
-      "atmosphere": "humide et bruyante",
       "parent_location_ref": null,
-      "accessible": true,
-      "notable_features": ["bassins nutritifs", "ventilation assourdissante"],
-      "typical_crowd": "techniciens concentrés",
-      "operating_hours": "06h-22h"
+      "attributes": [
+        {"key": "location_type", "value": "workplace", "known": true},
+        {"key": "sector", "value": "Serres Hautes", "known": false},
+        {"key": "description", "value": "Serre industrielle. Humidité constante, éclairage agressif.", "known": false},
+        {"key": "atmosphere", "value": "humide et bruyante", "known": false},
+        {"key": "accessible", "value": "true", "known": false},
+        {"key": "notable_features", "value": "[\\"bassins nutritifs\\", \\"ventilation assourdissante\\"]", "known": false},
+        {"key": "typical_crowd", "value": "techniciens concentrés", "known": false},
+        {"key": "operating_hours", "value": "06h-22h", "known": false}
+      ]
     },
     {
       "name": "Le Quart de Cycle",
-      "location_type": "cafe",
-      "sector": "Quai Central",
-      "description": "Café correct, sans plus. Le proprio n'est pas du genre bavard.",
-      "atmosphere": "fonctionnel",
       "parent_location_ref": null,
-      "accessible": true,
-      "notable_features": ["comptoir usé", "chaises dépareillées"],
-      "typical_crowd": "habitués silencieux",
-      "operating_hours": "07h-23h"
+      "attributes": [
+        {"key": "location_type", "value": "cafe", "known": false},
+        {"key": "sector", "value": "Quai Central", "known": false},
+        {"key": "description", "value": "Café correct, sans plus. Le proprio n'est pas du genre bavard.", "known": false},
+        {"key": "atmosphere", "value": "fonctionnel", "known": false},
+        {"key": "accessible", "value": "true", "known": false},
+        {"key": "notable_features", "value": "[\\"comptoir usé\\", \\"chaises dépareillées\\"]", "known": false},
+        {"key": "typical_crowd", "value": "habitués silencieux", "known": false},
+        {"key": "operating_hours", "value": "07h-23h", "known": false},
+        {"key": "price_range", "value": "budget", "known": false}
+      ]
     }
   ],
   
   "organizations": [
     {
       "name": "Symbiose Tech",
-      "org_type": "company",
-      "domain": "IA agricole",
-      "size": "medium",
-      "description": "Startup en difficulté. Ambiance tendue, deadlines impossibles.",
-      "reputation": "innovants mais désorganisés, turnover élevé",
       "headquarters_ref": "Serres Hydro-7",
-      "founding_cycle": -2920,
-      "is_employer": true
+      "attributes": [
+        {"key": "org_type", "value": "company", "known": true},
+        {"key": "domain", "value": "IA agricole", "known": true},
+        {"key": "size", "value": "medium", "known": true},
+        {"key": "description", "value": "Startup en difficulté. Ambiance tendue, deadlines impossibles.", "known": false},
+        {"key": "reputation", "value": "innovants mais désorganisés, turnover élevé", "known": false},
+        {"key": "founding_cycle", "value": "-2920", "known": false},
+        {"key": "is_employer", "value": "true", "known": true},
+        {"key": "true_purpose", "value": "Rentabilité à court terme, peu importe les conséquences", "known": false}
+      ]
     }
   ],
   
   "protagonist": {
     "name": "Valentin",
-    "origin_location": "Cité-Dôme de Vega III",
-    "departure_reason": "fresh_start",
-    "departure_story": "Huit ans dans une startup qui a implosé. Burnout. Besoin de partir.",
-    "backstory": "Développeur compétent mais fatigué. Idéalisme érodé par les déceptions.",
-    "hobbies": ["cuisine improvisée", "lecture", "course à pied"],
+    "attributes": [
+      {"key": "origin", "value": "Cité-Dôme de Vega III", "known": true},
+      {"key": "departure_reason", "value": "fresh_start", "known": true},
+      {"key": "backstory", "value": "Huit ans dans une startup qui a implosé. Burnout. Besoin de partir. Développeur compétent mais fatigué. Idéalisme érodé par les déceptions.", "known": true},
+      {"key": "hobbies", "value": "[\\"cuisine improvisée\\", \\"lecture\\", \\"course à pied\\"]", "known": true},
+      {"key": "credits", "value": "1650", "known": true},
+      {"key": "energy", "value": "2.5", "known": true},
+      {"key": "morale", "value": "2.5", "known": true},
+      {"key": "health", "value": "4.0", "known": true}
+    ],
     "skills": [
       {"name": "architecture_systemes", "level": 4},
       {"name": "programmation_ia", "level": 4}
-    ],
-    "initial_credits": 1650,
-    "initial_energy": 2.5,
-    "initial_morale": 2.5,
-    "initial_health": 4.0
+    ]
   },
   
   "personal_ai": {
     "name": "Célimène",
-    "voice_description": "voix rauque, débit lent",
-    "personality_traits": ["sarcastique", "observatrice", "peu impressionnable"],
-    "substrate": "personal_device",
-    "quirk": "Note les contradictions des gens sans les commenter... sauf quand c'est drôle"
+    "creator_ref": null,
+    "attributes": [
+      {"key": "voice", "value": "voix rauque, débit lent", "known": true},
+      {"key": "traits", "value": "[\\"sarcastique\\", \\"observatrice\\", \\"peu impressionnable\\"]", "known": true},
+      {"key": "substrate", "value": "personal_device", "known": true},
+      {"key": "quirk", "value": "Note les contradictions des gens sans les commenter... sauf quand c'est drôle", "known": false}
+    ]
   },
   
   "characters": [
     {
       "name": "Justine Lépicier",
-      "species": "human",
-      "gender": "femme",
-      "pronouns": "elle",
-      "age": 32,
-      "physical_description": "1m54, courbes prononcées, blonde en désordre, yeux bleus cernés",
-      "personality_traits": ["pragmatique", "humour caustique", "méfiante", "épuisée"],
-      "occupation": "technicienne maintenance serres",
       "workplace_ref": "Serres Hydro-7",
       "residence_ref": "Bloc Tournesol",
-      "origin_location": "Station Kepler-22",
-      "station_arrival_cycle": -730,
-      "arcs": [
-        {
-          "domain": "family",
-          "title": "La mère malade",
-          "situation": "Mère malade, envoie la moitié de son salaire",
-          "desire": "Faire venir sa mère ici",
-          "obstacle": "Coût du transfert médical astronomique",
-          "potential_evolution": "Pourrait accepter de l'aide ou s'enfoncer dans la dette",
-          "intensity": 5
-        },
-        {
-          "domain": "romantic",
-          "title": "Cœur fermé",
-          "situation": "Rupture difficile il y a deux ans, ne cherche personne",
-          "desire": "La paix",
-          "obstacle": "Se protège derrière le sarcasme",
-          "potential_evolution": "Très lente ouverture possible, ou pas",
-          "intensity": 2
-        }
-      ],
-      "is_mandatory": true,
-      "romantic_potential": true,
-      "initial_relationship_to_protagonist": null
+      "known_by_protagonist": false,
+      "unknown_name": null,
+      "attributes": [
+        {"key": "species", "value": "human", "known": false},
+        {"key": "gender", "value": "femme", "known": false},
+        {"key": "pronouns", "value": "elle", "known": false},
+        {"key": "age", "value": "32", "known": false},
+        {"key": "description", "value": "1m54, courbes prononcées, blonde en désordre, yeux bleus cernés", "known": false},
+        {"key": "traits", "value": "[\\"pragmatique\\", \\"humour caustique\\", \\"méfiante\\", \\"épuisée\\"]", "known": false},
+        {"key": "occupation", "value": "technicienne maintenance serres", "known": false},
+        {"key": "mood", "value": "fatiguée, sur la défensive", "known": false},
+        {"key": "origin", "value": "Station Kepler-22", "known": false},
+        {"key": "arrival_cycle", "value": "-730", "known": false},
+        {"key": "motivation", "value": "Protéger sa mère malade, survivre", "known": false},
+        {"key": "arcs", "value": "[{\\"domain\\": \\"family\\", \\"title\\": \\"La mère malade\\", \\"situation\\": \\"Mère malade, envoie la moitié de son salaire\\", \\"desire\\": \\"Faire venir sa mère ici\\", \\"obstacle\\": \\"Coût du transfert médical astronomique\\", \\"intensity\\": 5}, {\\"domain\\": \\"romantic\\", \\"title\\": \\"Cœur fermé\\", \\"situation\\": \\"Rupture difficile il y a deux ans\\", \\"desire\\": \\"La paix\\", \\"obstacle\\": \\"Se protège derrière le sarcasme\\", \\"intensity\\": 2}]", "known": false},
+        {"key": "romantic_potential", "value": "true", "known": false},
+        {"key": "is_mandatory", "value": "true", "known": false}
+      ]
     },
     {
       "name": "Dr. Yuki Tanaka",
-      "species": "human",
-      "gender": "femme",
-      "pronouns": "elle",
-      "age": 45,
-      "physical_description": "Petite, cheveux gris en chignon serré, posture rigide, regard dur",
-      "personality_traits": ["perfectionniste", "impatiente", "cassante", "méfiante envers les nouveaux"],
-      "occupation": "directrice technique Symbiose Tech",
       "workplace_ref": "Serres Hydro-7",
       "residence_ref": "Bloc Tournesol",
-      "origin_location": "Mars-Cité",
-      "station_arrival_cycle": -2800,
-      "arcs": [
-        {
-          "domain": "professional",
-          "title": "Standards impossibles",
-          "situation": "Pousse l'équipe trop fort, démissions récentes",
-          "desire": "Projet parfait",
-          "obstacle": "Son exigence fait fuir les talents",
-          "potential_evolution": "Apprendre à déléguer ou s'isoler davantage",
-          "intensity": 4
-        },
-        {
-          "domain": "health",
-          "title": "Burnout silencieux",
-          "situation": "14h/jour depuis des mois, insomnie",
-          "desire": "Prouver qu'elle gère",
-          "obstacle": "Refuse d'admettre le problème",
-          "potential_evolution": "Effondrement ou prise de conscience",
-          "intensity": 5
-        }
-      ],
-      "is_mandatory": false,
-      "romantic_potential": false,
-      "initial_relationship_to_protagonist": "future supérieure, sceptique sur son recrutement"
+      "known_by_protagonist": false,
+      "unknown_name": null,
+      "attributes": [
+        {"key": "species", "value": "human", "known": false},
+        {"key": "gender", "value": "femme", "known": false},
+        {"key": "pronouns", "value": "elle", "known": false},
+        {"key": "age", "value": "45", "known": false},
+        {"key": "description", "value": "Petite, cheveux gris en chignon serré, posture rigide, regard dur", "known": false},
+        {"key": "traits", "value": "[\\"perfectionniste\\", \\"impatiente\\", \\"cassante\\", \\"méfiante envers les nouveaux\\"]", "known": false},
+        {"key": "occupation", "value": "directrice technique Symbiose Tech", "known": false},
+        {"key": "mood", "value": "tendue, irritable", "known": false},
+        {"key": "origin", "value": "Mars-Cité", "known": false},
+        {"key": "arrival_cycle", "value": "-2800", "known": false},
+        {"key": "motivation", "value": "Prouver sa valeur, ne jamais échouer", "known": false},
+        {"key": "arcs", "value": "[{\\"domain\\": \\"professional\\", \\"title\\": \\"Standards impossibles\\", \\"situation\\": \\"Pousse l'équipe trop fort\\", \\"desire\\": \\"Projet parfait\\", \\"obstacle\\": \\"Son exigence fait fuir les talents\\", \\"intensity\\": 4}, {\\"domain\\": \\"health\\", \\"title\\": \\"Burnout silencieux\\", \\"situation\\": \\"14h/jour depuis des mois\\", \\"desire\\": \\"Prouver qu'elle gère\\", \\"obstacle\\": \\"Refuse d'admettre le problème\\", \\"intensity\\": 5}]", "known": false},
+        {"key": "romantic_potential", "value": "false", "known": false},
+        {"key": "is_mandatory", "value": "false", "known": false}
+      ]
     },
     {
       "name": "Ossek",
-      "species": "keth (semi-aquatique)",
-      "gender": "non-binaire",
-      "pronouns": "iel",
-      "age": null,
-      "physical_description": "Peau bleu-gris, branchies latérales, yeux sans pupilles, mouvements lents",
-      "personality_traits": ["calme", "distant", "mélancolique", "peu bavard"],
-      "occupation": "propriétaire du café",
       "workplace_ref": "Le Quart de Cycle",
       "residence_ref": "Le Quart de Cycle",
-      "origin_location": "Monde-Océan de Téthys",
-      "station_arrival_cycle": -1825,
-      "arcs": [
-        {
-          "domain": "health",
-          "title": "Le mal du banc",
-          "situation": "Mélancolie keth chronique, aggravée par l'isolement",
-          "desire": "Équilibre émotionnel",
-          "obstacle": "Aucun traitement connu",
-          "potential_evolution": "Liens profonds pourraient aider, ou pas",
-          "intensity": 4
-        },
-        {
-          "domain": "social",
-          "title": "L'exil",
-          "situation": "A quitté son monde après un conflit, seul de son espèce ici",
-          "desire": "Trouver une famille choisie",
-          "obstacle": "Les Keth isolés se replient sur eux-mêmes",
-          "potential_evolution": "Le café pourrait devenir ce lieu... lentement",
-          "intensity": 3
-        }
-      ],
-      "is_mandatory": false,
-      "romantic_potential": false,
-      "initial_relationship_to_protagonist": null
+      "known_by_protagonist": false,
+      "unknown_name": null,
+      "attributes": [
+        {"key": "species", "value": "keth (semi-aquatique)", "known": false},
+        {"key": "gender", "value": "non-binaire", "known": false},
+        {"key": "pronouns", "value": "iel", "known": false},
+        {"key": "description", "value": "Peau bleu-gris, branchies latérales, yeux sans pupilles, mouvements lents", "known": false},
+        {"key": "traits", "value": "[\\"calme\\", \\"distant\\", \\"mélancolique\\", \\"peu bavard\\"]", "known": false},
+        {"key": "occupation", "value": "propriétaire du café", "known": false},
+        {"key": "mood", "value": "mélancolique, absent", "known": false},
+        {"key": "origin", "value": "Monde-Océan de Téthys", "known": false},
+        {"key": "arrival_cycle", "value": "-1825", "known": false},
+        {"key": "motivation", "value": "Retrouver un sens d'appartenance", "known": false},
+        {"key": "arcs", "value": "[{\\"domain\\": \\"health\\", \\"title\\": \\"Le mal du banc\\", \\"situation\\": \\"Mélancolie keth chronique\\", \\"desire\\": \\"Équilibre émotionnel\\", \\"obstacle\\": \\"Aucun traitement connu\\", \\"intensity\\": 4}, {\\"domain\\": \\"social\\", \\"title\\": \\"L'exil\\", \\"situation\\": \\"Seul de son espèce ici\\", \\"desire\\": \\"Trouver une famille choisie\\", \\"obstacle\\": \\"Les Keth isolés se replient\\", \\"intensity\\": 3}]", "known": false},
+        {"key": "romantic_potential", "value": "false", "known": false},
+        {"key": "is_mandatory", "value": "false", "known": false}
+      ]
     }
   ],
   
   "inventory": [
     {
       "name": "Terminal personnel",
-      "category": "tech",
-      "description": "Modèle standard usé, héberge Célimène",
-      "transportable": true,
-      "stackable": false,
-      "quantity": 1,
-      "base_value": 300,
-      "emotional_significance": null
+      "attributes": [
+        {"key": "category", "value": "tech", "known": true},
+        {"key": "description", "value": "Modèle standard usé, héberge Célimène", "known": true},
+        {"key": "transportable", "value": "true", "known": true},
+        {"key": "stackable", "value": "false", "known": true},
+        {"key": "base_value", "value": "300", "known": true}
+      ],
+      "quantity": 1
     },
     {
       "name": "Valise cabine",
-      "category": "baggage",
-      "description": "Plastique rayé, fermeture capricieuse",
-      "transportable": true,
-      "stackable": false,
-      "quantity": 1,
-      "base_value": 40,
-      "emotional_significance": null
+      "attributes": [
+        {"key": "category", "value": "baggage", "known": true},
+        {"key": "description", "value": "Plastique rayé, fermeture capricieuse", "known": true},
+        {"key": "transportable", "value": "true", "known": true},
+        {"key": "stackable", "value": "false", "known": true},
+        {"key": "base_value", "value": "40", "known": true}
+      ],
+      "quantity": 1
     }
   ],
   
@@ -569,16 +544,15 @@ EXAMPLE_JSON_OUTPUT = """{
   ],
   
   "initial_relations": [
-    {"source_ref": "Valentin", "target_ref": "Appartement 4-12", "relation_type": "lives_at", "certainty": "certain"},
-    {"source_ref": "Valentin", "target_ref": "Symbiose Tech", "relation_type": "employed_by", "certainty": "certain"},
-    {"source_ref": "Justine Lépicier", "target_ref": "Serres Hydro-7", "relation_type": "works_at", "certainty": "certain"},
-    {"source_ref": "Justine Lépicier", "target_ref": "Bloc Tournesol", "relation_type": "lives_at", "certainty": "certain"},
-    {"source_ref": "Dr. Yuki Tanaka", "target_ref": "Serres Hydro-7", "relation_type": "works_at", "certainty": "certain"},
-    {"source_ref": "Dr. Yuki Tanaka", "target_ref": "Bloc Tournesol", "relation_type": "lives_at", "certainty": "certain"},
-    {"source_ref": "Ossek", "target_ref": "Le Quart de Cycle", "relation_type": "owns", "certainty": "certain"},
-    {"source_ref": "Ossek", "target_ref": "Le Quart de Cycle", "relation_type": "lives_at", "certainty": "certain"},
-    {"source_ref": "Appartement 4-12", "target_ref": "Bloc Tournesol", "relation_type": "located_in", "certainty": "certain"},
-    {"source_ref": "Symbiose Tech", "target_ref": "Serres Hydro-7", "relation_type": "located_in", "certainty": "certain"}
+    {"source_ref": "Valentin", "target_ref": "Appartement 4-12", "relation_type": "lives_at", "known_by_protagonist": true},
+    {"source_ref": "Valentin", "target_ref": "Symbiose Tech", "relation_type": "employed_by", "known_by_protagonist": true},
+    {"source_ref": "Justine Lépicier", "target_ref": "Serres Hydro-7", "relation_type": "works_at", "known_by_protagonist": false},
+    {"source_ref": "Justine Lépicier", "target_ref": "Bloc Tournesol", "relation_type": "lives_at", "known_by_protagonist": false},
+    {"source_ref": "Dr. Yuki Tanaka", "target_ref": "Serres Hydro-7", "relation_type": "works_at", "known_by_protagonist": false},
+    {"source_ref": "Dr. Yuki Tanaka", "target_ref": "Symbiose Tech", "relation_type": "manages", "known_by_protagonist": false},
+    {"source_ref": "Ossek", "target_ref": "Le Quart de Cycle", "relation_type": "owns", "known_by_protagonist": false},
+    {"source_ref": "Appartement 4-12", "target_ref": "Bloc Tournesol", "relation_type": "located_in", "known_by_protagonist": false},
+    {"source_ref": "Symbiose Tech", "target_ref": "Serres Hydro-7", "relation_type": "located_in", "known_by_protagonist": false}
   ],
   
   "arrival_event": {
