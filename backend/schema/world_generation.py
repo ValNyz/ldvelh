@@ -7,6 +7,7 @@ Architecture EAV : données dans attributes
 
 import logging
 from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import Any
 
 from .core import (
     AttributeKey,
@@ -17,6 +18,8 @@ from .core import (
     Tag,
     TemporalValidationMixin,
     Text,
+    AttributeWithVisibility,
+    normalize_attribute_key,
 )
 from .entities import (
     CharacterData,
@@ -91,6 +94,35 @@ def get_entity_attribute_float(
         return float(value)
     except (ValueError, TypeError):
         return default
+
+
+def set_entity_attribute(
+    entity: BaseModel,
+    key: str | AttributeKey,
+    value: Any,
+    known: bool | None = None,
+) -> None:
+    """Set or update an attribute value in an EAV entity."""
+    # Normaliser la clé si c'est un string
+    if isinstance(key, str):
+        key = normalize_attribute_key(key)
+
+    # Chercher et mettre à jour l'attribut existant
+    for attr in entity.attributes:
+        if attr.key == key:
+            attr.value = str(value)
+            if known is not None:
+                attr.known_by_protagonist = known
+            return
+
+    # Attribut non trouvé → l'ajouter
+    entity.attributes.append(
+        AttributeWithVisibility(
+            key=key,
+            value=str(value),
+            known_by_protagonist=known if known is not None else False,
+        )
+    )
 
 
 # =============================================================================
@@ -291,31 +323,35 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         """Validate all temporal relationships - SOFT MODE."""
         founding = self.world.founding_cycle
 
-        valid_chars = []
         for char in self.characters:
-            arrival_cycle = get_entity_attribute_int(char, "arrival_cycle", None)
-            if arrival_cycle is None:
-                # No arrival_cycle specified, keep the character
-                valid_chars.append(char)
-            elif self.is_temporally_valid(
-                arrival_cycle, founding, f"Character '{char.name}'"
+            arrival_cycle = get_entity_attribute_int(
+                char, AttributeKey.ARRIVAL_CYCLE, None
+            )
+            if (
+                arrival_cycle is not None
+                and founding is not None
+                and arrival_cycle < founding
             ):
-                valid_chars.append(char)
+                logger.warning(
+                    f"[Temporal] Character '{char.name}': arrival_cycle ({arrival_cycle}) "
+                    f"before founding_cycle ({founding}) - correcting"
+                )
+                set_entity_attribute(char, AttributeKey.ARRIVAL_CYCLE, founding)
 
-        if len(valid_chars) != len(self.characters):
-            self.characters = valid_chars
-
-        valid_orgs = []
         for org in self.organizations:
-            org_founding = get_entity_attribute_int(org, "founding_cycle", None)
-            if org_founding is None or self.is_temporally_valid(
-                org_founding, founding, f"Organization '{org.name}'"
+            org_founding = get_entity_attribute_int(
+                org, AttributeKey.FOUNDING_CYCLE, None
+            )
+            if (
+                org_founding is not None
+                and founding is not None
+                and org_founding < founding
             ):
-                valid_orgs.append(org)
-
-        if len(valid_orgs) != len(self.organizations):
-            self.organizations = valid_orgs
-
+                logger.warning(
+                    f"[Temporal] Organization '{org.name}': founding_cycle ({org_founding}) "
+                    f"before world founding ({founding}) - correcting"
+                )
+                set_entity_attribute(org, AttributeKey.FOUNDING_CYCLE, founding)
         return self
 
     @model_validator(mode="after")

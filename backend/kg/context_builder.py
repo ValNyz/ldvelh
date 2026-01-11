@@ -8,6 +8,7 @@ import json
 from uuid import UUID
 from typing import TYPE_CHECKING
 
+from utils import parse_json_list
 from schema.narration import (
     NarrationContext,
     GaugeState,
@@ -175,12 +176,7 @@ class ContextBuilder:
                 protagonist_id,
             )
 
-        hobbies = []
-        if row["hobbies"]:
-            try:
-                hobbies = json.loads(row["hobbies"])
-            except:
-                pass
+        hobbies = parse_json_list(row["hobbies"])
 
         return ProtagonistState(
             name=row["name"],
@@ -231,12 +227,7 @@ class ContextBuilder:
         if not row:
             return None
 
-        traits = []
-        if row["traits"]:
-            try:
-                traits = json.loads(row["traits"])
-            except:
-                pass
+        traits = parse_json_list(row["traits"])
 
         return PersonalAISummary(
             name=row["name"],
@@ -371,18 +362,13 @@ class ContextBuilder:
         if not row.get("known_by_protagonist", True):
             display_name = row.get("unknown_name") or "Inconnu(e)"
 
-        traits = []
-        if row.get("traits"):
-            try:
-                traits = json.loads(row["traits"])
-            except:
-                pass
+        traits = parse_json_list(row.get("traits"))
 
         arcs = []
-        if row.get("arcs"):
-            try:
-                arcs_raw = json.loads(row["arcs"])
-                for arc in arcs_raw[:2]:
+        arcs_raw = parse_json_list(row.get("arcs"))
+        for arc in arcs_raw[:2]:
+            if isinstance(arc, dict):
+                try:
                     arcs.append(
                         ArcSummary(
                             domain=ArcDomain(arc.get("domain", "personal")),
@@ -391,8 +377,8 @@ class ContextBuilder:
                             intensity=arc.get("intensity", 3),
                         )
                     )
-            except:
-                pass
+                except (ValueError, KeyError):
+                    pass
 
         return NPCSummary(
             name=display_name,
@@ -419,16 +405,37 @@ class ContextBuilder:
             self.game_id,
         )
 
-        return [
-            CommitmentSummary(
-                type=r["type"],
-                title=r["description"][:50] if r["description"] else "",
-                description_brief=r["description"][:150] if r["description"] else "",
-                involved=[e["name"] for e in (r["entities"] or []) if e.get("name")],
-                deadline_cycle=r["deadline_cycle"],
+        result = []
+        for r in rows:
+            # Parse entities - peut être une liste de JSONB ou une liste de strings
+            entities_raw = r["entities"] or []
+            involved = []
+
+            for e in entities_raw:
+                # Si c'est une string, parser en JSON
+                if isinstance(e, str):
+                    try:
+                        e = json.loads(e)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+                # Maintenant e devrait être un dict
+                if isinstance(e, dict) and e.get("name"):
+                    involved.append(e["name"])
+
+            result.append(
+                CommitmentSummary(
+                    type=r["type"],
+                    title=r["description"][:50] if r["description"] else "",
+                    description_brief=r["description"][:150]
+                    if r["description"]
+                    else "",
+                    involved=involved,
+                    deadline_cycle=r["deadline_cycle"],
+                )
             )
-            for r in rows
-        ]
+
+        return result
 
     async def _get_upcoming_events(
         self, conn: Connection, current_cycle: int
@@ -444,17 +451,25 @@ class ContextBuilder:
             current_cycle,
         )
 
-        return [
-            EventSummary(
-                title=r["title"],
-                planned_cycle=r["planned_cycle"],
-                planned_time=r["time"],
-                location=r["location_name"],
-                participants=[p for p in (r["participants"] or []) if p],
-                type=r["type"],
+        result = []
+        for r in rows:
+            # participants est un array PostgreSQL, pas du JSON
+            participants = r["participants"] or []
+            # Filtrer les None
+            participants = [p for p in participants if p]
+
+            result.append(
+                EventSummary(
+                    title=r["title"],
+                    planned_cycle=r["planned_cycle"],
+                    planned_time=r["time"],
+                    location=r["location_name"],
+                    participants=participants,
+                    type=r["type"],
+                )
             )
-            for r in rows
-        ]
+
+        return result
 
     # =========================================================================
     # FACTS
@@ -478,17 +493,7 @@ class ContextBuilder:
             current_cycle,
         )
 
-        return [
-            RecentFact(
-                cycle=r["cycle"],
-                description=r["description"][:200],
-                importance=r["importance"],
-                involves=[
-                    p["name"] for p in (r["participants"] or []) if p.get("name")
-                ],
-            )
-            for r in rows
-        ]
+        return [self._row_to_recent_fact(r) for r in rows]
 
     async def _get_location_facts(
         self,
@@ -511,14 +516,7 @@ class ContextBuilder:
             current_cycle - lookback,
         )
 
-        return [
-            RecentFact(
-                cycle=r["cycle"],
-                description=r["description"][:200],
-                importance=r["importance"],
-            )
-            for r in rows
-        ]
+        return [self._row_to_recent_fact(r) for r in rows]
 
     async def _get_npc_facts(
         self,
@@ -547,17 +545,31 @@ class ContextBuilder:
             [n.lower() for n in npc_names],
         )
 
-        return [
-            RecentFact(
-                cycle=r["cycle"],
-                description=r["description"][:200],
-                importance=r["importance"],
-                involves=[
-                    p["name"] for p in (r["participants"] or []) if p.get("name")
-                ],
-            )
-            for r in rows
-        ]
+        return [self._row_to_recent_fact(r) for r in rows]
+
+    def _row_to_recent_fact(self, r) -> RecentFact:
+        """Convert a row to RecentFact, handling JSON parsing"""
+        participants_raw = parse_json_list(r.get("participants"))
+        involves = []
+
+        for p in participants_raw:
+            if isinstance(p, dict) and p.get("name"):
+                involves.append(p["name"])
+            elif isinstance(p, str):
+                # Tenter de parser si c'est une string JSON
+                try:
+                    parsed = json.loads(p)
+                    if isinstance(parsed, dict) and parsed.get("name"):
+                        involves.append(parsed["name"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+        return RecentFact(
+            cycle=r["cycle"],
+            description=r["description"][:200] if r["description"] else "",
+            importance=r["importance"],
+            involves=involves,
+        )
 
     # =========================================================================
     # HISTORY
