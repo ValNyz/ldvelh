@@ -1,6 +1,6 @@
 """
 LDVELH - Narrative Schema
-Facts, Beliefs, Character Arcs, Events, Commitments
+Facts, Character Arcs, Events, Commitments
 """
 
 from typing import Literal
@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
     ArcDomain,
-    CertaintyLevel,
     CommitmentType,
     Cycle,
     EntityRef,
@@ -22,7 +21,6 @@ from .core import (
     ShortText,
     Text,
     normalize_arc_domain,
-    normalize_certainty,
     normalize_commitment_type,
     normalize_fact_type,
     normalize_participant_role,
@@ -104,27 +102,6 @@ class FactData(BaseModel):
         if len(parts) != 3:
             raise ValueError("semantic_key doit avoir format sujet:verbe:objet")
         return self
-
-
-# =============================================================================
-# BELIEFS (What the protagonist thinks they know)
-# =============================================================================
-
-
-class BeliefData(BaseModel):
-    """What the protagonist believes (may be false)"""
-
-    subject_ref: EntityRef
-    key: Name  # 100 chars
-    content: str
-    is_true: bool = True
-    certainty: CertaintyLevel = CertaintyLevel.CERTAIN
-    source_description: Phrase | None = None  # 150 chars
-
-    @field_validator("certainty", mode="before")
-    @classmethod
-    def _normalize_certainty(cls, v):
-        return normalize_certainty(v)
 
 
 # =============================================================================

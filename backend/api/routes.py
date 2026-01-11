@@ -222,9 +222,6 @@ async def _handle_chat(
         current_cycle = partie.get("cycle_actuel", 1)
         current_time = partie.get("heure", "08h00")
         current_location = partie.get("lieu_actuel", "")
-        current_day = partie.get("jour")
-        current_date = partie.get("date_jeu")
-        npcs_present = partie.get("pnjs_presents", [])
 
         is_first_light = server_state.get("monde_cree") and not current_location
 
@@ -405,8 +402,6 @@ async def _handle_chat(
                             "pnjs_presents": process_result["npcs_present"],
                         }
                     )
-                    if process_result.get("day"):
-                        state["partie"]["jour"] = process_result["day"]
                     if process_result.get("date"):
                         state["partie"]["date_jeu"] = process_result["date"]
                     t1 = time.perf_counter()
@@ -435,7 +430,6 @@ async def _handle_chat(
                         user_message=message,
                         assistant_message=display_text,
                         cycle=process_result["cycle"],
-                        day=process_result.get("day"),
                         date=process_result.get("date"),
                         time=process_result.get("time"),
                         location_ref=process_result["location"],

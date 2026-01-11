@@ -13,7 +13,6 @@ from uuid import UUID
 
 from schema import (
     RelationCategory,
-    BeliefData,
     CharacterData,
     # Core
     EntityType,
@@ -133,17 +132,19 @@ class KnowledgeGraphPopulator:
         name: str,
         aliases: list[str] | None = None,
         cycle: int = 1,
-        confirmed: bool = True,
+        known_by_protagonist: bool = True,
+        unknown_name: str | None = None,
     ) -> UUID:
         """Create or update an entity, register it, return ID"""
         entity_id = await conn.fetchval(
-            "SELECT upsert_entity($1, $2, $3, $4, $5, $6)",
+            "SELECT upsert_entity($1, $2, $3, $4, $5, $6, $7)",
             self.game_id,
             entity_type.value,
             name,
             aliases or [],
             cycle,
-            confirmed,
+            known_by_protagonist,
+            unknown_name,
         )
         self.registry.register(name, entity_id, entity_type)
         return entity_id
@@ -154,6 +155,7 @@ class KnowledgeGraphPopulator:
         entity_id: UUID,
         attrs: dict[str, str | int | float | list | dict],
         cycle: int = 1,
+        known_by_protagonist: bool = True,
     ) -> None:
         """Set multiple attributes on an entity"""
         for key, value in attrs.items():
@@ -164,13 +166,14 @@ class KnowledgeGraphPopulator:
                 value = str(value)
 
             await conn.execute(
-                "SELECT set_attribute($1, $2, $3, $4, $5, $6)",
+                "SELECT set_attribute($1, $2, $3, $4, $5, $6, $7)",
                 self.game_id,
                 entity_id,
                 key,
                 value,
                 cycle,
                 None,
+                known_by_protagonist,
             )
 
     async def set_skill(
@@ -251,11 +254,21 @@ class KnowledgeGraphPopulator:
         return entity_id
 
     async def create_character(
-        self, conn: Connection, data: CharacterData, cycle: int = 1
+        self,
+        conn: Connection,
+        data: CharacterData,
+        cycle: int = 1,
+        known_by_protagonist: bool = True,
+        unknown_name: str | None = None,
     ) -> UUID:
         """Create a character (NPC) entity"""
         entity_id = await self.upsert_entity(
-            conn, EntityType.CHARACTER, data.name, cycle=cycle
+            conn,
+            EntityType.CHARACTER,
+            data.name,
+            cycle=cycle,
+            known_by_protagonist=known_by_protagonist,
+            unknown_name=unknown_name,
         )
 
         await conn.execute(
@@ -291,6 +304,45 @@ class KnowledgeGraphPopulator:
             attrs["age"] = data.age
 
         await self.set_attributes(conn, entity_id, attrs, cycle)
+
+        # AUTO-CREATE SPATIAL RELATIONS
+        if data.workplace_ref:
+            result = await self.create_relation(
+                conn,
+                RelationData(
+                    source_ref=data.name,
+                    target_ref=data.workplace_ref,
+                    relation_type=RelationType.WORKS_AT,
+                ),
+                cycle,
+            )
+            if result:
+                logger.debug(
+                    f"[CHARACTER] Auto-created works_at: {data.name} -> {data.workplace_ref}"
+                )
+            else:
+                logger.warning(
+                    f"[CHARACTER] Failed to create works_at for {data.name} -> {data.workplace_ref}"
+                )
+
+        if data.residence_ref:
+            result = await self.create_relation(
+                conn,
+                RelationData(
+                    source_ref=data.name,
+                    target_ref=data.residence_ref,
+                    relation_type=RelationType.LIVES_AT,
+                ),
+                cycle,
+            )
+            if result:
+                logger.debug(
+                    f"[CHARACTER] Auto-created lives_at: {data.name} -> {data.residence_ref}"
+                )
+            else:
+                logger.warning(
+                    f"[CHARACTER] Failed to create lives_at for {data.name} -> {data.residence_ref}"
+                )
 
         return entity_id
 
@@ -490,15 +542,13 @@ class KnowledgeGraphPopulator:
             return None
 
         rel_id = await conn.fetchval(
-            "SELECT upsert_relation($1, $2, $3, $4, $5, $6, $7, $8)",
+            "SELECT upsert_relation($1, $2, $3, $4, $5, $6)",
             self.game_id,
             source_id,
             target_id,
             data.relation_type.value,
             cycle,
-            data.certainty.value,
-            data.is_true,
-            data.context,
+            data.known_by_protagonist,
         )
 
         # Handle typed relation data
@@ -515,7 +565,7 @@ class KnowledgeGraphPopulator:
         # Social relations
         if rt.category == RelationCategory.SOCIAL:
             social = data.social
-            if social or data.source_info:
+            if social:
                 await conn.execute(
                     """INSERT INTO relations_social 
                        (relation_id, level, context, romantic_stage, family_bond)
@@ -604,6 +654,30 @@ class KnowledgeGraphPopulator:
             reason,
         )
         return result
+
+    async def mark_relation_known(
+        self,
+        conn: Connection,
+        source_ref: str,
+        target_ref: str,
+        relation_type: RelationType,
+    ) -> bool:
+        """Mark a relation as now known by protagonist"""
+        source_id = self.registry.resolve(source_ref)
+        target_id = self.registry.resolve(target_ref)
+        if not source_id or not target_id:
+            return False
+
+        await conn.execute(
+            """UPDATE relations SET known_by_protagonist = true
+               WHERE game_id = $1 AND source_id = $2 AND target_id = $3 
+               AND type = $4 AND end_cycle IS NULL""",
+            self.game_id,
+            source_id,
+            target_id,
+            relation_type.value,
+        )
+        return True
 
     # =========================================================================
     # FACTS
@@ -698,32 +772,6 @@ class KnowledgeGraphPopulator:
         return created
 
     # =========================================================================
-    # BELIEFS
-    # =========================================================================
-
-    async def set_belief(
-        self,
-        conn: Connection,
-        data: BeliefData,
-        cycle: int,
-        source_fact_id: UUID | None = None,
-    ) -> UUID:
-        """Set or update a belief"""
-        subject_id = self.registry.resolve_strict(data.subject_ref)
-
-        return await conn.fetchval(
-            "SELECT set_belief($1, $2, $3, $4, $5, $6, $7, $8)",
-            self.game_id,
-            subject_id,
-            data.key,
-            data.content,
-            cycle,
-            data.is_true,
-            data.certainty.value,
-            source_fact_id,
-        )
-
-    # =========================================================================
     # PROTAGONIST SPECIFIC
     # =========================================================================
 
@@ -763,12 +811,10 @@ class KnowledgeGraphPopulator:
         role: str,
         content: str,
         cycle: int,
-        day: int | None = None,
         date: str | None = None,
         location_ref: str | None = None,
         npcs_present: list[str] | None = None,
         summary: str | None = None,
-        state_snapshot: dict | None = None,
     ) -> UUID:
         """Save a chat message"""
         location_id = self.registry.resolve(location_ref) if location_ref else None
@@ -783,20 +829,18 @@ class KnowledgeGraphPopulator:
 
         return await conn.fetchval(
             """INSERT INTO chat_messages 
-               (game_id, role, content, cycle, day, date, location_id, 
-                npcs_present, summary, state_snapshot)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               (game_id, role, content, cycle, date, location_id, 
+                npcs_present, summary)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                RETURNING id""",
             self.game_id,
             role,
             content,
             cycle,
-            day,
             date,
             location_id,
             npc_ids,
             summary,
-            json.dumps(state_snapshot) if state_snapshot else None,
         )
 
     async def get_message(self, conn: Connection, message_id: UUID) -> dict | None:
@@ -846,7 +890,6 @@ class KnowledgeGraphPopulator:
         conn: Connection,
         cycle: int,
         summary: str,
-        day: int | None = None,
         date: str | None = None,
         key_events: dict | None = None,
         modified_relations: dict | None = None,
@@ -854,10 +897,9 @@ class KnowledgeGraphPopulator:
         """Save or update a cycle summary"""
         return await conn.fetchval(
             """INSERT INTO cycle_summaries 
-               (game_id, cycle, day, date, summary, key_events, modified_relations)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               (game_id, cycle, date, summary, key_events, modified_relations)
+               VALUES ($1, $2, $3, $4, $5, $6)
                ON CONFLICT (game_id, cycle) DO UPDATE SET
-                 day = COALESCE(EXCLUDED.day, cycle_summaries.day),
                  date = COALESCE(EXCLUDED.date, cycle_summaries.date),
                  summary = EXCLUDED.summary,
                  key_events = COALESCE(EXCLUDED.key_events, cycle_summaries.key_events),
@@ -865,7 +907,6 @@ class KnowledgeGraphPopulator:
                RETURNING id""",
             self.game_id,
             cycle,
-            day,
             date,
             summary,
             json.dumps(key_events) if key_events else None,
