@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
     Attribute,
-    CertaintyLevel,
     CommitmentType,
     Cycle,
     EntityRef,
@@ -22,13 +21,11 @@ from .core import (
     Skill,
     Tag,
     Text,
-    normalize_certainty,
     normalize_commitment_type,
     normalize_entity_type,
 )
 from .entities import CharacterData, LocationData, ObjectData, OrganizationData
 from .narrative import (
-    BeliefData,
     CharacterArc,
     FactData,
 )
@@ -45,8 +42,11 @@ class EntityCreation(BaseModel):
     entity_type: EntityType
     name: Name  # 100 chars
     aliases: list[str] = Field(default_factory=list)
-    confirmed: bool = Field(
-        default=True, description="False if entity is only mentioned/rumored"
+    known_by_protagonist: bool = Field(
+        default=True, description="False if Val doesn't know this entity's real name"
+    )
+    unknown_name: Name | None = Field(
+        default=None, description="How Val refers to this entity if unknown"
     )
     # Type-specific data (one of these based on entity_type)
     character_data: CharacterData | None = None
@@ -85,6 +85,9 @@ class EntityUpdate(BaseModel):
     attributes_changed: list[Attribute] = Field(default_factory=list)
     skills_changed: list[Skill] = Field(default_factory=list)
     arc_updates: list[CharacterArc] = Field(default_factory=list)
+    now_known: bool | None = Field(
+        default=None, description="Set to True when Val learns the entity's real name"
+    )
     removed: bool = False
     removal_reason: Text | None = None  # 300 chars
 
@@ -136,17 +139,11 @@ class RelationUpdate(BaseModel):
     source_ref: EntityRef
     target_ref: EntityRef
     relation_type: RelationType
-    new_certainty: CertaintyLevel | None = None
     new_level: int | None = Field(default=None, ge=0, le=10)
     new_context: ShortText | None = None  # 200 chars
-    revealed_truth: bool | None = None
-
-    @field_validator("new_certainty", mode="before")
-    @classmethod
-    def _normalize_certainty(cls, v):
-        if v is None:
-            return v
-        return normalize_certainty(v)
+    now_known: bool | None = Field(
+        default=None, description="Set to True when Val learns about this relation"
+    )
 
 
 class RelationEnd(BaseModel):
@@ -288,9 +285,6 @@ class NarrativeExtraction(BaseModel):
     credit_transactions: list[CreditTransaction] = Field(default_factory=list)
     inventory_changes: list[InventoryChange] = Field(default_factory=list)
     skills_changed: list[Skill] = Field(default_factory=list)
-
-    # Beliefs (what protagonist learned/thinks)
-    beliefs_updated: list[BeliefData] = Field(default_factory=list)
 
     # Narrative commitments
     commitments_created: list[CommitmentCreationExtraction] = Field(
