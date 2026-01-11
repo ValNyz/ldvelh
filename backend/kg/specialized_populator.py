@@ -326,7 +326,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             "relations_ended": 0,
             "gauges_changed": 0,
             "credits_changed": 0,
-            "beliefs_updated": 0,
             "commitments_created": 0,
             "errors": [],
         }
@@ -418,25 +417,20 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 for inv in extraction.inventory_changes:
                     await self._process_inventory_change(conn, inv, cycle)
 
-                # 11. Update beliefs
-                for belief in extraction.beliefs_updated:
-                    await self.set_belief(conn, belief, cycle)
-                    stats["beliefs_updated"] += 1
-
-                # 12. Create commitments
+                # 11. Create commitments
                 for commit in extraction.commitments_created:
                     await self._create_commitment(conn, commit, cycle)
                     stats["commitments_created"] += 1
 
-                # 13. Resolve commitments
+                # 12. Resolve commitments
                 for resolution in extraction.commitments_resolved:
                     await self._resolve_commitment(conn, resolution, cycle)
 
-                # 14. Schedule events
+                # 13. Schedule events
                 for event in extraction.events_scheduled:
                     await self._schedule_event(conn, event, cycle)
 
-                # 15. Store extraction log
+                # 14. Store extraction log
                 await self._log_extraction(conn, extraction, stats)
 
         return stats

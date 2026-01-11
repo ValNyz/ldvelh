@@ -27,6 +27,9 @@ from .core import (
     DepartureReason,
     Moment,
     OrgSize,
+    AttributeKey,
+    AttributeVisibility,
+    VALID_ATTRIBUTE_KEYS_BY_ENTITY,
     # Type aliases
     Cycle,
     EntityRef,
@@ -45,6 +48,7 @@ from .core import (
     normalize_departure_reason,
     normalize_moment,
     normalize_org_size,
+    get_attribute_visibility,
 )
 
 # Relations
@@ -127,6 +131,10 @@ from .narration import (
 )
 
 __all__ = [
+    "AttributeKey",
+    "VALID_ATTRIBUTE_KEYS_BY_ENTITY",
+    "AttributeVisibility",
+    "get_attribute_visibility",
     # Truncated string types
     "Label",
     "Tag",

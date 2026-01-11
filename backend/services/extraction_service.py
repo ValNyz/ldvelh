@@ -24,8 +24,6 @@ from prompts.extractor_prompts import (
     build_facts_prompt,
     RELATIONS_SYSTEM,
     build_relations_prompt,
-    BELIEFS_SYSTEM,
-    build_beliefs_prompt,
     COMMITMENTS_SYSTEM,
     build_commitments_prompt,
     should_run_extraction,
@@ -51,7 +49,6 @@ class ExtractionResult:
     gauge_changes: list = field(default_factory=list)
     credit_transactions: list = field(default_factory=list)
     inventory_changes: list = field(default_factory=list)
-    beliefs_updated: list = field(default_factory=list)
     commitments_created: list = field(default_factory=list)
     commitments_resolved: list = field(default_factory=list)
     events_scheduled: list = field(default_factory=list)
@@ -68,7 +65,6 @@ class ExtractionResult:
             "gauge_changes": self.gauge_changes,
             "credit_transactions": self.credit_transactions,
             "inventory_changes": self.inventory_changes,
-            "beliefs_updated": self.beliefs_updated,
             "commitments_created": self.commitments_created,
             "commitments_resolved": self.commitments_resolved,
             "events_scheduled": self.events_scheduled,
@@ -126,13 +122,6 @@ class ExtractionResult:
                 tgt = rel.get("target_ref", "?")
                 rtype = rel.get("relation_type", "?")
                 logger.info(f"  🔗 Relation: {src} --[{rtype}]--> {tgt}")
-
-        if self.beliefs_updated:
-            for b in self.beliefs_updated:
-                subj = b.get("subject_ref", "?")
-                key = b.get("key", "?")
-                content = b.get("content", "")[:40]
-                logger.info(f"  💭 Croyance: {subj}.{key} = {content}")
 
         if self.facts:
             for f in self.facts:
@@ -243,18 +232,6 @@ class ParallelExtractionService:
             user_message=build_relations_prompt(narrative_text, cycle, known_entities),
         )
         return result or {"relations_created": [], "relations_updated": []}
-
-    async def extract_beliefs(
-        self,
-        narrative_text: str,
-        known_entities: list[str],
-    ) -> dict:
-        """Extracteur croyances (Haiku)"""
-        result = await self.llm.extract_light(
-            system_prompt=BELIEFS_SYSTEM,
-            user_message=build_beliefs_prompt(narrative_text, known_entities),
-        )
-        return result or {"beliefs_updated": []}
 
     async def extract_commitments(
         self,
@@ -395,13 +372,6 @@ class ParallelExtractionService:
                 self.extract_relations(narrative_text, cycle, all_known)
             )
             phase2_names["relations"] = "Relations"
-
-        # Croyances (si hint)
-        if hints.information_learned:
-            phase2_tasks["beliefs"] = asyncio.create_task(
-                self.extract_beliefs(narrative_text, all_known)
-            )
-            phase2_names["beliefs"] = "Croyances"
 
         # Engagements (si hints)
         if (

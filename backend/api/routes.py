@@ -383,7 +383,9 @@ async def _handle_chat(
                         npcs_present=process_result["npcs_present"],
                         summary_task=summary_task_holder.get("task"),
                     )
-                    logger.info(f"[CHAT] Extraction terminée: {extraction_result}")
+                    logger.info(
+                        f"[CHAT] Extraction terminée:\n{json.dumps(extraction_result, indent=2, default=str, ensure_ascii=False)}"
+                    )
                     logger.debug(
                         f"[TIMING] extract_and_populate: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
