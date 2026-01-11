@@ -1,239 +1,260 @@
 """
-LDVELH - Schema Package
-Réexporte tous les modèles pour un import facile
+LDVELH - Schema Package (EAV Architecture)
+Central exports for all schema models
 """
 
-# Core - Enums, types, base models
+# Core enums and types
 from .core import (
-    # Truncated string types
+    # Enums
+    ArcDomain,
+    AttributeKey,
+    AttributeVisibility,
+    CommitmentType,
+    DepartureReason,
+    EntityType,
+    FactType,
+    Moment,
+    OrgSize,
+    ParticipantRole,
+    RelationCategory,
+    RelationType,
+    # Text types
+    Backstory,
+    FullText,
     Label,
-    Tag,
+    LongText,
     Mood,
     Name,
     Phrase,
     ShortText,
+    Tag,
     Text,
-    LongText,
-    FullText,
-    Backstory,
-    # Enums
-    EntityType,
-    RelationCategory,
-    RelationType,
-    FactType,
-    ParticipantRole,
-    CommitmentType,
-    ArcDomain,
-    DepartureReason,
-    Moment,
-    OrgSize,
-    AttributeKey,
-    AttributeVisibility,
-    VALID_ATTRIBUTE_KEYS_BY_ENTITY,
     # Type aliases
     Cycle,
     EntityRef,
-    # Mixins
-    TemporalValidationMixin,
     # Base models
-    Skill,
     Attribute,
+    AttributeWithVisibility,
+    Skill,
+    TemporalValidationMixin,
+    # Mappings
+    ATTRIBUTE_DEFAULT_VISIBILITY,
+    VALID_ATTRIBUTE_KEYS_BY_ENTITY,
     # Normalizers
-    normalize_entity_type,
-    normalize_relation_type,
-    normalize_fact_type,
-    normalize_participant_role,
-    normalize_commitment_type,
+    get_attribute_visibility,
     normalize_arc_domain,
+    normalize_commitment_type,
     normalize_departure_reason,
+    normalize_entity_type,
+    normalize_fact_type,
     normalize_moment,
     normalize_org_size,
-    get_attribute_visibility,
+    normalize_participant_role,
+    normalize_relation_type,
+    validate_attribute_for_entity,
 )
 
-# Relations
-from .relations import (
-    RelationSocialData,
-    RelationProfessionalData,
-    RelationSpatialData,
-    RelationOwnershipData,
-    RelationData,
-    # Factory
-    create_relation,
+# Synonyms
+from .synonyms import (
+    ARC_DOMAIN_SYNONYMS,
+    ATTRIBUTE_KEY_SYNONYMS,
+    COMMITMENT_TYPE_SYNONYMS,
+    DEPARTURE_REASON_SYNONYMS,
+    ENTITY_TYPE_SYNONYMS,
+    FACT_TYPE_SYNONYMS,
+    MOMENT_SYNONYMS,
+    ORG_SIZE_SYNONYMS,
+    PARTICIPANT_ROLE_SYNONYMS,
+    RELATION_TYPE_SYNONYMS,
+    normalize_key,
 )
 
-# Narrative
-from .narrative import (
-    CharacterArc,
-    FactParticipant,
-    FactData,
-    CommitmentCreation,
-    CommitmentResolution,
-    EventScheduled,
-    NarrativeArcData,
-)
-
-# Entities
+# Entity models (simplified EAV)
 from .entities import (
-    WorldData,
-    ProtagonistData,
-    PersonalAIData,
     CharacterData,
+    EntityData,
     LocationData,
     ObjectData,
     OrganizationData,
-    create_minimal_character,
+    PersonalAIData,
+    ProtagonistData,
+    WorldData,
+    attrs_from_dict,
+    attrs_to_dict,
 )
 
-# Extraction
+# Relation models
+from .relations import (
+    OwnershipDetails,
+    ProfessionalDetails,
+    RelationData,
+    SocialDetails,
+    SpatialDetails,
+)
+
+# Narrative models
+from .narrative import (
+    ArrivalEventData,
+    CharacterArc,
+    CommitmentCreation,
+    FactData,
+    FactParticipant,
+    NarrationContext,
+    NarrationHints,
+    NarrativeArcData,
+    WorldGeneration,
+    # Context sub-models
+    CommitmentSummary,
+    EventSummary,
+    GaugeState,
+    InventoryItem,
+    LocationSummary,
+    MessageSummary,
+    NPCSummary,
+    ArcSummary,
+    PersonalAISummary,
+    ProtagonistState,
+    RecentFact,
+)
+
+# Extraction models (unified EAV format)
 from .extraction import (
+    # Entity changes
     EntityCreation,
-    EntityUpdate,
     EntityRemoval,
+    EntityUpdate,
     ObjectCreation,
+    # Relation changes
     RelationCreation,
-    RelationUpdate,
     RelationEnd,
-    GaugeChange,
+    RelationUpdate,
+    # Protagonist changes
     CreditTransaction,
+    GaugeChange,
     InventoryChange,
+    # Narrative elements
     CommitmentCreationExtraction,
     CommitmentResolutionExtraction,
     EventScheduledExtraction,
+    # Complete extraction
     NarrativeExtraction,
     NarrativeWithExtraction,
 )
 
-# World Generation
-from .world_generation import (
-    ArrivalEventData,
-    WorldGeneration,
-)
-
-# Narration (I/O pour le narrateur)
-from .narration import (
-    GaugeState,
-    ProtagonistState,
-    InventoryItem,
-    LocationSummary,
-    ArcSummary,
-    NPCSummary,
-    CommitmentSummary,
-    EventSummary,
-    RecentFact,
-    MessageSummary,
-    PersonalAISummary,
-    NarrationContext,
-    NarrationHints,
-    TimeProgression,
-    DayTransition,
-    NarrationOutput,
-)
-
 __all__ = [
+    # === CORE ===
+    # Enums
+    "ArcDomain",
     "AttributeKey",
-    "VALID_ATTRIBUTE_KEYS_BY_ENTITY",
     "AttributeVisibility",
-    "get_attribute_visibility",
-    # Truncated string types
+    "CommitmentType",
+    "DepartureReason",
+    "EntityType",
+    "FactType",
+    "Moment",
+    "OrgSize",
+    "ParticipantRole",
+    "RelationCategory",
+    "RelationType",
+    # Text types
+    "Backstory",
+    "FullText",
     "Label",
-    "Tag",
+    "LongText",
     "Mood",
     "Name",
     "Phrase",
     "ShortText",
+    "Tag",
     "Text",
-    "LongText",
-    "FullText",
-    "Backstory",
-    # Core enums
-    "EntityType",
-    "RelationCategory",
-    "RelationType",
-    "FactType",
-    "ParticipantRole",
-    "CommitmentType",
-    "ArcDomain",
-    "DepartureReason",
-    "Moment",
-    "OrgSize",
     # Type aliases
     "Cycle",
     "EntityRef",
-    # Mixins
-    "TemporalValidationMixin",
     # Base models
-    "Skill",
     "Attribute",
+    "AttributeWithVisibility",
+    "Skill",
+    "TemporalValidationMixin",
+    # Mappings
+    "ATTRIBUTE_DEFAULT_VISIBILITY",
+    "VALID_ATTRIBUTE_KEYS_BY_ENTITY",
     # Normalizers
-    "normalize_entity_type",
-    "normalize_relation_type",
-    "normalize_fact_type",
-    "normalize_participant_role",
-    "normalize_commitment_type",
+    "get_attribute_visibility",
     "normalize_arc_domain",
+    "normalize_commitment_type",
     "normalize_departure_reason",
+    "normalize_entity_type",
+    "normalize_fact_type",
+    "normalize_key",
     "normalize_moment",
     "normalize_org_size",
-    # Relations
-    "RelationSocialData",
-    "RelationProfessionalData",
-    "RelationSpatialData",
-    "RelationOwnershipData",
-    "RelationData",
-    "create_relation",
-    # Narrative
-    "CharacterArc",
-    "FactParticipant",
-    "FactData",
-    "CommitmentCreation",
-    "CommitmentResolution",
-    "EventScheduled",
-    "NarrativeArcData",
-    # Entities
-    "WorldData",
-    "ProtagonistData",
-    "PersonalAIData",
-    "FORBIDDEN_AI_NAMES",
+    "normalize_participant_role",
+    "normalize_relation_type",
+    "validate_attribute_for_entity",
+    # === SYNONYMS ===
+    "ARC_DOMAIN_SYNONYMS",
+    "ATTRIBUTE_KEY_SYNONYMS",
+    "COMMITMENT_TYPE_SYNONYMS",
+    "DEPARTURE_REASON_SYNONYMS",
+    "ENTITY_TYPE_SYNONYMS",
+    "FACT_TYPE_SYNONYMS",
+    "MOMENT_SYNONYMS",
+    "ORG_SIZE_SYNONYMS",
+    "PARTICIPANT_ROLE_SYNONYMS",
+    "RELATION_TYPE_SYNONYMS",
+    # === ENTITIES ===
     "CharacterData",
+    "EntityData",
     "LocationData",
     "ObjectData",
     "OrganizationData",
-    "create_minimal_character",
-    # Extraction
-    "EntityCreation",
-    "EntityUpdate",
-    "EntityRemoval",
-    "ObjectCreation",
-    "RelationCreation",
-    "RelationUpdate",
-    "RelationEnd",
-    "GaugeChange",
-    "CreditTransaction",
-    "InventoryChange",
-    "CommitmentCreationExtraction",
-    "CommitmentResolutionExtraction",
-    "EventScheduledExtraction",
-    "NarrativeExtraction",
-    "NarrativeWithExtraction",
-    # World Generation
+    "PersonalAIData",
+    "ProtagonistData",
+    "WorldData",
+    "attrs_from_dict",
+    "attrs_to_dict",
+    # === RELATIONS ===
+    "OwnershipDetails",
+    "ProfessionalDetails",
+    "RelationData",
+    "SocialDetails",
+    "SpatialDetails",
+    # === NARRATIVE ===
     "ArrivalEventData",
-    "WorldGeneration",
-    # Narration
-    "GaugeState",
-    "ProtagonistState",
-    "InventoryItem",
-    "LocationSummary",
-    "ArcSummary",
-    "NPCSummary",
-    "CommitmentSummary",
-    "EventSummary",
-    "RecentFact",
-    "MessageSummary",
-    "PersonalAISummary",
+    "CharacterArc",
+    "CommitmentCreation",
+    "FactData",
+    "FactParticipant",
     "NarrationContext",
     "NarrationHints",
-    "TimeProgression",
-    "DayTransition",
-    "NarrationOutput",
+    "NarrativeArcData",
+    "WorldGeneration",
+    # Context sub-models
+    "ArcSummary",
+    "CommitmentSummary",
+    "EventSummary",
+    "GaugeState",
+    "InventoryItem",
+    "LocationSummary",
+    "MessageSummary",
+    "NPCSummary",
+    "PersonalAISummary",
+    "ProtagonistState",
+    "RecentFact",
+    # === EXTRACTION ===
+    "CommitmentCreationExtraction",
+    "CommitmentResolutionExtraction",
+    "CreditTransaction",
+    "EntityCreation",
+    "EntityRemoval",
+    "EntityUpdate",
+    "EventScheduledExtraction",
+    "GaugeChange",
+    "InventoryChange",
+    "NarrativeExtraction",
+    "NarrativeWithExtraction",
+    "ObjectCreation",
+    "RelationCreation",
+    "RelationEnd",
+    "RelationUpdate",
 ]
