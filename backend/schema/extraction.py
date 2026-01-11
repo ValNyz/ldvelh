@@ -24,6 +24,7 @@ from .core import (
     Text,
     normalize_commitment_type,
     normalize_entity_type,
+    normalize_attribute_key,
 )
 from .narrative import FactData
 from .relations import RelationData, RelationType
@@ -85,17 +86,24 @@ class EntityCreation(BaseModel):
             result = []
             for item in v:
                 if isinstance(item, dict):
-                    # Handle {"key": "...", "value": "...", "known": true} format
-                    result.append(
-                        AttributeWithVisibility(
-                            key=item.get("key"),
-                            value=item.get("value", ""),
-                            known_by_protagonist=item.get(
-                                "known", item.get("known_by_protagonist", True)
-                            ),
-                            details=item.get("details"),
+                    try:
+                        # Utiliser normalize_attribute_key au lieu de normalize_key
+                        key = normalize_attribute_key(item.get("key", ""))
+                        result.append(
+                            AttributeWithVisibility(
+                                key=key,
+                                value=item.get("value", ""),
+                                known_by_protagonist=item.get(
+                                    "known", item.get("known_by_protagonist", True)
+                                ),
+                                details=item.get("details"),
+                            )
                         )
-                    )
+                    except ValueError as e:
+                        # Log and skip invalid keys
+                        import logging
+
+                        logging.warning(f"[Extraction] Skipping invalid attribute: {e}")
                 elif isinstance(item, AttributeWithVisibility):
                     result.append(item)
             return result
@@ -125,28 +133,36 @@ class EntityUpdate(BaseModel):
     removed: bool = False
     removal_reason: Text | None = None  # 300 chars
 
-    @field_validator("attributes_changed", mode="before")
-    @classmethod
-    def _normalize_attributes(cls, v):
-        """Convert dict format to AttributeWithVisibility list"""
-        if isinstance(v, list):
-            result = []
-            for item in v:
-                if isinstance(item, dict):
-                    result.append(
-                        AttributeWithVisibility(
-                            key=item.get("key"),
-                            value=item.get("value", ""),
-                            known_by_protagonist=item.get(
-                                "known", item.get("known_by_protagonist", True)
-                            ),
-                            details=item.get("details"),
-                        )
-                    )
-                elif isinstance(item, AttributeWithVisibility):
-                    result.append(item)
-            return result
-        return v
+    # @field_validator("attributes", mode="before")
+    # @classmethod
+    # def _normalize_attributes(cls, v):
+    #     """Convert dict format to AttributeWithVisibility list"""
+    #     if isinstance(v, list):
+    #         result = []
+    #         for item in v:
+    #             if isinstance(item, dict):
+    #                 try:
+    #                     # Utiliser normalize_attribute_key au lieu de normalize_key
+    #                     key = normalize_attribute_key(item.get("key", ""))
+    #                     result.append(
+    #                         AttributeWithVisibility(
+    #                             key=key,
+    #                             value=item.get("value", ""),
+    #                             known_by_protagonist=item.get(
+    #                                 "known", item.get("known_by_protagonist", True)
+    #                             ),
+    #                             details=item.get("details"),
+    #                         )
+    #                     )
+    #                 except ValueError as e:
+    #                     # Log and skip invalid keys
+    #                     import logging
+    #
+    #                     logging.warning(f"[Extraction] Skipping invalid attribute: {e}")
+    #             elif isinstance(item, AttributeWithVisibility):
+    #                 result.append(item)
+    #         return result
+    #     return v
 
 
 class EntityRemoval(BaseModel):

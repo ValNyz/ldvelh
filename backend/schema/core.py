@@ -25,7 +25,13 @@ from .synonyms import (
     ORG_SIZE_SYNONYMS,
     PARTICIPANT_ROLE_SYNONYMS,
     RELATION_TYPE_SYNONYMS,
-    normalize_key,
+    SHARED_ATTRIBUTE_SYNONYMS,
+    CHARACTER_ATTRIBUTE_SYNONYMS,
+    LOCATION_ATTRIBUTE_SYNONYMS,
+    OBJECT_ATTRIBUTE_SYNONYMS,
+    ORGANIZATION_ATTRIBUTE_SYNONYMS,
+    PROTAGONIST_ATTRIBUTE_SYNONYMS,
+    AI_ATTRIBUTE_SYNONYMS,
 )
 
 logger = logging.getLogger(__name__)
@@ -241,12 +247,9 @@ class OrgSize(str, Enum):
 
 
 class AttributeKey(str, Enum):
-    """
-    All allowed attribute keys.
-    Strict validation per entity type via VALID_KEYS_BY_ENTITY.
-    """
+    """All allowed attribute keys."""
 
-    # === SHARED (multi-types) ===
+    # === SHARED ===
     DESCRIPTION = "description"
     HISTORY = "history"
     SECRET = "secret"
@@ -317,15 +320,55 @@ class AttributeKey(str, Enum):
     # === AI ===
     SUBSTRATE = "substrate"
     CREATION_CYCLE = "creation_cycle"
-    # voice, quirk, traits already defined above
 
 
 class AttributeVisibility(str, Enum):
-    """Default visibility of an attribute for the protagonist"""
+    ALWAYS = "always"
+    NEVER = "never"
+    CONDITIONAL = "conditional"
 
-    ALWAYS = "always"  # Observable directly → known=true
-    NEVER = "never"  # Hidden by default → known=false
-    CONDITIONAL = "conditional"  # Depends on narrative context
+
+# =============================================================================
+# ATTRIBUTE SYNONYMS MAPPING BY ENTITY TYPE
+# =============================================================================
+
+ATTRIBUTE_SYNONYMS_BY_ENTITY: dict[EntityType, dict[str, str]] = {
+    EntityType.CHARACTER: {
+        **SHARED_ATTRIBUTE_SYNONYMS,
+        **CHARACTER_ATTRIBUTE_SYNONYMS,
+    },
+    EntityType.LOCATION: {
+        **SHARED_ATTRIBUTE_SYNONYMS,
+        **LOCATION_ATTRIBUTE_SYNONYMS,
+    },
+    EntityType.OBJECT: {
+        **SHARED_ATTRIBUTE_SYNONYMS,
+        **OBJECT_ATTRIBUTE_SYNONYMS,
+    },
+    EntityType.ORGANIZATION: {
+        **SHARED_ATTRIBUTE_SYNONYMS,
+        **ORGANIZATION_ATTRIBUTE_SYNONYMS,
+    },
+    EntityType.PROTAGONIST: {
+        **SHARED_ATTRIBUTE_SYNONYMS,
+        **PROTAGONIST_ATTRIBUTE_SYNONYMS,
+    },
+    EntityType.AI: {
+        **SHARED_ATTRIBUTE_SYNONYMS,
+        **AI_ATTRIBUTE_SYNONYMS,
+    },
+}
+
+# Fallback: all synonyms merged (for when entity type is unknown)
+ALL_ATTRIBUTE_SYNONYMS: dict[str, str] = {
+    **SHARED_ATTRIBUTE_SYNONYMS,
+    **CHARACTER_ATTRIBUTE_SYNONYMS,
+    **LOCATION_ATTRIBUTE_SYNONYMS,
+    **OBJECT_ATTRIBUTE_SYNONYMS,
+    **ORGANIZATION_ATTRIBUTE_SYNONYMS,
+    **PROTAGONIST_ATTRIBUTE_SYNONYMS,
+    **AI_ATTRIBUTE_SYNONYMS,
+}
 
 
 # =============================================================================
@@ -333,7 +376,7 @@ class AttributeVisibility(str, Enum):
 # =============================================================================
 
 ATTRIBUTE_DEFAULT_VISIBILITY: dict[AttributeKey, AttributeVisibility] = {
-    # === ALWAYS (Valentin observes/perceives directly) ===
+    # ALWAYS visible
     AttributeKey.DESCRIPTION: AttributeVisibility.ALWAYS,
     AttributeKey.MOOD: AttributeVisibility.ALWAYS,
     AttributeKey.VOICE: AttributeVisibility.ALWAYS,
@@ -352,7 +395,7 @@ ATTRIBUTE_DEFAULT_VISIBILITY: dict[AttributeKey, AttributeVisibility] = {
     AttributeKey.LOCATION_TYPE: AttributeVisibility.ALWAYS,
     AttributeKey.CATEGORY: AttributeVisibility.ALWAYS,
     AttributeKey.ORG_TYPE: AttributeVisibility.ALWAYS,
-    # Protagonist (always known to self)
+    # Protagonist gauges
     AttributeKey.CREDITS: AttributeVisibility.ALWAYS,
     AttributeKey.ENERGY: AttributeVisibility.ALWAYS,
     AttributeKey.MORALE: AttributeVisibility.ALWAYS,
@@ -360,7 +403,7 @@ ATTRIBUTE_DEFAULT_VISIBILITY: dict[AttributeKey, AttributeVisibility] = {
     AttributeKey.HOBBIES: AttributeVisibility.ALWAYS,
     AttributeKey.DEPARTURE_REASON: AttributeVisibility.ALWAYS,
     AttributeKey.BACKSTORY: AttributeVisibility.ALWAYS,
-    # === NEVER (secrets, must be explicitly revealed) ===
+    # NEVER visible (secrets)
     AttributeKey.HISTORY: AttributeVisibility.NEVER,
     AttributeKey.SECRET: AttributeVisibility.NEVER,
     AttributeKey.MOTIVATION: AttributeVisibility.NEVER,
@@ -371,7 +414,7 @@ ATTRIBUTE_DEFAULT_VISIBILITY: dict[AttributeKey, AttributeVisibility] = {
     AttributeKey.ROMANTIC_POTENTIAL: AttributeVisibility.NEVER,
     AttributeKey.IS_MANDATORY: AttributeVisibility.NEVER,
     AttributeKey.IS_EMPLOYER: AttributeVisibility.NEVER,
-    # === CONDITIONAL (can be deduced, mentioned, or displayed) ===
+    # CONDITIONAL
     AttributeKey.REPUTATION: AttributeVisibility.CONDITIONAL,
     AttributeKey.AGE: AttributeVisibility.CONDITIONAL,
     AttributeKey.ORIGIN: AttributeVisibility.CONDITIONAL,
@@ -399,17 +442,15 @@ ATTRIBUTE_DEFAULT_VISIBILITY: dict[AttributeKey, AttributeVisibility] = {
 
 
 # =============================================================================
-# VALID KEYS BY ENTITY TYPE (strict validation)
+# VALID KEYS BY ENTITY TYPE
 # =============================================================================
 
 VALID_ATTRIBUTE_KEYS_BY_ENTITY: dict[EntityType, set[AttributeKey]] = {
     EntityType.CHARACTER: {
-        # Shared
         AttributeKey.DESCRIPTION,
         AttributeKey.HISTORY,
         AttributeKey.SECRET,
         AttributeKey.REPUTATION,
-        # Character-specific
         AttributeKey.SPECIES,
         AttributeKey.GENDER,
         AttributeKey.PRONOUNS,
@@ -430,11 +471,9 @@ VALID_ATTRIBUTE_KEYS_BY_ENTITY: dict[EntityType, set[AttributeKey]] = {
         AttributeKey.IS_MANDATORY,
     },
     EntityType.LOCATION: {
-        # Shared
         AttributeKey.DESCRIPTION,
         AttributeKey.HISTORY,
         AttributeKey.SECRET,
-        # Location-specific
         AttributeKey.LOCATION_TYPE,
         AttributeKey.SECTOR,
         AttributeKey.ACCESSIBLE,
@@ -448,10 +487,8 @@ VALID_ATTRIBUTE_KEYS_BY_ENTITY: dict[EntityType, set[AttributeKey]] = {
         AttributeKey.TYPICAL_CROWD,
     },
     EntityType.OBJECT: {
-        # Shared
         AttributeKey.DESCRIPTION,
         AttributeKey.HISTORY,
-        # Object-specific
         AttributeKey.CATEGORY,
         AttributeKey.TRANSPORTABLE,
         AttributeKey.STACKABLE,
@@ -462,12 +499,10 @@ VALID_ATTRIBUTE_KEYS_BY_ENTITY: dict[EntityType, set[AttributeKey]] = {
         AttributeKey.ACTUAL_VALUE,
     },
     EntityType.ORGANIZATION: {
-        # Shared
         AttributeKey.DESCRIPTION,
         AttributeKey.HISTORY,
         AttributeKey.SECRET,
         AttributeKey.REPUTATION,
-        # Organization-specific
         AttributeKey.ORG_TYPE,
         AttributeKey.DOMAIN,
         AttributeKey.SIZE,
@@ -500,20 +535,88 @@ VALID_ATTRIBUTE_KEYS_BY_ENTITY: dict[EntityType, set[AttributeKey]] = {
 
 
 # =============================================================================
-# TYPE ALIASES
+# NORMALIZATION FUNCTIONS
 # =============================================================================
 
-Cycle = Annotated[
-    int, Field(description="Cycle number. Negative=past, 1=arrival, positive=future")
-]
-EntityRef = Annotated[
-    str, Field(description="Reference to entity by name (case-insensitive)")
-]
+
+def normalize_attribute_key(
+    key: str, entity_type: EntityType | None = None
+) -> AttributeKey:
+    """
+    Normalize an attribute key string to AttributeKey enum.
+    Uses entity-specific synonyms if entity_type is provided.
+    """
+    if isinstance(key, AttributeKey):
+        return key
+
+    normalized = key.lower().strip().replace(" ", "_").replace("-", "_")
+
+    # Choose synonym dict based on entity type
+    if entity_type is not None:
+        synonyms = ATTRIBUTE_SYNONYMS_BY_ENTITY.get(entity_type, ALL_ATTRIBUTE_SYNONYMS)
+    else:
+        synonyms = ALL_ATTRIBUTE_SYNONYMS
+
+    # Try synonym lookup
+    canonical = synonyms.get(normalized)
+    if canonical:
+        try:
+            return AttributeKey(canonical)
+        except ValueError:
+            pass
+
+    # Try direct enum match
+    try:
+        return AttributeKey(normalized)
+    except ValueError:
+        pass
+
+    # Fallback: log warning and raise
+    logger.warning(
+        f"[Normalizer] Unknown attribute key: '{key}' (entity_type={entity_type})"
+    )
+    raise ValueError(f"Unknown attribute key: '{key}'")
 
 
-# =============================================================================
-# ENUM NORMALIZERS
-# =============================================================================
+def normalize_attribute_key_for_character(key: str) -> AttributeKey:
+    """Normalize attribute key for CHARACTER entity."""
+    return normalize_attribute_key(key, EntityType.CHARACTER)
+
+
+def normalize_attribute_key_for_location(key: str) -> AttributeKey:
+    """Normalize attribute key for LOCATION entity."""
+    return normalize_attribute_key(key, EntityType.LOCATION)
+
+
+def normalize_attribute_key_for_object(key: str) -> AttributeKey:
+    """Normalize attribute key for OBJECT entity."""
+    return normalize_attribute_key(key, EntityType.OBJECT)
+
+
+def normalize_attribute_key_for_organization(key: str) -> AttributeKey:
+    """Normalize attribute key for ORGANIZATION entity."""
+    return normalize_attribute_key(key, EntityType.ORGANIZATION)
+
+
+def normalize_attribute_key_for_protagonist(key: str) -> AttributeKey:
+    """Normalize attribute key for PROTAGONIST entity."""
+    return normalize_attribute_key(key, EntityType.PROTAGONIST)
+
+
+def normalize_attribute_key_for_ai(key: str) -> AttributeKey:
+    """Normalize attribute key for AI entity."""
+    return normalize_attribute_key(key, EntityType.AI)
+
+
+# Mapping for easy access
+ATTRIBUTE_NORMALIZERS: dict[EntityType, callable] = {
+    EntityType.CHARACTER: normalize_attribute_key_for_character,
+    EntityType.LOCATION: normalize_attribute_key_for_location,
+    EntityType.OBJECT: normalize_attribute_key_for_object,
+    EntityType.ORGANIZATION: normalize_attribute_key_for_organization,
+    EntityType.PROTAGONIST: normalize_attribute_key_for_protagonist,
+    EntityType.AI: normalize_attribute_key_for_ai,
+}
 
 
 def _normalize_enum_value(
@@ -609,6 +712,18 @@ def validate_attribute_for_entity(key: AttributeKey, entity_type: EntityType) ->
 
 
 # =============================================================================
+# TYPE ALIASES
+# =============================================================================
+
+Cycle = Annotated[
+    int, Field(description="Cycle number. Negative=past, 1=arrival, positive=future")
+]
+EntityRef = Annotated[
+    str, Field(description="Reference to entity by name (case-insensitive)")
+]
+
+
+# =============================================================================
 # BASE MODELS
 # =============================================================================
 
@@ -630,7 +745,7 @@ class Attribute(BaseModel):
     @field_validator("key", mode="before")
     @classmethod
     def _normalize_key(cls, v: Any) -> AttributeKey:
-        return normalize_key(v)
+        return normalize_attribute_key(v)
 
 
 class AttributeWithVisibility(BaseModel):
@@ -644,8 +759,108 @@ class AttributeWithVisibility(BaseModel):
     @field_validator("key", mode="before")
     @classmethod
     def _normalize_key(cls, v: Any) -> AttributeKey:
-        return normalize_key(v)
+        # Without entity context, use generic normalizer
+        return normalize_attribute_key(v)
 
+
+# =============================================================================
+# TYPED ATTRIBUTE MODELS (with entity-specific validation)
+# =============================================================================
+
+
+class CharacterAttribute(BaseModel):
+    """Attribute for CHARACTER entity with specific normalization."""
+
+    key: AttributeKey
+    value: str
+    details: dict | None = None
+    known_by_protagonist: bool = True
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        return normalize_attribute_key_for_character(v)
+
+
+class LocationAttribute(BaseModel):
+    """Attribute for LOCATION entity with specific normalization."""
+
+    key: AttributeKey
+    value: str
+    details: dict | None = None
+    known_by_protagonist: bool = True
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        return normalize_attribute_key_for_location(v)
+
+
+class ObjectAttribute(BaseModel):
+    """Attribute for OBJECT entity with specific normalization."""
+
+    key: AttributeKey
+    value: str
+    details: dict | None = None
+    known_by_protagonist: bool = True
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        return normalize_attribute_key_for_object(v)
+
+
+class OrganizationAttribute(BaseModel):
+    """Attribute for ORGANIZATION entity with specific normalization."""
+
+    key: AttributeKey
+    value: str
+    details: dict | None = None
+    known_by_protagonist: bool = True
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        return normalize_attribute_key_for_organization(v)
+
+
+class ProtagonistAttribute(BaseModel):
+    """Attribute for PROTAGONIST entity with specific normalization."""
+
+    key: AttributeKey
+    value: str
+    details: dict | None = None
+    known_by_protagonist: bool = True
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        return normalize_attribute_key_for_protagonist(v)
+
+
+class AIAttribute(BaseModel):
+    """Attribute for AI entity with specific normalization."""
+
+    key: AttributeKey
+    value: str
+    details: dict | None = None
+    known_by_protagonist: bool = True
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, v: Any) -> AttributeKey:
+        return normalize_attribute_key_for_ai(v)
+
+
+# Mapping for typed attribute classes
+TYPED_ATTRIBUTE_CLASSES: dict[EntityType, type[BaseModel]] = {
+    EntityType.CHARACTER: CharacterAttribute,
+    EntityType.LOCATION: LocationAttribute,
+    EntityType.OBJECT: ObjectAttribute,
+    EntityType.ORGANIZATION: OrganizationAttribute,
+    EntityType.PROTAGONIST: ProtagonistAttribute,
+    EntityType.AI: AIAttribute,
+}
 
 # =============================================================================
 # TEMPORAL VALIDATION
