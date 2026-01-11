@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { normalizeGameState } from '../lib/game/gameState.js';
-import { gamesApi } from '../lib/api.js';
+import { gamesApi, stateApi } from '../lib/api.js';
 
 // ============================================================================
 // HOOK PRINCIPAL
@@ -104,13 +104,14 @@ function mergeValentin(prev, next) {
 }
 
 // ============================================================================
-// HOOK PARTIES - Utilise gamesApi
+// HOOK PARTIES - Gestion des parties
 // ============================================================================
 
 export function useParties() {
 	const [parties, setParties] = useState([]);
 	const [loadingList, setLoadingList] = useState(false);
 
+	/** Liste les parties */
 	const loadParties = useCallback(async () => {
 		setLoadingList(true);
 		try {
@@ -123,23 +124,27 @@ export function useParties() {
 		}
 	}, []);
 
+	/** Crée une nouvelle partie */
 	const createPartie = useCallback(async () => {
 		const data = await gamesApi.create();
 		if (data.error) throw new Error(data.error);
 		return data.gameId;
 	}, []);
 
+	/** Supprime une partie */
 	const deletePartie = useCallback(async (id) => {
 		await gamesApi.delete(id);
 		return true;
 	}, []);
 
+	/** Renomme une partie */
 	const renamePartie = useCallback(async (id, newName) => {
 		await gamesApi.rename(id, newName);
 	}, []);
 
+	/** Charge une partie (state + messages + world_info) */
 	const loadPartie = useCallback(async (id) => {
-		const data = await gamesApi.load(id);
+		const data = await stateApi.load(id);
 		if (data.error) throw new Error(data.error);
 		return data;
 	}, []);

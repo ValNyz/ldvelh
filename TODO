@@ -1,0 +1,4 @@
+- Facts might need to have time in DB.
+- ContextBuilder should build a context for known info from Val and all of it for the MJ.
+It should also be more intelligent in the data selection.
+Might need to stock a recent change in narrative_arcs because it's important to be in context.
