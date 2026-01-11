@@ -11,7 +11,6 @@ import asyncpg
 from config import STATS_DEFAUT
 from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration, NarrationOutput
-from services.state_normalizer import game_state_to_dict, normalize_game_state
 
 
 class GameService:
@@ -118,6 +117,8 @@ class GameService:
         valentin = {**stats, "inventaire": inventaire}
 
         # Normaliser avec Pydantic
+        from services.state_normalizer import game_state_to_dict, normalize_game_state
+
         state = normalize_game_state(
             partie_data=partie,
             valentin_data=valentin,
@@ -125,7 +126,7 @@ class GameService:
         )
 
         result = game_state_to_dict(state)
-        result["monde_cree"] = monde_cree  # ← Ajouter le flag
+        result["monde_cree"] = monde_cree
         return result
 
     async def load_world_info(self, game_id: UUID) -> dict | None:
@@ -146,25 +147,23 @@ class GameService:
             if not monde_cree:
                 return None
 
-            # Récupérer le monde/station (seule entité location avec attribut 'population')
+            # Récupérer le monde/station via les attributs
+            # C'est la location sans parent et avec le plus d'attributs "monde"
             world_row = await conn.fetchrow(
                 """
                 SELECT 
                     e.name,
-                    el.location_type,
-                    MAX(CASE WHEN a.key = 'atmosphere' THEN a.value END) as atmosphere,
-                    MAX(CASE WHEN a.key = 'population' THEN a.value END) as population
+                    get_attribute(e.id, 'location_type') as location_type,
+                    get_attribute(e.id, 'atmosphere') as atmosphere,
+                    get_attribute(e.id, 'description') as description,
+                    get_attribute(e.id, 'notable_features') as sectors
                 FROM entities e
                 JOIN entity_locations el ON el.entity_id = e.id
-                JOIN attributes a ON a.entity_id = e.id AND a.end_cycle IS NULL
                 WHERE e.game_id = $1 
                   AND e.type = 'location' 
                   AND e.removed_cycle IS NULL
-                  AND EXISTS (
-                      SELECT 1 FROM attributes 
-                      WHERE entity_id = e.id AND key = 'population' AND end_cycle IS NULL
-                  )
-                GROUP BY e.id, e.name, el.location_type
+                  AND el.parent_location_id IS NULL
+                ORDER BY e.created_at ASC
                 LIMIT 1
                 """,
                 game_id,
@@ -183,26 +182,23 @@ class GameService:
                 game_id,
             )
 
-            # Récupérer l'IA (traits est un JSON contenant voice, personality, quirk)
+            # Récupérer l'IA via la vue v_ais
             ia_row = await conn.fetchrow(
                 """
-                SELECT e.name, ea.traits
-                FROM entities e
-                JOIN entity_ais ea ON ea.entity_id = e.id
-                WHERE e.game_id = $1 AND e.type = 'ai' AND e.removed_cycle IS NULL
+                SELECT name, voice, traits, quirk
+                FROM v_ais 
+                WHERE game_id = $1 
                 LIMIT 1
                 """,
                 game_id,
             )
 
-            # Récupérer le protagoniste avec ses crédits
+            # Récupérer le protagoniste via la vue v_protagonist
             protag_row = await conn.fetchrow(
                 """
-                SELECT e.name, a.value as credits
-                FROM entities e
-                LEFT JOIN attributes a ON a.entity_id = e.id 
-                    AND a.key = 'credits' AND a.end_cycle IS NULL
-                WHERE e.game_id = $1 AND e.type = 'protagonist' AND e.removed_cycle IS NULL
+                SELECT name, credits
+                FROM v_protagonist 
+                WHERE game_id = $1
                 LIMIT 1
                 """,
                 game_id,
@@ -218,48 +214,49 @@ class GameService:
             # Construire le résultat
             monde = None
             if world_row:
-                population = world_row["population"]
-                if population and isinstance(population, str):
+                # Extraire les secteurs depuis notable_features (JSON array)
+                sectors = None
+                if world_row["sectors"]:
                     try:
-                        population = int(population)
-                    except ValueError:
-                        population = None
+                        sectors = json.loads(world_row["sectors"])
+                    except (json.JSONDecodeError, TypeError):
+                        sectors = None
+
                 monde = {
                     "nom": world_row["name"],
                     "type": world_row["location_type"],
                     "atmosphere": world_row["atmosphere"],
-                    "population": population,
+                    "secteurs": sectors,
                 }
 
             ia = None
             if ia_row:
-                # traits est un JSON: {"voice": "...", "personality": [...], "quirk": "..."}
+                # traits est stocké comme JSON string dans l'attribut
                 traits_data = ia_row["traits"]
-                if traits_data and isinstance(traits_data, str):
+                personality = []
+                if traits_data:
                     try:
-                        traits_data = json.loads(traits_data)
-                    except json.JSONDecodeError:
-                        traits_data = {}
-                elif not traits_data:
-                    traits_data = {}
+                        personality = (
+                            json.loads(traits_data)
+                            if isinstance(traits_data, str)
+                            else traits_data
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        personality = []
 
                 ia = {
                     "nom": ia_row["name"],
-                    "personnalite": traits_data.get("personality", []),
-                    "quirk": traits_data.get("quirk"),
+                    "personnalite": personality
+                    if isinstance(personality, list)
+                    else [],
+                    "quirk": ia_row["quirk"],
                 }
 
             protagoniste = None
             if protag_row:
-                credits = protag_row["credits"]
-                if credits:
-                    try:
-                        credits = int(credits)
-                    except (ValueError, TypeError):
-                        credits = 0
                 protagoniste = {
                     "nom": protag_row["name"],
-                    "credits": credits or 0,
+                    "credits": protag_row["credits"] or 0,
                 }
 
             arrivee = None
@@ -288,31 +285,23 @@ class GameService:
             }
 
     async def _load_protagonist_stats(self, conn, game_id: UUID) -> dict:
-        """Charge les stats du protagoniste via la vue v_current_attributes"""
-        rows = await conn.fetch(
-            """
-            SELECT key, value 
-            FROM v_current_attributes
-            WHERE game_id = $1 AND entity_type = 'protagonist'
-              AND key IN ('energy', 'morale', 'health', 'credits')
-        """,
+        """Charge les stats du protagoniste via la vue v_protagonist"""
+        row = await conn.fetchrow(
+            "SELECT energy, morale, health, credits FROM v_protagonist WHERE game_id = $1",
             game_id,
         )
 
         stats = dict(STATS_DEFAUT)  # Copie des valeurs par défaut
-        key_mapping = {
-            "energy": "energie",
-            "morale": "moral",
-            "health": "sante",
-            "credits": "credits",
-        }
 
-        for row in rows:
-            if row["key"] in key_mapping:
-                fr_key = key_mapping[row["key"]]
-                stats[fr_key] = (
-                    float(row["value"]) if fr_key != "credits" else int(row["value"])
-                )
+        if row:
+            stats["energie"] = (
+                float(row["energy"]) if row["energy"] else stats["energie"]
+            )
+            stats["moral"] = float(row["morale"]) if row["morale"] else stats["moral"]
+            stats["sante"] = float(row["health"]) if row["health"] else stats["sante"]
+            stats["credits"] = (
+                int(row["credits"]) if row["credits"] else stats["credits"]
+            )
 
         return stats
 
@@ -320,40 +309,57 @@ class GameService:
         """Charge l'inventaire via la vue v_inventory"""
         rows = await conn.fetch(
             """
-            SELECT object_name, category, quantity, state, location, base_value
-            FROM v_inventory WHERE game_id = $1
-        """,
+            SELECT object_name, category, quantity, condition, base_value
+            FROM v_inventory 
+            WHERE game_id = $1
+            """,
             game_id,
         )
 
         return [
             {
                 "nom": r["object_name"],
-                "categorie": r["category"],
+                "categorie": r["category"] or "misc",
                 "quantite": r["quantity"] or 1,
-                "etat": r["state"],
-                "localisation": r["location"],
+                "etat": r["condition"],
                 "valeur_neuve": r["base_value"] or 0,
             }
             for r in rows
         ]
 
     async def _load_ai_companion(self, conn, game_id: UUID) -> dict | None:
-        """Charge l'IA compagnon"""
+        """Charge l'IA compagnon via la vue v_ais"""
         row = await conn.fetchrow(
             """
-            SELECT e.name, ea.traits
-            FROM entities e
-            LEFT JOIN entity_ais ea ON ea.entity_id = e.id
-            WHERE e.game_id = $1 AND e.type = 'ai' AND e.removed_cycle IS NULL
+            SELECT name, voice, traits, quirk, substrate
+            FROM v_ais 
+            WHERE game_id = $1 
             LIMIT 1
-        """,
+            """,
             game_id,
         )
 
         if not row:
             return None
-        return {"nom": row["name"], "personnalite": row["traits"]}
+
+        # Parser traits depuis JSON
+        traits = []
+        if row["traits"]:
+            try:
+                traits = (
+                    json.loads(row["traits"])
+                    if isinstance(row["traits"], str)
+                    else row["traits"]
+                )
+            except (json.JSONDecodeError, TypeError):
+                traits = []
+
+        return {
+            "nom": row["name"],
+            "personnalite": traits if isinstance(traits, list) else [],
+            "voix": row["voice"],
+            "quirk": row["quirk"],
+        }
 
     async def _load_cycle_info(self, conn, game_id: UUID) -> dict:
         """Charge les infos du cycle actuel depuis le dernier message assistant"""
@@ -448,24 +454,48 @@ class GameService:
 
         arrival = world_gen.arrival_event
 
+        # Extraire les attributs du protagoniste
+        protagonist_attrs = {
+            attr.key.value: attr.value for attr in world_gen.protagonist.attributes
+        }
+
         return {
             "monde": {
                 "nom": world_gen.world.name,
-                "type": world_gen.world.station_type,
-                "atmosphere": world_gen.world.atmosphere,
-                "population": world_gen.world.population,
+                "atmosphere": next(
+                    (
+                        a.value
+                        for a in world_gen.world.attributes
+                        if a.key.value == "atmosphere"
+                    ),
+                    "",
+                ),
                 "secteurs": world_gen.world.sectors,
             },
             "protagoniste": {
                 "nom": world_gen.protagonist.name,
-                "origine": world_gen.protagonist.origin_location,
-                "raison_depart": world_gen.protagonist.departure_reason.value,
-                "credits": world_gen.protagonist.initial_credits,
+                "origine": protagonist_attrs.get("origin", ""),
+                "raison_depart": protagonist_attrs.get("departure_reason", ""),
+                "credits": int(protagonist_attrs.get("credits", 1400)),
             },
             "ia": {
                 "nom": world_gen.personal_ai.name,
-                "personnalite": world_gen.personal_ai.personality_traits,
-                "quirk": world_gen.personal_ai.quirk,
+                "personnalite": next(
+                    (
+                        json.loads(a.value)
+                        for a in world_gen.personal_ai.attributes
+                        if a.key.value == "traits"
+                    ),
+                    [],
+                ),
+                "quirk": next(
+                    (
+                        a.value
+                        for a in world_gen.personal_ai.attributes
+                        if a.key.value == "quirk"
+                    ),
+                    "",
+                ),
             },
             "nb_personnages": len(world_gen.characters),
             "nb_lieux": len(world_gen.locations),
