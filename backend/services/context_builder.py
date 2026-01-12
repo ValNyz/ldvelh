@@ -20,6 +20,7 @@ from schema.narration import (
     EventSummary,
     Fact,
     MessageSummary,
+    CycleSummary,
     PersonalAISummary,
     NPCLightSummary,
     OrganizationSummary,
@@ -92,7 +93,10 @@ class ContextBuilder:
 
         # History
         cycle_summaries = await self._build_cycle_summaries(conn, current_cycle)
-        recent_messages = await self._build_recent_messages(conn)
+        (
+            recent_messages,
+            earlier_cycle_messages,
+        ) = await self._build_conversation_context(conn, current_cycle, recent_limit=10)
         tone_notes = ""
 
         return NarrationContext(
@@ -113,6 +117,7 @@ class ContextBuilder:
             facts=facts,
             cycle_summaries=cycle_summaries,
             recent_messages=recent_messages,
+            earlier_cycle_messages=earlier_cycle_messages,
             player_input=player_input,
             world_name=world_info.get("name", "Station"),
             world_atmosphere=world_info.get("atmosphere", ""),
@@ -412,26 +417,48 @@ class ContextBuilder:
     # =========================================================================
 
     async def _build_cycle_summaries(
-        self, conn: Connection, current_cycle: int, limit: int = 7
+        self, conn: Connection, current_cycle: int, limit: int = 15
     ) -> list[str]:
         """Build cycle summaries"""
         rows = await self.reader.get_cycle_summaries(conn, current_cycle, limit)
-        return [
-            f"Cycle {r['cycle']} ({r['date'] or f'Jour {r['cycle']}'}) : {r['summary']}"
-            for r in reversed(rows)
-            if r.get("summary")
-        ]
+        return [CycleSummary(cycle=r["cycle"], summary=r["summary"]) for r in rows]
 
-    async def _build_recent_messages(
-        self, conn: Connection, limit: int = 5
-    ) -> list[MessageSummary]:
-        """Build recent message summaries"""
-        rows = await self.reader.get_message_summaries(conn, limit)
-        return [
+    async def _build_conversation_context(
+        self, conn: Connection, current_cycle: int, recent_limit: int = 10
+    ) -> tuple[list[MessageSummary], list[MessageSummary]]:
+        """
+        Build conversation context:
+        - recent_messages: les 10 derniers messages (détaillés)
+        - earlier_cycle_messages: résumés des messages plus anciens du cycle en cours
+
+        Returns: (recent_messages, earlier_cycle_messages)
+        """
+        # 1. Les N derniers messages (tous cycles confondus)
+        recent_rows = await self.reader.get_messages(conn, recent_limit)
+        recent_messages = [
             MessageSummary(
                 role=r["role"],
-                summary=r["summary"][:200] if r.get("summary") else "",
+                summary=r.get("content", ""),
                 cycle=r["cycle"],
+                time=r.get("time"),
             )
-            for r in reversed(rows)
+            for r in recent_rows
         ]
+
+        # 2. IDs des messages récents pour les exclure
+        recent_ids = {r.get("id") for r in recent_rows if r.get("id")}
+
+        # 3. Tous les autres messages du cycle en cours (résumés courts)
+        cycle_rows = await self.reader.get_cycle_messages(conn, current_cycle)
+        earlier_cycle_messages = [
+            MessageSummary(
+                role=r["role"],
+                summary=r.get("summary", ""),
+                cycle=r["cycle"],
+                time=r.get("time"),
+            )
+            for r in cycle_rows
+            if r.get("id") not in recent_ids
+        ]
+
+        return recent_messages, earlier_cycle_messages
