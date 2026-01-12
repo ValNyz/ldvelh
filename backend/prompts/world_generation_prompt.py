@@ -304,13 +304,11 @@ def build_world_generation_user_prompt(
 
 EXAMPLE_JSON_OUTPUT = """{
   "generation_seed_words": ["rouille", "reconversion", "isolement"],
-  "tone_notes": "Station industrielle usée, indifférence ambiante",
-  
   "world": {
     "name": "Escale Méridienne",
     "attributes": [
       {"key": "location_type", "value": "station orbitale reconvertie", "known": true},
-      {"key": "atmosphere", "value": "industrielle fatiguée", "known": true},
+      {"key": "atmosphere", "value": "Station industrielle usée, indifférence ambiante", "known": true},
       {"key": "description", "value": "Ancienne station minière reconvertie. Infrastructure vieillissante, population blasée.", "known": true},
       {"key": "notable_features", "value": "[\\"Quai Central\\", \\"Serres Hautes\\", \\"Quartier Ouvrier\\"]", "known": true}
     ],
@@ -411,7 +409,8 @@ EXAMPLE_JSON_OUTPUT = """{
       {"key": "origin", "value": "Cité-Dôme de Vega III", "known": true},
       {"key": "departure_reason", "value": "fresh_start", "known": true},
       {"key": "backstory", "value": "Huit ans dans une startup qui a implosé. Burnout. Besoin de partir. Développeur compétent mais fatigué. Idéalisme érodé par les déceptions.", "known": true},
-      {"key": "hobbies", "value": "[\\"cuisine improvisée\\", \\"lecture\\", \\"course à pied\\"]", "known": true},
+      {"key": "occupation", "value": "développeur IA senior", "known": true},
+      {"key": "hobbies", "value": "[\\"cuisine\\", \\"lecture\\", \\"course à pied\\"]", "known": true},
       {"key": "credits", "value": "1650", "known": true},
       {"key": "energy", "value": "2.5", "known": true},
       {"key": "morale", "value": "2.5", "known": true},

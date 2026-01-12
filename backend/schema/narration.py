@@ -35,7 +35,7 @@ class ProtagonistState(BaseModel):
     energy: GaugeState
     morale: GaugeState
     health: GaugeState
-    skills: list[str]  # "architecture_systemes (4), cuisine (3)"
+    # skills: list[str]  # "architecture_systemes (4), cuisine (3)"
     hobbies: list[str]
     current_occupation: Optional[str] = None
     employer: Optional[str] = None
@@ -58,7 +58,6 @@ class LocationSummary(BaseModel):
     sector: str
     atmosphere: str
     accessible: bool = True
-    current: bool = False  # Est-ce le lieu actuel ?
 
 
 class ArcSummary(BaseModel):
@@ -70,12 +69,20 @@ class ArcSummary(BaseModel):
     intensity: int  # 1-5
 
 
-class NPCSummary(BaseModel):
-    """Résumé d'un PNJ pour le contexte"""
+class NPCLightSummary(BaseModel):
+    """Résumé léger d'un PNJ pour le contexte"""
 
     name: str
-    occupation: str
-    species: str
+    occupation: str | None
+    species: str = "human"
+    relationship_level: int | None
+    usual_location: str | None
+    known: bool
+
+
+class NPCSummary(NPCLightSummary):
+    """Résumé d'un PNJ pour le contexte"""
+
     traits: list[str]  # 2-3 traits principaux
     relationship_to_protagonist: Optional[str] = (
         None  # "collègue", "voisine", "inconnu"
@@ -84,6 +91,15 @@ class NPCSummary(BaseModel):
     active_arcs: list[ArcSummary] = Field(default_factory=list)
     last_seen: Optional[str] = None  # "cycle 3, au café"
     notes: Optional[str] = None  # Infos importantes connues
+
+
+class OrganizationSummary(BaseModel):
+    """Résumé d'une organisation pour le contexte"""
+
+    name: str
+    org_type: str | None
+    domain: str | None
+    protagonist_relation: str | None  # ex: "employed_by"
 
 
 class CommitmentSummary(BaseModel):
@@ -108,8 +124,8 @@ class EventSummary(BaseModel):
     type: str  # appointment, deadline, etc.
 
 
-class RecentFact(BaseModel):
-    """Fait récent important"""
+class Fact(BaseModel):
+    """Fait"""
 
     cycle: int
     description: str
@@ -124,6 +140,13 @@ class MessageSummary(BaseModel):
     summary: str
     cycle: int
     time: Optional[str] = None
+
+
+class CycleSummary(BaseModel):
+    """Résumé d'un message passé"""
+
+    summary: str
+    cycle: int
 
 
 class PersonalAISummary(BaseModel):
@@ -164,7 +187,11 @@ class NarrationContext(BaseModel):
         default=None, description="IA personnelle de Valentin (nom, traits, quirk)"
     )
 
+    # === ORGANISATIONS ===
+    organizations: list[OrganizationSummary]
+
     # === PNJs ===
+    all_npcs: list[NPCLightSummary]
     npcs_present: list[NPCSummary] = Field(
         default_factory=list, description="PNJs actuellement présents dans le lieu"
     )
@@ -182,22 +209,20 @@ class NarrationContext(BaseModel):
     )
 
     # === FAITS ===
-    recent_important_facts: list[RecentFact] = Field(
+    facts: list[Fact] = Field(
         default_factory=list, description="Faits importants récents (importance >= 4)"
-    )
-    location_relevant_facts: list[RecentFact] = Field(
-        default_factory=list, description="Faits liés au lieu actuel"
-    )
-    npc_relevant_facts: list[RecentFact] = Field(
-        default_factory=list, description="Faits liés aux PNJs présents"
     )
 
     # === HISTORIQUE ===
-    cycle_summaries: list[str] = Field(
-        default_factory=list, description="Résumés des 5-10 derniers cycles"
+    cycle_summaries: list[CycleSummary] = Field(
+        default_factory=list, description="Résumés des derniers cycles"
     )
     recent_messages: list[MessageSummary] = Field(
-        default_factory=list, description="Résumés des 5 derniers messages"
+        default_factory=list, description="Les derniers messages (détaillés)"
+    )
+    earlier_cycle_messages: list[MessageSummary] = Field(
+        default_factory=list,
+        description="Résumés courts des messages plus anciens du cycle en cours",
     )
 
     # === INPUT JOUEUR ===

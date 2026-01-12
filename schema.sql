@@ -93,16 +93,6 @@ CREATE INDEX idx_entities_known ON entities(game_id)
 -- CORE: TYPED ENTITY TABLES (FK only - all data in attributes)
 -- ============================================================================
 
--- Protagonist: no FK needed, all data in attributes
-CREATE TABLE entity_protagonists (
-  entity_id UUID PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE
-);
-
--- Character: no FK needed, all data in attributes
-CREATE TABLE entity_characters (
-  entity_id UUID PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE
-);
-
 -- Location: parent_location_id FK needed for hierarchy
 CREATE TABLE entity_locations (
   entity_id UUID PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
@@ -110,11 +100,6 @@ CREATE TABLE entity_locations (
 );
 
 CREATE INDEX idx_locations_parent ON entity_locations(parent_location_id);
-
--- Object: no FK needed, all data in attributes
-CREATE TABLE entity_objects (
-  entity_id UUID PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE
-);
 
 -- AI: creator_id FK needed
 CREATE TABLE entity_ais (
@@ -391,6 +376,7 @@ CREATE TABLE chat_messages (
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   role VARCHAR(20) NOT NULL,
   content TEXT NOT NULL,
+  tone_notes TEXT,
   cycle INTEGER NOT NULL,
   time VARCHAR(5),
   date VARCHAR(50),
