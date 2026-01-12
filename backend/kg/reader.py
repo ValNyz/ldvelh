@@ -234,6 +234,86 @@ class KnowledgeGraphReader:
         return {r["key"]: r["value"] for r in rows}
 
     # =========================================================================
+    # CHARACTER
+    # =========================================================================
+
+    async def get_known_characters(self, conn: Connection) -> list[dict]:
+        """
+        Récupère les PNJs connus du protagoniste via v_characters_context.
+        Triés par niveau de relation décroissant.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT 
+                entity_id as id,
+                name,
+                species,
+                gender,
+                physical_description,
+                traits,
+                current_position as profession,
+                mood,
+                relation_level,
+                relation_context
+            FROM v_characters_context
+            WHERE game_id = $1
+            ORDER BY COALESCE(relation_level, 0) DESC, name ASC
+            """,
+            self.game_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_character_location(
+        self, conn: Connection, character_id: UUID
+    ) -> str | None:
+        """Récupère le lieu associé à un personnage (works_at, lives_at, frequents)"""
+        return await conn.fetchval(
+            """
+            SELECT target_name FROM v_active_relations
+            WHERE game_id = $1 
+              AND source_id = $2
+              AND relation_type IN ('works_at', 'lives_at', 'frequents')
+            LIMIT 1
+            """,
+            self.game_id,
+            character_id,
+        )
+
+    # =========================================================================
+    # ORGANIZATIONS
+    # =========================================================================
+
+    async def get_known_organizations(self, conn: Connection) -> list[dict]:
+        """
+        Récupère les organisations connues du protagoniste.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT 
+                e.id,
+                e.name,
+                eo.org_type,
+                eo.domain,
+                eo.size,
+                -- Relation du protagoniste avec l'org
+                (SELECT r.relation_type::text FROM v_active_relations r 
+                 WHERE r.target_id = e.id 
+                   AND r.source_type = 'protagonist'
+                   AND r.game_id = $1
+                 LIMIT 1) as protagonist_relation
+            FROM entities e
+            JOIN entity_organizations eo ON eo.entity_id = e.id
+            WHERE e.game_id = $1 
+              AND e.type = 'organization'
+              AND e.removed_cycle IS NULL
+              AND e.known_by_protagonist = true
+            ORDER BY e.name ASC
+            """,
+            self.game_id,
+        )
+        return [dict(r) for r in rows]
+
+    # =========================================================================
     # LOCATIONS
     # =========================================================================
 
@@ -257,6 +337,41 @@ class KnowledgeGraphReader:
             self.game_id,
         )
         return dict(row) if row else None
+
+    async def get_known_locations(self, conn: Connection) -> list[dict]:
+        """
+        Récupère les lieux connus du protagoniste.
+        Utilise entity_locations + relations pour déterminer si visité.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT 
+                e.id,
+                e.name,
+                el.location_type,
+                el.sector,
+                el.accessible,
+                (SELECT ep.name FROM entities ep 
+                 WHERE ep.id = el.parent_location_id) as parent_name,
+                -- Visité = protagoniste a une relation spatiale avec ce lieu
+                EXISTS(
+                    SELECT 1 FROM v_active_relations r
+                    WHERE r.target_id = e.id
+                      AND r.source_type = 'protagonist'
+                      AND r.relation_type IN ('frequents', 'works_at', 'lives_at')
+                      AND r.game_id = $1
+                ) as visited
+            FROM entities e
+            JOIN entity_locations el ON el.entity_id = e.id
+            WHERE e.game_id = $1 
+              AND e.type = 'location'
+              AND e.removed_cycle IS NULL
+              AND e.known_by_protagonist = true
+            ORDER BY el.sector NULLS LAST, e.name ASC
+            """,
+            self.game_id,
+        )
+        return [dict(r) for r in rows]
 
     # =========================================================================
     # PROTAGONIST / INVENTORY / AI (via vues SQL pré-optimisées)
@@ -396,7 +511,7 @@ class KnowledgeGraphReader:
         )
 
     # =========================================================================
-    # RELATIONS - Requête optimisée avec JOIN
+    # RELATIONS
     # =========================================================================
 
     async def get_relations(
@@ -552,4 +667,35 @@ class KnowledgeGraphReader:
             query += f" LIMIT {int(limit)}"
 
         rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_active_commitments(self, conn: Connection) -> list[dict]:
+        """
+        Récupère les quêtes/arcs actifs via v_active_commitments.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT 
+                id,
+                type,
+                description,
+                created_cycle,
+                deadline_cycle,
+                objective,
+                obstacle,
+                progress,
+                entities
+            FROM v_active_commitments
+            WHERE game_id = $1
+            ORDER BY 
+                CASE type 
+                    WHEN 'arc' THEN 1 
+                    WHEN 'secret' THEN 2 
+                    WHEN 'chekhov_gun' THEN 3
+                    ELSE 4 
+                END,
+                deadline_cycle NULLS LAST
+            """,
+            self.game_id,
+        )
         return [dict(r) for r in rows]
