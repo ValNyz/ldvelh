@@ -467,34 +467,46 @@ class KnowledgeGraphReader:
         )
         return [dict(r) for r in rows]
 
-    async def get_known_locations(self, conn: Connection) -> list[dict]:
+    async def get_locations(self, conn: Connection) -> list[dict]:
         """
         Récupère les lieux connus du protagoniste.
-        Utilise v_active_relations pour déterminer si visité.
+        Utilise v_locations qui pivote les attributs EAV.
         """
         rows = await conn.fetch(
             """
             SELECT 
-                e.id,
-                e.name,
-                el.location_type,
-                el.sector,
-                el.accessible,
-                (SELECT ep.name FROM entities ep 
-                 WHERE ep.id = el.parent_location_id) as parent_name,
-                EXISTS(
-                    SELECT 1 FROM v_active_relations ar
-                    WHERE ar.target_id = e.id
-                      AND ar.source_type = 'protagonist'
-                      AND ar.relation_type IN ('frequents', 'works_at', 'lives_at')
-                ) as visited
-            FROM entities e
-            JOIN entity_locations el ON el.entity_id = e.id
-            WHERE e.game_id = $1 
-              AND e.type = 'location'
-              AND e.removed_cycle IS NULL
-              AND e.known_by_protagonist = true
-            ORDER BY el.sector NULLS LAST, e.name ASC
+                vl.id,
+                vl.name,
+                vl.location_type,
+                vl.sector,
+                vl.accessible,
+                vl.parent_location_name
+            FROM v_locations vl
+            WHERE vl.game_id = $1 
+            ORDER BY vl.sector NULLS LAST, vl.name ASC
+            """,
+            self.game_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_known_locations(self, conn: Connection) -> list[dict]:
+        """
+        Récupère les lieux connus du protagoniste.
+        Utilise v_locations qui pivote les attributs EAV.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT 
+                vl.id,
+                vl.name,
+                vl.location_type,
+                vl.sector,
+                vl.accessible,
+                vl.parent_location_name
+            FROM v_locations vl
+            WHERE vl.game_id = $1 
+              AND vl.known_by_protagonist = true
+            ORDER BY vl.sector NULLS LAST, vl.name ASC
             """,
             self.game_id,
         )
