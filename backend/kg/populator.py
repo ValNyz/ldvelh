@@ -799,8 +799,6 @@ class KnowledgeGraphPopulator:
         cycle: int,
         summary: str | None = None,
         date: str | None = None,
-        key_events: dict | None = None,
-        modified_relations: dict | None = None,
     ) -> UUID:
         """Save or update a cycle summary"""
         return await conn.fetchval(
@@ -810,15 +808,11 @@ class KnowledgeGraphPopulator:
                ON CONFLICT (game_id, cycle) DO UPDATE SET
                  date = COALESCE(EXCLUDED.date, cycle_summaries.date),
                  summary = COALESCE(EXCLUDED.summary, cycle_summaries.summary),
-                 key_events = COALESCE(EXCLUDED.key_events, cycle_summaries.key_events),
-                 modified_relations = COALESCE(EXCLUDED.modified_relations, cycle_summaries.modified_relations)
                RETURNING id""",
             self.game_id,
             cycle,
             date,
             summary,
-            json.dumps(key_events) if key_events else None,
-            json.dumps(modified_relations) if modified_relations else None,
         )
 
     # =========================================================================
@@ -995,6 +989,8 @@ class KnowledgeGraphPopulator:
         location_ref: str | None = None,
         recurrence: dict | None = None,
         amount: int | None = None,
+        completed: bool = False,
+        source_fact_id: UUID | None = None,
     ) -> UUID:
         """Crée un événement planifié"""
         location_id = self.registry.resolve(location_ref) if location_ref else None
@@ -1002,8 +998,8 @@ class KnowledgeGraphPopulator:
         return await conn.fetchval(
             """INSERT INTO events 
                (game_id, type, title, description, planned_cycle, time, 
-                location_id, recurrence, amount)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id""",
+                location_id, recurrence, amount, completed, source_fact_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id""",
             self.game_id,
             event_type,
             title,
@@ -1013,6 +1009,8 @@ class KnowledgeGraphPopulator:
             location_id,
             json.dumps(recurrence) if recurrence else None,
             amount,
+            completed,
+            source_fact_id,
         )
 
     async def add_event_participant(
@@ -1031,6 +1029,28 @@ class KnowledgeGraphPopulator:
             entity_id,
             role,
             confirmed,
+        )
+
+    async def add_event_to_cycle_summary(
+        self,
+        conn: Connection,
+        cycle_summary_id: UUID,
+        event_id: UUID,
+        role: str = "primary",
+        display_order: int = 0,
+    ) -> None:
+        """Add an event to a cycle summary"""
+        await conn.execute(
+            """INSERT INTO cycle_summary_events 
+               (cycle_summary_id, event_id, role, display_order)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (cycle_summary_id, event_id) DO UPDATE SET
+                 role = EXCLUDED.role,
+                 display_order = EXCLUDED.display_order""",
+            cycle_summary_id,
+            event_id,
+            role,
+            display_order,
         )
 
     # =========================================================================

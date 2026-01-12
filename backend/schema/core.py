@@ -183,6 +183,15 @@ _RELATION_CATEGORY_MAP: dict[RelationType, RelationCategory] = {
 }
 
 
+class EventType(str, Enum):
+    APPOINTMENT = "appointment"
+    DEADLINE = "deadline"
+    CELEBRATION = "celebration"
+    RECURRING = "recurring"
+    FINANCIAL_DUE = "financial_due"
+    MILESTONE = "milestone"
+
+
 class FactType(str, Enum):
     ACTION = "action"
     NPC_ACTION = "npc_action"

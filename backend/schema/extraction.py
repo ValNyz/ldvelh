@@ -15,9 +15,11 @@ from .core import (
     Cycle,
     EntityRef,
     EntityType,
+    EventType,
     FullText,
     LongText,
     Name,
+    Tag,
     Phrase,
     ShortText,
     Skill,
@@ -359,17 +361,28 @@ class CommitmentResolutionExtraction(BaseModel):
 class EventScheduledExtraction(BaseModel):
     """An event planned for the future"""
 
-    event_type: Literal[
-        "appointment", "deadline", "celebration", "recurring", "financial_due"
-    ]
+    event_type: EventType
     title: Phrase  # 150 chars
     description: Text | None = None  # 300 chars
     planned_cycle: Cycle = Field(..., ge=1)
-    time: str | None = Field(default="12h00", max_length=5)
+    time: Tag | None
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
     recurrence: dict | None = None
     amount: int | None = None
+    completed: bool = False
+
+    @field_validator("event_type", mode="before")
+    @classmethod
+    def _normalize_event_type(cls, v):
+        if isinstance(v, EventType):
+            return v
+        if isinstance(v, str):
+            try:
+                return EventType(v.lower().replace("-", "_"))
+            except ValueError:
+                pass
+        return EventType.APPOINTMENT
 
 
 # =============================================================================
@@ -385,9 +398,7 @@ class NarrativeExtraction(BaseModel):
 
     # Context
     cycle: Cycle = Field(default=1)
-    time: str | None = Field(
-        default=None, max_length=5, description="Hour at the start of the narration."
-    )
+    time: Tag | None
     current_location_ref: EntityRef | None = None
 
     # Facts (immutable events that happened)
