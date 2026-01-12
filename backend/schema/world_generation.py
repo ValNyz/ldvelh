@@ -159,8 +159,6 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         max_length=6,
         description="Thematic words guiding this generation",
     )
-    tone_notes: Text  # 300 chars
-
     # Core elements
     world: WorldData
     protagonist: ProtagonistData

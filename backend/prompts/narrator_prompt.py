@@ -243,6 +243,16 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
     lines.append(f"- Heure: {context.current_time}")
     lines.append("")
 
+    # === MONDE ===
+    if context.world_name:
+        lines.append("### MONDE")
+        lines.append(f"**{context.world_name}**")
+        if context.world_atmosphere:
+            lines.append(f"Atmosphère: {context.world_atmosphere}")
+        if context.tone_notes:
+            lines.append(f"Notes de ton: {context.tone_notes}")
+        lines.append("")
+
     # Lieu
     lines.append("### LIEU ACTUEL")
     loc = context.current_location
@@ -278,6 +288,19 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
             for i in context.inventory[:10]
         ]
         lines.append(f"Inventaire: {', '.join(items)}")
+        lines.append("")
+
+    # IA Personnelle
+    if context.personal_ai:
+        lines.append("### IA PERSONNELLE")
+        ai = context.personal_ai
+        lines.append(f"**Nom: {ai.name}**")
+        if ai.voice_description:
+            lines.append(f"Voix: {ai.voice_description}")
+        if ai.personality_traits:
+            lines.append(f"Traits: {', '.join(ai.personality_traits)}")
+        if ai.quirk:
+            lines.append(f"Particularité: {ai.quirk}")
         lines.append("")
 
     # PNJs présents
@@ -337,21 +360,11 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
         lines.append("")
 
     # Faits récents importants
-    all_facts = (
-        context.recent_important_facts
-        + context.location_relevant_facts
-        + context.npc_relevant_facts
-    )
-    seen = set()
-    unique_facts = []
-    for f in all_facts:
-        if f.description not in seen:
-            seen.add(f.description)
-            unique_facts.append(f)
+    all_facts = context.facts
 
-    if unique_facts:
-        lines.append("### FAITS RÉCENTS PERTINENTS")
-        for f in sorted(unique_facts, key=lambda x: (-x.importance, -x.cycle))[:8]:
+    if all_facts:
+        lines.append("### FAITS PERTINENTS")
+        for f in sorted(all_facts, key=lambda x: (-x.importance, -x.cycle))[:8]:
             lines.append(f"- [Cycle {f.cycle}] {f.description}")
         lines.append("")
 

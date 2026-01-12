@@ -161,10 +161,12 @@ from .narration import (
     InventoryItem,
     LocationSummary,
     MessageSummary,
+    NPCLightSummary,
     NPCSummary,
+    OrganizationSummary,
     PersonalAISummary,
     ProtagonistState,
-    RecentFact,
+    Fact,
 )
 
 # =============================================================================
@@ -385,10 +387,12 @@ __all__ = [
     "InventoryItem",
     "LocationSummary",
     "MessageSummary",
+    "NPCLightSummary",
     "NPCSummary",
+    "OrganizationSummary",
     "PersonalAISummary",
     "ProtagonistState",
-    "RecentFact",
+    "Fact",
     # =========================================================================
     # WORLD GENERATION
     # =========================================================================
