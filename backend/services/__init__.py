@@ -11,6 +11,7 @@ from services.extraction_service import (
     run_parallel_extraction,
     ExtractionResult,
 )
+from services.context_builder import ContextBuilder
 
 __all__ = [
     # Game
@@ -23,4 +24,6 @@ __all__ = [
     "create_summary_task",
     "run_parallel_extraction",
     "ExtractionResult",
+    # Context Builder
+    "ContextBuilder",
 ]

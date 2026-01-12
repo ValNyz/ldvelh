@@ -22,7 +22,7 @@ from api.dependencies import get_pool, get_settings_dep
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from prompts.world_generation_prompt import get_full_generation_prompt
-from kg.context_builder import ContextBuilder
+from services.context_builder import ContextBuilder
 from services.extraction_service import (
     ParallelExtractionService,
     create_summary_task,
