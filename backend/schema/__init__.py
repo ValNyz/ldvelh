@@ -14,6 +14,7 @@ from .core import (
     CommitmentType,
     DepartureReason,
     EntityType,
+    ENTITY_TYPED_TABLES,
     FactType,
     Moment,
     OrgSize,
@@ -160,10 +161,12 @@ from .narration import (
     InventoryItem,
     LocationSummary,
     MessageSummary,
+    NPCLightSummary,
     NPCSummary,
+    OrganizationSummary,
     PersonalAISummary,
     ProtagonistState,
-    RecentFact,
+    Fact,
 )
 
 # =============================================================================
@@ -215,6 +218,7 @@ __all__ = [
     "CommitmentType",
     "DepartureReason",
     "EntityType",
+    "ENTITY_TYPED_TABLES",
     "FactType",
     "Moment",
     "OrgSize",
@@ -383,10 +387,12 @@ __all__ = [
     "InventoryItem",
     "LocationSummary",
     "MessageSummary",
+    "NPCLightSummary",
     "NPCSummary",
+    "OrganizationSummary",
     "PersonalAISummary",
     "ProtagonistState",
-    "RecentFact",
+    "Fact",
     # =========================================================================
     # WORLD GENERATION
     # =========================================================================

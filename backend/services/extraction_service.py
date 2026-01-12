@@ -1,6 +1,7 @@
 """
 LDVELH - Extraction Service
 Extraction des données narratives en arrière-plan
+Utilise kg/reader.py et kg/populator.py pour l'accès BDD
 """
 
 import time
@@ -10,6 +11,7 @@ import asyncpg
 import asyncio
 from dataclasses import dataclass, field
 
+from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
 from prompts.extractor_prompts import (
     SUMMARY_SYSTEM,
@@ -148,8 +150,12 @@ class ParallelExtractionService:
         self.pool = pool
         self.llm = get_llm_service()
 
+    def _get_reader(self, game_id: UUID) -> KnowledgeGraphReader:
+        """Crée un reader pour une partie"""
+        return KnowledgeGraphReader(self.pool, game_id)
+
     # =========================================================================
-    # EXTRACTEURS INDIVIDUELS
+    # EXTRACTEURS INDIVIDUELS (LLM - inchangés)
     # =========================================================================
 
     async def extract_summary(self, narrative_text: str) -> dict:
@@ -253,6 +259,25 @@ class ParallelExtractionService:
         }
 
     # =========================================================================
+    # CHARGEMENT CONTEXTE (via reader)
+    # =========================================================================
+
+    async def _load_known_entities(
+        self, conn, game_id: UUID
+    ) -> tuple[list[str], list[str]]:
+        """
+        Charge les entités et objets connus.
+        Retourne (known_entities, known_objects)
+        """
+        reader = self._get_reader(game_id)
+        entities = await reader.get_entities(conn)
+
+        known_entities = [e["name"] for e in entities]
+        known_objects = [e["name"] for e in entities if e["type"] == "object"]
+
+        return known_entities, known_objects
+
+    # =========================================================================
     # ORCHESTRATION PARALLÈLE
     # =========================================================================
 
@@ -285,15 +310,11 @@ class ParallelExtractionService:
                 result.merge(summary_result)
             return result
 
-        # Récupérer les entités et objets connus
+        # Récupérer les entités et objets connus via reader
         async with self.pool.acquire() as conn:
-            known_rows = await conn.fetch(
-                """SELECT name, type FROM entities 
-                   WHERE game_id = $1 AND removed_cycle IS NULL""",
-                game_id,
+            known_entities, known_objects = await self._load_known_entities(
+                conn, game_id
             )
-            known_entities = [r["name"] for r in known_rows]
-            known_objects = [r["name"] for r in known_rows if r["type"] == "object"]
 
         # =====================================================================
         # PHASE 1: Extracteurs indépendants (parallèle)
@@ -467,7 +488,7 @@ class ParallelExtractionService:
                 logger.warning(f"[EXTRACTION] Validation error: {e}")
                 extraction = None
 
-            # Peupler le KG
+            # Peupler le KG via ExtractionPopulator
             async with self.pool.acquire() as conn:
                 populator = ExtractionPopulator(self.pool, game_id)
                 await populator.load_registry(conn)
@@ -507,7 +528,6 @@ class ParallelExtractionService:
             try:
                 from schema import FactData
 
-                # S'assurer que cycle est présent
                 if "cycle" not in fact_data:
                     fact_data["cycle"] = cycle
 
@@ -575,10 +595,7 @@ class ParallelExtractionService:
             try:
                 from schema import RelationData
 
-                # Extraire la relation imbriquée si nécessaire
                 relation_dict = rel_data.get("relation", rel_data)
-
-                # S'assurer que cycle est présent
                 rel_cycle = rel_data.get("cycle", cycle)
 
                 relation = RelationData.model_validate(relation_dict)

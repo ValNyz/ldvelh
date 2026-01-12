@@ -243,6 +243,16 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
     lines.append(f"- Heure: {context.current_time}")
     lines.append("")
 
+    # === MONDE ===
+    if context.world_name:
+        lines.append("### MONDE")
+        lines.append(f"**{context.world_name}**")
+        if context.world_atmosphere:
+            lines.append(f"Atmosphère: {context.world_atmosphere}")
+        if context.tone_notes:
+            lines.append(f"Notes de ton: {context.tone_notes}")
+        lines.append("")
+
     # Lieu
     lines.append("### LIEU ACTUEL")
     loc = context.current_location
@@ -275,15 +285,40 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
     if context.inventory:
         items = [
             f"{i.name}" + (f" (×{i.quantity})" if i.quantity > 1 else "")
-            for i in context.inventory[:10]
+            for i in context.inventory
         ]
         lines.append(f"Inventaire: {', '.join(items)}")
         lines.append("")
 
+    # IA Personnelle
+    if context.personal_ai:
+        lines.append("### IA PERSONNELLE")
+        ai = context.personal_ai
+        lines.append(f"**Nom: {ai.name}**")
+        if ai.voice_description:
+            lines.append(f"Voix: {ai.voice_description}")
+        if ai.personality_traits:
+            lines.append(f"Traits: {', '.join(ai.personality_traits)}")
+        if ai.quirk:
+            lines.append(f"Particularité: {ai.quirk}")
+        lines.append("")
+
+    # === ORGANISATIONS CONNUES ===
+    if context.organizations:
+        lines.append("### ORGANISATIONS CONNUES")
+        for org in context.organizations:
+            relation = (
+                f" — {org.protagonist_relation}" if org.protagonist_relation else ""
+            )
+            lines.append(f"- **{org.name}** ({org.org_type}): {org.domain}{relation}")
+        lines.append("")
+
+    unique_npcs = set()
     # PNJs présents
     if context.npcs_present:
         lines.append("### PNJs PRÉSENTS")
         for npc in context.npcs_present:
+            unique_npcs.add(npc.name)
             traits = ", ".join(npc.traits[:3])
             lines.append(f"**{npc.name}** - {npc.occupation} ({npc.species})")
             lines.append(f"  Traits: {traits}")
@@ -303,13 +338,31 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
     if context.npcs_relevant:
         lines.append("### AUTRES PNJs CONNUS")
         for npc in context.npcs_relevant:
-            info = f"**{npc.name}** - {npc.occupation}"
-            if npc.last_seen:
-                info += f" (vu: {npc.last_seen})"
-            lines.append(info)
-            if npc.active_arcs:
-                arc = npc.active_arcs[0]
-                lines.append(f"  Arc actif: {arc.title} (intensité {arc.intensity}/5)")
+            if npc not in unique_npcs:
+                info = f"**{npc.name}** - {npc.occupation}"
+                if npc.last_seen:
+                    info += f" (vu: {npc.last_seen})"
+                lines.append(info)
+                if npc.active_arcs:
+                    arc = npc.active_arcs[0]
+                    lines.append(
+                        f"  Arc actif: {arc.title} (intensité {arc.intensity}/5)"
+                    )
+        lines.append("")
+
+    # === TOUS LES PNJs CONNUS (référence) ===
+    if context.all_npcs:
+        lines.append("### PNJs CONNUS (utiliser noms EXACTS)")
+        npc_list = []
+        for npc in context.all_npcs:
+            if npc.name not in unique_npcs:
+                info = f"{npc.name}"
+                if npc.occupation:
+                    info += f" ({npc.occupation})"
+                if npc.usual_location:
+                    info += f" @ {npc.usual_location}"
+                npc_list.append(info)
+        lines.append(", ".join(npc_list))
         lines.append("")
 
     # Engagements narratifs
@@ -337,36 +390,37 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
         lines.append("")
 
     # Faits récents importants
-    all_facts = (
-        context.recent_important_facts
-        + context.location_relevant_facts
-        + context.npc_relevant_facts
-    )
-    seen = set()
-    unique_facts = []
-    for f in all_facts:
-        if f.description not in seen:
-            seen.add(f.description)
-            unique_facts.append(f)
-
-    if unique_facts:
-        lines.append("### FAITS RÉCENTS PERTINENTS")
-        for f in sorted(unique_facts, key=lambda x: (-x.importance, -x.cycle))[:8]:
-            lines.append(f"- [Cycle {f.cycle}] {f.description}")
+    if context.facts:
+        lines.append("### FAITS PERTINENTS")
+        for f in sorted(context.facts, key=lambda x: (-x.importance, -x.cycle)):
+            involves_str = f" [{', '.join(f.involves)}]" if f.involves else ""
+            lines.append(f"- [Cycle {f.cycle}] {f.description}{involves_str}")
         lines.append("")
 
-    # Historique
+    # === HISTORIQUE DES CYCLES ===
     if context.cycle_summaries:
-        lines.append("### RÉSUMÉ DES DERNIERS CYCLES")
-        for summary in context.cycle_summaries[-5:]:
-            lines.append(f"- {summary}")
+        lines.append("### RÉSUMÉ DES CYCLES PRÉCÉDENTS")
+        # Grouper par tranches pour lisibilité
+        for summary in context.cycle_summaries:
+            lines.append(f"Cycle {summary.cycle} - {summary.summary}")
         lines.append("")
 
+    # === CONVERSATION DU CYCLE EN COURS ===
+    if context.earlier_cycle_messages:
+        lines.append("### PLUS TÔT DANS CE CYCLE")
+        for msg in context.earlier_cycle_messages:
+            role_label = "Joueur" if msg.role == "user" else "Narrateur"
+            time_str = f" ({msg.time})" if msg.time else ""
+            lines.append(f"- [{role_label}{time_str}] {msg.summary}")
+        lines.append("")
+
+    # === CONVERSATION RÉCENTE ===
     if context.recent_messages:
         lines.append("### CONVERSATION RÉCENTE")
-        for msg in context.recent_messages[-5:]:
+        for msg in context.recent_messages:
             role_label = "Joueur" if msg.role == "user" else "Narrateur"
-            lines.append(f"[{role_label}] {msg.summary}")
+            time_str = f" ({msg.time})" if msg.time else ""
+            lines.append(f"[{role_label}{time_str}] {msg.summary}")
         lines.append("")
 
     # Input joueur

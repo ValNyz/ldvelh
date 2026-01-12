@@ -22,7 +22,7 @@ from api.dependencies import get_pool, get_settings_dep
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from prompts.world_generation_prompt import get_full_generation_prompt
-from kg.context_builder import ContextBuilder
+from services.context_builder import ContextBuilder
 from services.extraction_service import (
     ParallelExtractionService,
     create_summary_task,
@@ -145,23 +145,34 @@ async def rename_game(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-# @router.get("/games/{game_id}/world")
-# async def get_world_data(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
-#     """
-#     Récupère les données du monde pour les sidebars.
-#
-#     Returns:
-#         - npcs: Liste des PNJs connus
-#         - locations: Liste des lieux découverts
-#         - quests: Liste des quêtes/arcs actifs
-#         - organizations: Liste des organisations connues
-#     """
-#     service = GameService(pool)
-#     try:
-#         world_data = await service.load_world_data(game_id)
-#         return world_data
-#     except ValueError as e:
-#         raise HTTPException(status_code=404, detail=str(e))
+@router.get("/games/{game_id}/world")
+async def get_world_data(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
+    """
+    Récupère les données du monde pour les sidebars.
+
+    Returns:
+        - npcs: Liste des PNJs connus
+        - locations: Liste des lieux découverts
+        - quests: Liste des quêtes/arcs actifs
+        - organizations: Liste des organisations connues
+    """
+    service = GameService(pool)
+
+    try:
+        # Charger chaque type de données séparément
+        npcs = await service.load_npcs(game_id)
+        locations = await service.load_locations(game_id)
+        quests = await service.load_quests(game_id)
+        organizations = await service.load_organizations(game_id)
+
+        return {
+            "npcs": npcs,
+            "locations": locations,
+            "quests": quests,
+            "organizations": organizations,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # =============================================================================
@@ -331,7 +342,11 @@ async def _handle_chat(
 
             # Si first_light, utiliser l'événement d'arrivée comme contexte initial
             if is_first_light:
-                message = message or "Je viens d'arriver sur la station."
+                message = (
+                    message
+                    if not message.startswith("__")
+                    else "Je viens d'arriver sur la station. IA (remplacer par personnal_ai.name) commente."
+                )
 
             async with pool.acquire() as conn:
                 builder = ContextBuilder(pool, game_id)
@@ -344,9 +359,7 @@ async def _handle_chat(
                 )
 
             context_prompt = build_narrator_context_prompt(context)
-            logger.info(
-                f"[CHAT] context: \n{json.dumps(context.model_dump(), indent=2, default=str, ensure_ascii=False)}"
-            )
+            logger.info(f"[CHAT] context: \n{context_prompt}")
 
             # Variable pour stocker la tâche de résumé lancée tôt
             summary_task_holder = {"task": None}
@@ -471,6 +484,7 @@ async def _handle_chat(
                         location_ref=process_result["location"],
                         npcs_present_refs=process_result["npcs_present"],
                         summary=segment_summary,
+                        tone_notes=narration.scene_mood,
                     )
 
                     logger.debug(
