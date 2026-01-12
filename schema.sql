@@ -34,7 +34,7 @@ CREATE TYPE participant_role AS ENUM (
 );
 
 CREATE TYPE event_type AS ENUM (
-  'appointment', 'deadline', 'celebration', 'recurring', 'financial_due'
+  'milestone', 'appointment', 'deadline', 'celebration', 'recurring', 'financial_due'
 );
 
 CREATE TYPE commitment_type AS ENUM (
@@ -400,13 +400,23 @@ CREATE TABLE cycle_summaries (
   cycle INTEGER NOT NULL,
   date VARCHAR(50),
   summary TEXT,
-  key_events JSONB,
-  modified_relations JSONB,
   created_at TIMESTAMPTZ DEFAULT now(),
   UNIQUE(game_id, cycle)
 );
 
 CREATE INDEX idx_summaries_game ON cycle_summaries(game_id, cycle);
+
+CREATE TABLE cycle_summary_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  cycle_summary_id UUID NOT NULL REFERENCES cycle_summaries(id) ON DELETE CASCADE,
+  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+  role VARCHAR(50) DEFAULT 'primary',
+  display_order INTEGER DEFAULT 0,
+  UNIQUE(cycle_summary_id, event_id)
+);
+
+CREATE INDEX idx_cse_summary ON cycle_summary_events(cycle_summary_id);
+CREATE INDEX idx_cse_event ON cycle_summary_events(event_id);
 
 -- ============================================================================
 -- HISTORY: EXTRACTION LOGS

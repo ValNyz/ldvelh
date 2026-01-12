@@ -13,6 +13,7 @@ from .core import (
     Cycle,
     EntityRef,
     FactType,
+    Tag,
     FullText,
     LongText,
     Name,
@@ -138,24 +139,21 @@ class CommitmentResolution(BaseModel):
 # =============================================================================
 
 
-class EventType(str):
-    APPOINTMENT = "appointment"
-    DEADLINE = "deadline"
-    CELEBRATION = "celebration"
-    RECURRING = "recurring"
-    FINANCIAL_DUE = "financial_due"
-
-
 class EventScheduled(BaseModel):
     """An event planned for the future"""
 
     event_type: Literal[
-        "appointment", "deadline", "celebration", "recurring", "financial_due"
+        "milestone",
+        "appointment",
+        "deadline",
+        "celebration",
+        "recurring",
+        "financial_due",
     ]
     title: Phrase  # 150 chars
     description: Text | None = None  # 300 chars
     planned_cycle: Cycle = Field(..., ge=1)
-    time: str | None = Field(default="12h00", max_length=5)
+    time: Tag | None
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
     recurrence: dict | None = Field(
