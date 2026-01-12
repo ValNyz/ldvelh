@@ -105,6 +105,16 @@ class KnowledgeGraphReader:
         )
         return result or 0
 
+    async def get_date_for_cycle(self, conn: Connection, cycle: int) -> str | None:
+        """Récupère la date pour un cycle donné"""
+        return await conn.fetchval(
+            """SELECT date FROM cycle_summaries 
+               WHERE game_id = $1 AND cycle <= $2 
+               ORDER BY cycle DESC LIMIT 1""",
+            self.game_id,
+            cycle,
+        )
+
     # =========================================================================
     # ENTITIES - Fonctions de base
     # =========================================================================
@@ -285,6 +295,27 @@ class KnowledgeGraphReader:
             character_id,
         )
 
+    async def get_top_related_npcs(
+        self, conn: Connection, limit: int = 5
+    ) -> list[dict]:
+        """Récupère les NPCs avec la meilleure relation (triés par level)"""
+        rows = await conn.fetch(
+            """SELECT 
+                cc.entity_id as id, cc.name, cc.species,
+                cc.physical_description, cc.traits, cc.current_position as occupation,
+                cc.mood, cc.relation_level as rel_level, cc.relation_context as rel_context,
+                get_attribute(cc.entity_id, 'arcs') as arcs,
+                e.known_by_protagonist, e.unknown_name
+               FROM v_characters_context cc
+               JOIN entities e ON e.id = cc.entity_id
+               WHERE cc.game_id = $1 AND cc.relation_level IS NOT NULL
+               ORDER BY cc.relation_level DESC
+               LIMIT $2""",
+            self.game_id,
+            limit,
+        )
+        return [dict(r) for r in rows]
+
     # =========================================================================
     # ORGANIZATIONS
     # =========================================================================
@@ -323,6 +354,23 @@ class KnowledgeGraphReader:
     # LOCATIONS
     # =========================================================================
 
+    async def get_location_details(self, conn: Connection, name: str) -> dict | None:
+        """Récupère une location par nom avec ses attributs"""
+        row = await conn.fetchrow(
+            """SELECT 
+                e.id, e.name,
+                get_attribute(e.id, 'location_type') as location_type,
+                get_attribute(e.id, 'sector') as sector,
+                get_attribute(e.id, 'atmosphere') as atmosphere,
+                COALESCE(get_attribute(e.id, 'accessible'), 'true')::BOOLEAN as accessible
+               FROM entities e
+               WHERE e.game_id = $1 AND e.type = 'location' 
+                 AND LOWER(e.name) = LOWER($2) AND e.removed_cycle IS NULL""",
+            self.game_id,
+            name,
+        )
+        return dict(row) if row else None
+
     async def get_root_location(self, conn: Connection) -> dict | None:
         """Récupère la location racine (sans parent) avec attributs"""
         row = await conn.fetchrow(
@@ -343,6 +391,40 @@ class KnowledgeGraphReader:
             self.game_id,
         )
         return dict(row) if row else None
+
+    async def get_sibling_locations(
+        self, conn: Connection, location_name: str, limit: int = 10
+    ) -> list[dict]:
+        """
+        Récupère les locations accessibles (même secteur ou accessibles).
+        Optimisé avec une seule requête.
+        """
+        rows = await conn.fetch(
+            """WITH current AS (
+                SELECT e.id, get_attribute(e.id, 'sector') as sector
+                FROM entities e
+                WHERE e.game_id = $1 AND LOWER(e.name) = LOWER($2) AND e.type = 'location'
+            )
+            SELECT e.name,
+                   get_attribute(e.id, 'location_type') as location_type,
+                   get_attribute(e.id, 'sector') as sector,
+                   get_attribute(e.id, 'atmosphere') as atmosphere
+            FROM entities e, current c
+            WHERE e.game_id = $1 
+              AND e.type = 'location'
+              AND e.removed_cycle IS NULL
+              AND e.known_by_protagonist = true
+              AND e.id != c.id
+              AND (
+                  COALESCE(get_attribute(e.id, 'accessible'), 'true')::BOOLEAN = true
+                  OR get_attribute(e.id, 'sector') = c.sector
+              )
+            LIMIT $3""",
+            self.game_id,
+            location_name,
+            limit,
+        )
+        return [dict(r) for r in rows]
 
     async def get_known_locations(self, conn: Connection) -> list[dict]:
         """
@@ -377,6 +459,38 @@ class KnowledgeGraphReader:
         )
         return [dict(r) for r in rows]
 
+    async def get_npcs_at_location(
+        self, conn: Connection, location_name: str
+    ) -> list[dict]:
+        """Récupère les NPCs présents à une location via leurs relations spatiales"""
+        rows = await conn.fetch(
+            """SELECT 
+                e.id, e.name, e.known_by_protagonist, e.unknown_name,
+                get_attribute(e.id, 'occupation') as occupation,
+                get_attribute(e.id, 'species') as species,
+                get_attribute(e.id, 'traits') as traits,
+                get_attribute(e.id, 'arcs') as arcs,
+                rs.context as rel_context,
+                rs.level as rel_level
+               FROM entities e
+               JOIN relations r ON r.source_id = e.id AND r.end_cycle IS NULL
+               JOIN entities loc ON loc.id = r.target_id
+               LEFT JOIN relations r_proto ON r_proto.target_id = e.id 
+                   AND r_proto.type = 'knows' AND r_proto.end_cycle IS NULL
+                   AND r_proto.source_id = (
+                       SELECT id FROM entities WHERE type = 'protagonist' AND game_id = $1 LIMIT 1
+                   )
+               LEFT JOIN relations_social rs ON rs.relation_id = r_proto.id
+               WHERE e.game_id = $1 
+                 AND e.type = 'character'
+                 AND e.removed_cycle IS NULL
+                 AND r.type IN ('works_at', 'frequents', 'lives_at')
+                 AND LOWER(loc.name) = LOWER($2)""",
+            self.game_id,
+            location_name,
+        )
+        return [dict(r) for r in rows]
+
     # =========================================================================
     # PROTAGONIST / INVENTORY / AI (via vues SQL pré-optimisées)
     # =========================================================================
@@ -395,6 +509,34 @@ class KnowledgeGraphReader:
             self.game_id,
         )
         return dict(row) if row else None
+
+    async def get_protagonist_with_skills(self, conn: Connection) -> dict | None:
+        """
+        Récupère le protagoniste avec skills et employer.
+        Étend v_protagonist avec des données relationnelles.
+        """
+        result = await self.get_protagonist(conn)
+        if not result:
+            return None
+
+        # Skills (pas dans la vue)
+        skills = await conn.fetch(
+            """SELECT name, level FROM skills 
+               WHERE entity_id = $1 AND end_cycle IS NULL""",
+            result["id"],
+        )
+        result["skills"] = [dict(s) for s in skills]
+
+        # Employer via relation
+        result["employer"] = await conn.fetchval(
+            """SELECT e.name FROM relations r
+               JOIN entities e ON e.id = r.target_id
+               WHERE r.source_id = $1 AND r.type = 'employed_by' AND r.end_cycle IS NULL
+               LIMIT 1""",
+            result["id"],
+        )
+
+        return result
 
     async def get_inventory(self, conn: Connection) -> list[dict]:
         """Récupère l'inventaire via vue v_inventory"""
@@ -448,6 +590,21 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, self.game_id)
         return [dict(r) for r in rows]
 
+    async def get_message_summaries(
+        self, conn: Connection, limit: int = 5
+    ) -> list[dict]:
+        """Récupère les résumés des messages récents (avec summary non null)"""
+        rows = await conn.fetch(
+            """SELECT role, summary, cycle
+               FROM chat_messages 
+               WHERE game_id = $1 AND summary IS NOT NULL
+               ORDER BY created_at DESC
+               LIMIT $2""",
+            self.game_id,
+            limit,
+        )
+        return [dict(r) for r in rows]
+
     async def get_last_assistant_message(self, conn: Connection) -> dict | None:
         """Récupère le dernier message assistant avec nom du lieu - requête optimisée"""
         row = await conn.fetchrow(
@@ -480,6 +637,22 @@ class KnowledgeGraphReader:
             cycle,
         )
         return dict(row) if row else None
+
+    async def get_cycle_summaries(
+        self, conn: Connection, max_cycle: int, limit: int = 7
+    ) -> list[dict]:
+        """Récupère les résumés des N derniers cycles"""
+        rows = await conn.fetch(
+            """SELECT cycle, date, summary, key_events
+               FROM cycle_summaries 
+               WHERE game_id = $1 AND cycle <= $2
+               ORDER BY cycle DESC
+               LIMIT $3""",
+            self.game_id,
+            max_cycle,
+            limit,
+        )
+        return [dict(r) for r in rows]
 
     async def get_latest_cycle_summary(self, conn: Connection) -> dict | None:
         """Récupère le dernier résumé de cycle"""
@@ -610,6 +783,58 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
+    async def get_facts_with_participants(
+        self,
+        conn: Connection,
+        cycle: int | None = None,
+        min_importance: int = 1,
+        location_name: str | None = None,
+        npc_names: list[str] | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """
+        Récupère les faits avec participants (requête unifiée).
+        Remplace get_important_facts, get_location_facts, get_npc_facts.
+        """
+        query = """
+            SELECT 
+                f.id, f.cycle, f.type as fact_type, f.description, 
+                f.importance, f.time,
+                (SELECT array_agg(jsonb_build_object('name', e.name, 'role', fp.role))
+                 FROM fact_participants fp
+                 JOIN entities e ON fp.entity_id = e.id
+                 WHERE fp.fact_id = f.id) as participants
+            FROM facts f
+            WHERE f.game_id = $1 AND f.importance >= $2
+        """
+        params: list = [self.game_id, min_importance]
+
+        if cycle is not None:
+            params.append(cycle)
+            query += f" AND f.cycle <= ${len(params)}"
+
+        if location_name:
+            params.append(location_name.lower())
+            query += f""" AND f.location_id = (
+                SELECT id FROM entities 
+                WHERE game_id = $1 AND LOWER(name) = ${len(params)} AND type = 'location'
+            )"""
+
+        if npc_names:
+            params.append([n.lower() for n in npc_names])
+            query += f""" AND f.id IN (
+                SELECT fp.fact_id FROM fact_participants fp
+                JOIN entities e ON fp.entity_id = e.id
+                WHERE LOWER(e.name) = ANY(${len(params)})
+            )"""
+
+        query += " ORDER BY f.importance DESC, f.cycle DESC"
+        params.append(limit)
+        query += f" LIMIT ${len(params)}"
+
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
     async def fact_exists(
         self, conn: Connection, cycle: int, semantic_key: str
     ) -> bool:
@@ -643,34 +868,22 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, self.game_id)
         return [dict(r) for r in rows]
 
-    async def get_events(
-        self,
-        conn: Connection,
-        from_cycle: int | None = None,
-        limit: int | None = None,
-        pending_only: bool = True,
-    ) -> list[dict]:
-        """Récupère les événements planifiés"""
-        query = """
-            SELECT id, title, description, planned_cycle, 
-                   time, location_id, type, completed, cancelled
-            FROM events WHERE game_id = $1
-        """
-        params: list = [self.game_id]
-
-        if pending_only:
-            query += " AND completed = false AND cancelled = false"
-
-        if from_cycle is not None:
-            query += f" AND planned_cycle >= ${len(params) + 1}"
-            params.append(from_cycle)
-
-        query += " ORDER BY planned_cycle ASC"
-
-        if limit:
-            query += f" LIMIT {int(limit)}"
-
-        rows = await conn.fetch(query, *params)
+    async def get_commitments_detailed(self, conn: Connection) -> list[dict]:
+        """Récupère les commitments actifs avec entités impliquées"""
+        rows = await conn.fetch(
+            """SELECT 
+                c.id, c.type, c.description, c.created_cycle, c.deadline_cycle,
+                ca.objective, ca.obstacle, ca.progress,
+                (SELECT array_agg(jsonb_build_object('name', e.name, 'role', ce.role))
+                 FROM commitment_entities ce
+                 JOIN entities e ON ce.entity_id = e.id
+                 WHERE ce.commitment_id = c.id) as entities
+               FROM commitments c
+               LEFT JOIN commitment_arcs ca ON ca.commitment_id = c.id
+               WHERE c.game_id = $1 AND c.resolved = false
+               ORDER BY c.deadline_cycle NULLS LAST""",
+            self.game_id,
+        )
         return [dict(r) for r in rows]
 
     async def get_active_commitments(self, conn: Connection) -> list[dict]:
@@ -701,5 +914,77 @@ class KnowledgeGraphReader:
                 deadline_cycle NULLS LAST
             """,
             self.game_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def find_commitment_by_description(
+        self, conn: Connection, description: str
+    ) -> dict | None:
+        """Trouve un commitment par description partielle (pour résolution)"""
+        row = await conn.fetchrow(
+            """SELECT id, type, description, resolved
+               FROM commitments 
+               WHERE game_id = $1 AND resolved = false
+                 AND description ILIKE '%' || $2 || '%'
+               LIMIT 1""",
+            self.game_id,
+            description[:50],
+        )
+        return dict(row) if row else None
+
+    async def get_events(
+        self,
+        conn: Connection,
+        from_cycle: int | None = None,
+        limit: int | None = None,
+        pending_only: bool = True,
+    ) -> list[dict]:
+        """Récupère les événements planifiés"""
+        query = """
+            SELECT id, title, description, planned_cycle, 
+                   time, location_id, type, completed, cancelled
+            FROM events WHERE game_id = $1
+        """
+        params: list = [self.game_id]
+
+        if pending_only:
+            query += " AND completed = false AND cancelled = false"
+
+        if from_cycle is not None:
+            query += f" AND planned_cycle >= ${len(params) + 1}"
+            params.append(from_cycle)
+
+        query += " ORDER BY planned_cycle ASC"
+
+        if limit:
+            query += f" LIMIT {int(limit)}"
+
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_events_detailed(
+        self, conn: Connection, from_cycle: int, limit: int = 5
+    ) -> list[dict]:
+        """Récupère les événements avec location et participants"""
+        rows = await conn.fetch(
+            """SELECT 
+                ev.id, ev.type, ev.title, ev.description, 
+                ev.planned_cycle, ev.time,
+                loc.name as location_name,
+                (SELECT array_agg(ent.name) 
+                 FROM event_participants ep
+                 JOIN entities ent ON ep.entity_id = ent.id
+                 WHERE ep.event_id = ev.id) as participants
+               FROM events ev
+               LEFT JOIN entities loc ON ev.location_id = loc.id
+               WHERE ev.game_id = $1 
+                 AND ev.completed = false 
+                 AND ev.cancelled = false
+                 AND ev.planned_cycle >= $2
+               ORDER BY ev.planned_cycle ASC
+               LIMIT $3""",
+            self.game_id,
+            from_cycle,
+            limit,
         )
         return [dict(r) for r in rows]
