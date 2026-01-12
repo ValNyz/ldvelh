@@ -303,10 +303,22 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
             lines.append(f"Particularité: {ai.quirk}")
         lines.append("")
 
+    # === ORGANISATIONS CONNUES ===
+    if context.organizations:
+        lines.append("### ORGANISATIONS CONNUES")
+        for org in context.organizations:
+            relation = (
+                f" — {org.protagonist_relation}" if org.protagonist_relation else ""
+            )
+            lines.append(f"- **{org.name}** ({org.org_type}): {org.domain}{relation}")
+        lines.append("")
+
+    unique_npcs = set()
     # PNJs présents
     if context.npcs_present:
         lines.append("### PNJs PRÉSENTS")
         for npc in context.npcs_present:
+            unique_npcs.add(npc.name)
             traits = ", ".join(npc.traits[:3])
             lines.append(f"**{npc.name}** - {npc.occupation} ({npc.species})")
             lines.append(f"  Traits: {traits}")
@@ -326,13 +338,31 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
     if context.npcs_relevant:
         lines.append("### AUTRES PNJs CONNUS")
         for npc in context.npcs_relevant:
-            info = f"**{npc.name}** - {npc.occupation}"
-            if npc.last_seen:
-                info += f" (vu: {npc.last_seen})"
-            lines.append(info)
-            if npc.active_arcs:
-                arc = npc.active_arcs[0]
-                lines.append(f"  Arc actif: {arc.title} (intensité {arc.intensity}/5)")
+            if npc not in unique_npcs:
+                info = f"**{npc.name}** - {npc.occupation}"
+                if npc.last_seen:
+                    info += f" (vu: {npc.last_seen})"
+                lines.append(info)
+                if npc.active_arcs:
+                    arc = npc.active_arcs[0]
+                    lines.append(
+                        f"  Arc actif: {arc.title} (intensité {arc.intensity}/5)"
+                    )
+        lines.append("")
+
+    # === TOUS LES PNJs CONNUS (référence) ===
+    if context.all_npcs:
+        lines.append("### PNJs CONNUS (utiliser noms EXACTS)")
+        npc_list = []
+        for npc in context.all_npcs:
+            if npc.name not in unique_npcs:
+                info = f"{npc.name}"
+                if npc.occupation:
+                    info += f" ({npc.occupation})"
+                if npc.usual_location:
+                    info += f" @ {npc.usual_location}"
+                npc_list.append(info)
+        lines.append(", ".join(npc_list))
         lines.append("")
 
     # Engagements narratifs
@@ -360,12 +390,11 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
         lines.append("")
 
     # Faits récents importants
-    all_facts = context.facts
-
-    if all_facts:
+    if context.facts:
         lines.append("### FAITS PERTINENTS")
-        for f in sorted(all_facts, key=lambda x: (-x.importance, -x.cycle))[:8]:
-            lines.append(f"- [Cycle {f.cycle}] {f.description}")
+        for f in sorted(context.facts, key=lambda x: (-x.importance, -x.cycle))[:10]:
+            involves_str = f" [{', '.join(f.involves)}]" if f.involves else ""
+            lines.append(f"- [Cycle {f.cycle}] {f.description}{involves_str}")
         lines.append("")
 
     # Historique
