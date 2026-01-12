@@ -285,7 +285,7 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
     if context.inventory:
         items = [
             f"{i.name}" + (f" (×{i.quantity})" if i.quantity > 1 else "")
-            for i in context.inventory[:10]
+            for i in context.inventory
         ]
         lines.append(f"Inventaire: {', '.join(items)}")
         lines.append("")
@@ -392,23 +392,35 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
     # Faits récents importants
     if context.facts:
         lines.append("### FAITS PERTINENTS")
-        for f in sorted(context.facts, key=lambda x: (-x.importance, -x.cycle))[:10]:
+        for f in sorted(context.facts, key=lambda x: (-x.importance, -x.cycle)):
             involves_str = f" [{', '.join(f.involves)}]" if f.involves else ""
             lines.append(f"- [Cycle {f.cycle}] {f.description}{involves_str}")
         lines.append("")
 
-    # Historique
+    # === HISTORIQUE DES CYCLES ===
     if context.cycle_summaries:
-        lines.append("### RÉSUMÉ DES DERNIERS CYCLES")
-        for summary in context.cycle_summaries[-5:]:
-            lines.append(f"- {summary}")
+        lines.append("### RÉSUMÉ DES CYCLES PRÉCÉDENTS")
+        # Grouper par tranches pour lisibilité
+        for summary in context.cycle_summaries:
+            lines.append(f"Cycle {summary.cycle} - {summary.summary}")
         lines.append("")
 
+    # === CONVERSATION DU CYCLE EN COURS ===
+    if context.earlier_cycle_messages:
+        lines.append("### PLUS TÔT DANS CE CYCLE")
+        for msg in context.earlier_cycle_messages:
+            role_label = "Joueur" if msg.role == "user" else "Narrateur"
+            time_str = f" ({msg.time})" if msg.time else ""
+            lines.append(f"- [{role_label}{time_str}] {msg.summary}")
+        lines.append("")
+
+    # === CONVERSATION RÉCENTE ===
     if context.recent_messages:
         lines.append("### CONVERSATION RÉCENTE")
-        for msg in context.recent_messages[-5:]:
+        for msg in context.recent_messages:
             role_label = "Joueur" if msg.role == "user" else "Narrateur"
-            lines.append(f"[{role_label}] {msg.summary}")
+            time_str = f" ({msg.time})" if msg.time else ""
+            lines.append(f"[{role_label}{time_str}] {msg.summary}")
         lines.append("")
 
     # Input joueur

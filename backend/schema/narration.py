@@ -142,6 +142,13 @@ class MessageSummary(BaseModel):
     time: Optional[str] = None
 
 
+class CycleSummary(BaseModel):
+    """Résumé d'un message passé"""
+
+    summary: str
+    cycle: int
+
+
 class PersonalAISummary(BaseModel):
     """Résumé de l'IA personnelle de Valentin"""
 
@@ -207,11 +214,15 @@ class NarrationContext(BaseModel):
     )
 
     # === HISTORIQUE ===
-    cycle_summaries: list[str] = Field(
-        default_factory=list, description="Résumés des 5-10 derniers cycles"
+    cycle_summaries: list[CycleSummary] = Field(
+        default_factory=list, description="Résumés des derniers cycles"
     )
     recent_messages: list[MessageSummary] = Field(
-        default_factory=list, description="Résumés des 5 derniers messages"
+        default_factory=list, description="Les derniers messages (détaillés)"
+    )
+    earlier_cycle_messages: list[MessageSummary] = Field(
+        default_factory=list,
+        description="Résumés courts des messages plus anciens du cycle en cours",
     )
 
     # === INPUT JOUEUR ===

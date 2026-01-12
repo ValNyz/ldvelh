@@ -624,7 +624,7 @@ class KnowledgeGraphReader:
         self,
         conn: Connection,
         limit: int | None = None,
-        order: SortOrder = "asc",
+        order: SortOrder = "ASC",
     ) -> list[dict]:
         """Récupère les messages (chronologique par défaut)"""
         query = """
@@ -643,18 +643,32 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, self.game_id)
         return [dict(r) for r in rows]
 
-    async def get_message_summaries(
-        self, conn: Connection, limit: int = 5
+    async def get_cycle_messages(
+        self,
+        conn: Connection,
+        cycle: int,
+        limit: int | None = None,
+        order: SortOrder = "ASC",
     ) -> list[dict]:
-        """Récupère les résumés des messages récents (avec summary non null)"""
+        """Get all messages from a specific cycle"""
+        query = """
+            SELECT id, role, content, tone_notes, cycle, time, date, 
+                   location_id, npcs_present, summary, created_at
+            FROM chat_messages
+            WHERE game_id = $1 AND cycle = $2
+            ORDER BY created_at
+            """
+        query = query.replace(
+            "ORDER BY created_at", f"ORDER BY created_at {order.upper()}"
+        )
+
+        if limit:
+            query += f" LIMIT {int(limit)}"  # int() pour sécurité
+
         rows = await conn.fetch(
-            """SELECT role, summary, cycle
-               FROM chat_messages 
-               WHERE game_id = $1 AND summary IS NOT NULL
-               ORDER BY created_at DESC
-               LIMIT $2""",
+            query,
             self.game_id,
-            limit,
+            cycle,
         )
         return [dict(r) for r in rows]
 
@@ -692,18 +706,28 @@ class KnowledgeGraphReader:
         return dict(row) if row else None
 
     async def get_cycle_summaries(
-        self, conn: Connection, max_cycle: int, limit: int = 7
+        self,
+        conn: Connection,
+        max_cycle: int,
+        limit: int = 7,
+        order: SortOrder = "ASC",
     ) -> list[dict]:
         """Récupère les résumés des N derniers cycles"""
-        rows = await conn.fetch(
-            """SELECT cycle, date, summary, key_events
+        query = """SELECT cycle, date, summary, key_events
                FROM cycle_summaries 
                WHERE game_id = $1 AND cycle <= $2
-               ORDER BY cycle DESC
-               LIMIT $3""",
+               ORDER BY created_at"""
+        query = query.replace(
+            "ORDER BY created_at", f"ORDER BY created_at {order.upper()}"
+        )
+
+        if limit:
+            query += f" LIMIT {int(limit)}"  # int() pour sécurité
+
+        rows = await conn.fetch(
+            query,
             self.game_id,
             max_cycle,
-            limit,
         )
         return [dict(r) for r in rows]
 
