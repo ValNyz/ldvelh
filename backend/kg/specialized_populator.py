@@ -211,13 +211,19 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 await self.add_commitment_entity(
                     conn, commitment_id, entity_id, role="involved"
                 )
+                logger.debug(f"[ARC] Linked '{entity_name}' to '{arc.title}'")
+            else:
+                logger.warning(
+                    f"[ARC] Entity not found for arc '{arc.title}': '{entity_name}'"
+                )
+                logger.debug(
+                    f"[ARC] Available entities: {list(self.registry._by_name.keys())[:15]}..."
+                )
 
         return commitment_id
 
     async def _store_arrival_event(self, conn: Connection, arrival) -> None:
         """Store arrival event for the narrator"""
-        location_id = self.registry.resolve(arrival.arrival_location_ref)
-
         # Create arrival fact
         from schema import FactData, FactParticipant
 
@@ -233,18 +239,6 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 participants=[FactParticipant(entity_ref="Valentin", role="actor")],
                 semantic_key="valentin:arrival:station",
             ),
-        )
-
-        # Create cycle summary
-        await self.save_cycle_summary(
-            conn,
-            cycle=1,
-            date=arrival.arrival_date,
-            summary=f"Jour 1: Arrivée. Humeur: {arrival.initial_mood}",
-            key_events={
-                "arrival_method": arrival.arrival_method,
-                "arrival_location": arrival.arrival_location_ref,
-            },
         )
 
     async def _store_generation_meta(self, conn: Connection, world_gen) -> None:

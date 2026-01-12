@@ -353,9 +353,8 @@ class GameService:
                 "nom": loc["name"],
                 "type": loc["location_type"],
                 "secteur": loc["sector"],
-                "parent": loc["parent_name"],
+                "parent": loc["parent_location_name"],
                 "accessible": loc["accessible"],
-                "visite": loc["visited"],
             }
             for loc in locations
         ]
@@ -394,7 +393,7 @@ class GameService:
                 "nom": org["name"],
                 "type": org["org_type"],
                 "domaine": org["domain"],
-                "relation": org["protagonist_relation"],
+                # "relation": org["protagonist_relation"],
             }
             for org in organizations
         ]
@@ -480,15 +479,6 @@ class GameService:
             else None,
         }
 
-    async def get_arrival_info(self, game_id: UUID) -> dict | None:
-        """Récupère les infos d'arrivée initiales (cycle 1)"""
-        reader = self._get_reader(game_id)
-
-        async with self.pool.acquire() as conn:
-            arrival = await reader.get_arrival_event(conn)
-
-        return arrival["events"] if arrival else None
-
     # =========================================================================
     # PROCESS LIGHT (Narration)
     # =========================================================================
@@ -521,20 +511,12 @@ class GameService:
             # Mettre à jour timestamp de la partie
             await populator.update_game_timestamp(conn)
 
-        state_snapshot = {
-            "cycle": new_cycle,
-            "time": new_time,
-            "location": location,
-            "npcs_present": npcs,
-        }
-
         return {
             "cycle": new_cycle,
             "time": new_time,
             "location": location,
             "npcs_present": npcs,
             "date": new_date,
-            "state_snapshot": state_snapshot,
         }
 
     # =========================================================================
@@ -552,6 +534,7 @@ class GameService:
         location_ref: str | None = None,
         npcs_present_refs: list[str] | None = None,
         summary: str | None = None,
+        tone_notes: str | None = None,
     ) -> tuple[UUID, UUID]:
         """Sauvegarde une paire de messages (user + assistant)"""
         populator = self._get_populator(game_id)
@@ -571,6 +554,7 @@ class GameService:
                 location_ref,
                 npcs_present_refs,
                 summary,
+                tone_notes=tone_notes,
             )
 
     # =========================================================================

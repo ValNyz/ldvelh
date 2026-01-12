@@ -342,7 +342,11 @@ async def _handle_chat(
 
             # Si first_light, utiliser l'événement d'arrivée comme contexte initial
             if is_first_light:
-                message = message or "Je viens d'arriver sur la station."
+                message = (
+                    message
+                    if not message.startswith("__")
+                    else "Je viens d'arriver sur la station. IA (remplacer par personnal_ai.name) commente."
+                )
 
             async with pool.acquire() as conn:
                 builder = ContextBuilder(pool, game_id)
@@ -355,9 +359,7 @@ async def _handle_chat(
                 )
 
             context_prompt = build_narrator_context_prompt(context)
-            logger.info(
-                f"[CHAT] context: \n{json.dumps(context.model_dump(), indent=2, default=str, ensure_ascii=False)}"
-            )
+            logger.info(f"[CHAT] context: \n{context_prompt}")
 
             # Variable pour stocker la tâche de résumé lancée tôt
             summary_task_holder = {"task": None}
@@ -482,6 +484,7 @@ async def _handle_chat(
                         location_ref=process_result["location"],
                         npcs_present_refs=process_result["npcs_present"],
                         summary=segment_summary,
+                        tone_notes=narration.scene_mood,
                     )
 
                     logger.debug(

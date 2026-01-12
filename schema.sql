@@ -376,6 +376,7 @@ CREATE TABLE chat_messages (
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   role VARCHAR(20) NOT NULL,
   content TEXT NOT NULL,
+  tone_notes TEXT,
   cycle INTEGER NOT NULL,
   time VARCHAR(5),
   date VARCHAR(50),

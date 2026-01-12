@@ -534,6 +534,7 @@ VALID_ATTRIBUTE_KEYS_BY_ENTITY: dict[EntityType, set[AttributeKey]] = {
         AttributeKey.ENERGY,
         AttributeKey.MORALE,
         AttributeKey.HEALTH,
+        AttributeKey.OCCUPATION,
         AttributeKey.HOBBIES,
         AttributeKey.DEPARTURE_REASON,
         AttributeKey.BACKSTORY,

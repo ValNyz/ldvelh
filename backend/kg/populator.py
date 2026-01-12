@@ -721,6 +721,7 @@ class KnowledgeGraphPopulator:
         location_ref: str | None = None,
         npcs_present_refs: list[str] | None = None,
         summary: str | None = None,
+        tone_notes: str | None = None,
     ) -> UUID:
         """Save a chat message"""
         location_id = self.registry.resolve(location_ref) if location_ref else None
@@ -734,8 +735,8 @@ class KnowledgeGraphPopulator:
 
         return await conn.fetchval(
             """INSERT INTO chat_messages 
-               (game_id, role, content, cycle, date, time, location_id, npcs_present, summary)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id""",
+               (game_id, role, content, cycle, date, time, location_id, npcs_present, summary, tone_notes)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id""",
             self.game_id,
             role,
             content,
@@ -745,6 +746,7 @@ class KnowledgeGraphPopulator:
             location_id,
             npc_ids,
             summary,
+            tone_notes,
         )
 
     async def save_message_pair(
@@ -758,6 +760,7 @@ class KnowledgeGraphPopulator:
         location_ref: str | None = None,
         npcs_present_refs: list[str] | None = None,
         summary: str | None = None,
+        tone_notes: str | None = None,
     ) -> tuple[UUID, UUID]:
         """Save a user + assistant message pair"""
         user_id = await self.save_message(conn, "user", user_message, cycle)
@@ -771,6 +774,7 @@ class KnowledgeGraphPopulator:
             location_ref,
             npcs_present_refs,
             summary,
+            tone_notes,
         )
         return user_id, assistant_id
 
