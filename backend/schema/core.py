@@ -118,6 +118,21 @@ class EntityType(str, Enum):
     ORGANIZATION = "organization"
 
 
+"""
+Mapping EntityType → table typée (seulement celles avec FK).
+
+Tables supprimées (sans FK, données dans attributes via EAV) :
+- entity_protagonists
+- entity_characters  
+- entity_objects
+"""
+ENTITY_TYPED_TABLES: dict[EntityType, str] = {
+    EntityType.LOCATION: f"entity_{EntityType.LOCATION}s",
+    EntityType.AI: f"entity_{EntityType.AI}s",
+    EntityType.ORGANIZATION: f"entity_{EntityType.ORGANIZATION}s",
+}
+
+
 class RelationCategory(str, Enum):
     SOCIAL = "social"
     PROFESSIONAL = "professional"

@@ -2,6 +2,8 @@
 LDVELH - Specialized Populators (EAV Architecture)
 WorldPopulator: Initial world generation processing
 ExtractionPopulator: Narrative extraction processing
+
+Utilise KnowledgeGraphPopulator et KnowledgeGraphReader
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from schema import (
 )
 
 from .populator import KnowledgeGraphPopulator
+from .reader import KnowledgeGraphReader
 
 if TYPE_CHECKING:
     from asyncpg import Connection
@@ -52,11 +55,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             async with conn.transaction():
                 # 1. Create game OR rename existing
                 if self.game_id:
-                    await conn.execute(
-                        "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
-                        world_gen.world.name,
-                        self.game_id,
-                    )
+                    await self.rename_game(conn, world_gen.world.name)
                 else:
                     await self.create_game(conn, world_gen.world.name)
 
@@ -90,7 +89,6 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     )
 
                 # 10. Create all explicit relations
-                protagonist_name = world_gen.protagonist.name
                 for rel in world_gen.initial_relations:
                     result = await self.create_relation(conn, rel)
                     if result is None:
@@ -173,32 +171,36 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 hq_id = self.registry.resolve(org.headquarters_ref)
                 org_id = self.registry.resolve(org.name)
                 if hq_id and org_id:
-                    await conn.execute(
-                        "UPDATE entity_organizations SET headquarters_id = $1 WHERE entity_id = $2",
-                        hq_id,
+                    await self.update_entity_fk(
+                        conn,
+                        EntityType.ORGANIZATION,
                         org_id,
+                        "headquarters_id",
+                        hq_id,
                     )
 
     async def _create_narrative_arc(self, conn: Connection, arc) -> UUID:
         """Create a narrative arc as a commitment"""
-        commitment_id = await conn.fetchval(
-            """INSERT INTO commitments 
-               (game_id, type, description, created_cycle, deadline_cycle)
-               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
-            self.game_id,
-            arc.arc_type.value if hasattr(arc.arc_type, "value") else arc.arc_type,
-            f"{arc.title}: {arc.description}",
-            1,
-            arc.deadline_cycle if hasattr(arc, "deadline_cycle") else None,
+        arc_type = (
+            arc.arc_type.value if hasattr(arc.arc_type, "value") else arc.arc_type
+        )
+
+        commitment_id = await self.create_commitment(
+            conn,
+            commitment_type=arc_type,
+            description=f"{arc.title}: {arc.description}",
+            cycle=1,
+            deadline_cycle=arc.deadline_cycle
+            if hasattr(arc, "deadline_cycle")
+            else None,
         )
 
         if hasattr(arc, "arc_type") and arc.arc_type == CommitmentType.ARC:
-            await conn.execute(
-                """INSERT INTO commitment_arcs (commitment_id, objective, obstacle)
-                   VALUES ($1, $2, $3)""",
+            await self.create_commitment_arc(
+                conn,
                 commitment_id,
-                arc.title,
-                arc.stakes if hasattr(arc, "stakes") else "",
+                objective=arc.title,
+                obstacle=arc.stakes if hasattr(arc, "stakes") else "",
             )
 
         for entity_name in (
@@ -206,12 +208,8 @@ class WorldPopulator(KnowledgeGraphPopulator):
         ):
             entity_id = self.registry.resolve(entity_name)
             if entity_id:
-                await conn.execute(
-                    """INSERT INTO commitment_entities (commitment_id, entity_id, role)
-                       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
-                    commitment_id,
-                    entity_id,
-                    "involved",
+                await self.add_commitment_entity(
+                    conn, commitment_id, entity_id, role="involved"
                 )
 
         return commitment_id
@@ -220,51 +218,48 @@ class WorldPopulator(KnowledgeGraphPopulator):
         """Store arrival event for the narrator"""
         location_id = self.registry.resolve(arrival.arrival_location_ref)
 
-        await conn.execute(
-            "SELECT create_fact($1, $2, $3::fact_type, $4, $5, $6, $7, $8::jsonb)",
-            self.game_id,
-            1,
-            "encounter",
-            f"Arrivée sur la station via {arrival.arrival_method}. {arrival.optional_incident or ''}",
-            location_id,
-            arrival.time if hasattr(arrival, "time") else None,
-            4,
-            json.dumps([{"name": "Valentin", "role": "actor"}]),
+        # Create arrival fact
+        from schema import FactData, FactParticipant
+
+        await self.create_fact(
+            conn,
+            FactData(
+                cycle=1,
+                fact_type=FactType.ENCOUNTER,
+                description=f"Arrivée sur la station via {arrival.arrival_method}. {arrival.optional_incident or ''}",
+                location_ref=arrival.arrival_location_ref,
+                time=arrival.time if hasattr(arrival, "time") else None,
+                importance=4,
+                participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                semantic_key="valentin:arrival:station",
+            ),
         )
 
-        await conn.execute(
-            """INSERT INTO cycle_summaries 
-               (game_id, cycle, date, summary, key_events)
-               VALUES ($1, $2, $3, $4, $5)""",
-            self.game_id,
-            1,
-            arrival.arrival_date,
-            f"Jour 1: Arrivée. Humeur: {arrival.initial_mood}",
-            json.dumps(
-                {
-                    "arrival_method": arrival.arrival_method,
-                    "arrival_location": arrival.arrival_location_ref,
-                }
-            ),
+        # Create cycle summary
+        await self.save_cycle_summary(
+            conn,
+            cycle=1,
+            date=arrival.arrival_date,
+            summary=f"Jour 1: Arrivée. Humeur: {arrival.initial_mood}",
+            key_events={
+                "arrival_method": arrival.arrival_method,
+                "arrival_location": arrival.arrival_location_ref,
+            },
         )
 
     async def _store_generation_meta(self, conn: Connection, world_gen) -> None:
         """Store generation metadata"""
-        await conn.execute(
-            "UPDATE games SET updated_at = NOW() WHERE id = $1",
-            self.game_id,
-        )
+        await self.update_game_timestamp(conn)
 
-        await conn.execute(
-            """INSERT INTO extraction_logs 
-               (game_id, cycle, entities_created, relations_created)
-               VALUES ($1, $2, $3, $4)""",
-            self.game_id,
-            0,
-            len(self.registry._by_name),
-            len(world_gen.initial_relations)
-            if hasattr(world_gen, "initial_relations")
-            else 0,
+        await self.log_extraction(
+            conn,
+            cycle=0,
+            stats={
+                "entities_created": len(self.registry._by_name),
+                "relations_created": len(world_gen.initial_relations)
+                if hasattr(world_gen, "initial_relations")
+                else 0,
+            },
         )
 
 
@@ -278,6 +273,10 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     Specialized populator for processing narrative extractions.
     Uses unified EAV format for all entity types.
     """
+
+    def _get_reader(self) -> KnowledgeGraphReader:
+        """Crée un reader pour les lookups"""
+        return KnowledgeGraphReader(self.pool, self.game_id)
 
     async def process_extraction(self, extraction: NarrativeExtraction) -> dict:
         """Process a complete narrative extraction."""
@@ -385,29 +384,34 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
                 # 11. Create commitments
                 for commit in extraction.commitments_created:
-                    await self._create_commitment(conn, commit, cycle)
+                    await self._create_extraction_commitment(conn, commit, cycle)
                     stats["commitments_created"] += 1
 
                 # 12. Resolve commitments
                 for resolution in extraction.commitments_resolved:
-                    await self._resolve_commitment(conn, resolution, cycle)
+                    await self._resolve_extraction_commitment(conn, resolution, cycle)
 
                 # 13. Schedule events
                 for event in extraction.events_scheduled:
-                    await self._schedule_event(conn, event, cycle)
+                    await self._schedule_extraction_event(conn, event, cycle)
 
                 # 14. Store extraction log
-                await self._log_extraction(conn, extraction, stats)
+                await self.log_extraction(conn, cycle, stats)
+
+                # 15. Store cycle summary
+                await self.save_cycle_summary(
+                    conn,
+                    cycle,
+                    summary=extraction.segment_summary,
+                    key_events={"npcs_present": extraction.key_npcs_present},
+                )
 
         return stats
 
     async def _process_entity_creation(
         self, conn: Connection, creation: EntityCreation, cycle: int
     ) -> UUID:
-        """
-        Process a new entity creation using unified EAV format.
-        All entity types use attributes list.
-        """
+        """Process a new entity creation using unified EAV format."""
         # Create base entity
         entity_id = await self.upsert_entity(
             conn,
@@ -429,14 +433,16 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 entity_type=creation.entity_type,
             )
 
-        # Handle FK references
+        # Handle FK references via update_entity_fk
         if creation.entity_type == EntityType.LOCATION and creation.parent_location_ref:
             parent_id = self.registry.resolve(creation.parent_location_ref)
             if parent_id:
-                await conn.execute(
-                    "UPDATE entity_locations SET parent_location_id = $1 WHERE entity_id = $2",
-                    parent_id,
+                await self.update_entity_fk(
+                    conn,
+                    EntityType.LOCATION,
                     entity_id,
+                    "parent_location_id",
+                    parent_id,
                 )
 
         if (
@@ -445,19 +451,15 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         ):
             hq_id = self.registry.resolve(creation.headquarters_ref)
             if hq_id:
-                await conn.execute(
-                    "UPDATE entity_organizations SET headquarters_id = $1 WHERE entity_id = $2",
-                    hq_id,
-                    entity_id,
+                await self.update_entity_fk(
+                    conn, EntityType.ORGANIZATION, entity_id, "headquarters_id", hq_id
                 )
 
         if creation.entity_type == EntityType.AI and creation.creator_ref:
             creator_id = self.registry.resolve(creation.creator_ref)
             if creator_id:
-                await conn.execute(
-                    "UPDATE entity_ais SET creator_id = $1 WHERE entity_id = $2",
-                    creator_id,
-                    entity_id,
+                await self.update_entity_fk(
+                    conn, EntityType.AI, entity_id, "creator_id", creator_id
                 )
 
         # Auto-create spatial relations for characters
@@ -488,10 +490,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     async def _process_object_creation(
         self, conn: Connection, obj_creation: ObjectCreation, cycle: int
     ) -> UUID:
-        """
-        Process an object creation from inventory acquisition.
-        Creates the object AND the owns relation automatically.
-        """
+        """Process an object creation from inventory acquisition."""
         # Get protagonist
         protagonist_ids = self.registry.get_by_type(EntityType.PROTAGONIST)
         if not protagonist_ids:
@@ -539,31 +538,18 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
         # Update aliases
         if update.new_aliases:
-            await conn.execute(
-                """UPDATE entities SET 
-                   aliases = ARRAY(SELECT DISTINCT unnest(aliases || $1)),
-                   updated_at = NOW()
-                   WHERE id = $2""",
-                update.new_aliases,
-                entity_id,
-            )
+            await self.update_entity_aliases(conn, entity_id, update.new_aliases)
 
         # Update known status
         if update.now_known:
-            await conn.execute(
-                "UPDATE entities SET known_by_protagonist = true, updated_at = NOW() WHERE id = $1",
-                entity_id,
-            )
-            if update.real_name:
-                await conn.execute(
-                    "UPDATE entities SET name = $1, updated_at = NOW() WHERE id = $2",
-                    update.real_name,
-                    entity_id,
-                )
+            await self.mark_entity_known(conn, entity_id, update.real_name)
 
         # Update attributes
         if update.attributes_changed:
-            entity_type = await self._get_entity_type(conn, entity_id)
+            reader = self._get_reader()
+            entity = await reader.get_entity_by_id(conn, entity_id)
+            entity_type = EntityType(entity["type"]) if entity else None
+
             await self.set_attributes(
                 conn,
                 entity_id,
@@ -625,133 +611,77 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 ),
             )
 
-    async def _create_commitment(self, conn: Connection, commit, cycle: int) -> UUID:
-        """Create a narrative commitment"""
-        commitment_id = await conn.fetchval(
-            """INSERT INTO commitments 
-               (game_id, type, description, created_cycle, deadline_cycle)
-               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
-            self.game_id,
-            commit.commitment_type.value,
-            commit.description,
-            cycle,
-            commit.deadline_cycle,
+    async def _create_extraction_commitment(
+        self, conn: Connection, commit, cycle: int
+    ) -> UUID:
+        """Create a narrative commitment from extraction"""
+        commitment_id = await self.create_commitment(
+            conn,
+            commitment_type=commit.commitment_type.value,
+            description=commit.description,
+            cycle=cycle,
+            deadline_cycle=commit.deadline_cycle,
         )
 
         if commit.commitment_type == CommitmentType.ARC and commit.objective:
-            await conn.execute(
-                """INSERT INTO commitment_arcs (commitment_id, objective, obstacle)
-                   VALUES ($1, $2, $3)""",
+            await self.create_commitment_arc(
+                conn,
                 commitment_id,
-                commit.objective,
-                commit.obstacle or "",
+                objective=commit.objective,
+                obstacle=commit.obstacle or "",
             )
 
         for entity_ref in commit.involved_entities:
             entity_id = self.registry.resolve(entity_ref)
             if entity_id:
-                await conn.execute(
-                    """INSERT INTO commitment_entities (commitment_id, entity_id)
-                       VALUES ($1, $2) ON CONFLICT DO NOTHING""",
-                    commitment_id,
-                    entity_id,
-                )
+                await self.add_commitment_entity(conn, commitment_id, entity_id)
 
         return commitment_id
 
-    async def _resolve_commitment(
+    async def _resolve_extraction_commitment(
         self, conn: Connection, resolution, cycle: int
     ) -> None:
         """Resolve a commitment by description match"""
-        commitment = await conn.fetchrow(
-            """SELECT id FROM commitments 
-               WHERE game_id = $1 AND resolved = false
-               AND description ILIKE '%' || $2 || '%'
-               ORDER BY created_cycle DESC LIMIT 1""",
-            self.game_id,
-            resolution.commitment_description[:50],
+        reader = self._get_reader()
+        commitment = await reader.find_commitment_by_description(
+            conn, resolution.commitment_description
         )
 
         if commitment:
-            fact_id = await conn.fetchval(
-                "SELECT create_fact($1, $2, $3::fact_type, $4, $5, $6, $7, $8::jsonb, $9)",
-                self.game_id,
-                cycle,
-                "state_change",
-                resolution.resolution_description,
-                None,
-                None,
-                3,
-                "[]",
-                None,
+            # Create resolution fact
+            from schema import FactData
+
+            fact = FactData(
+                cycle=cycle,
+                fact_type=FactType.STATE_CHANGE,
+                description=resolution.resolution_description,
+                importance=3,
+                participants=[],
+                semantic_key=f"commitment:resolved:{commitment['id']}",
             )
+            fact_id = await self.create_fact(conn, fact)
 
-            await conn.execute(
-                "UPDATE commitments SET resolved = true, resolution_fact_id = $1 WHERE id = $2",
-                fact_id,
-                commitment["id"],
-            )
+            await self.resolve_commitment(conn, commitment["id"], fact_id)
 
-    async def _schedule_event(self, conn: Connection, event, source_cycle: int) -> UUID:
-        """Schedule a future event"""
-        location_id = None
-        if event.location_ref:
-            location_id = self.registry.resolve(event.location_ref)
-
-        event_id = await conn.fetchval(
-            """INSERT INTO events 
-               (game_id, type, title, description, planned_cycle, time, 
-                location_id, recurrence, amount)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id""",
-            self.game_id,
-            event.event_type,
-            event.title,
-            event.description,
-            event.planned_cycle,
-            event.time,
-            location_id,
-            json.dumps(event.recurrence) if event.recurrence else None,
-            event.amount,
+    async def _schedule_extraction_event(
+        self, conn: Connection, event, source_cycle: int
+    ) -> UUID:
+        """Schedule a future event from extraction"""
+        event_id = await self.create_event(
+            conn,
+            event_type=event.event_type,
+            title=event.title,
+            planned_cycle=event.planned_cycle,
+            description=event.description,
+            time=event.time,
+            location_ref=event.location_ref,
+            recurrence=event.recurrence,
+            amount=event.amount,
         )
 
         for participant_ref in event.participants:
             entity_id = self.registry.resolve(participant_ref)
             if entity_id:
-                await conn.execute(
-                    """INSERT INTO event_participants (event_id, entity_id)
-                       VALUES ($1, $2) ON CONFLICT DO NOTHING""",
-                    event_id,
-                    entity_id,
-                )
+                await self.add_event_participant(conn, event_id, entity_id)
 
         return event_id
-
-    async def _log_extraction(
-        self, conn: Connection, extraction: NarrativeExtraction, stats: dict
-    ) -> None:
-        """Log the extraction"""
-        await conn.execute(
-            """INSERT INTO extraction_logs 
-               (game_id, cycle, entities_created, relations_created,
-                facts_created, attributes_modified, errors)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            self.game_id,
-            extraction.cycle,
-            stats["entities_created"] + stats["objects_created"],
-            stats["relations_created"],
-            stats["facts_created"],
-            stats["entities_updated"],
-            json.dumps(stats["errors"]) if stats["errors"] else None,
-        )
-
-        await conn.execute(
-            """INSERT INTO cycle_summaries (game_id, cycle, summary, key_events)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (game_id, cycle) DO UPDATE SET
-                 summary = EXCLUDED.summary,
-                 key_events = EXCLUDED.key_events""",
-            self.game_id,
-            extraction.cycle,
-            extraction.segment_summary,
-            json.dumps({"npcs_present": extraction.key_npcs_present}),
-        )
