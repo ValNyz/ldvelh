@@ -8,7 +8,6 @@ Architecture:
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
@@ -742,19 +741,63 @@ class KnowledgeGraphReader:
         return dict(row) if row else None
 
     async def get_arrival_event(self, conn: Connection) -> dict | None:
-        """Récupère les événements d'arrivée (cycle 1) avec parsing JSON"""
+        """Récupère l'événement d'arrivée avec son fact source"""
         row = await conn.fetchrow(
-            "SELECT date, key_events FROM cycle_summaries WHERE game_id = $1 AND cycle = 1",
+            """SELECT 
+                cs.date,
+                ev.id as event_id,
+                ev.title,
+                ev.time,
+                ev.description,
+                l.name as location_name,
+                f.description as fact_description
+            FROM cycle_summaries cs
+            LEFT JOIN cycle_summary_events cse ON cse.cycle_summary_id = cs.id
+            LEFT JOIN events ev ON ev.id = cse.event_id AND ev.type = 'milestone'
+            LEFT JOIN entities l ON l.id = ev.location_id
+            LEFT JOIN facts f ON f.id = ev.source_fact_id
+            WHERE cs.game_id = $1 AND cs.cycle = 0
+            LIMIT 1""",
             self.game_id,
         )
-        if not row or not row["key_events"]:
+
+        if not row:
             return None
 
-        events = row["key_events"]
-        if isinstance(events, str):
-            events = json.loads(events)
+        # Récupérer les facts supplémentaires du cycle 1
+        extra_facts = await conn.fetch(
+            """SELECT semantic_key, description 
+               FROM facts 
+               WHERE game_id = $1 AND cycle = 1 
+                 AND semantic_key LIKE 'valentin:arrival:%'
+                 AND semantic_key != 'valentin:arrival:station'""",
+            self.game_id,
+        )
 
-        return {"date": row["date"], "events": events}
+        events = {
+            "arrival_location": row["location_name"],
+            "hour": row["time"],
+        }
+
+        for fact in extra_facts:
+            key = fact["semantic_key"]
+            desc = fact["description"]
+            if key == "valentin:arrival:incident":
+                events["incident"] = desc
+            elif key == "valentin:arrival:mood":
+                # Extraire le mood
+                if desc.startswith("État à l'arrivée : "):
+                    events["initial_mood"] = desc[19:]
+            elif key == "valentin:arrival:need":
+                if desc.startswith("Besoin immédiat : "):
+                    events["immediate_need"] = desc[18:]
+
+        return {
+            "date": row["date"],
+            "time": row["time"],
+            "location": row["location_name"],
+            "events": events,
+        }
 
     async def get_current_date(self, conn: Connection) -> str | None:
         """Récupère la date actuelle du jeu"""

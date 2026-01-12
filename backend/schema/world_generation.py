@@ -143,6 +143,79 @@ class ArrivalEventData(BaseModel):
     immediate_need: ShortText  # 200 chars
     optional_incident: Text | None = None  # 300 chars
 
+    def _build_arrival_summary(self) -> str:
+        """
+        Construit un résumé narratif de l'arrivée en français.
+
+        Exemples de sortie:
+        - "Arrivée via navette courrier après 11h de trajet. Fatigué et nauséeux.
+           Problème avec le code d'accès au logement."
+        - "Arrivée sur la station via transport commercial. Anxieux mais déterminé."
+        """
+        parts = []
+
+        # 1. Méthode d'arrivée
+        if self.arrival_method:
+            # Nettoyer et formater
+            method_clean = self.arrival_method.strip().rstrip(".")
+            parts.append(f"Arrivée via {method_clean}")
+        else:
+            parts.append("Arrivée sur la station")
+
+        # 2. État émotionnel (prioritaire)
+        if self.initial_mood:
+            # Capitaliser la première lettre
+            mood_clean = self.initial_mood.strip().rstrip(".")
+            # Transformer en phrase courte
+            parts.append(mood_clean.capitalize())
+
+        # 3. Incident (s'il y en a un)
+        if self.optional_incident:
+            # Résumer l'incident en une phrase courte
+            incident_summary = self._summarize_incident()
+            if incident_summary:
+                parts.append(incident_summary)
+
+        # 4. Besoin immédiat (optionnel, si pas d'incident)
+        elif self.immediate_need:
+            need = self.immediate_need.strip().rstrip(".")
+            # Seulement si c'est court
+            if len(need) < 60:
+                parts.append(f"Priorité : {need.lower()}")
+
+        # Assembler avec des points
+        summary = ". ".join(parts)
+
+        # S'assurer que ça finit par un point
+        if not summary.endswith("."):
+            summary += "."
+
+        # Tronquer si trop long (max 300 chars)
+        if len(summary) > 300:
+            summary = summary[:297].rsplit(" ", 1)[0] + "..."
+
+        return summary
+
+    def _summarize_incident(self) -> str | None:
+        """Résume un incident en une phrase courte."""
+        if not self.optional_incident:
+            return None
+
+        incident = self.optional_incident.strip()
+
+        # Si déjà court, le garder
+        if len(incident) < 80:
+            return incident.rstrip(".")
+
+        # Prendre la première phrase
+        first_sentence = incident.split(".")[0].strip()
+        if len(first_sentence) < 100:
+            return first_sentence
+
+        # Sinon, tronquer intelligemment
+        truncated = incident[:80].rsplit(" ", 1)[0]
+        return truncated + "..."
+
 
 # =============================================================================
 # COMPLETE WORLD GENERATION OUTPUT

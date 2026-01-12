@@ -145,8 +145,10 @@ class MessageSummary(BaseModel):
 class CycleSummary(BaseModel):
     """Résumé d'un message passé"""
 
-    summary: str
+    summary: Text
     cycle: int
+    date: Tag | None
+    events: list[Phrase] = Field(default_factory=list)
 
 
 class PersonalAISummary(BaseModel):

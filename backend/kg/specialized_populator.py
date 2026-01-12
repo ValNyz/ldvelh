@@ -14,18 +14,21 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from schema import (
+    ArrivalEventData,
     AttributeKey,
     AttributeWithVisibility,
     CommitmentType,
     EntityCreation,
-    EntityType,
     EntityUpdate,
-    FactType,
     InventoryChange,
     NarrativeExtraction,
     ObjectCreation,
     RelationData,
     RelationType,
+    EntityType,
+    FactData,
+    FactParticipant,
+    FactType,
 )
 
 from .populator import KnowledgeGraphPopulator
@@ -222,23 +225,126 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
         return commitment_id
 
-    async def _store_arrival_event(self, conn: Connection, arrival) -> None:
-        """Store arrival event for the narrator"""
-        # Create arrival fact
-        from schema import FactData, FactParticipant
+    async def _store_arrival_event(
+        self, conn: Connection, arrival: ArrivalEventData
+    ) -> None:
+        """Store arrival as milestone event with source fact + cycle summary"""
 
-        await self.create_fact(
+        # 1. Créer le fact principal d'arrivée
+        arrival_fact_id = await self.create_fact(
             conn,
             FactData(
                 cycle=1,
                 fact_type=FactType.ENCOUNTER,
-                description=f"Arrivée sur la station via {arrival.arrival_method}. {arrival.optional_incident or ''}",
+                description=f"Arrivée sur la station via {arrival.arrival_method}",
                 location_ref=arrival.arrival_location_ref,
                 time=arrival.time if hasattr(arrival, "time") else None,
                 importance=4,
                 participants=[FactParticipant(entity_ref="Valentin", role="actor")],
                 semantic_key="valentin:arrival:station",
             ),
+        )
+
+        # 2. Créer l'événement milestone lié au fact
+        event_id = await self.create_event(
+            conn,
+            event_type="milestone",
+            title="Arrivée sur la station",
+            planned_cycle=1,
+            description=f"Arrivée via {arrival.arrival_method}",
+            time=arrival.time if hasattr(arrival, "time") else None,
+            location_ref=arrival.arrival_location_ref,
+            completed=True,
+            source_fact_id=arrival_fact_id,
+        )
+
+        # 3. Ajouter le protagoniste comme participant
+        protagonist_ids = self.registry.get_by_type(EntityType.PROTAGONIST)
+        if protagonist_ids:
+            await self.add_event_participant(
+                conn, event_id, protagonist_ids[0], role="protagonist"
+            )
+
+        # 4. Créer facts supplémentaires (indépendants, même cycle)
+
+        # Atmosphère/sensations
+        sensory = getattr(arrival, "immediate_sensory_details", None)
+        if sensory:
+            sensory_text = ". ".join(sensory) if isinstance(sensory, list) else sensory
+            await self.create_fact(
+                conn,
+                FactData(
+                    cycle=1,
+                    fact_type=FactType.ATMOSPHERE,
+                    description=f"Premières impressions : {sensory_text[:250]}",
+                    location_ref=arrival.arrival_location_ref,
+                    importance=2,
+                    participants=[],
+                    semantic_key="valentin:arrival:sensory",
+                ),
+            )
+
+        # Incident
+        incident = getattr(arrival, "optional_incident", None)
+        if incident:
+            await self.create_fact(
+                conn,
+                FactData(
+                    cycle=1,
+                    fact_type=FactType.ACTION,
+                    description=incident[:300],
+                    location_ref=arrival.arrival_location_ref,
+                    importance=3,
+                    participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                    semantic_key="valentin:arrival:incident",
+                ),
+            )
+
+        # État émotionnel
+        mood = getattr(arrival, "initial_mood", None)
+        if mood:
+            await self.create_fact(
+                conn,
+                FactData(
+                    cycle=1,
+                    fact_type=FactType.STATE_CHANGE,
+                    description=f"État à l'arrivée : {mood}",
+                    importance=2,
+                    participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                    semantic_key="valentin:arrival:mood",
+                ),
+            )
+
+        # Besoin immédiat
+        need = getattr(arrival, "immediate_need", None)
+        if need:
+            await self.create_fact(
+                conn,
+                FactData(
+                    cycle=1,
+                    fact_type=FactType.OBSERVATION,
+                    description=f"Besoin immédiat : {need}",
+                    importance=2,
+                    participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                    semantic_key="valentin:arrival:need",
+                ),
+            )
+
+        # 5. Créer le cycle_summary
+        summary_id = await self.save_cycle_summary(
+            conn,
+            cycle=0,
+            date=arrival.arrival_date,
+            summary=arrival._build_arrival_summary(),
+        )
+
+        # 6. Lier l'event au cycle_summary
+        await self.add_event_to_cycle_summary(
+            conn,
+            cycle_summary_id=summary_id,
+            event_id=event_id,
+            role="primary",
+            display_order=0,
         )
 
     async def _store_generation_meta(self, conn: Connection, world_gen) -> None:

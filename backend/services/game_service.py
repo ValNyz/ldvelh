@@ -194,7 +194,7 @@ class GameService:
             return {
                 "cycle": last_msg["cycle"],
                 "date": last_msg["date"],
-                "time": last_msg["time"] or "08h00",
+                "time": last_msg["time"],
                 "location": last_msg["location_name"],
                 "npcs_present": npc_names,
             }
@@ -206,8 +206,8 @@ class GameService:
             return {
                 "cycle": 1,
                 "date": arrival["date"],
-                "time": events.get("hour", "08h00"),
-                "location": events.get("arrival_location"),
+                "time": arrival["time"],
+                "location": arrival["location"],
                 "npcs_present": [events["first_npc_encountered"]]
                 if events.get("first_npc_encountered")
                 else [],
