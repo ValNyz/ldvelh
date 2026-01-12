@@ -240,24 +240,30 @@ class KnowledgeGraphReader:
     async def get_known_characters(self, conn: Connection) -> list[dict]:
         """
         Récupère les PNJs connus du protagoniste via v_characters_context.
+        Inclut la localisation via v_active_relations.
         Triés par niveau de relation décroissant.
         """
         rows = await conn.fetch(
             """
             SELECT 
-                entity_id as id,
-                name,
-                species,
-                gender,
-                physical_description,
-                traits,
-                current_position as profession,
-                mood,
-                relation_level,
-                relation_context
-            FROM v_characters_context
-            WHERE game_id = $1
-            ORDER BY COALESCE(relation_level, 0) DESC, name ASC
+                cc.entity_id as id,
+                cc.name,
+                cc.species,
+                cc.gender,
+                cc.physical_description,
+                cc.traits,
+                cc.current_position as profession,
+                cc.mood,
+                cc.relation_level,
+                cc.relation_context,
+                (SELECT ar.target_name 
+                 FROM v_active_relations ar
+                 WHERE ar.source_id = cc.entity_id
+                   AND ar.relation_type IN ('works_at', 'lives_at', 'frequents')
+                 LIMIT 1) as location
+            FROM v_characters_context cc
+            WHERE cc.game_id = $1
+            ORDER BY COALESCE(cc.relation_level, 0) DESC, cc.name ASC
             """,
             self.game_id,
         )
@@ -286,6 +292,7 @@ class KnowledgeGraphReader:
     async def get_known_organizations(self, conn: Connection) -> list[dict]:
         """
         Récupère les organisations connues du protagoniste.
+        Utilise v_active_relations pour la relation avec le protagoniste.
         """
         rows = await conn.fetch(
             """
@@ -295,11 +302,10 @@ class KnowledgeGraphReader:
                 eo.org_type,
                 eo.domain,
                 eo.size,
-                -- Relation du protagoniste avec l'org
-                (SELECT r.relation_type::text FROM v_active_relations r 
-                 WHERE r.target_id = e.id 
-                   AND r.source_type = 'protagonist'
-                   AND r.game_id = $1
+                (SELECT ar.relation_type::text 
+                 FROM v_active_relations ar 
+                 WHERE ar.target_id = e.id 
+                   AND ar.source_type = 'protagonist'
                  LIMIT 1) as protagonist_relation
             FROM entities e
             JOIN entity_organizations eo ON eo.entity_id = e.id
@@ -341,7 +347,7 @@ class KnowledgeGraphReader:
     async def get_known_locations(self, conn: Connection) -> list[dict]:
         """
         Récupère les lieux connus du protagoniste.
-        Utilise entity_locations + relations pour déterminer si visité.
+        Utilise v_active_relations pour déterminer si visité.
         """
         rows = await conn.fetch(
             """
@@ -353,13 +359,11 @@ class KnowledgeGraphReader:
                 el.accessible,
                 (SELECT ep.name FROM entities ep 
                  WHERE ep.id = el.parent_location_id) as parent_name,
-                -- Visité = protagoniste a une relation spatiale avec ce lieu
                 EXISTS(
-                    SELECT 1 FROM v_active_relations r
-                    WHERE r.target_id = e.id
-                      AND r.source_type = 'protagonist'
-                      AND r.relation_type IN ('frequents', 'works_at', 'lives_at')
-                      AND r.game_id = $1
+                    SELECT 1 FROM v_active_relations ar
+                    WHERE ar.target_id = e.id
+                      AND ar.source_type = 'protagonist'
+                      AND ar.relation_type IN ('frequents', 'works_at', 'lives_at')
                 ) as visited
             FROM entities e
             JOIN entity_locations el ON el.entity_id = e.id
