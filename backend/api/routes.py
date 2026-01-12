@@ -145,23 +145,34 @@ async def rename_game(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-# @router.get("/games/{game_id}/world")
-# async def get_world_data(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
-#     """
-#     Récupère les données du monde pour les sidebars.
-#
-#     Returns:
-#         - npcs: Liste des PNJs connus
-#         - locations: Liste des lieux découverts
-#         - quests: Liste des quêtes/arcs actifs
-#         - organizations: Liste des organisations connues
-#     """
-#     service = GameService(pool)
-#     try:
-#         world_data = await service.load_world_data(game_id)
-#         return world_data
-#     except ValueError as e:
-#         raise HTTPException(status_code=404, detail=str(e))
+@router.get("/games/{game_id}/world")
+async def get_world_data(game_id: UUID, pool: asyncpg.Pool = Depends(get_pool)):
+    """
+    Récupère les données du monde pour les sidebars.
+
+    Returns:
+        - npcs: Liste des PNJs connus
+        - locations: Liste des lieux découverts
+        - quests: Liste des quêtes/arcs actifs
+        - organizations: Liste des organisations connues
+    """
+    service = GameService(pool)
+
+    try:
+        # Charger chaque type de données séparément
+        npcs = await service.load_npcs(game_id)
+        locations = await service.load_locations(game_id)
+        quests = await service.load_quests(game_id)
+        organizations = await service.load_organizations(game_id)
+
+        return {
+            "npcs": npcs,
+            "locations": locations,
+            "quests": quests,
+            "organizations": organizations,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # =============================================================================

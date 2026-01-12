@@ -311,6 +311,94 @@ class GameService:
             "arrivee": arrivee,
         }
 
+    # =========================================================================
+    # WORLD DATA (pour sidebars)
+    # =========================================================================
+
+    async def load_npcs(self, game_id: UUID) -> list[dict]:
+        """Charge les PNJs connus du protagoniste"""
+        reader = self._get_reader(game_id)
+
+        async with self.pool.acquire() as conn:
+            characters = await reader.get_known_characters(conn)
+
+            # Enrichir avec la localisation de chaque personnage
+            result = []
+            for c in characters:
+                location = await reader.get_character_location(conn, c["id"])
+                result.append(
+                    {
+                        "id": str(c["id"]),
+                        "nom": c["name"],
+                        "profession": c["profession"],
+                        "lieu": location,
+                        "relation": self._get_relation_label(c["relation_level"]),
+                        "relation_level": c["relation_level"],
+                        "description": c["physical_description"],
+                    }
+                )
+
+        return result
+
+    async def load_locations(self, game_id: UUID) -> list[dict]:
+        """Charge les lieux connus du protagoniste"""
+        reader = self._get_reader(game_id)
+
+        async with self.pool.acquire() as conn:
+            locations = await reader.get_known_locations(conn)
+
+        return [
+            {
+                "id": str(loc["id"]),
+                "nom": loc["name"],
+                "type": loc["location_type"],
+                "secteur": loc["sector"],
+                "parent": loc["parent_name"],
+                "accessible": loc["accessible"],
+                "visite": loc["visited"],
+            }
+            for loc in locations
+        ]
+
+    async def load_quests(self, game_id: UUID) -> list[dict]:
+        """Charge les quêtes/arcs actifs"""
+        reader = self._get_reader(game_id)
+
+        async with self.pool.acquire() as conn:
+            commitments = await reader.get_active_commitments(conn)
+
+        return [
+            {
+                "id": str(c["id"]),
+                "nom": c["objective"]
+                or (c["description"][:50] if c["description"] else ""),
+                "description": c["description"],
+                "type": c["type"],
+                "statut": "En cours",
+                "priorite": self._get_priority(c["type"], c["deadline_cycle"]),
+                "progression": c["progress"] or 0,
+            }
+            for c in commitments
+        ]
+
+    async def load_organizations(self, game_id: UUID) -> list[dict]:
+        """Charge les organisations connues"""
+        reader = self._get_reader(game_id)
+
+        async with self.pool.acquire() as conn:
+            organizations = await reader.get_known_organizations(conn)
+
+        return [
+            {
+                "id": str(org["id"]),
+                "nom": org["name"],
+                "type": org["org_type"],
+                "domaine": org["domain"],
+                "relation": org["protagonist_relation"],
+            }
+            for org in organizations
+        ]
+
     async def load_chat_messages(self, game_id: UUID) -> list[dict]:
         """Charge l'historique des messages"""
         reader = self._get_reader(game_id)
@@ -534,3 +622,33 @@ class GameService:
             "target_cycle": target_cycle,
             "rollback_result": rollback_result,
         }
+
+    # =========================================================================
+    # HELPERS (privés)
+    # =========================================================================
+
+    @staticmethod
+    def _get_relation_label(level: int | None) -> str:
+        """Convertit le niveau de relation en label"""
+        if level is None:
+            return "Inconnu"
+        if level >= 8:
+            return "Ami proche"
+        if level >= 6:
+            return "Ami"
+        if level >= 4:
+            return "Connaissance"
+        if level >= 2:
+            return "Neutre"
+        return "Hostile"
+
+    @staticmethod
+    def _get_priority(commitment_type: str, deadline: int | None) -> str:
+        """Détermine la priorité d'une quête"""
+        if deadline is not None:
+            return "haute"
+        if commitment_type == "arc":
+            return "haute"
+        if commitment_type in ("secret", "chekhov_gun"):
+            return "normale"
+        return "basse"
