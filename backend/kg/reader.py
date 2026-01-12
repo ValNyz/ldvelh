@@ -247,6 +247,33 @@ class KnowledgeGraphReader:
     # CHARACTER
     # =========================================================================
 
+    async def get_all_characters(self, conn: Connection) -> list[dict]:
+        """Récupère TOUS les PNJs (connus et inconnus) avec leurs attributs"""
+        rows = await conn.fetch(
+            """SELECT 
+                e.id, e.name, e.known_by_protagonist, e.unknown_name,
+                get_attribute(e.id, 'occupation') as occupation,
+                get_attribute(e.id, 'species') as species,
+                get_attribute(e.id, 'traits') as traits,
+                get_attribute(e.id, 'mood') as mood,
+                get_attribute(e.id, 'arcs') as arcs,
+                cc.relation_level,
+                cc.relation_context,
+                (SELECT ar.target_name 
+                 FROM v_active_relations ar
+                 WHERE ar.source_id = e.id
+                   AND ar.relation_type IN ('works_at', 'lives_at', 'frequents')
+                 LIMIT 1) as usual_location
+            FROM entities e
+            LEFT JOIN v_characters_context cc ON cc.entity_id = e.id
+            WHERE e.game_id = $1 
+              AND e.type = 'character'
+              AND e.removed_cycle IS NULL
+            ORDER BY COALESCE(cc.relation_level, 0) DESC, e.name ASC""",
+            self.game_id,
+        )
+        return [dict(r) for r in rows]
+
     async def get_known_characters(self, conn: Connection) -> list[dict]:
         """
         Récupère les PNJs connus du protagoniste via v_characters_context.
@@ -320,31 +347,46 @@ class KnowledgeGraphReader:
     # ORGANIZATIONS
     # =========================================================================
 
-    async def get_known_organizations(self, conn: Connection) -> list[dict]:
+    async def get_organizations(self, conn: Connection) -> list[dict]:
         """
         Récupère les organisations connues du protagoniste.
-        Utilise v_active_relations pour la relation avec le protagoniste.
+        Utilise v_organizations qui pivote les attributs EAV.
         """
         rows = await conn.fetch(
             """
             SELECT 
-                e.id,
-                e.name,
-                eo.org_type,
-                eo.domain,
-                eo.size,
-                (SELECT ar.relation_type::text 
-                 FROM v_active_relations ar 
-                 WHERE ar.target_id = e.id 
-                   AND ar.source_type = 'protagonist'
-                 LIMIT 1) as protagonist_relation
-            FROM entities e
-            JOIN entity_organizations eo ON eo.entity_id = e.id
-            WHERE e.game_id = $1 
-              AND e.type = 'organization'
-              AND e.removed_cycle IS NULL
-              AND e.known_by_protagonist = true
-            ORDER BY e.name ASC
+                vo.id,
+                vo.name,
+                vo.org_type,
+                vo.domain,
+                vo.size,
+                vo.headquarters_name
+            FROM v_organizations vo
+            WHERE vo.game_id = $1 
+            ORDER BY vo.name ASC
+            """,
+            self.game_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_known_organizations(self, conn: Connection) -> list[dict]:
+        """
+        Récupère les organisations connues du protagoniste.
+        Utilise v_organizations qui pivote les attributs EAV.
+        """
+        rows = await conn.fetch(
+            """
+            SELECT 
+                vo.id,
+                vo.name,
+                vo.org_type,
+                vo.domain,
+                vo.size,
+                vo.headquarters_name
+            FROM v_organizations vo
+            WHERE vo.game_id = $1 
+              AND vo.known_by_protagonist = true
+            ORDER BY vo.name ASC
             """,
             self.game_id,
         )
@@ -395,10 +437,6 @@ class KnowledgeGraphReader:
     async def get_sibling_locations(
         self, conn: Connection, location_name: str, limit: int = 10
     ) -> list[dict]:
-        """
-        Récupère les locations accessibles (même secteur ou accessibles).
-        Optimisé avec une seule requête.
-        """
         rows = await conn.fetch(
             """WITH current AS (
                 SELECT e.id, get_attribute(e.id, 'sector') as sector
@@ -409,12 +447,15 @@ class KnowledgeGraphReader:
                    get_attribute(e.id, 'location_type') as location_type,
                    get_attribute(e.id, 'sector') as sector,
                    get_attribute(e.id, 'atmosphere') as atmosphere
-            FROM entities e, current c
+            FROM entities e
+            JOIN entity_locations el ON el.entity_id = e.id
+            CROSS JOIN current c
             WHERE e.game_id = $1 
               AND e.type = 'location'
               AND e.removed_cycle IS NULL
               AND e.known_by_protagonist = true
               AND e.id != c.id
+              AND el.parent_location_id IS NOT NULL
               AND (
                   COALESCE(get_attribute(e.id, 'accessible'), 'true')::BOOLEAN = true
                   OR get_attribute(e.id, 'sector') = c.sector
@@ -559,7 +600,7 @@ class KnowledgeGraphReader:
     async def get_message(self, conn: Connection, message_id: UUID) -> dict | None:
         """Récupère un message par ID"""
         row = await conn.fetchrow(
-            """SELECT id, role, content, cycle, time, date, 
+            """SELECT id, role, content, tone_notes, cycle, time, date, 
                       location_id, npcs_present, summary, created_at
                FROM chat_messages WHERE id = $1 AND game_id = $2""",
             message_id,
@@ -575,7 +616,7 @@ class KnowledgeGraphReader:
     ) -> list[dict]:
         """Récupère les messages (chronologique par défaut)"""
         query = """
-            SELECT id, role, content, cycle, time, date, 
+            SELECT id, role, content, tone_notes, cycle, time, date, 
                    location_id, npcs_present, summary, created_at
             FROM chat_messages WHERE game_id = $1
             ORDER BY created_at
@@ -608,7 +649,7 @@ class KnowledgeGraphReader:
     async def get_last_assistant_message(self, conn: Connection) -> dict | None:
         """Récupère le dernier message assistant avec nom du lieu - requête optimisée"""
         row = await conn.fetchrow(
-            """SELECT m.id, m.cycle, m.date, m.time, m.location_id, m.npcs_present,
+            """SELECT m.id, m.cycle, m.date, m.time, m.location_id, m.npcs_present, m.tone_notes,
                       e.name as location_name
                FROM chat_messages m
                LEFT JOIN entities e ON e.id = m.location_id
