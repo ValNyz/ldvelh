@@ -22,6 +22,7 @@ from schema import (
     EntityUpdate,
     InventoryChange,
     NarrativeExtraction,
+    NarrativeArcData,
     ObjectCreation,
     RelationData,
     RelationType,
@@ -30,7 +31,6 @@ from schema import (
     FactParticipant,
     FactType,
 )
-
 from .populator import KnowledgeGraphPopulator
 from .reader import KnowledgeGraphReader
 
@@ -182,7 +182,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
                         hq_id,
                     )
 
-    async def _create_narrative_arc(self, conn: Connection, arc) -> UUID:
+    async def _create_narrative_arc(
+        self, conn: Connection, arc: NarrativeArcData
+    ) -> UUID:
         """Create a narrative arc as a commitment"""
         arc_type = (
             arc.arc_type.value if hasattr(arc.arc_type, "value") else arc.arc_type
@@ -214,12 +216,12 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 await self.add_commitment_entity(
                     conn, commitment_id, entity_id, role="involved"
                 )
-                logger.debug(f"[ARC] Linked '{entity_name}' to '{arc.title}'")
+                logger.info(f"[ARC] Linked '{entity_name}' to '{arc.title}'")
             else:
                 logger.warning(
                     f"[ARC] Entity not found for arc '{arc.title}': '{entity_name}'"
                 )
-                logger.debug(
+                logger.info(
                     f"[ARC] Available entities: {list(self.registry._by_name.keys())[:15]}..."
                 )
 
@@ -498,13 +500,10 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 # 14. Store extraction log
                 await self.log_extraction(conn, cycle, stats)
 
-                # 15. Store cycle summary
-                await self.save_cycle_summary(
-                    conn,
-                    cycle,
-                    summary=extraction.segment_summary,
-                    key_events={"npcs_present": extraction.key_npcs_present},
-                )
+                # # 15. Store cycle summary
+                # await self.save_cycle_summary(
+                #     conn, cycle, summary=extraction.segment_summary, date=data["date"]
+                # )
 
         return stats
 

@@ -358,8 +358,11 @@ async def _handle_chat(
                     current_location_name=current_location,
                 )
 
+            logger.info(
+                f"[CHAT] context: \n{json.dumps(context.model_dump(), indent=2, default=str)}"
+            )
             context_prompt = build_narrator_context_prompt(context)
-            logger.info(f"[CHAT] context: \n{context_prompt}")
+            logger.info(f"[CHAT] prompt: \n{context_prompt}")
 
             # Variable pour stocker la tâche de résumé lancée tôt
             summary_task_holder = {"task": None}
@@ -426,6 +429,8 @@ async def _handle_chat(
                         narrative_text=narration.narrative_text,
                         hints=narration.hints,
                         cycle=process_result["cycle"],
+                        time=process_result["time"],
+                        date=process_result["date"],
                         location=process_result["location"],
                         npcs_present=process_result["npcs_present"],
                         summary_task=summary_task_holder.get("task"),
