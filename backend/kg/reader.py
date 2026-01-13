@@ -694,51 +694,47 @@ class KnowledgeGraphReader:
     # CYCLE SUMMARIES
     # =========================================================================
 
-    async def get_cycle_summary(self, conn: Connection, cycle: int) -> dict | None:
-        """Récupère le résumé d'un cycle spécifique"""
-        row = await conn.fetchrow(
-            """SELECT id, cycle, date, summary, key_events, modified_relations
-               FROM cycle_summaries WHERE game_id = $1 AND cycle = $2""",
-            self.game_id,
-            cycle,
-        )
-        return dict(row) if row else None
-
     async def get_cycle_summaries(
         self,
         conn: Connection,
-        max_cycle: int,
+        *,
+        cycle: int | None = None,
+        max_cycle: int | None = None,
         limit: int = 7,
-        order: SortOrder = "ASC",
+        order: SortOrder = "DESC",
     ) -> list[dict]:
-        """Récupère les résumés des N derniers cycles"""
-        query = """SELECT cycle, date, summary, key_events
-               FROM cycle_summaries 
-               WHERE game_id = $1 AND cycle <= $2
-               ORDER BY created_at"""
-        query = query.replace(
-            "ORDER BY created_at", f"ORDER BY created_at {order.upper()}"
-        )
+        """Récupère les résumés de cycles avec events"""
+        conditions = ["game_id = $1"]
+        params: list = [self.game_id]
 
-        if limit:
-            query += f" LIMIT {int(limit)}"  # int() pour sécurité
+        if cycle is not None:
+            conditions.append(f"cycle = ${len(params) + 1}")
+            params.append(cycle)
+        elif max_cycle is not None:
+            conditions.append(f"cycle <= ${len(params) + 1}")
+            params.append(max_cycle)
 
-        rows = await conn.fetch(
-            query,
-            self.game_id,
-            max_cycle,
-        )
+        query = f"""
+            SELECT id, cycle, date, summary, events
+            FROM v_cycle_summaries_detailed
+            WHERE {" AND ".join(conditions)}
+            ORDER BY cycle {order.upper()}
+        """
+
+        if cycle is None:
+            query += f" LIMIT ${len(params) + 1}"
+            params.append(limit)
+
+        rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
+    async def get_cycle_summary(self, conn: Connection, cycle: int) -> dict | None:
+        results = await self.get_cycle_summaries(conn, cycle=cycle)
+        return results[0] if results else None
+
     async def get_latest_cycle_summary(self, conn: Connection) -> dict | None:
-        """Récupère le dernier résumé de cycle"""
-        row = await conn.fetchrow(
-            """SELECT id, cycle, date, summary, key_events, modified_relations
-               FROM cycle_summaries 
-               WHERE game_id = $1 ORDER BY cycle DESC LIMIT 1""",
-            self.game_id,
-        )
-        return dict(row) if row else None
+        results = await self.get_cycle_summaries(conn, limit=1)
+        return results[0] if results else None
 
     async def get_arrival_event(self, conn: Connection) -> dict | None:
         """Récupère l'événement d'arrivée avec son fact source"""

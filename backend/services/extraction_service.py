@@ -440,6 +440,8 @@ class ParallelExtractionService:
         narrative_text: str,
         hints: NarrationHints,
         cycle: int,
+        time: str,
+        date: str,
         location: str,
         npcs_present: list[str],
         summary_task: asyncio.Task | None = None,
@@ -469,6 +471,8 @@ class ParallelExtractionService:
 
             # Ajouter cycle et location au niveau racine
             extraction_data["cycle"] = cycle
+            extraction_data["time"] = time
+            extraction_data["date"] = date
             extraction_data["current_location_ref"] = location
             extraction_data["key_npcs_present"] = npcs_present
 
@@ -608,10 +612,7 @@ class ParallelExtractionService:
         # Sauvegarder le résumé du cycle
         if data.get("segment_summary"):
             await populator.save_cycle_summary(
-                conn,
-                cycle,
-                summary=data["segment_summary"],
-                key_events={"npcs_present": data.get("key_npcs_present", [])},
+                conn, cycle, summary=data["segment_summary"], date=data["date"]
             )
 
         return stats

@@ -440,6 +440,7 @@ EXAMPLE_JSON_OUTPUT = """{
       "residence_ref": "Bloc Tournesol",
       "known_by_protagonist": false,
       "unknown_name": null,
+      "arcs": "[{\\"domain\\": \\"family\\", \\"title\\": \\"La mère malade\\", \\"situation\\": \\"Mère malade, envoie la moitié de son salaire\\", \\"desire\\": \\"Faire venir sa mère ici\\", \\"obstacle\\": \\"Coût du transfert médical astronomique\\", \\"intensity\\": 5}, {\\"domain\\": \\"romantic\\", \\"title\\": \\"Cœur fermé\\", \\"situation\\": \\"Rupture difficile il y a deux ans\\", \\"desire\\": \\"La paix\\", \\"obstacle\\": \\"Se protège derrière le sarcasme\\", \\"intensity\\": 2}]", "known": false,
       "attributes": [
         {"key": "species", "value": "human", "known": false},
         {"key": "gender", "value": "femme", "known": false},
@@ -452,7 +453,6 @@ EXAMPLE_JSON_OUTPUT = """{
         {"key": "origin", "value": "Station Kepler-22", "known": false},
         {"key": "arrival_cycle", "value": "-730", "known": false},
         {"key": "motivation", "value": "Protéger sa mère malade, survivre", "known": false},
-        {"key": "arcs", "value": "[{\\"domain\\": \\"family\\", \\"title\\": \\"La mère malade\\", \\"situation\\": \\"Mère malade, envoie la moitié de son salaire\\", \\"desire\\": \\"Faire venir sa mère ici\\", \\"obstacle\\": \\"Coût du transfert médical astronomique\\", \\"intensity\\": 5}, {\\"domain\\": \\"romantic\\", \\"title\\": \\"Cœur fermé\\", \\"situation\\": \\"Rupture difficile il y a deux ans\\", \\"desire\\": \\"La paix\\", \\"obstacle\\": \\"Se protège derrière le sarcasme\\", \\"intensity\\": 2}]", "known": false},
         {"key": "romantic_potential", "value": "true", "known": false},
         {"key": "is_mandatory", "value": "true", "known": false}
       ]

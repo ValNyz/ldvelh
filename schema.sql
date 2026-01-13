@@ -1124,6 +1124,40 @@ LEFT JOIN fact_participants fp ON fp.fact_id = f.id
 LEFT JOIN entities e ON fp.entity_id = e.id
 GROUP BY f.id, l.name;
 
+CREATE OR REPLACE VIEW v_cycle_summaries_detailed AS
+SELECT 
+    cs.id,
+    cs.game_id,
+    cs.cycle,
+    cs.date,
+    cs.summary,
+    COALESCE(
+        (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'type', ev.type,
+                    'title', ev.title,
+                    'time', ev.time,
+                    'role', cse.role,
+                    'location', loc.name,
+                    'participants', (
+                        SELECT jsonb_agg(ent.name)
+                        FROM event_participants ep
+                        JOIN entities ent ON ep.entity_id = ent.id
+                        WHERE ep.event_id = ev.id
+                    )
+                )
+                ORDER BY cse.display_order
+            )
+            FROM cycle_summary_events cse
+            JOIN events ev ON ev.id = cse.event_id
+            LEFT JOIN entities loc ON loc.id = ev.location_id
+            WHERE cse.cycle_summary_id = cs.id
+        ),
+        '[]'::jsonb
+    ) as events
+FROM cycle_summaries cs;
+
 CREATE OR REPLACE VIEW v_open_contradictions AS
 SELECT 
   c.id,

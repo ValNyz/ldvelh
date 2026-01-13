@@ -229,7 +229,7 @@ class CharacterData(BaseModel):
     attributes: list[AttributeWithVisibility] = Field(default_factory=list)
     workplace_ref: EntityRef | None = None
     residence_ref: EntityRef | None = None
-    known_by_protagonist: bool = True
+    known_by_protagonist: bool = False
     unknown_name: str | None = None
 
     @field_validator("attributes", mode="before")

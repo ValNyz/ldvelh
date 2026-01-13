@@ -420,8 +420,13 @@ class ContextBuilder:
         self, conn: Connection, current_cycle: int, limit: int = 15
     ) -> list[str]:
         """Build cycle summaries"""
-        rows = await self.reader.get_cycle_summaries(conn, current_cycle, limit)
-        return [CycleSummary(cycle=r["cycle"], summary=r["summary"]) for r in rows]
+        rows = await self.reader.get_cycle_summaries(
+            conn, max_cycle=current_cycle, limit=limit
+        )
+        return [
+            CycleSummary(cycle=r["cycle"], date=r["date"], summary=r["summary"])
+            for r in rows
+        ]
 
     async def _build_conversation_context(
         self, conn: Connection, current_cycle: int, recent_limit: int = 10
