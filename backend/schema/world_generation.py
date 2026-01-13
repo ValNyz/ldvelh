@@ -380,8 +380,10 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         }
         arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
 
-        has_residence = any(t in residence_types for t in types)
-        has_arrival = any(t in arrival_types for t in types)
+        has_residence = any(
+            any(keyword in t for keyword in residence_types) for t in types
+        )
+        has_arrival = any(any(keyword in t for keyword in arrival_types) for t in types)
 
         if not has_residence:
             logger.warning("[Validation] No residence location found for Valentin")

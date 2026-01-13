@@ -341,8 +341,6 @@ class KnowledgeGraphPopulator:
         conn: Connection,
         data: CharacterData,
         cycle: int = 1,
-        known_by_protagonist: bool = True,
-        unknown_name: str | None = None,
     ) -> UUID:
         """Create a character (NPC) entity"""
         entity_id = await self.upsert_entity(
@@ -350,8 +348,8 @@ class KnowledgeGraphPopulator:
             EntityType.CHARACTER,
             data.name,
             cycle=cycle,
-            known_by_protagonist=known_by_protagonist,
-            unknown_name=unknown_name,
+            known_by_protagonist=data.known_by_protagonist,
+            unknown_name=data.unknown_name,
         )
         await self.set_attributes(
             conn, entity_id, data.attributes, cycle, entity_type=EntityType.CHARACTER
@@ -803,12 +801,12 @@ class KnowledgeGraphPopulator:
         """Save or update a cycle summary"""
         return await conn.fetchval(
             """INSERT INTO cycle_summaries 
-               (game_id, cycle, date, summary, key_events, modified_relations)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               ON CONFLICT (game_id, cycle) DO UPDATE SET
-                 date = COALESCE(EXCLUDED.date, cycle_summaries.date),
-                 summary = COALESCE(EXCLUDED.summary, cycle_summaries.summary),
-               RETURNING id""",
+           (game_id, cycle, date, summary)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (game_id, cycle) DO UPDATE SET
+             date = COALESCE(EXCLUDED.date, cycle_summaries.date),
+             summary = COALESCE(EXCLUDED.summary, cycle_summaries.summary)
+           RETURNING id""",
             self.game_id,
             cycle,
             date,
