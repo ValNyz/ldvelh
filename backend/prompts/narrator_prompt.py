@@ -4,6 +4,12 @@ Prompt système et construction pour le LLM narrateur
 """
 
 from prompts.shared import TONE_STYLE, FRICTION_RULES, COHERENCE_RULES
+from prompts.examples import (
+    NARRATION_OUTPUT_TEMPLATE,
+    NARRATION_EXAMPLE_DAY_TRANSITION,
+    NARRATION_EXAMPLE_NEUTRAL,
+    NARRATION_EXAMPLE_PNJ_UNAVAILABLE,
+)
 
 # =============================================================================
 # SYSTEM PROMPT
@@ -72,41 +78,7 @@ Valentin a une IA personnelle. Ses traits sont définis dans le contexte.
 ## STRUCTURE DE TA RÉPONSE
 
 ```json
-{{
-  "narrative_text": "Texte Markdown de la scène...",
-  
-  "time": {{
-    "new_time": "14h45",
-    "ellipse": false,
-    "ellipse_summary": null
-  }},
-  
-  "day_transition": null,
-  
-  "current_location": "Nom EXACT du lieu",
-  "npcs_present": ["Nom EXACT PNJ1", "Nom EXACT PNJ2"],
-  
-  "suggested_actions": [
-    "Action courte 1",
-    "Action courte 2",
-    "Action courte 3"
-  ],
-  
-  "hints": {{
-    "new_entities_mentioned": [],
-    "relationships_changed": false,
-    "protagonist_state_changed": false,
-    "information_learned": false,
-    "commitment_advanced": [],
-    "commitment_resolved": [],
-    "new_commitment_created": false,
-    "event_scheduled": false,
-    "event_occurred": false
-  }},
-  
-  "scene_mood": "2-4 mots max",
-  "narrator_notes": "Notes techniques courtes"
-}}
+{NARRATION_OUTPUT_TEMPLATE}
 ```
 
 ## HINTS - QUAND LES ACTIVER
@@ -141,77 +113,17 @@ Description de l'environnement avec **emphase** sur les détails.
 
 ### Exemple 1 : Scène neutre (FRÉQUENT)
 ```json
-{{
-  "narrative_text": "Le **Quart de Cycle** est à moitié vide à cette heure. Quelques habitués, le nez dans leur terminal. Personne ne lève la tête quand tu entres.\\n\\nOssek est au comptoir, occupé à nettoyer la machine à café avec une concentration excessive. Iel ne t'a pas vu, ou fait semblant.",
-  "time": {{"new_time": "10h15", "ellipse": false, "ellipse_summary": null}},
-  "day_transition": null,
-  "current_location": "Le Quart de Cycle",
-  "npcs_present": ["Ossek"],
-  "suggested_actions": [
-    "Commander un café",
-    "S'installer dans un coin",
-    "Partir"
-  ],
-  "hints": {{
-    "new_entities_mentioned": [],
-    "relationships_changed": false,
-    "protagonist_state_changed": false,
-    "information_learned": false,
-    "commitment_advanced": [],
-    "commitment_resolved": [],
-    "new_commitment_created": false,
-    "event_scheduled": false,
-    "event_occurred": false
-  }},
-  "scene_mood": "banal et indifférent",
-  "narrator_notes": null
-}}
+{NARRATION_EXAMPLE_NEUTRAL}
 ```
 
 ### Exemple 2 : PNJ indisponible (FRÉQUENT)
 ```json
-{{
-  "narrative_text": "Tu t'approches du comptoir. Ossek lève les yeux, mais son regard est ailleurs.\\n\\n— Ah. Salut.\\n\\nLe ton est plat. Pas hostile, juste... absent. Iel repose le verre qu'iel essuyait, en prend un autre, recommence le même geste.\\n\\n*Clairement pas le bon moment.*",
-  "time": {{"new_time": "10h20", "ellipse": false, "ellipse_summary": null}},
-  "day_transition": null,
-  "current_location": "Le Quart de Cycle",
-  "npcs_present": ["Ossek"],
-  "suggested_actions": [
-    "Commander sans insister",
-    "Demander si tout va bien",
-    "S'installer et observer",
-    "Partir"
-  ],
-  "hints": {{
-    "new_entities_mentioned": [],
-    "relationships_changed": false,
-    "protagonist_state_changed": false,
-    "information_learned": false,
-    "commitment_advanced": ["L'exil du banc"],
-    "commitment_resolved": [],
-    "new_commitment_created": false,
-    "event_scheduled": false,
-    "event_occurred": false
-  }},
-  "scene_mood": "distant",
-  "narrator_notes": "Ossek: mauvaise journée (mal du banc)"
-}}
+{NARRATION_EXAMPLE_PNJ_UNAVAILABLE}
 ```
 
 ### Exemple 3 : Transition de jour
 ```json
-{{
-  "narrative_text": "La fatigue finit par avoir raison de toi...",
-  "time": {{"new_time": "23h45", "ellipse": false, "ellipse_summary": null}},
-  "day_transition": {{
-    "new_cycle": 5,
-    "new_date": "Samedi 18 Mars 2847",
-    "night_summary": "Nuit agitée, rêves confus."
-  }},
-  "current_location": "Appartement 4-12",
-  "npcs_present": [],
-  "hints": {{}}
-}}
+{NARRATION_EXAMPLE_DAY_TRANSITION}
 ```
 
 ## RAPPELS CRITIQUES

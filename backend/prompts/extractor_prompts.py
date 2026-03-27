@@ -4,6 +4,13 @@ Unified format: all entity types use attributes with known flag
 """
 
 from schema.narration import NarrationHints
+from prompts.examples import (
+    EXTRACTION_PROTAGONIST_STATE_EXAMPLE,
+    EXTRACTION_ENTITIES_EXAMPLE,
+    EXTRACTION_OBJECTS_EXAMPLE,
+    EXTRACTION_FACTS_EXAMPLE,
+    EXTRACTION_RELATIONS_EXAMPLE,
+)
 
 # =============================================================================
 # EXTRACTEUR: RÉSUMÉ (Haiku)
@@ -27,28 +34,12 @@ JSON:"""
 # EXTRACTEUR: ÉTAT PROTAGONISTE (Haiku)
 # =============================================================================
 
-PROTAGONIST_STATE_SYSTEM = """Tu extrais les changements d'état du protagoniste depuis un texte narratif.
+PROTAGONIST_STATE_SYSTEM = f"""Tu extrais les changements d'état du protagoniste depuis un texte narratif.
 Réponds UNIQUEMENT en JSON. Omets les champs sans changement.
 
 Format:
 ```json
-{
-  "gauge_changes": [
-    {"gauge": "energy|morale|health", "delta": -0.5, "reason": "..."}
-  ],
-  "credit_transactions": [
-    {"amount": -15, "description": "..."}
-  ],
-  "inventory_changes": [
-    {
-      "action": "acquire|lose|use",
-      "object_ref": "Nom exact si objet connu",
-      "object_hint": "Description SI nouvel objet acquis",
-      "quantity_delta": 1,
-      "reason": "..."
-    }
-  ]
-}
+{EXTRACTION_PROTAGONIST_STATE_EXAMPLE}
 ```
 
 Règles:
@@ -81,35 +72,13 @@ JSON:"""
 # EXTRACTEUR: ENTITÉS (Sonnet) - FORMAT UNIFIÉ EAV
 # =============================================================================
 
-ENTITIES_SYSTEM = """Tu extrais les nouvelles entités d'un texte narratif pour un jeu de rôle.
+ENTITIES_SYSTEM = f"""Tu extrais les nouvelles entités d'un texte narratif pour un jeu de rôle.
 Tu crées UNIQUEMENT les entités vraiment NOUVELLES (pas celles déjà connues).
 
 ## FORMAT UNIFIÉ (tous types d'entités)
 
 ```json
-{
-  "entities_created": [
-    {
-      "entity_type": "character|location|organization|object",
-      "name": "Nom exact",
-      "known_by_protagonist": true,
-      "unknown_name": null,
-      "attributes": [
-        {"key": "clé", "value": "valeur", "known": true|false}
-      ]
-    }
-  ],
-  "entities_updated": [
-    {
-      "entity_ref": "Nom exact",
-      "now_known": true,
-      "real_name": "Vrai nom si révélé",
-      "attributes_changed": [
-        {"key": "clé", "value": "nouvelle valeur", "known": true}
-      ]
-    }
-  ]
-}
+{EXTRACTION_ENTITIES_EXAMPLE}
 ```
 
 ## CLÉS D'ATTRIBUTS PAR TYPE
@@ -197,37 +166,12 @@ JSON:"""
 # EXTRACTEUR: OBJETS ACQUIS (Sonnet)
 # =============================================================================
 
-OBJECTS_SYSTEM = """Tu crées les fiches d'objets acquis par le protagoniste.
+OBJECTS_SYSTEM = f"""Tu crées les fiches d'objets acquis par le protagoniste.
 Tu reçois des "hints" (descriptions courtes) et tu crées des objets complets.
 
 Format de sortie:
 ```json
-{
-  "objects_created": [
-    {
-      "name": "Nom de l'objet",
-      "attributes": [
-        {
-          "key": "description",
-          "value": "Description en 1-2 phrases",
-          "known": true,
-          "details": {
-            "category": "bijou|vêtement|outil|nourriture|document|tech|arme|autre",
-            "transportable": true,
-            "stackable": false,
-            "base_value": 50
-          }
-        },
-        {
-          "key": "emotional_significance",
-          "value": "Signification si pertinent",
-          "known": true
-        }
-      ],
-      "from_hint": "Le hint original"
-    }
-  ]
-}
+{EXTRACTION_OBJECTS_EXAMPLE}
 ```
 
 Règles:
@@ -257,7 +201,7 @@ JSON:"""
 # EXTRACTEUR: FAITS (Haiku)
 # =============================================================================
 
-FACTS_SYSTEM = """Tu extrais les faits narratifs d'un texte de jeu narratif.
+FACTS_SYSTEM = f"""Tu extrais les faits narratifs d'un texte de jeu narratif.
 
 ## RÈGLES CRITIQUES
 
@@ -265,11 +209,7 @@ FACTS_SYSTEM = """Tu extrais les faits narratifs d'un texte de jeu narratif.
 - Chaque fait capture UNE SEULE chose qui s'est passée
 - Si une phrase contient 2 infos distinctes → 2 facts séparés
 
-### 2. ANTI-DUPLICATION
-- Chaque fait a une `semantic_key` unique: `{sujet}:{verbe}:{objet}`
-- Si deux facts auraient la même semantic_key → N'EN GARDER QU'UN
-
-### 3. TYPES DE FAITS
+### 2. TYPES DE FAITS
 
 | Type | Quand l'utiliser |
 |------|------------------|
@@ -290,10 +230,10 @@ FACTS_SYSTEM = """Tu extrais les faits narratifs d'un texte de jeu narratif.
 | `decision` | Choix significatif de Valentin |
 | `realization` | Prise de conscience |
 
-### 4. SEMANTIC_KEY
-Format: `{sujet}:{verbe}:{objet}` en snake_case ASCII
+### 3. SEMANTIC_KEY
+Format: `{{sujet}}:{{verbe}}:{{objet}}` en snake_case ASCII
 
-### 5. IMPORTANCE (1-5)
+### 4. IMPORTANCE (1-5)
 - 5: Change la donne (révélation majeure)
 - 4: Significatif (nouvelle relation)
 - 3: Notable (interaction mémorable)
@@ -302,19 +242,7 @@ Format: `{sujet}:{verbe}:{objet}` en snake_case ASCII
 
 ## FORMAT
 ```json
-{
-  "facts": [
-    {
-      "fact_type": "revelation",
-      "description": "Description du fait",
-      "semantic_key": "sujet:verbe:objet",
-      "importance": 4,
-      "participants": [
-        {"entity_ref": "Nom", "role": "actor|witness|target|mentioned"}
-      ]
-    }
-  ]
-}
+{EXTRACTION_FACTS_EXAMPLE}
 ```"""
 
 
@@ -412,37 +340,11 @@ JSON:"""
 # EXTRACTEUR: ENGAGEMENTS & ÉVÉNEMENTS (Sonnet)
 # =============================================================================
 
-COMMITMENTS_SYSTEM = """Tu extrais les engagements narratifs et événements planifiés.
+COMMITMENTS_SYSTEM = f"""Tu extrais les engagements narratifs et événements planifiés.
 
 Format:
 ```json
-{
-  "commitments_created": [
-    {
-      "commitment_type": "foreshadowing|secret|setup|chekhov_gun|arc",
-      "description": "Description de l'engagement",
-      "involved_entities": ["Nom1", "Nom2"],
-      "deadline_cycle": null
-    }
-  ],
-  "commitments_resolved": [
-    {
-      "commitment_description": "Début de description pour matcher",
-      "resolution_description": "Comment ça s'est résolu"
-    }
-  ],
-  "events_scheduled": [
-    {
-      "event_type": "appointment|deadline|celebration|recurring|financial_due",
-      "title": "Titre",
-      "description": "...",
-      "planned_cycle": 7,
-      "time": "14h00",
-      "location_ref": "Nom du lieu",
-      "participants": ["Nom1", "Nom2"]
-    }
-  ]
-}
+{EXTRACTION_RELATIONS_EXAMPLE}
 ```
 
 Types d'engagements:
