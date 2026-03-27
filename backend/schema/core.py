@@ -577,6 +577,12 @@ def normalize_attribute_key(
 
     normalized = key.lower().strip().replace(" ", "_").replace("-", "_")
 
+    # Try direct enum match first (avoids synonym conflicts when no entity_type)
+    try:
+        return AttributeKey(normalized)
+    except ValueError:
+        pass
+
     # Choose synonym dict based on entity type
     if entity_type is not None:
         synonyms = ATTRIBUTE_SYNONYMS_BY_ENTITY.get(entity_type, ALL_ATTRIBUTE_SYNONYMS)
@@ -590,12 +596,6 @@ def normalize_attribute_key(
             return AttributeKey(canonical)
         except ValueError:
             pass
-
-    # Try direct enum match
-    try:
-        return AttributeKey(normalized)
-    except ValueError:
-        pass
 
     # Fallback: log warning and raise
     logger.warning(
@@ -787,6 +787,13 @@ class AttributeWithVisibility(BaseModel):
     def _normalize_key(cls, v: Any) -> AttributeKey:
         # Without entity context, use generic normalizer
         return normalize_attribute_key(v)
+
+    @field_validator("value", mode="after")
+    @classmethod
+    def _truncate_value(cls, v: str) -> str:
+        if len(v) > 500:
+            return v[:497] + "..."
+        return v
 
 
 # =============================================================================

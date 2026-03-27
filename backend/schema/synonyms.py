@@ -33,6 +33,11 @@ RELATION_TYPE_SYNONYMS = {
     "confidant": "friend_of",
     "ally": "friend_of",
     "allied_with": "friend_of",
+    # friend_of - FR
+    "ami": "friend_of",
+    "amie": "friend_of",
+    "ami_de": "friend_of",
+    "amis": "friend_of",
     # enemy_of
     "enemy_of": "enemy_of",
     "enemy": "enemy_of",
@@ -262,6 +267,11 @@ RELATION_TYPE_SYNONYMS = {
     "occupies": "lives_at",
     "occupant": "lives_at",
     "occupant_of": "lives_at",
+    # lives_at - FR
+    "habite": "lives_at",
+    "habite_a": "lives_at",
+    "vit_a": "lives_at",
+    "reside": "lives_at",
     # located_in
     "located_in": "located_in",
     "located": "located_in",
@@ -521,6 +531,9 @@ ENTITY_TYPE_SYNONYMS = {
     "stranger": "character",
     "acquaintance": "character",
     "contact": "character",
+    # character - FR
+    "pnj": "character",
+    "personnage": "character",
     # location
     "location": "location",
     "place": "location",
@@ -560,6 +573,9 @@ ENTITY_TYPE_SYNONYMS = {
     "apartment": "location",
     "home": "location",
     "residence": "location",
+    # location - FR
+    "lieu": "location",
+    "endroit": "location",
     # object
     "object": "object",
     "item": "object",
@@ -589,6 +605,8 @@ ENTITY_TYPE_SYNONYMS = {
     "data": "object",
     "container": "object",
     "package": "object",
+    # object - FR
+    "objet": "object",
     # organization
     "organization": "organization",
     "organisation": "organization",
@@ -1098,6 +1116,9 @@ FACT_TYPE_SYNONYMS = {
     "arrive": "encounter",
     "arrived": "encounter",
     "arrives": "encounter",
+    # encounter - FR
+    "rencontre": "encounter",
+    "rencontrer": "encounter",
     # interaction
     "interaction": "interaction",
     "interact": "interaction",
@@ -2921,6 +2942,7 @@ CHARACTER_ATTRIBUTE_SYNONYMS: dict[str, str] = {
     "feeling": "mood",
     "demeanor": "mood",
     "attitude": "mood",
+    "humeur": "mood",
     # age
     "age": "age",
     "years_old": "age",
@@ -2982,6 +3004,7 @@ LOCATION_ATTRIBUTE_SYNONYMS: dict[str, str] = {
     "district": "sector",
     "zone": "sector",
     "area": "sector",
+    "secteur": "sector",
     # accessible
     "accessible": "accessible",
     "access": "accessible",
