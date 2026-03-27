@@ -3,6 +3,7 @@ Configuration pytest et fixtures partagées
 Importe les exemples depuis prompts/examples.py
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -42,8 +43,8 @@ from prompts.examples import (
 
 @pytest.fixture
 def world_generation_example():
-    """Exemple complet de génération de monde"""
-    return WORLD_GENERATION_EXAMPLE
+    """Exemple complet de génération de monde (parsed as dict)"""
+    return json.loads(WORLD_GENERATION_EXAMPLE)
 
 
 @pytest.fixture
@@ -67,6 +68,33 @@ def extraction_examples():
         "relations": EXTRACTION_RELATIONS_EXAMPLE,
         "commitments": EXTRACTION_COMMITMENTS_EXAMPLE,
         "objects": EXTRACTION_OBJECTS_EXAMPLE,
+        "full": {
+            "cycle": 5,
+            "time": "10h20",
+            "current_location_ref": "Le Quart de Cycle",
+            "facts": EXTRACTION_FACTS_EXAMPLE["facts"],
+            "entities_created": EXTRACTION_ENTITIES_EXAMPLE["entities_created"],
+            "entities_updated": EXTRACTION_ENTITIES_EXAMPLE["entities_updated"],
+            "relations_created": EXTRACTION_RELATIONS_EXAMPLE["relations_created"],
+            "relations_updated": EXTRACTION_RELATIONS_EXAMPLE["relations_updated"],
+            "gauge_changes": EXTRACTION_PROTAGONIST_STATE_EXAMPLE["gauge_changes"],
+            "credit_transactions": EXTRACTION_PROTAGONIST_STATE_EXAMPLE[
+                "credit_transactions"
+            ],
+            "inventory_changes": EXTRACTION_PROTAGONIST_STATE_EXAMPLE[
+                "inventory_changes"
+            ],
+            "commitments_created": EXTRACTION_COMMITMENTS_EXAMPLE[
+                "commitments_created"
+            ],
+            "commitments_resolved": EXTRACTION_COMMITMENTS_EXAMPLE[
+                "commitments_resolved"
+            ],
+            "events_scheduled": EXTRACTION_COMMITMENTS_EXAMPLE["events_scheduled"],
+            "objects_created": EXTRACTION_OBJECTS_EXAMPLE["objects_created"],
+            "segment_summary": "Valentin commande un café au Quart de Cycle et discute brièvement avec Ossek.",
+            "key_npcs_present": ["Ossek"],
+        },
     }
 
 
