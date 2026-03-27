@@ -272,24 +272,51 @@ def merge_game_states(prev: GameState, update: dict) -> GameState:
     # Normaliser l'update
     update_state = normalize_game_state(flat_data=update)
 
-    # Fusionner
+    # Récupérer les clés réellement présentes dans l'update original
+    update_partie_keys = set()
+    update_valentin_keys = set()
+    update_ia_keys = set()
+
+    if "partie" in update and update["partie"]:
+        update_partie_keys = set(update["partie"].keys())
+    if "valentin" in update and update["valentin"]:
+        update_valentin_keys = set(update["valentin"].keys())
+    if "ia" in update and update["ia"]:
+        update_ia_keys = set(update["ia"].keys())
+
+    # Fusionner partie
     new_partie = None
     if prev.partie or update_state.partie:
         prev_dict = prev.partie.model_dump() if prev.partie else {}
-        update_dict = update_state.partie.model_dump() if update_state.partie else {}
-        # Filtrer les None de l'update
-        update_dict = {k: v for k, v in update_dict.items() if v is not None}
-        merged = {**prev_dict, **update_dict}
+        if update_state.partie and update_partie_keys:
+            update_dict = update_state.partie.model_dump()
+            # Ne garder QUE les clés explicitement dans l'update
+            update_dict = {
+                k: v
+                for k, v in update_dict.items()
+                if k in update_partie_keys and v is not None
+            }
+            merged = {**prev_dict, **update_dict}
+        else:
+            merged = prev_dict
         new_partie = PartieState(**merged)
 
-    new_valentin = merge_valentin(prev.valentin, update_state.valentin)
+    # Fusionner valentin
+    new_valentin = merge_valentin(
+        prev.valentin, update_state.valentin, update_valentin_keys
+    )
 
+    # Fusionner IA
     new_ia = None
     if prev.ia or update_state.ia:
         prev_dict = prev.ia.model_dump() if prev.ia else {}
-        update_dict = update_state.ia.model_dump() if update_state.ia else {}
-        update_dict = {k: v for k, v in update_dict.items() if v is not None}
-        if update_dict:
+        if update_state.ia and update_ia_keys:
+            update_dict = update_state.ia.model_dump()
+            update_dict = {
+                k: v
+                for k, v in update_dict.items()
+                if k in update_ia_keys and v is not None
+            }
             merged = {**prev_dict, **update_dict}
             new_ia = IAState(**merged)
         else:
@@ -298,22 +325,42 @@ def merge_game_states(prev: GameState, update: dict) -> GameState:
     return GameState(partie=new_partie, valentin=new_valentin, ia=new_ia)
 
 
-def merge_valentin(prev: ValentinState, update: ValentinState) -> ValentinState:
+def merge_valentin(
+    prev: ValentinState, update: ValentinState, update_keys: set[str] | None = None
+) -> ValentinState:
     """
     Fusionne les stats de Valentin.
-    L'inventaire est toujours remplacé (source de vérité = BDD).
+    Ne met à jour que les clés explicitement présentes dans update_keys.
     """
+    if update_keys is None:
+        # Comportement legacy: comparer avec les defaults
+        return ValentinState(
+            energie=update.energie
+            if update.energie != STATS_DEFAUT["energie"]
+            else prev.energie,
+            moral=update.moral if update.moral != STATS_DEFAUT["moral"] else prev.moral,
+            sante=update.sante if update.sante != STATS_DEFAUT["sante"] else prev.sante,
+            credits=update.credits
+            if update.credits != STATS_DEFAUT["credits"]
+            else prev.credits,
+            inventaire=update.inventaire if update.inventaire else prev.inventaire,
+        )
+
+    # Nouveau comportement: ne merger que les clés explicites
     return ValentinState(
         energie=update.energie
-        if update.energie != STATS_DEFAUT["energie"]
+        if "energie" in update_keys or "energy" in update_keys
         else prev.energie,
-        moral=update.moral if update.moral != STATS_DEFAUT["moral"] else prev.moral,
-        sante=update.sante if update.sante != STATS_DEFAUT["sante"] else prev.sante,
-        credits=update.credits
-        if update.credits != STATS_DEFAUT["credits"]
-        else prev.credits,
-        # L'inventaire du serveur a priorité (même si vide)
-        inventaire=update.inventaire if update.inventaire else prev.inventaire,
+        moral=update.moral
+        if "moral" in update_keys or "morale" in update_keys
+        else prev.moral,
+        sante=update.sante
+        if "sante" in update_keys or "health" in update_keys
+        else prev.sante,
+        credits=update.credits if "credits" in update_keys else prev.credits,
+        inventaire=update.inventaire
+        if "inventaire" in update_keys or "inventory" in update_keys
+        else prev.inventaire,
     )
 
 

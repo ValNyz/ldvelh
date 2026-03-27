@@ -168,6 +168,8 @@ from .narration import (
     PersonalAISummary,
     ProtagonistState,
     Fact,
+    TimeProgression,
+    DayTransition,
 )
 
 # =============================================================================
@@ -349,6 +351,8 @@ __all__ = [
     "NarrationContext",
     "NarrationHints",
     "NarrationOutput",
+    "TimeProgression",
+    "DayTransition",
     # =========================================================================
     # EXTRACTION - Entity changes
     # =========================================================================
