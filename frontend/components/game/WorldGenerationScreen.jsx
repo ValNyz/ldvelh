@@ -162,6 +162,15 @@ export default function WorldGenerationScreen({
 								<p className="text-gray-400 text-sm">{worldData.arrival.date}</p>
 							</div>
 						)}
+
+						{worldData.generation_cost && (
+							<p className="text-gray-600 text-xs text-right">
+								{worldData.generation_cost.provider && `[${worldData.generation_cost.provider}] `}
+								{worldData.generation_cost.model && `${worldData.generation_cost.model} · `}
+								${worldData.generation_cost.cost_usd?.toFixed(4)}
+								{' · '}{worldData.generation_cost.input_tokens}in · {worldData.generation_cost.output_tokens}out
+							</p>
+						)}
 					</div>
 				)}
 

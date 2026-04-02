@@ -78,7 +78,11 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 			// INIT mode: world_info present means world was just created
 			if (data?.world_info) {
-				phase.setWorldData(data.world_info);
+				const worldInfo = {
+					...data.world_info,
+					generation_cost: data?.meta?.narration_cost || null,
+				};
+				phase.setWorldData(worldInfo);
 				phase.setGamePhase(phase.GAME_PHASE.WORLD_READY);
 				if (data.world_info.world?.name) gs.setGameName(data.world_info.world.name);
 				gs.setGameState(data.game_state);

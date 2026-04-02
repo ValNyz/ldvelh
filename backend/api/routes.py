@@ -403,6 +403,7 @@ async def _handle_chat(
                     # Load canonical state (same shape as light mode)
                     state = await game_service.load_game_state(game_id)
 
+                    init_cost = getattr(llm_service, "_last_call_cost", None)
                     payload = SSEDonePayload(
                         game_state=SSEGameState(
                             game=state["game"],
@@ -425,6 +426,9 @@ async def _handle_chat(
                             else None,
                             arrival_event=parsed.get("arrival_event"),
                         ),
+                        meta=SSEMeta(narration_cost=init_cost)
+                        if init_cost
+                        else None,
                     )
 
                     await sse_writer.send_done(
