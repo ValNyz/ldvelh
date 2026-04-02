@@ -7,7 +7,7 @@ export const GENERATION_STEPS = [
 	{ key: 'locations', label: 'Lieux', weight: 18 },
 	{ key: 'organizations', label: 'Organisations', weight: 6 },
 	{ key: 'protagonist', label: 'Personnage', weight: 6 },
-	{ key: 'personal_ai', label: 'IA personnelle', weight: 2 },
+	{ key: 'personal_assistant', label: 'IA personnelle', weight: 2 },
 	{ key: 'characters', label: 'Personnages', weight: 28 },
 	{ key: 'inventory', label: 'Inventaire', weight: 8 },
 	{ key: 'narrative_arcs', label: 'Arcs narratifs', weight: 8 },
