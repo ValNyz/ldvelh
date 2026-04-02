@@ -1,5 +1,6 @@
 """
-LDVELH - Knowledge Graph Populator (EAV Architecture)
+LDVELH - Knowledge Graph Populator (Dedicated Tables Architecture)
+Write operations for all game data tables.
 """
 
 from __future__ import annotations
@@ -7,29 +8,22 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from schema import (
-    AttributeVisibility,
-    AttributeWithVisibility,
     CharacterData,
     EntityType,
-    ENTITY_TYPED_TABLES,
     FactData,
-    get_attribute_visibility,
     LocationData,
+    NarrativeArcData,
     ObjectData,
     OrganizationData,
-    PersonalAIData,
+    PersonalAssistantData,
     ProtagonistData,
-    RelationCategory,
     RelationData,
     RelationType,
     Skill,
-    VALID_ATTRIBUTE_KEYS_BY_ENTITY,
-    normalize_attribute_key,
-    ATTRIBUTE_NORMALIZERS,
 )
 
 if TYPE_CHECKING:
@@ -39,24 +33,27 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# ENTITY REGISTRY (cache local)
+# ENTITY REGISTRY (local cache for entity_registry UUIDs)
 # =============================================================================
 
 
 @dataclass
 class EntityRegistry:
-    """Tracks entity name → UUID mappings (cache local)."""
+    """Tracks entity name → entity_registry UUID mappings (local cache)."""
 
     _by_name: dict[str, UUID] = field(default_factory=dict)
-    _by_type: dict[EntityType, list[UUID]] = field(
-        default_factory=lambda: {t: [] for t in EntityType}
-    )
+    _by_type: dict[str, list[UUID]] = field(default_factory=dict)
     _names_by_id: dict[UUID, str] = field(default_factory=dict)
 
-    def register(self, name: str, entity_id: UUID, entity_type: EntityType) -> None:
+    def register(
+        self, name: str, entity_id: UUID, entity_type: str | EntityType
+    ) -> None:
         key = name.lower().strip()
+        type_key = (
+            entity_type.value if isinstance(entity_type, EntityType) else entity_type
+        )
         self._by_name[key] = entity_id
-        self._by_type[entity_type].append(entity_id)
+        self._by_type.setdefault(type_key, []).append(entity_id)
         self._names_by_id[entity_id] = name
 
     def resolve(self, name: str) -> UUID | None:
@@ -68,15 +65,18 @@ class EntityRegistry:
             raise KeyError(f"Entity not found: '{name}'")
         return result
 
-    def get_by_type(self, entity_type: EntityType) -> list[UUID]:
-        return self._by_type[entity_type].copy()
+    def get_by_type(self, entity_type: str | EntityType) -> list[UUID]:
+        key = (
+            entity_type.value if isinstance(entity_type, EntityType) else entity_type
+        )
+        return self._by_type.get(key, []).copy()
 
     def get_name(self, entity_id: UUID) -> str | None:
         return self._names_by_id.get(entity_id)
 
     def clear(self) -> None:
         self._by_name.clear()
-        self._by_type = {t: [] for t in EntityType}
+        self._by_type.clear()
         self._names_by_id.clear()
 
     def __contains__(self, name: str) -> bool:
@@ -89,7 +89,7 @@ class EntityRegistry:
 
 
 class KnowledgeGraphPopulator:
-    """Populator: écriture seule (INSERT, UPDATE, DELETE)."""
+    """Write operations for the dedicated tables architecture."""
 
     def __init__(self, pool: Pool, game_id: UUID | None = None):
         self.pool = pool
@@ -97,41 +97,45 @@ class KnowledgeGraphPopulator:
         self.registry = EntityRegistry()
 
     # =========================================================================
-    # REGISTRY (utilise reader pour charger)
+    # REGISTRY
     # =========================================================================
 
     async def load_registry(self, conn: Connection) -> None:
-        """Charge les entités existantes dans le registry (via reader)"""
+        """Load all entity_registry entries into local cache."""
         if not self.game_id:
             raise ValueError("game_id must be set before loading registry")
 
-        from kg.reader import KnowledgeGraphReader
-
-        reader = KnowledgeGraphReader(self.pool, self.game_id)
-        entities = await reader.get_entities(conn)
-
+        rows = await conn.fetch(
+            "SELECT id, entity_type, name FROM entity_registry WHERE game_id = $1",
+            self.game_id,
+        )
         self.registry.clear()
-        for row in entities:
-            self.registry.register(row["name"], row["id"], EntityType(row["type"]))
-
-        logger.info(f"Loaded {len(entities)} entities into registry")
+        for row in rows:
+            self.registry.register(row["name"], row["id"], row["entity_type"])
+        logger.info(f"Loaded {len(rows)} entities into registry")
 
     # =========================================================================
-    # GAMES - Écriture
+    # GAMES
     # =========================================================================
 
     async def create_game(
-        self, conn: Connection, name: str = "Nouvelle partie"
+        self,
+        conn: Connection,
+        name: str = "Nouvelle partie",
+        user_id: UUID | None = None,
     ) -> UUID:
-        """Crée une nouvelle partie"""
+        """Create a new game. user_id required by DB (NOT NULL)."""
         self.game_id = await conn.fetchval(
-            "INSERT INTO games (name) VALUES ($1) RETURNING id", name
+            "INSERT INTO games (user_id, name) VALUES ($1, $2) RETURNING id",
+            user_id,
+            name,
         )
         logger.info(f"Created game {self.game_id}: {name}")
         return self.game_id
 
-    async def delete_game(self, conn: Connection, game_id: UUID | None = None) -> bool:
-        """Supprime une partie (CASCADE sur toutes les tables liées)"""
+    async def delete_game(
+        self, conn: Connection, game_id: UUID | None = None
+    ) -> bool:
         target_id = game_id or self.game_id
         result = await conn.execute("DELETE FROM games WHERE id = $1", target_id)
         return result == "DELETE 1"
@@ -139,7 +143,6 @@ class KnowledgeGraphPopulator:
     async def rename_game(
         self, conn: Connection, name: str, game_id: UUID | None = None
     ) -> None:
-        """Renomme une partie"""
         target_id = game_id or self.game_id
         await conn.execute(
             "UPDATE games SET name = $1, updated_at = NOW() WHERE id = $2",
@@ -147,10 +150,95 @@ class KnowledgeGraphPopulator:
             target_id,
         )
 
+    async def update_game_state(
+        self,
+        conn: Connection,
+        *,
+        cycle: int | None = None,
+        date: str | None = None,
+        time: str | None = None,
+        location_id: UUID | None = None,
+    ) -> None:
+        """Update current game state (cycle, date, time, location)."""
+        sets = ["updated_at = NOW()"]
+        params: list = [self.game_id]
+        if cycle is not None:
+            params.append(cycle)
+            sets.append(f"current_cycle = ${len(params)}")
+        if date is not None:
+            params.append(date)
+            sets.append(f'"current_date" = ${len(params)}')
+        if time is not None:
+            params.append(time)
+            sets.append(f'"current_time" = ${len(params)}')
+        if location_id is not None:
+            params.append(location_id)
+            sets.append(f"current_location_id = ${len(params)}")
+
+        if len(params) == 1:
+            return
+        await conn.execute(
+            f"UPDATE games SET {', '.join(sets)} WHERE id = $1", *params
+        )
+
+    async def update_extracted_cycle(
+        self, conn: Connection, cycle: int
+    ) -> None:
+        """Update extracted_up_to_cycle tracking column."""
+        await conn.execute(
+            "UPDATE games SET extracted_up_to_cycle = $1, updated_at = NOW()"
+            " WHERE id = $2",
+            cycle, self.game_id,
+        )
+
+    async def update_detail_requests(
+        self, conn: Connection, requests: list[str]
+    ) -> None:
+        """Store entity detail requests for next turn."""
+        await conn.execute(
+            "UPDATE games SET detail_requests = $1 WHERE id = $2",
+            requests, self.game_id,
+        )
+
+    async def clear_detail_requests(self, conn: Connection) -> None:
+        """Clear entity detail requests (on cycle change)."""
+        await conn.execute(
+            "UPDATE games SET detail_requests = '{}' WHERE id = $1",
+            self.game_id,
+        )
+
+    async def create_stub_event(
+        self, conn: Connection, event_hint, cycle: int
+    ) -> None:
+        """Create a stub event from narrator EventHint (formalized at extraction time)."""
+        # Resolve location_id if location name provided
+        location_id = None
+        if event_hint.location:
+            location_id = await conn.fetchval(
+                "SELECT id FROM locations WHERE game_id=$1 AND LOWER(name)=LOWER($2)",
+                self.game_id, event_hint.location,
+            )
+        # Avoid duplicates by title + planned_cycle
+        planned_cycle = event_hint.planned_cycle or cycle + 1
+        existing = await conn.fetchval(
+            "SELECT id FROM events WHERE game_id=$1 AND title=$2 AND planned_cycle=$3",
+            self.game_id, event_hint.title, planned_cycle,
+        )
+        if not existing:
+            await conn.execute(
+                """INSERT INTO events (game_id, title, type, planned_cycle, time, location_id)
+                VALUES ($1, $2, 'appointment', $3, $4, $5)""",
+                self.game_id, event_hint.title, planned_cycle,
+                event_hint.planned_time, location_id,
+            )
+            logger.info(
+                f"[KG] Created stub event '{event_hint.title}' "
+                f"(cycle {planned_cycle})"
+            )
+
     async def update_game_timestamp(
         self, conn: Connection, game_id: UUID | None = None
     ) -> None:
-        """Met à jour le timestamp de la partie"""
         target_id = game_id or self.game_id
         await conn.execute(
             "UPDATE games SET updated_at = NOW() WHERE id = $1", target_id
@@ -159,7 +247,6 @@ class KnowledgeGraphPopulator:
     async def deactivate_game(
         self, conn: Connection, game_id: UUID | None = None
     ) -> None:
-        """Désactive une partie (soft delete)"""
         target_id = game_id or self.game_id
         await conn.execute(
             "UPDATE games SET active = false, updated_at = NOW() WHERE id = $1",
@@ -167,323 +254,390 @@ class KnowledgeGraphPopulator:
         )
 
     # =========================================================================
-    # ENTITY CREATION - Generic
+    # WORLD (stored on games table)
     # =========================================================================
 
-    async def upsert_entity(
+    async def set_world_data(
         self,
         conn: Connection,
-        entity_type: EntityType,
-        name: str,
-        aliases: list[str] | None = None,
-        cycle: int = 1,
-        known_by_protagonist: bool = True,
-        unknown_name: str | None = None,
-    ) -> UUID:
-        """Crée ou met à jour une entité via la fonction SQL upsert_entity"""
-        entity_id = await conn.fetchval(
-            "SELECT upsert_entity($1, $2, $3, $4, $5, $6, $7)",
-            self.game_id,
-            entity_type.value,
-            name,
-            aliases or [],
-            cycle,
-            known_by_protagonist,
-            unknown_name,
-        )
-        self.registry.register(name, entity_id, entity_type)
-
-        # Insert into typed table (FK only)
-        await self._insert_typed_entity_row(conn, entity_type, entity_id)
-
-        return entity_id
-
-    async def _insert_typed_entity_row(
-        self, conn: Connection, entity_type: EntityType, entity_id: UUID
+        world,
+        seed_words: list[str] | None = None,
     ) -> None:
-        """Insert row in typed entity table (only for entities with FK constraints)"""
-        table = ENTITY_TYPED_TABLES.get(entity_type)
-        if table:
-            await conn.execute(
-                f"INSERT INTO {table} (entity_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                entity_id,
-            )
-
-    async def remove_entity(
-        self, conn: Connection, entity_ref: str, cycle: int, reason: str
-    ) -> bool:
-        """Marque une entité comme supprimée"""
-        entity_id = self.registry.resolve(entity_ref)
-        if not entity_id:
-            logger.warning(f"Cannot remove unknown entity: {entity_ref}")
-            return False
-
+        """Store world metadata on the games table."""
         await conn.execute(
-            """UPDATE entities 
-               SET removed_cycle = $1, removal_reason = $2, updated_at = NOW()
-               WHERE id = $3""",
-            cycle,
-            reason,
-            entity_id,
-        )
-        return True
-
-    # =========================================================================
-    # ATTRIBUTES
-    # =========================================================================
-
-    async def set_attributes(
-        self,
-        conn: Connection,
-        entity_id: UUID,
-        attrs: dict[str, Any] | list[AttributeWithVisibility],
-        cycle: int = 1,
-        known_by_protagonist: bool | None = None,
-        entity_type: EntityType | None = None,
-    ) -> int:
-        """Set multiple attributes on an entity via la fonction SQL set_attribute"""
-        # Get entity type if not provided
-        if entity_type is None:
-            from kg.reader import KnowledgeGraphReader
-
-            reader = KnowledgeGraphReader(self.pool, self.game_id)
-            entity = await reader.get_entity_by_id(conn, entity_id)
-            if not entity:
-                raise ValueError(f"Entity not found: {entity_id}")
-            entity_type = EntityType(entity["type"])
-
-        # Choose normalizer based on entity type
-        normalizer = ATTRIBUTE_NORMALIZERS.get(entity_type, normalize_attribute_key)
-
-        # Convert dict → list with entity-specific normalization
-        if isinstance(attrs, dict):
-            converted = []
-            for k, v in attrs.items():
-                try:
-                    key = normalizer(k)
-                    str_value = json.dumps(v) if isinstance(v, (list, dict)) else str(v)
-                    converted.append(AttributeWithVisibility(key=key, value=str_value))
-                except ValueError:
-                    logger.warning(
-                        f"[set_attributes] Unknown key '{k}' for {entity_type.value}"
-                    )
-            attrs = converted
-
-        valid_keys = VALID_ATTRIBUTE_KEYS_BY_ENTITY.get(entity_type, set())
-        count = 0
-
-        for attr in attrs:
-            if attr.key not in valid_keys:
-                logger.warning(
-                    f"[ATTR] Skipping invalid key '{attr.key.value}' for {entity_type.value}"
-                )
-                continue
-
-            # Determine visibility
-            if known_by_protagonist is not None:
-                known = known_by_protagonist
-            elif hasattr(attr, "known_by_protagonist"):
-                known = attr.known_by_protagonist
-            else:
-                visibility = get_attribute_visibility(attr.key)
-                known = visibility != AttributeVisibility.NEVER
-
-            await conn.execute(
-                "SELECT set_attribute($1, $2, $3, $4, $5, $6, $7)",
-                self.game_id,
-                entity_id,
-                attr.key.value,
-                attr.value,
-                cycle,
-                json.dumps(attr.details) if attr.details else None,
-                known,
-            )
-            count += 1
-            logger.debug(
-                f"[ATTR] {attr.key.value}={attr.value[:50]}... (known={known})"
-            )
-
-        return count
-
-    async def set_skill(
-        self, conn: Connection, entity_id: UUID, skill: Skill, cycle: int = 1
-    ) -> UUID | None:
-        """Set a skill on an entity via la fonction SQL set_skill"""
-        return await conn.fetchval(
-            "SELECT set_skill($1, $2, $3, $4, $5)",
+            """UPDATE games SET
+                world_name = $2, world_description = $3, world_atmosphere = $4,
+                world_seed_words = $5, world_founding_cycle = $6, updated_at = NOW()
+            WHERE id = $1""",
             self.game_id,
-            entity_id,
-            skill.name,
-            skill.level,
-            cycle,
+            world.name,
+            world.description,
+            world.atmosphere,
+            seed_words or getattr(world, "seed_words", []) or [],
+            world.founding_cycle,
         )
 
     # =========================================================================
-    # TYPED ENTITY CREATION
+    # FK RESOLUTION HELPERS
+    # =========================================================================
+
+    async def _resolve_location_id(
+        self, conn: Connection, name: str | None
+    ) -> UUID | None:
+        if not name:
+            return None
+        return await conn.fetchval(
+            "SELECT id FROM locations WHERE game_id = $1 AND LOWER(name) = LOWER($2)"
+            " AND removed_cycle IS NULL",
+            self.game_id,
+            name.strip(),
+        )
+
+    async def _resolve_organization_id(
+        self, conn: Connection, name: str | None
+    ) -> UUID | None:
+        if not name:
+            return None
+        return await conn.fetchval(
+            "SELECT id FROM organizations WHERE game_id = $1 AND LOWER(name) = LOWER($2)"
+            " AND removed_cycle IS NULL",
+            self.game_id,
+            name.strip(),
+        )
+
+    async def _resolve_object_id(
+        self, conn: Connection, name: str | None
+    ) -> UUID | None:
+        if not name:
+            return None
+        return await conn.fetchval(
+            "SELECT id FROM objects WHERE game_id = $1 AND LOWER(name) = LOWER($2)"
+            " AND removed_cycle IS NULL",
+            self.game_id,
+            name.strip(),
+        )
+
+    async def _resolve_protagonist_id(self, conn: Connection) -> UUID | None:
+        return await conn.fetchval(
+            "SELECT id FROM protagonists WHERE game_id = $1", self.game_id
+        )
+
+    # =========================================================================
+    # ENTITY CREATION — direct table inserts
+    # Triggers auto-populate entity_registry.
     # =========================================================================
 
     async def create_protagonist(
-        self, conn: Connection, data: ProtagonistData, cycle: int = 1
+        self, conn: Connection, data: ProtagonistData
     ) -> UUID:
-        """Create the protagonist entity"""
-        entity_id = await self.upsert_entity(
-            conn, EntityType.PROTAGONIST, data.name, cycle=cycle
+        """Insert protagonist into dedicated table."""
+        reason = (
+            data.departure_reason.value
+            if hasattr(data.departure_reason, "value")
+            else str(data.departure_reason)
         )
-        await self.set_attributes(
-            conn, entity_id, data.attributes, cycle, entity_type=EntityType.PROTAGONIST
+        row_id = await conn.fetchval(
+            """INSERT INTO protagonists (
+                game_id, name, energy, morale, health, credits,
+                occupation, origin, departure_reason, backstory,
+                hobbies, description, details
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            RETURNING id""",
+            self.game_id,
+            data.name,
+            data.energy,
+            data.morale,
+            data.health,
+            data.credits,
+            data.occupation,
+            data.origin,
+            reason,
+            data.backstory,
+            data.hobbies,
+            data.description,
+            json.dumps(data.details) if data.details else "{}",
         )
         for skill in data.skills:
-            await self.set_skill(conn, entity_id, skill, cycle)
-        return entity_id
+            await self._insert_skill(conn, skill, protagonist_id=row_id)
+        return row_id
+
+    async def create_personal_assistant(
+        self, conn: Connection, data: PersonalAssistantData
+    ) -> UUID:
+        """Insert personal assistant into dedicated table."""
+        return await conn.fetchval(
+            """INSERT INTO personal_assistants (
+                game_id, name, voice, traits, quirk, substrate, details
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id""",
+            self.game_id,
+            data.name,
+            data.voice,
+            data.traits,
+            data.quirk,
+            data.substrate or "terminal personnel",
+            json.dumps(data.details) if data.details else "{}",
+        )
 
     async def create_character(
         self,
         conn: Connection,
         data: CharacterData,
         cycle: int = 1,
+        workplace_id: UUID | None = None,
+        residence_id: UUID | None = None,
     ) -> UUID:
-        """Create a character (NPC) entity"""
-        entity_id = await self.upsert_entity(
-            conn,
-            EntityType.CHARACTER,
+        """Insert character (NPC) into dedicated table."""
+        return await conn.fetchval(
+            """INSERT INTO characters (
+                game_id, name, known_by_protagonist, unknown_name,
+                species, gender, pronouns, age, description,
+                traits, mood, occupation, origin,
+                workplace_id, residence_id,
+                romantic_potential, is_mandatory, ambient,
+                details, created_cycle
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+            ON CONFLICT (game_id, name) DO UPDATE SET
+                known_by_protagonist = EXCLUDED.known_by_protagonist,
+                species = COALESCE(EXCLUDED.species, characters.species),
+                description = COALESCE(EXCLUDED.description, characters.description),
+                traits = EXCLUDED.traits,
+                mood = COALESCE(EXCLUDED.mood, characters.mood),
+                occupation = COALESCE(EXCLUDED.occupation, characters.occupation),
+                workplace_id = COALESCE(EXCLUDED.workplace_id, characters.workplace_id),
+                residence_id = COALESCE(EXCLUDED.residence_id, characters.residence_id),
+                updated_at = NOW()
+            RETURNING id""",
+            self.game_id,
             data.name,
-            cycle=cycle,
-            known_by_protagonist=data.known_by_protagonist,
-            unknown_name=data.unknown_name,
+            data.known_by_protagonist,
+            data.unknown_name,
+            data.species,
+            data.gender,
+            data.pronouns,
+            data.age,
+            data.description,
+            data.traits,
+            data.mood,
+            data.occupation,
+            data.origin,
+            workplace_id,
+            residence_id,
+            data.romantic_potential,
+            data.is_mandatory,
+            data.ambient,
+            json.dumps(data.details) if data.details else "{}",
+            cycle,
         )
-        await self.set_attributes(
-            conn, entity_id, data.attributes, cycle, entity_type=EntityType.CHARACTER
-        )
-
-        if data.workplace_ref:
-            await self.create_relation(
-                conn,
-                RelationData(
-                    source_ref=data.name,
-                    target_ref=data.workplace_ref,
-                    relation_type=RelationType.WORKS_AT,
-                ),
-                cycle,
-            )
-
-        if data.residence_ref:
-            await self.create_relation(
-                conn,
-                RelationData(
-                    source_ref=data.name,
-                    target_ref=data.residence_ref,
-                    relation_type=RelationType.LIVES_AT,
-                ),
-                cycle,
-            )
-
-        return entity_id
 
     async def create_location(
-        self, conn: Connection, data: LocationData, cycle: int = 1
-    ) -> UUID:
-        """Create a location entity"""
-        entity_id = await self.upsert_entity(
-            conn, EntityType.LOCATION, data.name, cycle=cycle
-        )
-
-        if data.parent_location_ref:
-            parent_id = self.registry.resolve(data.parent_location_ref)
-            if parent_id:
-                await conn.execute(
-                    "UPDATE entity_locations SET parent_location_id = $1 WHERE entity_id = $2",
-                    parent_id,
-                    entity_id,
-                )
-
-        await self.set_attributes(
-            conn, entity_id, data.attributes, cycle, entity_type=EntityType.LOCATION
-        )
-        return entity_id
-
-    async def create_object(
         self,
         conn: Connection,
-        data: ObjectData,
-        owner_ref: str | None = None,
+        data: LocationData,
         cycle: int = 1,
+        parent_id: UUID | None = None,
     ) -> UUID:
-        """Create an object entity, optionally with owner"""
-        entity_id = await self.upsert_entity(
-            conn, EntityType.OBJECT, data.name, cycle=cycle
+        """Insert location into dedicated table."""
+        return await conn.fetchval(
+            """INSERT INTO locations (
+                game_id, name, parent_id,
+                location_type, sector, description, atmosphere, accessible,
+                notable_features, typical_crowd, operating_hours, price_range,
+                ambient, details, created_cycle
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            ON CONFLICT (game_id, name) DO UPDATE SET
+                parent_id = COALESCE(EXCLUDED.parent_id, locations.parent_id),
+                location_type = COALESCE(EXCLUDED.location_type, locations.location_type),
+                sector = COALESCE(EXCLUDED.sector, locations.sector),
+                description = COALESCE(EXCLUDED.description, locations.description),
+                atmosphere = COALESCE(EXCLUDED.atmosphere, locations.atmosphere),
+                updated_at = NOW()
+            RETURNING id""",
+            self.game_id,
+            data.name,
+            parent_id,
+            data.location_type,
+            data.sector,
+            data.description,
+            data.atmosphere,
+            data.accessible,
+            data.notable_features,
+            data.typical_crowd,
+            data.operating_hours,
+            data.price_range,
+            data.ambient,
+            json.dumps(data.details) if data.details else "{}",
+            cycle,
         )
-        await self.set_attributes(
-            conn, entity_id, data.attributes, cycle, entity_type=EntityType.OBJECT
-        )
-
-        if owner_ref:
-            owner_id = self.registry.resolve(owner_ref)
-            if owner_id:
-                await self.create_relation(
-                    conn,
-                    RelationData(
-                        source_ref=owner_ref,
-                        target_ref=data.name,
-                        relation_type=RelationType.OWNS,
-                        quantity=data.quantity,
-                        origin="initial",
-                    ),
-                    cycle,
-                )
-        return entity_id
 
     async def create_organization(
-        self, conn: Connection, data: OrganizationData, cycle: int = 1
+        self,
+        conn: Connection,
+        data: OrganizationData,
+        cycle: int = 1,
+        headquarters_id: UUID | None = None,
     ) -> UUID:
-        """Create an organization entity"""
-        entity_id = await self.upsert_entity(
-            conn, EntityType.ORGANIZATION, data.name, cycle=cycle
+        """Insert organization into dedicated table."""
+        return await conn.fetchval(
+            """INSERT INTO organizations (
+                game_id, name, org_type, domain, size, description,
+                reputation, headquarters_id, founding_cycle,
+                ambient, details, created_cycle
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (game_id, name) DO UPDATE SET
+                org_type = COALESCE(EXCLUDED.org_type, organizations.org_type),
+                domain = COALESCE(EXCLUDED.domain, organizations.domain),
+                description = COALESCE(EXCLUDED.description, organizations.description),
+                headquarters_id = COALESCE(EXCLUDED.headquarters_id, organizations.headquarters_id),
+                updated_at = NOW()
+            RETURNING id""",
+            self.game_id,
+            data.name,
+            data.org_type,
+            data.domain,
+            data.size,
+            data.description,
+            data.reputation,
+            headquarters_id,
+            data.founding_cycle,
+            data.ambient,
+            json.dumps(data.details) if data.details else "{}",
+            cycle,
         )
 
-        if data.headquarters_ref:
-            hq_id = self.registry.resolve(data.headquarters_ref)
-            if hq_id:
-                await conn.execute(
-                    "UPDATE entity_organizations SET headquarters_id = $1 WHERE entity_id = $2",
-                    hq_id,
-                    entity_id,
-                )
-
-        await self.set_attributes(
-            conn, entity_id, data.attributes, cycle, entity_type=EntityType.ORGANIZATION
-        )
-        return entity_id
-
-    async def create_ai(
-        self, conn: Connection, data: PersonalAIData, cycle: int = 1
+    async def create_object(
+        self, conn: Connection, data: ObjectData, cycle: int = 1
     ) -> UUID:
-        """Create a personal AI entity"""
-        entity_id = await self.upsert_entity(
-            conn, EntityType.AI, data.name, cycle=cycle
+        """Insert object into dedicated table. Returns existing ID on conflict."""
+        obj_id = await conn.fetchval(
+            """INSERT INTO objects (
+                game_id, name, category, description,
+                transportable, stackable, base_value, details, created_cycle
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            ON CONFLICT (game_id, name) DO NOTHING
+            RETURNING id""",
+            self.game_id,
+            data.name,
+            data.category,
+            data.description,
+            data.transportable,
+            data.stackable,
+            data.base_value,
+            json.dumps(data.details) if data.details else "{}",
+            cycle,
         )
+        if not obj_id:
+            obj_id = await self._resolve_object_id(conn, data.name)
+        return obj_id
 
-        if data.creator_ref:
-            creator_id = self.registry.resolve(data.creator_ref)
-            if creator_id:
-                await conn.execute(
-                    "UPDATE entity_ais SET creator_id = $1 WHERE entity_id = $2",
-                    creator_id,
-                    entity_id,
-                )
-                await self.create_relation(
-                    conn,
-                    RelationData(
-                        source_ref=data.creator_ref,
-                        target_ref=data.name,
-                        relation_type=RelationType.OWNS,
-                    ),
-                    cycle,
-                )
+    # =========================================================================
+    # ENTITY UPDATES
+    # =========================================================================
 
-        await self.set_attributes(
-            conn, entity_id, data.attributes, cycle, entity_type=EntityType.AI
+    async def update_entity(
+        self, conn: Connection, entity_type: EntityType, name: str, changes: dict
+    ) -> bool:
+        """Update fields on an entity by type and name."""
+        table_map = {
+            EntityType.CHARACTER: ("characters", {
+                "known_by_protagonist", "unknown_name", "species", "gender",
+                "pronouns", "age", "description", "traits", "mood",
+                "occupation", "origin", "workplace_id", "residence_id",
+                "romantic_potential", "is_mandatory", "ambient",
+            }),
+            EntityType.LOCATION: ("locations", {
+                "location_type", "sector", "description", "atmosphere",
+                "accessible", "notable_features", "typical_crowd",
+                "operating_hours", "price_range", "ambient",
+            }),
+            EntityType.ORGANIZATION: ("organizations", {
+                "org_type", "domain", "size", "description", "reputation",
+                "headquarters_id", "founding_cycle", "ambient",
+            }),
+        }
+
+        entry = table_map.get(entity_type)
+        if not entry:
+            logger.warning(f"Cannot update entity type: {entity_type}")
+            return False
+
+        table, valid_fields = entry
+        filtered = {k: v for k, v in changes.items() if k in valid_fields}
+        if not filtered:
+            return False
+
+        sets = [f"{k} = ${i + 3}" for i, k in enumerate(filtered)]
+        sets.append("updated_at = NOW()")
+
+        result = await conn.execute(
+            f"UPDATE {table} SET {', '.join(sets)}"
+            f" WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+            self.game_id,
+            name,
+            *filtered.values(),
         )
-        return entity_id
+        return result != "UPDATE 0"
+
+    async def remove_entity(
+        self,
+        conn: Connection,
+        entity_ref: str,
+        entity_type: EntityType,
+        cycle: int,
+    ) -> bool:
+        """Mark entity as removed (set removed_cycle)."""
+        table = {
+            EntityType.CHARACTER: "characters",
+            EntityType.LOCATION: "locations",
+            EntityType.ORGANIZATION: "organizations",
+            EntityType.OBJECT: "objects",
+        }.get(entity_type)
+        if not table:
+            return False
+
+        result = await conn.execute(
+            f"UPDATE {table} SET removed_cycle = $1, updated_at = NOW()"
+            f" WHERE game_id = $2 AND LOWER(name) = LOWER($3)"
+            f" AND removed_cycle IS NULL",
+            cycle,
+            self.game_id,
+            entity_ref,
+        )
+        return result != "UPDATE 0"
+
+    async def mark_character_known(
+        self, conn: Connection, name: str, real_name: str | None = None
+    ) -> bool:
+        """Reveal a character's identity to the protagonist."""
+        if real_name:
+            result = await conn.execute(
+                "UPDATE characters SET known_by_protagonist = true,"
+                " name = $1, updated_at = NOW()"
+                " WHERE game_id = $2 AND LOWER(name) = LOWER($3)",
+                real_name,
+                self.game_id,
+                name,
+            )
+        else:
+            result = await conn.execute(
+                "UPDATE characters SET known_by_protagonist = true,"
+                " updated_at = NOW()"
+                " WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+                self.game_id,
+                name,
+            )
+        return result != "UPDATE 0"
+
+    async def mark_location_accessible(
+        self, conn: Connection, name: str
+    ) -> bool:
+        """Mark a location as accessible."""
+        result = await conn.execute(
+            "UPDATE locations SET accessible = true, updated_at = NOW()"
+            " WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+            self.game_id,
+            name,
+        )
+        return result != "UPDATE 0"
 
     # =========================================================================
     # RELATIONS
@@ -492,93 +646,27 @@ class KnowledgeGraphPopulator:
     async def create_relation(
         self, conn: Connection, data: RelationData, cycle: int = 1
     ) -> UUID | None:
-        """Create or update a relation via la fonction SQL upsert_relation"""
+        """Create or update a relation via SQL function upsert_relation."""
         source_id = self.registry.resolve(data.source_ref)
         target_id = self.registry.resolve(data.target_ref)
-
         if not source_id or not target_id:
             logger.warning(
-                f"Cannot create relation: {data.source_ref} -> {data.target_ref} (missing entity)"
+                f"Cannot create relation: {data.source_ref} -> {data.target_ref}"
+                " (missing entity)"
             )
             return None
 
-        rel_id = await conn.fetchval(
-            "SELECT upsert_relation($1, $2, $3, $4, $5, $6)",
+        return await conn.fetchval(
+            "SELECT upsert_relation($1, $2, $3, $4::relation_type, $5, $6, $7, $8)",
             self.game_id,
             source_id,
             target_id,
             data.relation_type.value,
             cycle,
+            data.level,
+            data.context,
             data.known_by_protagonist,
         )
-
-        await self._insert_typed_relation_data(conn, rel_id, data)
-        return rel_id
-
-    async def _insert_typed_relation_data(
-        self, conn: Connection, rel_id: UUID, data: RelationData
-    ) -> None:
-        """Insert into the appropriate typed relation table"""
-        rt = data.relation_type
-
-        if rt.category == RelationCategory.SOCIAL:
-            social = data.social
-            if social:
-                await conn.execute(
-                    """INSERT INTO relations_social 
-                       (relation_id, level, context, romantic_stage, family_bond)
-                       VALUES ($1, $2, $3, $4, $5)
-                       ON CONFLICT (relation_id) DO UPDATE SET
-                         level = COALESCE(EXCLUDED.level, relations_social.level),
-                         context = COALESCE(EXCLUDED.context, relations_social.context)""",
-                    rel_id,
-                    social.level,
-                    social.context,
-                    social.romantic_stage,
-                    social.family_bond,
-                )
-
-        elif rt.category == RelationCategory.PROFESSIONAL:
-            prof = data.professional
-            if prof:
-                await conn.execute(
-                    """INSERT INTO relations_professional 
-                       (relation_id, position, position_start_cycle, part_time)
-                       VALUES ($1, $2, $3, $4)
-                       ON CONFLICT (relation_id) DO UPDATE SET
-                         position = COALESCE(EXCLUDED.position, relations_professional.position)""",
-                    rel_id,
-                    prof.position,
-                    prof.position_start_cycle,
-                    prof.part_time,
-                )
-
-        elif rt.category == RelationCategory.SPATIAL:
-            spatial = data.spatial
-            if spatial:
-                await conn.execute(
-                    """INSERT INTO relations_spatial (relation_id, regularity, time_of_day)
-                       VALUES ($1, $2, $3)
-                       ON CONFLICT (relation_id) DO NOTHING""",
-                    rel_id,
-                    spatial.regularity,
-                    spatial.time_of_day,
-                )
-
-        elif rt.category == RelationCategory.OWNERSHIP:
-            own = data.ownership
-            await conn.execute(
-                """INSERT INTO relations_ownership 
-                   (relation_id, quantity, origin, amount, acquisition_cycle)
-                   VALUES ($1, $2, $3, $4, $5)
-                   ON CONFLICT (relation_id) DO UPDATE SET
-                     quantity = COALESCE(EXCLUDED.quantity, relations_ownership.quantity)""",
-                rel_id,
-                own.quantity if own else 1,
-                own.origin if own else None,
-                own.amount if own else None,
-                own.acquisition_cycle if own else None,
-            )
 
     async def end_relation(
         self,
@@ -589,9 +677,9 @@ class KnowledgeGraphPopulator:
         cycle: int,
         reason: str | None = None,
     ) -> bool:
-        """End an existing relation via la fonction SQL end_relation"""
+        """End a relation via SQL function end_relation."""
         return await conn.fetchval(
-            "SELECT end_relation($1, $2, $3, $4, $5, $6)",
+            "SELECT end_relation($1, $2, $3, $4::relation_type, $5, $6)",
             self.game_id,
             source_ref,
             target_ref,
@@ -607,7 +695,7 @@ class KnowledgeGraphPopulator:
         target_ref: str,
         relation_type: RelationType,
     ) -> bool:
-        """Mark a relation as now known by protagonist"""
+        """Mark a relation as known by protagonist."""
         source_id = self.registry.resolve(source_ref)
         target_id = self.registry.resolve(target_ref)
         if not source_id or not target_id:
@@ -615,8 +703,8 @@ class KnowledgeGraphPopulator:
 
         await conn.execute(
             """UPDATE relations SET known_by_protagonist = true
-               WHERE game_id = $1 AND source_id = $2 AND target_id = $3 
-               AND type = $4 AND end_cycle IS NULL""",
+               WHERE game_id = $1 AND source_id = $2 AND target_id = $3
+               AND type = $4::relation_type AND end_cycle IS NULL""",
             self.game_id,
             source_id,
             target_id,
@@ -629,19 +717,19 @@ class KnowledgeGraphPopulator:
     # =========================================================================
 
     async def create_fact(self, conn: Connection, fact: FactData) -> UUID | None:
-        """Create a fact via la fonction SQL create_fact (avec déduplication)"""
-        location_id = None
-        if fact.location_ref:
-            location_id = self.registry.resolve(fact.location_ref)
+        """Create a fact via SQL function create_fact (with deduplication)."""
+        location_id = await self._resolve_location_id(conn, fact.location_ref)
 
         participants_json = []
         for p in fact.participants:
             entity_id = self.registry.resolve(p.entity_ref)
             if entity_id:
-                participants_json.append({"name": p.entity_ref, "role": p.role.value})
+                participants_json.append(
+                    {"name": p.entity_ref, "role": p.role.value}
+                )
 
         fact_id = await conn.fetchval(
-            "SELECT create_fact($1, $2, $3::fact_type, $4, $5, $6, $7, $8::jsonb, $9)",
+            "SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)",
             self.game_id,
             fact.cycle,
             fact.fact_type.value,
@@ -654,34 +742,32 @@ class KnowledgeGraphPopulator:
         )
 
         if fact_id:
-            logger.info(f"[FACT] Created: [{fact.fact_type.value}] {fact.semantic_key}")
+            logger.info(
+                f"[FACT] Created: [{fact.fact_type.value}] {fact.semantic_key}"
+            )
         return fact_id
 
     async def process_facts(self, conn: Connection, facts: list[FactData]) -> int:
-        """Process a list of facts with deduplication"""
+        """Process a list of facts with deduplication."""
         created = 0
-        seen_keys = set()
-
+        seen_keys: set[str] = set()
         for fact in facts:
             if fact.semantic_key in seen_keys:
                 continue
             seen_keys.add(fact.semantic_key)
-
-            fact_id = await self.create_fact(conn, fact)
-            if fact_id:
+            if await self.create_fact(conn, fact):
                 created += 1
-
         logger.info(f"[FACTS] {created}/{len(facts)} facts created")
         return created
 
     # =========================================================================
-    # PROTAGONIST - Gauges & Credits
+    # PROTAGONIST — Gauges & Credits
     # =========================================================================
 
     async def update_gauge(
         self, conn: Connection, gauge: str, delta: float, cycle: int
     ) -> tuple[bool, float, float]:
-        """Update energy/morale/health via la fonction SQL update_gauge"""
+        """Update energy/morale/health via SQL function update_gauge."""
         result = await conn.fetchrow(
             "SELECT * FROM update_gauge($1, $2, $3, $4)",
             self.game_id,
@@ -692,9 +778,13 @@ class KnowledgeGraphPopulator:
         return result["success"], result["old_value"], result["new_value"]
 
     async def credit_transaction(
-        self, conn: Connection, amount: int, cycle: int, description: str | None = None
+        self,
+        conn: Connection,
+        amount: int,
+        cycle: int,
+        description: str | None = None,
     ) -> tuple[bool, int, str | None]:
-        """Add or remove credits via la fonction SQL credit_transaction"""
+        """Add or remove credits via SQL function credit_transaction."""
         result = await conn.fetchrow(
             "SELECT * FROM credit_transaction($1, $2, $3, $4)",
             self.game_id,
@@ -705,272 +795,251 @@ class KnowledgeGraphPopulator:
         return result["success"], result["new_balance"], result["error"]
 
     # =========================================================================
-    # CHAT MESSAGES
+    # SKILLS
     # =========================================================================
 
-    async def save_message(
+    async def _insert_skill(
         self,
         conn: Connection,
-        role: str,
-        content: str,
-        cycle: int,
-        date: str | None = None,
-        time: str | None = None,
-        location_ref: str | None = None,
-        npcs_present_refs: list[str] | None = None,
-        summary: str | None = None,
-        tone_notes: str | None = None,
+        skill: Skill,
+        cycle: int = 1,
+        protagonist_id: UUID | None = None,
+        character_id: UUID | None = None,
     ) -> UUID:
-        """Save a chat message"""
-        location_id = self.registry.resolve(location_ref) if location_ref else None
-
-        npc_ids = []
-        if npcs_present_refs:
-            for npc_ref in npcs_present_refs:
-                npc_id = self.registry.resolve(npc_ref)
-                if npc_id:
-                    npc_ids.append(npc_id)
-
         return await conn.fetchval(
-            """INSERT INTO chat_messages 
-               (game_id, role, content, cycle, date, time, location_id, npcs_present, summary, tone_notes)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id""",
+            """INSERT INTO skills (game_id, protagonist_id, character_id,
+                                   name, level, start_cycle)
+               VALUES ($1,$2,$3,$4,$5,$6) RETURNING id""",
             self.game_id,
-            role,
-            content,
+            protagonist_id,
+            character_id,
+            skill.name,
+            skill.level,
             cycle,
-            date,
-            time,
-            location_id,
-            npc_ids,
-            summary,
-            tone_notes,
         )
 
-    async def save_message_pair(
+    async def update_skill(
         self,
         conn: Connection,
-        user_message: str,
-        assistant_message: str,
+        skill: Skill,
         cycle: int,
-        date: str | None = None,
-        time: str | None = None,
-        location_ref: str | None = None,
-        npcs_present_refs: list[str] | None = None,
-        summary: str | None = None,
-        tone_notes: str | None = None,
-    ) -> tuple[UUID, UUID]:
-        """Save a user + assistant message pair"""
-        user_id = await self.save_message(conn, "user", user_message, cycle)
-        assistant_id = await self.save_message(
-            conn,
-            "assistant",
-            assistant_message,
-            cycle,
-            date,
-            time,
-            location_ref,
-            npcs_present_refs,
-            summary,
-            tone_notes,
-        )
-        return user_id, assistant_id
-
-    async def delete_messages_by_ids(
-        self, conn: Connection, message_ids: list[UUID]
-    ) -> int:
-        """Supprime des messages par leurs IDs"""
-        if not message_ids:
-            return 0
-        result = await conn.execute(
-            "DELETE FROM chat_messages WHERE id = ANY($1)", message_ids
-        )
-        return int(result.split()[-1])
-
-    # =========================================================================
-    # CYCLE SUMMARIES
-    # =========================================================================
-
-    async def save_cycle_summary(
-        self,
-        conn: Connection,
-        cycle: int,
-        summary: str | None = None,
-        date: str | None = None,
-    ) -> UUID:
-        """Save or update a cycle summary"""
-        return await conn.fetchval(
-            """INSERT INTO cycle_summaries 
-           (game_id, cycle, date, summary)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (game_id, cycle) DO UPDATE SET
-             date = COALESCE(EXCLUDED.date, cycle_summaries.date),
-             summary = COALESCE(EXCLUDED.summary, cycle_summaries.summary)
-           RETURNING id""",
-            self.game_id,
-            cycle,
-            date,
-            summary,
-        )
-
-    # =========================================================================
-    # ROLLBACK
-    # =========================================================================
-
-    async def rollback_to_cycle(self, conn: Connection, target_cycle: int) -> dict:
-        """Rollback via la fonction SQL rollback_to_cycle"""
-        result = await conn.fetchrow(
-            "SELECT * FROM rollback_to_cycle($1, $2)", self.game_id, target_cycle
-        )
-
-        stats = {
-            "rolled_back_to_cycle": target_cycle,
-            "deleted_facts": result["deleted_facts"],
-            "deleted_events": result["deleted_events"],
-            "deleted_commitments": result["deleted_commitments"],
-            "reverted_attributes": result["reverted_attributes"],
-            "reverted_relations": result["reverted_relations"],
-        }
-
-        # Recharger le registry
-        self.registry.clear()
-        await self.load_registry(conn)
-
-        return stats
-
-    # =========================================================================
-    # ENTITY UPDATES
-    # =========================================================================
-
-    async def update_entity_aliases(
-        self, conn: Connection, entity_id: UUID, new_aliases: list[str]
+        protagonist_id: UUID | None = None,
+        character_id: UUID | None = None,
     ) -> None:
-        """Ajoute des aliases à une entité"""
+        """End current skill version and create updated one."""
+        owner_col = "protagonist_id" if protagonist_id else "character_id"
+        owner_id = protagonist_id or character_id
         await conn.execute(
-            """UPDATE entities SET 
-               aliases = ARRAY(SELECT DISTINCT unnest(aliases || $1)),
-               updated_at = NOW()
-               WHERE id = $2""",
-            new_aliases,
-            entity_id,
+            f"UPDATE skills SET end_cycle = $1"
+            f" WHERE game_id = $2 AND {owner_col} = $3"
+            f" AND LOWER(name) = LOWER($4) AND end_cycle IS NULL",
+            cycle,
+            self.game_id,
+            owner_id,
+            skill.name,
+        )
+        await self._insert_skill(conn, skill, cycle, protagonist_id, character_id)
+
+    # =========================================================================
+    # INVENTORY
+    # =========================================================================
+
+    async def add_to_inventory(
+        self,
+        conn: Connection,
+        object_id: UUID,
+        quantity: int = 1,
+        owner_id: UUID | None = None,
+        cycle: int | None = None,
+        origin: str | None = None,
+    ) -> UUID:
+        """Add object to inventory (upsert: increment quantity if exists)."""
+        existing = await conn.fetchval(
+            "SELECT id FROM inventory"
+            " WHERE game_id = $1 AND object_id = $2"
+            " AND owner_id IS NOT DISTINCT FROM $3",
+            self.game_id,
+            object_id,
+            owner_id,
+        )
+        if existing:
+            await conn.execute(
+                "UPDATE inventory SET quantity = quantity + $2 WHERE id = $1",
+                existing,
+                quantity,
+            )
+            return existing
+
+        return await conn.fetchval(
+            """INSERT INTO inventory
+               (game_id, object_id, owner_id, quantity, acquired_cycle, origin)
+               VALUES ($1,$2,$3,$4,$5,$6) RETURNING id""",
+            self.game_id,
+            object_id,
+            owner_id,
+            quantity,
+            cycle,
+            origin,
         )
 
-    async def mark_entity_known(
-        self, conn: Connection, entity_id: UUID, real_name: str | None = None
-    ) -> None:
-        """Marque une entité comme connue par le protagoniste"""
-        if real_name:
+    async def remove_from_inventory(
+        self,
+        conn: Connection,
+        object_id: UUID,
+        quantity: int = 1,
+        owner_id: UUID | None = None,
+    ) -> bool:
+        """Remove object from inventory (reduce quantity or delete row)."""
+        current = await conn.fetchval(
+            "SELECT quantity FROM inventory"
+            " WHERE game_id = $1 AND object_id = $2"
+            " AND owner_id IS NOT DISTINCT FROM $3",
+            self.game_id,
+            object_id,
+            owner_id,
+        )
+        if not current:
+            return False
+
+        if current <= quantity:
             await conn.execute(
-                """UPDATE entities 
-                   SET known_by_protagonist = true, name = $1, updated_at = NOW() 
-                   WHERE id = $2""",
-                real_name,
-                entity_id,
+                "DELETE FROM inventory"
+                " WHERE game_id = $1 AND object_id = $2"
+                " AND owner_id IS NOT DISTINCT FROM $3",
+                self.game_id,
+                object_id,
+                owner_id,
             )
         else:
             await conn.execute(
-                "UPDATE entities SET known_by_protagonist = true, updated_at = NOW() WHERE id = $1",
-                entity_id,
+                "UPDATE inventory SET quantity = quantity - $4"
+                " WHERE game_id = $1 AND object_id = $2"
+                " AND owner_id IS NOT DISTINCT FROM $3",
+                self.game_id,
+                object_id,
+                owner_id,
+                quantity,
+            )
+        return True
+
+    # =========================================================================
+    # NARRATIVE ARCS
+    # =========================================================================
+
+    async def create_narrative_arc(
+        self, conn: Connection, arc: NarrativeArcData
+    ) -> UUID:
+        """Create a narrative arc with participants (dedup by title)."""
+        domain = (
+            arc.domain.value if hasattr(arc.domain, "value") else str(arc.domain)
+        )
+
+        # Dedup: check for existing arc with same title
+        existing_id = await conn.fetchval(
+            "SELECT id FROM narrative_arcs"
+            " WHERE game_id = $1 AND LOWER(title) = LOWER($2)"
+            " AND resolved = false",
+            self.game_id,
+            arc.title,
+        )
+        if existing_id:
+            logger.info(f"[ARC] Arc already exists: '{arc.title}', updating instead")
+            await conn.execute(
+                """UPDATE narrative_arcs SET
+                    description = COALESCE(NULLIF($3, ''), description),
+                    intensity = $4, updated_at = NOW()
+                WHERE id = $2 AND game_id = $1""",
+                self.game_id,
+                existing_id,
+                arc.description,
+                arc.intensity,
+            )
+            arc_id = existing_id
+        else:
+            arc_id = await conn.fetchval(
+                """INSERT INTO narrative_arcs (
+                    game_id, title, domain, description,
+                    intensity, progress, situation, desire, obstacle,
+                    potential_triggers, stakes, deadline_cycle
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                RETURNING id""",
+                self.game_id,
+                arc.title,
+                domain,
+                arc.description,
+                arc.intensity,
+                arc.progress,
+                arc.situation,
+                arc.desire,
+                arc.obstacle,
+                arc.potential_triggers,
+                arc.stakes,
+                arc.deadline_cycle,
             )
 
-    async def update_entity_fk(
+        for entity_name in arc.involved_entities:
+            entity_id = self.registry.resolve(entity_name)
+            if entity_id:
+                await conn.execute(
+                    "INSERT INTO arc_participants (arc_id, entity_id, role)"
+                    " VALUES ($1, $2, 'involved') ON CONFLICT DO NOTHING",
+                    arc_id,
+                    entity_id,
+                )
+            else:
+                logger.warning(
+                    f"[ARC] Entity not found for arc '{arc.title}': '{entity_name}'"
+                )
+        return arc_id
+
+    async def update_arc(
         self,
         conn: Connection,
-        entity_type: EntityType,
-        entity_id: UUID,
-        fk_field: str,
-        fk_value: UUID | None,
-    ) -> None:
-        """Met à jour une FK sur une table typée"""
-        table = ENTITY_TYPED_TABLES.get(entity_type)
-        if not table:
-            return
+        arc_title: str,
+        intensity: int | None = None,
+        progress: int | None = None,
+        situation: str | None = None,
+    ) -> bool:
+        """Update progress/intensity/situation on an existing arc."""
+        sets = ["updated_at = NOW()"]
+        params: list = [self.game_id, arc_title]
+        if intensity is not None:
+            params.append(intensity)
+            sets.append(f"intensity = ${len(params)}")
+        if progress is not None:
+            params.append(progress)
+            sets.append(f"progress = ${len(params)}")
+        if situation is not None:
+            params.append(situation)
+            sets.append(f"situation = ${len(params)}")
 
-        # Whitelist des champs FK autorisés par table
-        valid_fks = {
-            "entity_locations": ["parent_location_id"],
-            "entity_ais": ["creator_id"],
-            "entity_organizations": ["headquarters_id"],
-        }
+        if len(params) == 2:
+            return False
 
-        if fk_field not in valid_fks.get(table, []):
-            logger.warning(f"Invalid FK field {fk_field} for table {table}")
-            return
-
-        await conn.execute(
-            f"UPDATE {table} SET {fk_field} = $1 WHERE entity_id = $2",
-            fk_value,
-            entity_id,
+        result = await conn.execute(
+            f"""UPDATE narrative_arcs SET {', '.join(sets)}
+            WHERE game_id = $1 AND LOWER(title) = LOWER($2)
+              AND resolved = false""",
+            *params,
         )
+        return result != "UPDATE 0"
 
-    # =========================================================================
-    # COMMITMENTS
-    # =========================================================================
-
-    async def create_commitment(
-        self,
-        conn: Connection,
-        commitment_type: str,
-        description: str,
-        cycle: int,
-        deadline_cycle: int | None = None,
-    ) -> UUID:
-        """Crée un engagement narratif"""
-        return await conn.fetchval(
-            """INSERT INTO commitments 
-               (game_id, type, description, created_cycle, deadline_cycle)
-               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+    async def resolve_arc(
+        self, conn: Connection, arc_title: str, resolution: str, cycle: int
+    ) -> bool:
+        """Resolve a narrative arc by title."""
+        result = await conn.execute(
+            """UPDATE narrative_arcs SET
+                resolved = true, resolved_cycle = $3,
+                resolution = $4, updated_at = NOW()
+            WHERE game_id = $1 AND LOWER(title) = LOWER($2)
+              AND resolved = false""",
             self.game_id,
-            commitment_type,
-            description,
+            arc_title,
             cycle,
-            deadline_cycle,
+            resolution,
         )
-
-    async def create_commitment_arc(
-        self,
-        conn: Connection,
-        commitment_id: UUID,
-        objective: str,
-        obstacle: str,
-    ) -> None:
-        """Ajoute les détails d'arc à un commitment"""
-        await conn.execute(
-            """INSERT INTO commitment_arcs (commitment_id, objective, obstacle)
-               VALUES ($1, $2, $3)""",
-            commitment_id,
-            objective,
-            obstacle,
-        )
-
-    async def add_commitment_entity(
-        self,
-        conn: Connection,
-        commitment_id: UUID,
-        entity_id: UUID,
-        role: str | None = None,
-    ) -> None:
-        """Lie une entité à un commitment"""
-        await conn.execute(
-            """INSERT INTO commitment_entities (commitment_id, entity_id, role)
-               VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
-            commitment_id,
-            entity_id,
-            role,
-        )
-
-    async def resolve_commitment(
-        self,
-        conn: Connection,
-        commitment_id: UUID,
-        resolution_fact_id: UUID | None = None,
-    ) -> None:
-        """Marque un commitment comme résolu"""
-        await conn.execute(
-            "UPDATE commitments SET resolved = true, resolution_fact_id = $1 WHERE id = $2",
-            resolution_fact_id,
-            commitment_id,
-        )
+        return result != "UPDATE 0"
 
     # =========================================================================
     # EVENTS
@@ -985,19 +1054,15 @@ class KnowledgeGraphPopulator:
         description: str | None = None,
         time: str | None = None,
         location_ref: str | None = None,
-        recurrence: dict | None = None,
-        amount: int | None = None,
         completed: bool = False,
-        source_fact_id: UUID | None = None,
     ) -> UUID:
-        """Crée un événement planifié"""
-        location_id = self.registry.resolve(location_ref) if location_ref else None
-
+        """Create a scheduled event."""
+        location_id = await self._resolve_location_id(conn, location_ref)
         return await conn.fetchval(
-            """INSERT INTO events 
-               (game_id, type, title, description, planned_cycle, time, 
-                location_id, recurrence, amount, completed, source_fact_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id""",
+            """INSERT INTO events
+               (game_id, type, title, description,
+                planned_cycle, time, location_id, completed)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id""",
             self.game_id,
             event_type,
             title,
@@ -1005,73 +1070,152 @@ class KnowledgeGraphPopulator:
             planned_cycle,
             time,
             location_id,
-            json.dumps(recurrence) if recurrence else None,
-            amount,
             completed,
-            source_fact_id,
         )
 
     async def add_event_participant(
-        self,
-        conn: Connection,
-        event_id: UUID,
-        entity_id: UUID,
-        role: str | None = None,
-        confirmed: bool = False,
+        self, conn: Connection, event_id: UUID, entity_id: UUID
     ) -> None:
-        """Ajoute un participant à un événement"""
         await conn.execute(
-            """INSERT INTO event_participants (event_id, entity_id, role, confirmed)
-               VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING""",
+            "INSERT INTO event_participants (event_id, entity_id)"
+            " VALUES ($1, $2) ON CONFLICT DO NOTHING",
             event_id,
             entity_id,
-            role,
-            confirmed,
         )
 
-    async def add_event_to_cycle_summary(
+    # =========================================================================
+    # CONVERSATIONS & MESSAGES
+    # =========================================================================
+
+    async def create_conversation(
+        self, conn: Connection, start_cycle: int
+    ) -> UUID:
+        return await conn.fetchval(
+            "INSERT INTO conversations (game_id, start_cycle)"
+            " VALUES ($1, $2) RETURNING id",
+            self.game_id,
+            start_cycle,
+        )
+
+    async def get_active_conversation(self, conn: Connection) -> UUID | None:
+        return await conn.fetchval(
+            "SELECT id FROM conversations"
+            " WHERE game_id = $1 AND compacted = false"
+            " ORDER BY created_at DESC LIMIT 1",
+            self.game_id,
+        )
+
+    async def save_message(
         self,
         conn: Connection,
-        cycle_summary_id: UUID,
-        event_id: UUID,
-        role: str = "primary",
-        display_order: int = 0,
-    ) -> None:
-        """Add an event to a cycle summary"""
-        await conn.execute(
-            """INSERT INTO cycle_summary_events 
-               (cycle_summary_id, event_id, role, display_order)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (cycle_summary_id, event_id) DO UPDATE SET
-                 role = EXCLUDED.role,
-                 display_order = EXCLUDED.display_order""",
-            cycle_summary_id,
-            event_id,
+        conversation_id: UUID,
+        role: str,
+        content: str,
+        sequence: int,
+        cycle: int | None = None,
+        time: str | None = None,
+        game_date: str | None = None,
+        location_ref: str | None = None,
+        narrator_deltas: dict | None = None,
+    ) -> UUID:
+        """Save a message in a conversation."""
+        import json as _json
+
+        location_id = await self._resolve_location_id(conn, location_ref)
+        deltas_json = _json.dumps(narrator_deltas) if narrator_deltas else None
+        return await conn.fetchval(
+            """INSERT INTO messages (
+                game_id, conversation_id, role, content,
+                cycle, game_date, time, location_id, sequence, narrator_deltas
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id""",
+            self.game_id,
+            conversation_id,
             role,
-            display_order,
+            content,
+            cycle,
+            game_date,
+            time,
+            location_id,
+            sequence,
+            deltas_json,
         )
+
+    # =========================================================================
+    # CHRONOLOGY
+    # =========================================================================
+
+    async def save_chronology_entry(
+        self,
+        conn: Connection,
+        cycle: int,
+        summary: str,
+        time: str | None = None,
+        location_ref: str | None = None,
+        npc_refs: list[str] | None = None,
+    ) -> UUID:
+        """Save a chronology entry with optional NPC participants."""
+        location_id = await self._resolve_location_id(conn, location_ref)
+        entry_id = await conn.fetchval(
+            "INSERT INTO chronology (game_id, cycle, time, location_id, summary)"
+            " VALUES ($1,$2,$3,$4,$5) RETURNING id",
+            self.game_id,
+            cycle,
+            time,
+            location_id,
+            summary,
+        )
+
+        if npc_refs:
+            for npc_ref in npc_refs:
+                entity_id = self.registry.resolve(npc_ref)
+                if entity_id:
+                    await conn.execute(
+                        "INSERT INTO chronology_participants"
+                        " (chronology_id, entity_id)"
+                        " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        entry_id,
+                        entity_id,
+                    )
+        return entry_id
+
+    # =========================================================================
+    # ROLLBACK
+    # =========================================================================
+
+    async def rollback_to_cycle(
+        self, conn: Connection, target_cycle: int
+    ) -> dict:
+        """Rollback via SQL function rollback_to_cycle."""
+        result = await conn.fetchrow(
+            "SELECT * FROM rollback_to_cycle($1, $2)",
+            self.game_id,
+            target_cycle,
+        )
+        stats = {
+            "rolled_back_to_cycle": target_cycle,
+            "deleted_facts": result["deleted_facts"],
+            "deleted_events": result["deleted_events"],
+            "deleted_arcs": result["deleted_arcs"],
+            "reverted_relations": result["reverted_relations"],
+        }
+        self.registry.clear()
+        await self.load_registry(conn)
+        return stats
 
     # =========================================================================
     # EXTRACTION LOGS
     # =========================================================================
 
     async def log_extraction(
-        self,
-        conn: Connection,
-        cycle: int,
-        stats: dict,
+        self, conn: Connection, cycle: int, stats: dict
     ) -> UUID:
-        """Enregistre les stats d'une extraction"""
         return await conn.fetchval(
-            """INSERT INTO extraction_logs 
-               (game_id, cycle, entities_created, relations_created,
-                facts_created, attributes_modified, errors)
-               VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id""",
+            """INSERT INTO extraction_logs
+               (game_id, cycle, facts_created, entities_modified, errors)
+               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
             self.game_id,
             cycle,
-            stats.get("entities_created", 0) + stats.get("objects_created", 0),
-            stats.get("relations_created", 0),
             stats.get("facts_created", 0),
-            stats.get("entities_updated", 0),
+            stats.get("entities_created", 0) + stats.get("entities_updated", 0),
             json.dumps(stats.get("errors")) if stats.get("errors") else None,
         )

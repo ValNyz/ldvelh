@@ -1,547 +1,252 @@
 """
-LDVELH - Extraction Prompts (EAV Architecture)
-Unified format: all entity types use attributes with known flag
+LDVELH - Extraction Prompts (Dedicated Tables Architecture)
+Format direct : colonnes dédiées par type d'entité, pas d'attributes EAV
 """
 
 from schema.narration import NarrationHints
 from prompts.examples import (
-    EXTRACTION_PROTAGONIST_STATE_EXAMPLE,
     EXTRACTION_ENTITIES_EXAMPLE,
     EXTRACTION_OBJECTS_EXAMPLE,
     EXTRACTION_FACTS_EXAMPLE,
     EXTRACTION_RELATIONS_EXAMPLE,
+    EXTRACTION_ARCS_EXAMPLE,
 )
 
 # =============================================================================
-# EXTRACTEUR: RÉSUMÉ (Haiku)
+# INSTRUCTION COMMUNE — CLÉS STRICTES
 # =============================================================================
 
-SUMMARY_SYSTEM = """Tu résumes des textes narratifs de jeu de rôle en une à trois phrase(s) concise(s).
-Réponds UNIQUEMENT en JSON: {"segment_summary": "..."}"""
+_STRICT_KEYS = """
+## CONTRAINTE STRICTE SUR LES CLÉS JSON
 
-
-def build_summary_prompt(narrative_text: str) -> str:
-    return f"""Résume ce texte en UNE phrase (max 150 caractères).
-Capture: qui, quoi, où, événement(s) principal(aux).
-
-Texte:
-{narrative_text}
-
-JSON:"""
+Tu DOIS utiliser EXACTEMENT les clés JSON listées dans le format ci-dessus.
+- N'ajoute AUCUNE clé supplémentaire
+- N'invente PAS de variantes (ex: "type" au lieu de "fact_type")
+- N'imbrique PAS de données dans des sous-objets non prévus
+- Si une information n'a pas de clé prévue, ignore-la"""
 
 
 # =============================================================================
-# EXTRACTEUR: ÉTAT PROTAGONISTE (Haiku)
+# BATCH EXTRACTION (end-of-cycle, single LLM call)
 # =============================================================================
 
-PROTAGONIST_STATE_SYSTEM = f"""Tu extrais les changements d'état du protagoniste depuis un texte narratif.
-Réponds UNIQUEMENT en JSON. Omets les champs sans changement.
+BATCH_EXTRACTION_SYSTEM = f"""Tu extrais TOUTES les données narratives d'un cycle complet de jeu de rôle.
+Tu reçois la concaténation de tous les textes narratifs d'un cycle et tu extrais en une seule passe :
+entités, faits, relations, arcs narratifs, objets, et résumé.
 
-Format:
-```json
-{EXTRACTION_PROTAGONIST_STATE_EXAMPLE}
-```
-
-Règles:
-- Jauges: petits deltas ±0.5, moyens ±1, gros ±1.5 à ±2
-- Crédits: café 5-15, repas 20-50, achat tech 100-500
-- Pour NOUVEAUX objets: utilise "object_hint" avec description courte
-- Pour objets EXISTANTS: utilise "object_ref" avec le nom exact
-- N'invente rien, extrais uniquement ce qui est explicite"""
-
-
-def build_protagonist_state_prompt(
-    narrative_text: str, known_objects: list[str] | None = None
-) -> str:
-    objects_str = ", ".join(known_objects[:20]) if known_objects else "Aucun connu"
-
-    return f"""Texte narratif:
-```
-{narrative_text}
-```
-
-Objets déjà possédés: {objects_str}
-
-Extrais les changements d'état du protagoniste.
-Si aucun changement, retourne {{"gauge_changes": [], "credit_transactions": [], "inventory_changes": []}}
-
-JSON:"""
-
-
-# =============================================================================
-# EXTRACTEUR: ENTITÉS (Sonnet) - FORMAT UNIFIÉ EAV
-# =============================================================================
-
-ENTITIES_SYSTEM = f"""Tu extrais les nouvelles entités d'un texte narratif pour un jeu de rôle.
-Tu crées UNIQUEMENT les entités vraiment NOUVELLES (pas celles déjà connues).
-
-## FORMAT UNIFIÉ (tous types d'entités)
+## FORMAT DE SORTIE
 
 ```json
-{EXTRACTION_ENTITIES_EXAMPLE}
+{{
+    "segment_summary": "Résumé du cycle en 1-3 phrases (max 300 car.)",
+    "entities_created": [{EXTRACTION_ENTITIES_EXAMPLE["entities_created"][0]}],
+    "entities_updated": [],
+    "objects_created": [{EXTRACTION_OBJECTS_EXAMPLE["objects_created"][0]}],
+    "facts": [{EXTRACTION_FACTS_EXAMPLE["facts"][0]}],
+    "relations_created": [{EXTRACTION_RELATIONS_EXAMPLE["relations_created"][0]}],
+    "relations_updated": [],
+    "arcs_created": [{EXTRACTION_ARCS_EXAMPLE["arcs_created"][0]}],
+    "arcs_updated": [],
+    "arcs_resolved": [],
+    "events_scheduled": [],
+    "ambient_updates": []
+}}
 ```
 
-## CLÉS D'ATTRIBUTS PAR TYPE
+## CLÉS AUTORISÉES
 
-### CHARACTER
-- description: apparence physique (ALWAYS visible)
-- mood: humeur actuelle (ALWAYS visible)
-- age: âge (CONDITIONAL)
-- origin: lieu d'origine (NEVER - secret)
-- motivation: ce qui le/la motive (NEVER - secret)
-- quirk: particularité de comportement (ALWAYS visible)
-- arcs: JSON des arcs narratifs (NEVER - méta)
+### Racine
+segment_summary, entities_created, entities_updated, objects_created,
+facts, relations_created, relations_updated, arcs_created, arcs_updated,
+arcs_resolved, events_scheduled, ambient_updates
 
-Stocker dans details du premier attribut:
-- species, gender, pronouns, occupation, arrival_cycle
+### entities_created[]
+Obligatoires: "entity_type" (character|location|organization), "name" (string)
+Optionnels: "known_by_protagonist" (bool), "unknown_name" (string|null), "data" (dict)
 
-### LOCATION
-- description: description du lieu (ALWAYS)
-- atmosphere: ambiance (ALWAYS)
-- notable_features: caractéristiques notables (ALWAYS)
-- typical_crowd: clientèle typique (ALWAYS)
-- operating_hours: horaires (CONDITIONAL)
-- price_range: gamme de prix (CONDITIONAL)
-- secret: secret du lieu (NEVER)
+data — CHARACTER: description, mood, age, origin, species, gender,
+  pronouns, occupation, traits (liste), romantic_potential (bool),
+  workplace_ref (string), residence_ref (string)
 
-Stocker dans details: location_type, sector, accessible
+data — LOCATION: location_type, sector, description, atmosphere,
+  accessible (bool), notable_features (liste), typical_crowd,
+  operating_hours, price_range, parent_location_ref (string)
 
-### ORGANIZATION
-- description: description publique (ALWAYS)
-- reputation: réputation connue (CONDITIONAL)
-- public_facade: façade publique (ALWAYS)
-- true_purpose: vrai but (NEVER - secret)
-- influence_level: niveau d'influence (CONDITIONAL)
+data — ORGANIZATION: org_type, domain, size, description, reputation,
+  headquarters_ref (string), founding_cycle (int)
 
-Stocker dans details: org_type, domain, size, founding_cycle
+### entities_updated[]
+Obligatoire: "entity_ref" (string)
+Optionnels: "now_known" (bool), "real_name" (string), "changes" (dict)
+"changes" utilise les MÊMES clés que "data" selon le type d'entité.
 
-### OBJECT
-- description: description de l'objet (ALWAYS)
-- condition: état de l'objet (ALWAYS)
-- emotional_significance: signification émotionnelle (CONDITIONAL)
-- hidden_function: fonction cachée (NEVER)
+### objects_created[]
+"name" (string), "category" (string), "description" (string),
+  "transportable" (bool), "stackable" (bool), "base_value" (int|null),
+  "quantity" (int), "from_hint" (string)
+Valeurs de "category": tech, weapon, clothing, food, document, tool, misc
 
-Stocker dans details: category, transportable, stackable, base_value
+### facts[]
+"fact_type" (string), "description" (string),
+  "semantic_key" (string format sujet:verbe:objet), "importance" (int 1-5),
+  "participants" (liste)
+participants[]: "entity_ref" (string), "role" (actor|witness|target|location)
+Valeurs de "fact_type": revelation, statement, promise, request, refusal,
+  action, npc_action, observation, state_change, encounter, interaction,
+  conflict, acquisition, loss, decision, realization
 
-## VISIBILITÉ (known)
+### relations_created[]
+"cycle" (int), "relation" (dict)
+relation: "source_ref" (string), "target_ref" (string),
+  "relation_type" (string), "known_by_protagonist" (bool),
+  "level" (int 0-10), "context" (string)
+Valeurs de "relation_type": knows, friend_of, enemy_of, family_of, romantic,
+  employed_by, colleague_of, manages, frequents, lives_at, located_in,
+  works_at, owns, owes_to
 
-- ALWAYS (known=true): Ce que Valentin VOIT directement
-  → description, mood, atmosphere, condition, public_facade
+### relations_updated[]
+"source_ref" (string), "target_ref" (string), "relation_type" (string),
+"new_level" (int 0-10), "new_context" (string), "now_known" (bool)
 
-- NEVER (known=false): Secrets, infos cachées
-  → origin, motivation, secret, true_purpose, hidden_function, arcs
+### arcs_created[]
+"title" (string), "domain" (string), "description" (string),
+"involved_entities" (liste de strings), "intensity" (int 1-5)
+Optionnels: "potential_triggers" (liste), "stakes" (string), "deadline_cycle" (int)
+Valeurs de "domain": professional, romantic, health, social, mystery, personal, political
 
-- CONDITIONAL: Dépend si mentionné/révélé dans le texte
-  → age, reputation, operating_hours, price_range
+### arcs_updated[]
+"arc_title" (string — titre EXACT de l'arc existant)
+Optionnels: "intensity" (int 1-5), "progress" (int 0-100), "situation" (string)
+
+### arcs_resolved[]
+"arc_title" (string), "resolution" (string)
+
+### events_scheduled[]
+"event_type" (string), "title" (string), "description" (string),
+"planned_cycle" (int), "time" (string), "location_ref" (string),
+"participants" (liste de strings)
+Valeurs de "event_type": appointment, deadline, celebration, meeting, delivery
+
+### ambient_updates[]
+"entity_ref" (string — nom EXACT), "entity_type" (character|location|organization),
+"ambient" (string max 200 car.)
+L'ambient décrit l'effet VISIBLE des arcs en cours sur l'entité.
+Ce qu'un observateur remarquerait : comportement, atmosphère, apparence.
+OBLIGATOIRE : génère un ambient_updates pour chaque entité impliquée dans un arc actif.
+Consulte la section "Arcs actifs avec participants" du contexte pour la liste exacte.
+
+{_STRICT_KEYS}
 
 ## RÈGLES
 
-1. Utilise les noms EXACTS du texte
-2. N'invente pas, extrait uniquement ce qui est présent
-3. Pour les personnages: toujours un arc minimum (dans attributes)
-4. known=true si Valentin a VU, ENTENDU ou peut DÉDUIRE l'info
-5. known=false si c'est un secret ou non mentionné directement
-"""
+1. Extrais UNIQUEMENT ce qui est EXPLICITE dans le texte
+2. N'invente rien, ne déduis pas
+3. Les jauges (énergie, moral, santé) et crédits sont déjà gérés par le narrateur — NE PAS les extraire
+4. Idem pour l'inventaire basique — les inventory_hints sont déjà appliqués
+5. Crée des objets COMPLETS uniquement pour les items acquis qui nécessitent une fiche détaillée
+6. Utilise les noms EXACTS du texte pour les entités
+7. Déduplique : une entité/fait ne doit apparaître qu'une fois
+8. semantic_key des faits : format sujet:verbe:objet en snake_case ASCII
+9. known_by_protagonist=true si Valentin a VU/ENTENDU le nom
+10. Importance des faits : 5=change la donne, 4=significatif, 3=notable, 2=mineur, 1=ambiance
+11. Relations level : 1=connu de vue, 3=connaissance, 5=ami proche, 7=intime
+12. PAS de relations "owns" (possession gérée par l'inventaire)"""
 
 
-def build_entities_prompt(
-    narrative_text: str, new_entities_hints: list[str], known_entities: list[str]
-) -> str:
-    known_str = ", ".join(known_entities[:50]) if known_entities else "Aucune"
-    hints_str = ", ".join(new_entities_hints) if new_entities_hints else "Non spécifié"
-
-    return f"""Texte narratif:
-```
-{narrative_text}
-```
-
-Entités potentiellement nouvelles: {hints_str}
-Entités DÉJÀ CONNUES (ne pas recréer): {known_str}
-
-Extrais les nouvelles entités avec le format unifié (attributes + known).
-JSON:"""
-
-
-# =============================================================================
-# EXTRACTEUR: OBJETS ACQUIS (Sonnet)
-# =============================================================================
-
-OBJECTS_SYSTEM = f"""Tu crées les fiches d'objets acquis par le protagoniste.
-Tu reçois des "hints" (descriptions courtes) et tu crées des objets complets.
-
-Format de sortie:
-```json
-{EXTRACTION_OBJECTS_EXAMPLE}
-```
-
-Règles:
-- "name": Nom clair et mémorable
-- category dans details: Une des catégories listées
-- base_value: Estimation réaliste en crédits
-- emotional_significance: Seulement si c'est un cadeau, souvenir, etc.
-- from_hint: Recopie exactement le hint reçu"""
-
-
-def build_objects_prompt(narrative_text: str, object_hints: list[str]) -> str:
-    hints_formatted = "\n".join(f"- {hint}" for hint in object_hints)
-
-    return f"""Texte narratif (pour contexte):
-```
-{narrative_text}
-```
-
-Objets à créer (hints):
-{hints_formatted}
-
-Crée une fiche complète pour chaque objet avec le format attributes.
-JSON:"""
-
-
-# =============================================================================
-# EXTRACTEUR: FAITS (Haiku)
-# =============================================================================
-
-FACTS_SYSTEM = f"""Tu extrais les faits narratifs d'un texte de jeu narratif.
-
-## RÈGLES CRITIQUES
-
-### 1. UN FAIT = UNE INFORMATION ATOMIQUE
-- Chaque fait capture UNE SEULE chose qui s'est passée
-- Si une phrase contient 2 infos distinctes → 2 facts séparés
-
-### 2. TYPES DE FAITS
-
-| Type | Quand l'utiliser |
-|------|------------------|
-| `revelation` | Information importante/secrète révélée |
-| `statement` | Opinion, déclaration exprimée |
-| `promise` | Engagement à faire quelque chose |
-| `request` | Demande faite |
-| `refusal` | Refus explicite |
-| `action` | Action physique de Valentin |
-| `npc_action` | Action physique d'un PNJ |
-| `observation` | Valentin remarque quelque chose |
-| `state_change` | Changement de relation/statut |
-| `encounter` | Première rencontre |
-| `interaction` | Échange social significatif |
-| `conflict` | Tension, désaccord |
-| `acquisition` | Gain de quelque chose |
-| `loss` | Perte de quelque chose |
-| `decision` | Choix significatif de Valentin |
-| `realization` | Prise de conscience |
-
-### 3. SEMANTIC_KEY
-Format: `{{sujet}}:{{verbe}}:{{objet}}` en snake_case ASCII
-
-### 4. IMPORTANCE (1-5)
-- 5: Change la donne (révélation majeure)
-- 4: Significatif (nouvelle relation)
-- 3: Notable (interaction mémorable)
-- 2: Mineur (small talk significatif)
-- 1: Ambiance (détail de décor)
-
-## FORMAT
-```json
-{EXTRACTION_FACTS_EXAMPLE}
-```"""
-
-
-def build_facts_prompt(
-    narrative_text: str,
+def build_batch_extraction_prompt(
+    narrative_texts: list[str],
     cycle: int,
-    location: str,
     known_entities: list[str],
+    known_arc_titles: list[str] | None = None,
+    inventory_hints: list[dict] | None = None,
+    narrator_hints: list[dict] | None = None,
+    stub_locations: list[str] | None = None,
+    active_arc_details: list[dict] | None = None,
 ) -> str:
-    entities_list = ", ".join(known_entities) if known_entities else "Aucune"
+    """Build the user prompt for batch extraction."""
+    texts_joined = "\n\n---\n\n".join(narrative_texts)
+    entities_str = ", ".join(known_entities[:60]) if known_entities else "Aucune"
+    arcs_str = ", ".join(known_arc_titles[:30]) if known_arc_titles else "Aucun"
+
+    extras = ""
+    if inventory_hints:
+        items = [f"- {h.get('item_name', '?')} ({h.get('action', '?')})" for h in inventory_hints]
+        extras += f"\n\nObjets acquis/perdus ce cycle (inventory_hints déjà appliqués):\n" + "\n".join(items)
+
+    if narrator_hints:
+        # Aggregate signals from all turns
+        all_new_entities = []
+        arcs_advanced = []
+        arcs_resolved = []
+        flags = {"relationships_changed": False, "information_learned": False,
+                 "new_arc_created": False, "event_scheduled": False,
+                 "protagonist_state_changed": False, "event_occurred": False}
+        for h in narrator_hints:
+            all_new_entities.extend(h.get("new_entities_mentioned", []))
+            arcs_advanced.extend(h.get("arc_advanced", []))
+            arcs_resolved.extend(h.get("arc_resolved", []))
+            for flag in flags:
+                if h.get(flag):
+                    flags[flag] = True
+
+        signals = []
+        if all_new_entities:
+            signals.append(f"- Nouvelles entités mentionnées: {', '.join(set(all_new_entities))}")
+        if arcs_advanced:
+            signals.append(f"- Arcs avancés: {', '.join(set(arcs_advanced))}")
+        if arcs_resolved:
+            signals.append(f"- Arcs résolus: {', '.join(set(arcs_resolved))}")
+        if flags["relationships_changed"]:
+            signals.append("- Relations modifiées")
+        if flags["information_learned"]:
+            signals.append("- Informations apprises")
+        if flags["new_arc_created"]:
+            signals.append("- Nouvel arc/engagement créé")
+        if flags["event_scheduled"]:
+            signals.append("- Événement planifié")
+        if flags["protagonist_state_changed"]:
+            signals.append("- Compétences/état du protagoniste modifié")
+        if flags["event_occurred"]:
+            signals.append("- Événement planifié survenu")
+
+        if signals:
+            extras += "\n\nSignaux du narrateur ce cycle:\n" + "\n".join(signals)
+
+    if stub_locations:
+        stubs_str = ", ".join(stub_locations)
+        extras += (
+            f"\n\nLieux à enrichir (stubs sans description, à compléter via entities_updated):\n"
+            f"- {stubs_str}\n"
+            f"Pour chaque stub: entity_ref = nom exact, changes = "
+            f"{{description, location_type, sector, atmosphere}}"
+        )
+
+    if active_arc_details:
+        extras += "\n\nArcs actifs avec participants (pour ambient_updates):\n"
+        for arc in active_arc_details:
+            parts = ", ".join(arc["participants"]) if arc["participants"] else "aucun"
+            extras += f"- {arc['title']} [{arc['domain']}] (intensité {arc['intensity']}/5): {parts}\n"
 
     return f"""## CONTEXTE
 - Cycle: {cycle}
-- Lieu: {location}
-- Entités connues: {entities_list}
+- Entités connues: {entities_str}
+- Arcs actifs: {arcs_str}
+{extras}
 
-## TEXTE
-{narrative_text}
+## TEXTES NARRATIFS DU CYCLE
+
+{texts_joined}
 
 ## INSTRUCTIONS
-1. Identifie TOUS les faits distincts
-2. Génère une semantic_key unique pour chaque
-3. Vérifie qu'il n'y a pas de doublons
-4. Assigne une importance réaliste (la plupart = 2-3)
+1. Extrais toutes les NOUVELLES entités (pas celles déjà connues)
+2. Extrais tous les faits distincts avec semantic_key unique
+3. Extrais les relations créées ou modifiées
+4. Arcs: utilise arcs_updated/arcs_resolved pour les arcs DÉJÀ LISTÉS ci-dessus. N'utilise arcs_created QUE pour des arcs VRAIMENT nouveaux.
+5. Crée les fiches d'objets NOUVEAUX acquis
+6. Résume le cycle en 1-3 phrases
+7. ambient_updates : pour chaque entité impliquée dans un arc actif (voir "Arcs actifs avec participants"), génère un ambient décrivant l'effet VISIBLE de l'arc (max 200 car.). Omets si l'arc n'affecte pas visiblement l'entité ce cycle.
 
 JSON:"""
-
-
-# =============================================================================
-# EXTRACTEUR: RELATIONS (Haiku)
-# =============================================================================
-
-RELATIONS_SYSTEM = """Tu extrais les relations INTERPERSONNELLES d'un texte narratif.
-
-Format:
-```json
-{
-  "relations_created": [
-    {
-      "cycle": 5,
-      "relation": {
-        "source_ref": "Nom exact",
-        "target_ref": "Nom exact",
-        "relation_type": "knows|friend_of|enemy_of|romantic|employed_by|colleague_of|frequents|lives_at|works_at",
-        "known_by_protagonist": true,
-        "social": {"level": 3, "context": "..."},
-        "professional": {"position": "...", "part_time": false},
-        "spatial": {"regularity": "daily|weekly|occasional"}
-      }
-    }
-  ],
-  "relations_updated": [
-    {
-      "source_ref": "Nom exact",
-      "target_ref": "Nom exact",
-      "relation_type": "knows",
-      "new_level": 4,
-      "new_context": "...",
-      "now_known": true
-    }
-  ]
-}
-```
-
-Types de relations:
-- Social: knows, friend_of, enemy_of, family_of, romantic
-- Pro: employed_by, colleague_of, manages
-- Spatial: frequents, lives_at, located_in, works_at
-
-Règles:
-- Niveaux sociaux: 1=connu de vue, 3=connaissance, 5=ami proche, 7=intime
-- known_by_protagonist=false si Valentin ne sait pas que cette relation existe
-- PAS de relations "owns" (possession gérée séparément)"""
-
-
-def build_relations_prompt(
-    narrative_text: str, cycle: int, known_entities: list[str]
-) -> str:
-    entities_str = ", ".join(known_entities[:40]) if known_entities else "Aucune"
-
-    return f"""Texte narratif:
-```
-{narrative_text}
-```
-
-Cycle: {cycle}
-Entités connues: {entities_str}
-
-Extrais les relations créées ou modifiées.
-Si aucune relation, retourne {{"relations_created": [], "relations_updated": []}}
-JSON:"""
-
-
-# =============================================================================
-# EXTRACTEUR: ENGAGEMENTS & ÉVÉNEMENTS (Sonnet)
-# =============================================================================
-
-COMMITMENTS_SYSTEM = f"""Tu extrais les engagements narratifs et événements planifiés.
-
-Format:
-```json
-{EXTRACTION_RELATIONS_EXAMPLE}
-```
-
-Types d'engagements:
-- foreshadowing: indice subtil de quelque chose à venir
-- secret: quelque chose que quelqu'un cache
-- setup: situation qui va évoluer
-- chekhov_gun: élément introduit qui resservira
-- arc: progression d'un arc narratif"""
-
-
-def build_commitments_prompt(
-    narrative_text: str,
-    known_entities: list[str],
-    commitment_hints: list[str] | None = None,
-) -> str:
-    entities_str = ", ".join(known_entities[:40]) if known_entities else "Aucune"
-    hints_str = ", ".join(commitment_hints) if commitment_hints else "Non spécifié"
-
-    return f"""Texte narratif:
-```
-{narrative_text}
-```
-
-Entités connues: {entities_str}
-Arcs avancés/résolus (indices): {hints_str}
-
-Extrais les engagements narratifs et événements planifiés.
-JSON:"""
-
-
-# =============================================================================
-# PROMPT COMPLET (fallback)
-# =============================================================================
-
-EXTRACTOR_SYSTEM_PROMPT = """Tu es un extracteur de données pour un jeu de rôle narratif.
-Tu analyses un texte narratif et extrais les informations structurées.
-
-## FORMAT UNIFIÉ POUR TOUTES LES ENTITÉS
-
-Toutes les entités utilisent le même format avec `attributes`:
-
-```json
-{
-  "entities_created": [
-    {
-      "entity_type": "character|location|organization|object",
-      "name": "Nom",
-      "known_by_protagonist": true,
-      "unknown_name": null,
-      "attributes": [
-        {"key": "description", "value": "...", "known": true},
-        {"key": "mood", "value": "...", "known": true},
-        {"key": "secret", "value": "...", "known": false}
-      ]
-    }
-  ]
-}
-```
-
-## RÈGLES DE VISIBILITÉ
-
-Pour chaque attribut, `known` indique si Valentin connaît cette info:
-
-- `known: true` → Valentin a VU, ENTENDU, ou peut DÉDUIRE
-- `known: false` → Secret, info cachée, ou non mentionné
-
-Visibilité par défaut:
-- TOUJOURS visible: description, mood, atmosphere, condition
-- JAMAIS visible: secret, motivation, true_purpose, hidden_function
-- CONDITIONNEL: age, reputation, origin (dépend du contexte)
-
-## STRUCTURE COMPLÈTE
-
-```json
-{
-  "cycle": 5,
-  "current_location_ref": "Le Quart de Cycle",
-  
-  "facts": [...],
-  
-  "entities_created": [
-    {
-      "entity_type": "character",
-      "name": "Elena Vasquez",
-      "known_by_protagonist": true,
-      "attributes": [
-        {"key": "description", "value": "Grande, cheveux courts", "known": true},
-        {"key": "mood", "value": "anxieuse mais déterminée", "known": true},
-        {"key": "origin", "value": "Colonie de Mars", "known": false},
-        {"key": "arcs", "value": "[{...}]", "known": false}
-      ]
-    }
-  ],
-  
-  "entities_updated": [
-    {
-      "entity_ref": "La femme mystérieuse",
-      "now_known": true,
-      "real_name": "Dr. Sarah Chen",
-      "attributes_changed": [
-        {"key": "reputation", "value": "Xénobiologiste renommée", "known": true}
-      ]
-    }
-  ],
-  
-  "relations_created": [
-    {
-      "cycle": 5,
-      "relation": {
-        "source_ref": "Elena",
-        "target_ref": "L'Organisation",
-        "relation_type": "employed_by",
-        "known_by_protagonist": false
-      }
-    }
-  ],
-  
-  "gauge_changes": [...],
-  "credit_transactions": [...],
-  "inventory_changes": [...],
-  "commitments_created": [...],
-  "events_scheduled": [...],
-  
-  "segment_summary": "...",
-  "key_npcs_present": ["Elena", "Dr. Chen"]
-}
-```
-"""
-
-
-def build_extractor_prompt(
-    narrative_text: str,
-    hints: NarrationHints,
-    current_cycle: int,
-    current_location: str,
-    npcs_present: list[str],
-    known_entities: list[str],
-) -> str:
-    """Build prompt for full extractor"""
-
-    lines = [
-        "## TEXTE À ANALYSER",
-        "",
-        "```markdown",
-        narrative_text,
-        "```",
-        "",
-        "---",
-        "",
-        "## CONTEXTE",
-        "",
-        f"- Cycle: {current_cycle}",
-        f"- Lieu: {current_location}",
-        f"- PNJs présents: {', '.join(npcs_present) if npcs_present else 'Aucun'}",
-        "",
-    ]
-
-    # Hints
-    lines.append("## INDICES DU NARRATEUR")
-    lines.append("")
-
-    if hints.new_entities_mentioned:
-        lines.append(
-            f"- **Nouvelles entités**: {', '.join(hints.new_entities_mentioned)}"
-        )
-    if hints.relationships_changed:
-        lines.append("- **Relations modifiées**: Oui")
-    if hints.protagonist_state_changed:
-        lines.append("- **État protagoniste modifié**: Oui")
-    if hints.information_learned:
-        lines.append("- **Information apprise**: Oui")
-    if hints.commitment_advanced:
-        lines.append(f"- **Arcs avancés**: {', '.join(hints.commitment_advanced)}")
-    if hints.commitment_resolved:
-        lines.append(f"- **Arcs résolus**: {', '.join(hints.commitment_resolved)}")
-    if hints.new_commitment_created:
-        lines.append("- **Nouvel engagement**: Oui")
-    if hints.event_scheduled:
-        lines.append("- **Événement planifié**: Oui")
-
-    lines.append("")
-
-    if known_entities:
-        lines.append("## ENTITÉS DÉJÀ CONNUES (ne pas recréer)")
-        lines.append("")
-        for i in range(0, len(known_entities), 10):
-            chunk = known_entities[i : i + 10]
-            lines.append(", ".join(chunk))
-        lines.append("")
-
-    lines.append("---")
-    lines.append("")
-    lines.append(
-        "Extrais les données en JSON avec le format unifié (attributes + known)."
-    )
-
-    return "\n".join(lines)
 
 
 # =============================================================================
@@ -552,29 +257,6 @@ def build_extractor_prompt(
 def should_run_extraction(hints: NarrationHints) -> bool:
     """Determine if extraction is needed"""
     return hints.needs_extraction
-
-
-def get_minimal_extraction(
-    cycle: int, location: str, npcs: list[str], summary: str
-) -> dict:
-    """Return minimal extraction when hints.needs_extraction = False"""
-    return {
-        "cycle": cycle,
-        "current_location_ref": location,
-        "facts": [],
-        "entities_created": [],
-        "entities_updated": [],
-        "relations_created": [],
-        "relations_updated": [],
-        "gauge_changes": [],
-        "credit_transactions": [],
-        "inventory_changes": [],
-        "commitments_created": [],
-        "commitments_resolved": [],
-        "events_scheduled": [],
-        "segment_summary": summary,
-        "key_npcs_present": npcs,
-    }
 
 
 def extract_object_hints(inventory_changes: list[dict]) -> list[str]:

@@ -1,14 +1,16 @@
+'use client';
+
 import { useState, useCallback } from 'react';
 import { normalizeGameState } from '../lib/game/gameState.js';
 import { gamesApi, stateApi } from '../lib/api.js';
 
 // ============================================================================
-// HOOK PRINCIPAL
+// MAIN HOOK
 // ============================================================================
 
 export function useGameState() {
-	const [partieId, setPartieId] = useState(null);
-	const [partieName, setPartieName] = useState('');
+	const [gameId, setGameId] = useState(null);
+	const [gameName, setGameName] = useState('');
 	const [gameState, setGameStateRaw] = useState(null);
 	const [messages, setMessages] = useState([]);
 	const [loading, setLoading] = useState(false);
@@ -16,8 +18,8 @@ export function useGameState() {
 	const [error, setError] = useState(null);
 
 	/**
-	 * Met à jour le gameState avec fusion intelligente
-	 * Utilisé après chaque réponse du serveur
+	 * Update gameState with smart merge.
+	 * Used after each server response.
 	 */
 	const updateGameState = useCallback((newState) => {
 		const normalized = normalizeGameState(newState);
@@ -26,19 +28,18 @@ export function useGameState() {
 		setGameStateRaw(prev => {
 			if (!prev) return normalized;
 
-			// Fusion intelligente
 			return {
-				partie: { ...prev.partie, ...normalized.partie },
-				valentin: mergeValentin(prev.valentin, normalized.valentin),
-				ia: normalized.ia?.nom ? { ...prev.ia, ...normalized.ia } : prev.ia,
-				monde_cree: normalized.monde_cree ?? prev.monde_cree ?? false
+				game: { ...prev.game, ...normalized.game },
+				player: mergePlayer(prev.player, normalized.player),
+				ai: normalized.ai?.name ? { ...prev.ai, ...normalized.ai } : prev.ai,
+				world_created: normalized.world_created ?? prev.world_created ?? false
 			};
 		});
 	}, []);
 
 	/**
-	 * Remplace complètement le gameState (pour le chargement initial)
-	 * Évite la fusion avec un ancien state
+	 * Fully replace gameState (for initial load).
+	 * Avoids merge with stale state.
 	 */
 	const replaceGameState = useCallback((newState) => {
 		const normalized = normalizeGameState(newState);
@@ -48,8 +49,8 @@ export function useGameState() {
 	const clearError = useCallback(() => setError(null), []);
 
 	const resetGame = useCallback(() => {
-		setPartieId(null);
-		setPartieName('');
+		setGameId(null);
+		setGameName('');
 		setGameStateRaw(null);
 		setMessages([]);
 		setError(null);
@@ -57,8 +58,8 @@ export function useGameState() {
 
 	return {
 		// State
-		partieId,
-		partieName,
+		gameId,
+		gameName,
 		gameState,
 		messages,
 		loading,
@@ -66,8 +67,8 @@ export function useGameState() {
 		error,
 
 		// Setters
-		setPartieId,
-		setPartieName,
+		setGameId,
+		setGameName,
 		setGameState: updateGameState,
 		replaceGameState,
 		setMessages,
@@ -87,75 +88,70 @@ export function useGameState() {
 // ============================================================================
 
 /**
- * Fusionne les données de Valentin de manière intelligente
- * L'inventaire est toujours remplacé (source de vérité = BDD)
+ * Smart merge for player data.
+ * Inventory is always replaced (source of truth = DB).
  */
-function mergeValentin(prev, next) {
+function mergePlayer(prev, next) {
 	if (!prev) return next;
 	if (!next) return prev;
 
 	return {
-		energie: next.energie ?? prev.energie,
-		moral: next.moral ?? prev.moral,
-		sante: next.sante ?? prev.sante,
+		energy: next.energy ?? prev.energy,
+		morale: next.morale ?? prev.morale,
+		health: next.health ?? prev.health,
 		credits: next.credits ?? prev.credits,
-		inventaire: next.inventaire !== undefined ? next.inventaire : (prev.inventaire || [])
+		inventory: next.inventory !== undefined ? next.inventory : (prev.inventory || [])
 	};
 }
 
 // ============================================================================
-// HOOK PARTIES - Gestion des parties
+// GAMES HOOK
 // ============================================================================
 
-export function useParties() {
-	const [parties, setParties] = useState([]);
+export function useGames() {
+	const [games, setGames] = useState([]);
 	const [loadingList, setLoadingList] = useState(false);
 
-	/** Liste les parties */
-	const loadParties = useCallback(async () => {
+	const loadGames = useCallback(async () => {
 		setLoadingList(true);
 		try {
 			const data = await gamesApi.list();
-			setParties(data.parties || []);
+			setGames(data.games || []);
 		} catch (e) {
-			console.error('Erreur chargement parties:', e);
+			console.error('Error loading games:', e);
 		} finally {
 			setLoadingList(false);
 		}
 	}, []);
 
-	/** Crée une nouvelle partie */
-	const createPartie = useCallback(async () => {
+	const createGame = useCallback(async () => {
 		const data = await gamesApi.create();
 		if (data.error) throw new Error(data.error);
 		return data.gameId;
 	}, []);
 
-	/** Supprime une partie */
-	const deletePartie = useCallback(async (id) => {
+	const deleteGame = useCallback(async (id) => {
 		await gamesApi.delete(id);
 		return true;
 	}, []);
 
-	/** Renomme une partie */
-	const renamePartie = useCallback(async (id, newName) => {
+	const renameGame = useCallback(async (id, newName) => {
 		await gamesApi.rename(id, newName);
 	}, []);
 
-	/** Charge une partie (state + messages + world_info) */
-	const loadPartie = useCallback(async (id) => {
+	const loadGame = useCallback(async (id) => {
 		const data = await stateApi.load(id);
 		if (data.error) throw new Error(data.error);
 		return data;
 	}, []);
 
 	return {
-		parties,
+		games,
 		loadingList,
-		loadParties,
-		createPartie,
-		deletePartie,
-		renamePartie,
-		loadPartie
+		loadGames,
+		createGame,
+		deleteGame,
+		renameGame,
+		loadGame
 	};
 }

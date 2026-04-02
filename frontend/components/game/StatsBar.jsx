@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// STATS BAR COMPACTE
+// COMPACT STATS BAR
 // ============================================================================
 
 function StatDots({ value, max = 5, color = 'text-white' }) {
@@ -17,49 +17,49 @@ function StatDots({ value, max = 5, color = 'text-white' }) {
 }
 
 export default function StatsBar({ gameState }) {
-	const partie = gameState?.partie;
-	const valentin = gameState?.valentin;
+	const game = gameState?.game;
+	const player = gameState?.player;
 
-	if (!valentin) return null;
+	if (!player) return null;
 
 	return (
 		<div className="bg-gray-900/50 border-b border-gray-800/30 px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs font-mono">
-			{/* Date & Heure */}
+			{/* Date & Time */}
 			<span className="text-emerald-400 flex items-center gap-1">
-				📅 {partie?.date_jeu || '-'}
-				{partie?.heure && ` • ${partie.heure}`}
+				📅 {game?.game_date || '-'}
+				{game?.time && ` • ${game.time}`}
 			</span>
 
-			{/* Stats avec dots */}
+			{/* Stats with dots */}
 			<div className="flex items-center gap-1">
 				<span className="text-gray-500">⚡</span>
-				<StatDots value={valentin.energie} color="text-yellow-400" />
+				<StatDots value={player.energy} color="text-yellow-400" />
 			</div>
 			<div className="flex items-center gap-1">
 				<span className="text-gray-500">💭</span>
-				<StatDots value={valentin.moral} color="text-blue-400" />
+				<StatDots value={player.morale} color="text-blue-400" />
 			</div>
 			<div className="flex items-center gap-1">
 				<span className="text-gray-500">❤️</span>
-				<StatDots value={valentin.sante} color="text-red-400" />
+				<StatDots value={player.health} color="text-red-400" />
 			</div>
 
-			{/* Crédits */}
+			{/* Credits */}
 			<span className="text-amber-400 flex items-center gap-1">
-				💰 {(valentin.credits ?? 0).toLocaleString('fr-FR')} cr
+				💰 {(player.credits ?? 0).toLocaleString('fr-FR')} cr
 			</span>
 
-			{/* Lieu (si espace) */}
-			{partie?.lieu_actuel && (
+			{/* Location */}
+			{game?.current_location && (
 				<span className="text-blue-300 flex items-center gap-1 hidden sm:flex">
-					📍 {partie.lieu_actuel}
+					📍 {game.current_location}
 				</span>
 			)}
 
-			{/* PNJs présents */}
-			{partie?.pnjs_presents?.length > 0 && (
+			{/* NPCs present */}
+			{game?.npcs_present?.length > 0 && (
 				<span className="text-purple-400 flex items-center gap-1 hidden md:flex">
-					👥 {partie.pnjs_presents.join(', ')}
+					👥 {game.npcs_present.join(', ')}
 				</span>
 			)}
 		</div>

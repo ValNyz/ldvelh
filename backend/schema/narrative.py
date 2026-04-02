@@ -1,54 +1,28 @@
 """
 LDVELH - Narrative Schema
-Facts, Character Arcs, Events, Commitments
+Facts, Narrative Arcs, Events
 """
-
-from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
     ArcDomain,
-    CommitmentType,
     Cycle,
     EntityRef,
+    EventType,
     FactType,
-    Tag,
     FullText,
     LongText,
     Name,
     ParticipantRole,
     Phrase,
     ShortText,
+    Tag,
     Text,
     normalize_arc_domain,
-    normalize_commitment_type,
     normalize_fact_type,
     normalize_participant_role,
 )
-
-# =============================================================================
-# CHARACTER ARCS
-# =============================================================================
-
-
-class CharacterArc(BaseModel):
-    """An arc in a character's life - multiple per character"""
-
-    domain: ArcDomain
-    title: Name  # 100 chars
-    situation: Text  # 300 chars - current state
-    desire: Phrase  # 150 chars - what they want
-    obstacle: Phrase  # 150 chars - what blocks them
-    potential_evolution: ShortText  # 200 chars
-    intensity: int = Field(
-        default=3, ge=1, le=5, description="How pressing is this arc now"
-    )
-
-    @field_validator("domain", mode="before")
-    @classmethod
-    def _normalize_domain(cls, v):
-        return normalize_arc_domain(v)
 
 
 # =============================================================================
@@ -57,7 +31,7 @@ class CharacterArc(BaseModel):
 
 
 class FactParticipant(BaseModel):
-    """Someone involved in a fact"""
+    """An entity involved in a fact"""
 
     entity_ref: EntityRef
     role: ParticipantRole = ParticipantRole.ACTOR
@@ -71,11 +45,8 @@ class FactParticipant(BaseModel):
 class FactData(BaseModel):
     """
     An immutable event that happened.
-
-    RÈGLES:
-    - Un fact = UNE information atomique
-    - semantic_key obligatoire pour déduplication
-    - Choisir le type le plus spécifique
+    One fact = ONE atomic piece of information.
+    semantic_key is required for deduplication.
     """
 
     cycle: Cycle
@@ -88,7 +59,7 @@ class FactData(BaseModel):
     semantic_key: Name = Field(
         ...,
         pattern=r"^[a-z0-9_]+:[a-z0-9_]+:[a-z0-9_]+$",
-        description="Format: {sujet}:{verbe}:{objet} en snake_case",
+        description="Format: {subject}:{verb}:{object} in snake_case",
     )
 
     @field_validator("fact_type", mode="before")
@@ -97,95 +68,76 @@ class FactData(BaseModel):
         return normalize_fact_type(v)
 
     @model_validator(mode="after")
-    def validate_semantic_key_matches_content(self) -> "FactData":
-        """Vérifie que la semantic_key est cohérente"""
+    def validate_semantic_key_format(self) -> "FactData":
+        """Verify semantic_key has the correct 3-part format"""
         parts = self.semantic_key.split(":")
         if len(parts) != 3:
-            raise ValueError("semantic_key doit avoir format sujet:verbe:objet")
+            raise ValueError("semantic_key must have format subject:verb:object")
         return self
 
 
 # =============================================================================
-# COMMITMENTS (Narrative promises)
+# NARRATIVE ARCS
 # =============================================================================
 
 
-class CommitmentCreation(BaseModel):
-    """A new narrative commitment (foreshadowing, secret, etc.)"""
+class NarrativeArcData(BaseModel):
+    """A narrative arc (story thread) tracked across cycles"""
 
-    commitment_type: CommitmentType
+    title: Name  # 100 chars
+    domain: ArcDomain = ArcDomain.PERSONAL
     description: LongText  # 400 chars
+    # State
+    intensity: int = Field(default=3, ge=1, le=5, description="How pressing this arc is")
+    progress: int = Field(default=0, ge=0, le=100)
+    situation: Text | None = None  # 300 chars - current state
+    desire: Phrase | None = None  # 150 chars - goal / tension
+    obstacle: Phrase | None = None  # 150 chars - what blocks progress
+    # Triggers
+    potential_triggers: list[str] = Field(default_factory=list, max_length=4)
+    stakes: ShortText | None = None  # 200 chars
+    deadline_cycle: Cycle | None = Field(default=None, ge=1)
+    # Participants (entity refs, resolved to entity_registry by populator)
     involved_entities: list[EntityRef] = Field(default_factory=list)
-    deadline_cycle: Cycle | None = None
-    # For arcs
-    objective: ShortText | None = None  # 200 chars
-    obstacle: ShortText | None = None  # 200 chars
 
-    @field_validator("commitment_type", mode="before")
+    @field_validator("domain", mode="before")
     @classmethod
-    def _normalize_commitment_type(cls, v):
-        return normalize_commitment_type(v)
+    def _normalize_domain(cls, v):
+        return normalize_arc_domain(v)
 
 
-class CommitmentResolution(BaseModel):
-    """A commitment that was resolved"""
+class ArcResolution(BaseModel):
+    """Resolution of a narrative arc"""
 
-    commitment_description: ShortText  # 200 chars - to match existing
-    resolution_description: Text  # 300 chars
+    arc_title: Name  # Match by title
+    resolution: Text  # 300 chars
+    cycle: Cycle
 
 
 # =============================================================================
-# EVENTS (Future scheduled events)
+# EVENTS (Scheduled future events)
 # =============================================================================
 
 
 class EventScheduled(BaseModel):
     """An event planned for the future"""
 
-    event_type: Literal[
-        "milestone",
-        "appointment",
-        "deadline",
-        "celebration",
-        "recurring",
-        "financial_due",
-    ]
+    event_type: EventType
     title: Phrase  # 150 chars
     description: Text | None = None  # 300 chars
     planned_cycle: Cycle = Field(..., ge=1)
-    time: Tag | None
+    time: Tag | None = None
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
-    recurrence: dict | None = Field(
-        default=None,
-        description="Recurrence rule: {'type': 'weekly', 'day': 'monday'}",
-    )
-    amount: int | None = Field(default=None, description="For financial_due events")
 
-
-# =============================================================================
-# NARRATIVE ARCS (Global story arcs)
-# =============================================================================
-
-
-class NarrativeArcData(BaseModel):
-    """A potential story arc for the game"""
-
-    title: Name  # 100 chars
-    arc_type: CommitmentType
-    domain: ArcDomain = ArcDomain.PERSONAL
-    description: LongText  # 400 chars
-    involved_entities: list[EntityRef] = Field(..., default_factory=list)
-    potential_triggers: list[str] = Field(..., min_length=1, max_length=4)
-    stakes: ShortText  # 200 chars
-    deadline_cycle: Cycle | None = Field(default=None, ge=1)
-
-    @field_validator("arc_type", mode="before")
+    @field_validator("event_type", mode="before")
     @classmethod
-    def _normalize_arc_type(cls, v):
-        return normalize_commitment_type(v)
-
-    @field_validator("domain", mode="before")
-    @classmethod
-    def _normalize_domain(cls, v):
-        return normalize_arc_domain(v)
+    def _normalize_event_type(cls, v):
+        if isinstance(v, EventType):
+            return v
+        if isinstance(v, str):
+            try:
+                return EventType(v.lower().replace("-", "_"))
+            except ValueError:
+                pass
+        return EventType.APPOINTMENT

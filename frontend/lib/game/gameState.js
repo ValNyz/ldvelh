@@ -1,100 +1,84 @@
 /**
  * LDVELH - Game State Utilities (Frontend)
- * 
- * Version simplifiée : le serveur Python fait la normalisation.
- * Ce fichier ne fait que du merge local pour les updates SSE.
+ *
+ * Simplified: the Python server handles normalization.
+ * This file only does local merge for SSE updates.
  */
 
 // ============================================================================
-// CONSTANTES (copie des valeurs Python pour fallback)
+// CONSTANTS (copy of Python values for fallback)
 // ============================================================================
 
-export const STATS_DEFAUT = {
-	energie: 3.0,
-	moral: 3.0,
-	sante: 4.0,
+export const DEFAULT_STATS = {
+	energy: 3.0,
+	morale: 3.0,
+	health: 4.0,
 	credits: 1400
 };
 
 // ============================================================================
-// VALIDATION SIMPLE
+// VALIDATION
 // ============================================================================
 
 /**
- * Vérifie si un état est valide (vient du serveur Python normalisé)
+ * Check if a state is valid (comes from normalized Python server)
  */
 export function isValidGameState(state) {
 	if (!state) return false;
-	// Le serveur renvoie toujours { partie, valentin, ia }
-	return state.partie !== undefined || state.valentin !== undefined;
+	return state.game !== undefined || state.player !== undefined;
 }
 
 /**
- * Normalise un état (no-op si déjà normalisé par le serveur)
- * Garde la compatibilité avec le code existant
+ * Normalize a state (no-op if already normalized by server)
  */
 export function normalizeGameState(state) {
 	if (!state) return null;
 
-	// Si c'est un état complet du serveur, le retourner tel quel
-	if (state.partie !== undefined || state.valentin !== undefined) {
-		return {
-			partie: state.partie || null,
-			valentin: state.valentin || { ...STATS_DEFAUT, inventaire: [] },
-			ia: state.ia || null,
-			monde_cree: state.monde_cree || false
-		};
-	}
-
-	// Si c'est un update partiel (ex: { heure: "08:00" })
-	// Le wrapper pour merge
 	return {
-		partie: extractPartieFields(state),
-		valentin: extractValentinFields(state),
-		ia: state.ia || null,
-		monde_cree: state.monde_cree || false
+		game: state.game || null,
+		player: state.player || { ...DEFAULT_STATS, inventory: [] },
+		ai: state.ai || null,
+		world_created: state.world_created || false
 	};
 }
 
 // ============================================================================
-// MERGE HELPERS (pour updates SSE partiels)
+// MERGE HELPERS (for partial SSE updates)
 // ============================================================================
 
 /**
- * Fusionne deux états de jeu
- * Utilisé quand le serveur envoie un update partiel via SSE
+ * Merge two game states
  */
 export function mergeGameStates(prev, next) {
 	if (!prev) return next;
 	if (!next) return prev;
 
 	return {
-		partie: mergeObjects(prev.partie, next.partie),
-		valentin: mergeValentin(prev.valentin, next.valentin),
-		ia: mergeObjects(prev.ia, next.ia),
-		monde_cree: next.monde_cree ?? prev.monde_cree ?? false
+		game: mergeObjects(prev.game, next.game),
+		player: mergePlayer(prev.player, next.player),
+		ai: mergeObjects(prev.ai, next.ai),
+		world_created: next.world_created ?? prev.world_created ?? false
 	};
 }
 
 /**
- * Merge spécial pour Valentin (l'inventaire est toujours remplacé)
+ * Special merge for player (inventory is always replaced)
  */
-function mergeValentin(prev, next) {
+function mergePlayer(prev, next) {
 	if (!prev) return next;
 	if (!next) return prev;
 
 	return {
-		energie: next.energie ?? prev.energie,
-		moral: next.moral ?? prev.moral,
-		sante: next.sante ?? prev.sante,
+		energy: next.energy ?? prev.energy,
+		morale: next.morale ?? prev.morale,
+		health: next.health ?? prev.health,
 		credits: next.credits ?? prev.credits,
-		// L'inventaire vient du serveur, toujours le remplacer
-		inventaire: next.inventaire !== undefined ? next.inventaire : prev.inventaire
+		inventory: next.inventory !== undefined ? next.inventory : prev.inventory
 	};
 }
 
 /**
- * Merge générique d'objets (ignore les null/undefined)
+ * Generic object merge (ignores null/undefined)
  */
 function mergeObjects(prev, next) {
 	if (!prev) return next;
@@ -109,43 +93,3 @@ function mergeObjects(prev, next) {
 	return result;
 }
 
-// ============================================================================
-// EXTRACTEURS (pour updates partiels non structurés)
-// ============================================================================
-
-const PARTIE_KEYS = [
-	'id', 'nom', 'heure', 'lieu_actuel', 'pnjs_presents',
-	'cycle_actuel', 'jour', 'date_jeu', 'status'
-];
-
-const VALENTIN_KEYS = [
-	'energie', 'moral', 'sante', 'credits', 'inventaire'
-];
-
-function extractPartieFields(obj) {
-	const result = {};
-	let hasFields = false;
-
-	for (const key of PARTIE_KEYS) {
-		if (key in obj) {
-			result[key] = obj[key];
-			hasFields = true;
-		}
-	}
-
-	return hasFields ? result : null;
-}
-
-function extractValentinFields(obj) {
-	const result = {};
-	let hasFields = false;
-
-	for (const key of VALENTIN_KEYS) {
-		if (key in obj) {
-			result[key] = obj[key];
-			hasFields = true;
-		}
-	}
-
-	return hasFields ? result : null;
-}

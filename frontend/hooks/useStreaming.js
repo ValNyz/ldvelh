@@ -1,14 +1,20 @@
+'use client';
+
 import { useRef, useCallback, useState } from 'react';
-import { apiUrl } from '../lib/api';
+import { apiUrl, getAuthHeaders } from '../lib/api';
 
 /**
  * Hook pour gérer le streaming SSE
  */
-export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) {
+export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSaved, onError }) {
 	const abortControllerRef = useRef(null);
 	const [rawJson, setRawJson] = useState('');
 
 	const startStream = useCallback(async (url, body) => {
+		// Cancel any in-flight stream before starting a new one
+		if (abortControllerRef.current) {
+			abortControllerRef.current.abort();
+		}
 		abortControllerRef.current = new AbortController();
 		let fullJson = '';
 		setRawJson('');
@@ -19,7 +25,7 @@ export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) 
 
 			const res = await fetch(fullUrl, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
 				body: JSON.stringify(body),
 				signal: abortControllerRef.current.signal
 			});
@@ -48,7 +54,6 @@ export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) 
 
 					try {
 						const data = JSON.parse(line.slice(6));
-						console.log('[Stream] Event reçu:', data.type, '| keys:', Object.keys(data));
 
 						switch (data.type) {
 							case 'chunk':
@@ -82,7 +87,7 @@ export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) 
 								break;
 
 							default:
-								console.log('[Stream] Type inconnu:', data.type);
+								break;
 						}
 					} catch (e) {
 						// Ignorer les lignes mal formées
@@ -101,7 +106,7 @@ export function useStreaming({ onChunk, onProgress, onDone, onSaved, onError }) 
 		} finally {
 			abortControllerRef.current = null;
 		}
-	}, [onChunk, onProgress, onDone, onSaved, onError]);
+	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onError]);
 
 	const cancel = useCallback(() => {
 		if (abortControllerRef.current) {

@@ -1,16 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import Button from '../ui/Button';
 
-export default function PartiesList({
+export default function GamesList({
 	parties,
 	loading,
 	error,
 	onSelect,
 	onNew,
 	onDelete,
-	onSettings
+	onSettings,
+	onLogout
 }) {
 	const [confirmDelete, setConfirmDelete] = useState(null);
 
@@ -44,6 +44,7 @@ export default function PartiesList({
 						<p className="text-xs text-gray-500">Chroniques de l'Exil Stellaire</p>
 					</div>
 				</div>
+				<div className="flex items-center gap-2">
 				{onSettings && (
 					<button
 						onClick={onSettings}
@@ -52,38 +53,49 @@ export default function PartiesList({
 						⚙️
 					</button>
 				)}
+				{onLogout && (
+					<button
+						onClick={onLogout}
+						className="px-3 py-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors text-sm"
+					>
+						Deconnexion
+					</button>
+				)}
+			</div>
 			</header>
 
-			{/* Contenu */}
+			{/* Content */}
 			<div className="flex-1 overflow-auto">
 				<div className="max-w-2xl mx-auto p-6">
-					{/* Nouvelle partie */}
-					<button
-						onClick={onNew}
-						disabled={loading}
-						className="w-full mb-6 px-6 py-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-xl text-white font-medium transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-					>
-						{loading ? (
-							<>
-								<LoadingIcon className="w-5 h-5 animate-spin" />
-								Création...
-							</>
-						) : (
-							<>
-								<span className="text-xl">✨</span>
-								Nouvelle aventure
-							</>
-						)}
-					</button>
+					{/* New game */}
+					<div className="mb-6">
+						<button
+							onClick={() => onNew()}
+							disabled={loading}
+							className="w-full px-6 py-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-xl text-white font-medium transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+						>
+							{loading ? (
+								<>
+									<LoadingIcon className="w-5 h-5 animate-spin" />
+									Création...
+								</>
+							) : (
+								<>
+									<span className="text-xl">✨</span>
+									Nouvelle aventure
+								</>
+							)}
+						</button>
+					</div>
 
-					{/* Erreur */}
+					{/* Error */}
 					{error && (
 						<div className="bg-red-900/30 border border-red-700 rounded-lg p-4 mb-6 text-red-400">
 							{error}
 						</div>
 					)}
 
-					{/* Liste des parties */}
+					{/* Games list */}
 					<h2 className="text-sm text-gray-500 uppercase tracking-wider mb-4">
 						Parties sauvegardées
 					</h2>
@@ -96,35 +108,35 @@ export default function PartiesList({
 						</div>
 					) : (
 						<div className="space-y-3">
-							{parties.map((partie) => (
+							{parties.map((game) => (
 								<div
-									key={partie.id}
-									onClick={() => onSelect(partie.id)}
+									key={game.id}
+									onClick={() => onSelect(game.id)}
 									className="group bg-gray-900/80 border border-gray-800 rounded-xl p-4 hover:border-purple-500/50 hover:bg-gray-900 transition-all cursor-pointer"
 								>
 									<div className="flex justify-between items-start">
 										<div>
 											<h3 className="text-white font-medium group-hover:text-purple-400 transition-colors">
-												{partie.nom}
+												{game.name}
 											</h3>
 											<div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
 												<span className="flex items-center gap-1">
-													🔄 Cycle {partie.cycle_actuel || 1}
+													🔄 Cycle {game.current_cycle || 1}
 												</span>
-												{partie.lieu_actuel && (
+												{game.current_location && (
 													<span className="flex items-center gap-1">
-														📍 {partie.lieu_actuel}
+														📍 {game.current_location}
 													</span>
 												)}
-												<span>{formatDate(partie.updated_at)}</span>
+												<span>{formatDate(game.updated_at)}</span>
 											</div>
 										</div>
 
-										{/* Bouton supprimer */}
-										{confirmDelete === partie.id ? (
+										{/* Delete button */}
+										{confirmDelete === game.id ? (
 											<div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
 												<button
-													onClick={(e) => handleDelete(e, partie.id)}
+													onClick={(e) => handleDelete(e, game.id)}
 													className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white text-xs rounded transition-colors"
 												>
 													Confirmer
@@ -138,7 +150,7 @@ export default function PartiesList({
 											</div>
 										) : (
 											<button
-												onClick={(e) => { e.stopPropagation(); setConfirmDelete(partie.id); }}
+												onClick={(e) => { e.stopPropagation(); setConfirmDelete(game.id); }}
 												className="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded hover:bg-red-500/10"
 												title="Supprimer"
 											>

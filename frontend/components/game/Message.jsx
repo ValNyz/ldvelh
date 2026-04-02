@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
-import EntityTooltip from './EntityTooltip';
+// import EntityTooltip from './EntityTooltip';
 // import { formatTooltip, fuzzyMatchEntity } from '../../lib/js/kg/knowledgeService';
 
 /**
@@ -15,8 +15,10 @@ export default function Message({
 	isLoading,
 	fontSize,
 	onEdit,
+	onResend,
 	onRegenerate,
-	tooltipMap  // NOUVEAU
+	tooltipMap,
+	showDebug
 }) {
 	const [showActions, setShowActions] = useState(false);
 	const isUser = message.role === 'user';
@@ -32,13 +34,22 @@ export default function Message({
 				{/* Bulle de message */}
 				<div
 					className={`
-            px-4 py-3 
+            px-4 py-3
             ${isUser
 							? 'bg-blue-600 rounded-2xl rounded-br-sm'
 							: 'bg-gray-800 rounded-2xl rounded-bl-sm'
 						}
           `}
 				>
+					{/* In-game time & location header */}
+					{!isUser && (message.time || message.game_date) && (
+						<div className="text-[11px] text-gray-500 font-mono mb-2">
+							{message.game_date && <span>{message.game_date}</span>}
+							{message.game_date && message.time && ' · '}
+							{message.time}
+							{message.location && ` · ${message.location}`}
+						</div>
+					)}
 					<div style={{ fontSize }}>
 						<MarkdownContent
 							content={message.content}
@@ -62,6 +73,13 @@ export default function Message({
             ${showActions && !isLoading ? 'opacity-100' : 'opacity-0'}
           `}
 				>
+					{isUser && onResend && (
+						<ActionButton
+							onClick={() => onResend(index)}
+							title="Renvoyer"
+							icon={<ResendIcon />}
+						/>
+					)}
 					{isUser && onEdit && (
 						<ActionButton
 							onClick={() => onEdit(index)}
@@ -77,6 +95,17 @@ export default function Message({
 						/>
 					)}
 				</div>
+
+				{/* Cost debug info */}
+				{showDebug && !isUser && message.cost && (
+					<div className="mt-1 text-[10px] text-gray-600 font-mono">
+						{message.cost.provider && `[${message.cost.provider}] `}
+						{message.cost.model && `${message.cost.model} · `}
+						${message.cost.cost_usd?.toFixed(4)} · {message.cost.input_tokens}in · {message.cost.output_tokens}out
+						{message.cost.cache_read_input_tokens > 0 && ` · ${message.cost.cache_read_input_tokens} cached`}
+						{message.cost.cache_creation_input_tokens > 0 && ` · ${message.cost.cache_creation_input_tokens} cache_write`}
+					</div>
+				)}
 			</div>
 		</div>
 	);
@@ -91,7 +120,6 @@ function MarkdownContent({ content, isUser, tooltipMap }) {
 			<p className="mb-2 last:mb-0">{children}</p>
 		),
 		// strong: ({ children }) => {
-		// 	// NOUVEAU : Tooltip sur les éléments en gras
 		// 	const text = extractText(children);
 		// 	const entityData = tooltipMap ? fuzzyMatchEntity(text, tooltipMap, 70) : null;
 		// 	const tooltipData = entityData ? formatTooltip(entityData) : null;
@@ -148,7 +176,7 @@ function MarkdownContent({ content, isUser, tooltipMap }) {
 }
 
 /**
- * Extrait le texte brut des children React
+ * Extract raw text from React children
  */
 function extractText(children) {
 	if (typeof children === 'string') return children;
@@ -224,6 +252,14 @@ function EditIcon() {
 	return (
 		<svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 			<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+		</svg>
+	);
+}
+
+function ResendIcon() {
+	return (
+		<svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+			<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
 		</svg>
 	);
 }

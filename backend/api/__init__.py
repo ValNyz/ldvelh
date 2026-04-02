@@ -10,16 +10,11 @@ from api.dependencies import get_pool, get_connection, get_settings_dep
 from api.streaming import SSEWriter, SSEEvent, create_sse_response, build_display_text
 
 __all__ = [
-    # Dependencies
     "get_pool",
     "get_connection",
     "get_settings_dep",
-    # Streaming
     "SSEWriter",
     "SSEEvent",
     "create_sse_response",
     "build_display_text",
-    # Routers - importer directement depuis api.routes / api.tooltips
-    # "main_router",      # from api.routes import router
-    # "tooltips_router",  # from api.tooltips import router
 ]

@@ -35,6 +35,4 @@ __all__ = [
     "KnowledgeGraphPopulator",
     "WorldPopulator",
     "ExtractionPopulator",
-    # Context
-    "ContextBuilder",
 ]

@@ -3,6 +3,7 @@ LDVELH - FastAPI Application
 Point d'entrée principal
 """
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -15,10 +16,10 @@ from config import get_settings
 import logging
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Pool de connexions global
 db_pool: asyncpg.Pool | None = None
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +27,13 @@ async def lifespan(app: FastAPI):
     global db_pool
 
     settings = get_settings()
+
+    # Validate JWT_SECRET in production
+    if not settings.debug and settings.jwt_secret == "dev-secret-change-me-in-production!!":
+        raise RuntimeError(
+            "JWT_SECRET is still the default dev value. "
+            "Set the JWT_SECRET env variable before running in production."
+        )
 
     # Startup: créer le pool de connexions
     print("[STARTUP] Connexion à la base de données...")
@@ -52,12 +60,13 @@ app = FastAPI(
 )
 
 # CORS
+_settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_settings.cors_origins.split(","),
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 
@@ -70,8 +79,10 @@ def get_db_pool() -> asyncpg.Pool:
 
 # Import des routes après la création de l'app pour éviter les imports circulaires
 from api.routes import router
+from api.auth import router as auth_router
 
 app.include_router(router, prefix="/api")
+app.include_router(auth_router, prefix="/api/auth")
 
 
 @app.get("/health")

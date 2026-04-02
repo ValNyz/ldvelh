@@ -1,16 +1,14 @@
 """
 LDVELH - World Generation Schema
-Modèle spécifique pour la génération initiale du monde
-Avec validation SOFT des références (filtrage au lieu d'erreur)
-Architecture EAV : données dans attributes
+Models for initial world generation output.
+Soft validation of references (filter instead of error).
 """
 
 import logging
+
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Any
 
 from .core import (
-    AttributeKey,
     EntityRef,
     Mood,
     Name,
@@ -18,15 +16,13 @@ from .core import (
     Tag,
     TemporalValidationMixin,
     Text,
-    AttributeWithVisibility,
-    normalize_attribute_key,
 )
 from .entities import (
     CharacterData,
     LocationData,
     ObjectData,
     OrganizationData,
-    PersonalAIData,
+    PersonalAssistantData,
     ProtagonistData,
     WorldData,
 )
@@ -50,82 +46,6 @@ WORLD_GENERATION_SOFT_MINIMUMS: dict[str, tuple[int, str]] = {
 
 
 # =============================================================================
-# HELPER FUNCTIONS FOR EAV ACCESS
-# =============================================================================
-
-
-def get_entity_attribute(entity, key: str | AttributeKey, default=None):
-    """
-    Get an attribute value from an entity's attributes list.
-    Works with both AttributeKey enum and string keys.
-    """
-    if not hasattr(entity, "attributes"):
-        return default
-
-    # Normalize key to string for comparison
-    key_str = key.value if isinstance(key, AttributeKey) else key
-
-    for attr in entity.attributes:
-        attr_key = attr.key.value if hasattr(attr.key, "value") else str(attr.key)
-        if attr_key == key_str:
-            return attr.value
-    return default
-
-
-def get_entity_attribute_int(entity, key: str | AttributeKey, default: int = 0) -> int:
-    """Get an attribute as integer."""
-    value = get_entity_attribute(entity, key)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except (ValueError, TypeError):
-        return default
-
-
-def get_entity_attribute_float(
-    entity, key: str | AttributeKey, default: float = 0.0
-) -> float:
-    """Get an attribute as float."""
-    value = get_entity_attribute(entity, key)
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (ValueError, TypeError):
-        return default
-
-
-def set_entity_attribute(
-    entity: BaseModel,
-    key: str | AttributeKey,
-    value: Any,
-    known: bool | None = None,
-) -> None:
-    """Set or update an attribute value in an EAV entity."""
-    # Normaliser la clé si c'est un string
-    if isinstance(key, str):
-        key = normalize_attribute_key(key)
-
-    # Chercher et mettre à jour l'attribut existant
-    for attr in entity.attributes:
-        if attr.key == key:
-            attr.value = str(value)
-            if known is not None:
-                attr.known_by_protagonist = known
-            return
-
-    # Attribut non trouvé → l'ajouter
-    entity.attributes.append(
-        AttributeWithVisibility(
-            key=key,
-            value=str(value),
-            known_by_protagonist=known if known is not None else False,
-        )
-    )
-
-
-# =============================================================================
 # ARRIVAL EVENT
 # =============================================================================
 
@@ -135,7 +55,7 @@ class ArrivalEventData(BaseModel):
 
     arrival_method: Name  # 100 chars
     arrival_location_ref: EntityRef
-    arrival_date: Tag  # 50 chars - ex: 'Lundi 14 Mars 2847'
+    arrival_date: Tag  # 50 chars - e.g. 'Lundi 14 Mars 2847'
     time: str  # "14h30"
     immediate_sensory_details: list[str] = Field(..., min_length=3, max_length=6)
     first_npc_encountered: EntityRef | None = None
@@ -143,76 +63,52 @@ class ArrivalEventData(BaseModel):
     immediate_need: ShortText  # 200 chars
     optional_incident: Text | None = None  # 300 chars
 
-    def _build_arrival_summary(self) -> str:
-        """
-        Construit un résumé narratif de l'arrivée en français.
-
-        Exemples de sortie:
-        - "Arrivée via navette courrier après 11h de trajet. Fatigué et nauséeux.
-           Problème avec le code d'accès au logement."
-        - "Arrivée sur la station via transport commercial. Anxieux mais déterminé."
-        """
+    def build_arrival_summary(self) -> str:
+        """Build a narrative summary of the arrival in French."""
         parts = []
 
-        # 1. Méthode d'arrivée
         if self.arrival_method:
-            # Nettoyer et formater
             method_clean = self.arrival_method.strip().rstrip(".")
             parts.append(f"Arrivée via {method_clean}")
         else:
             parts.append("Arrivée sur la station")
 
-        # 2. État émotionnel (prioritaire)
         if self.initial_mood:
-            # Capitaliser la première lettre
             mood_clean = self.initial_mood.strip().rstrip(".")
-            # Transformer en phrase courte
             parts.append(mood_clean.capitalize())
 
-        # 3. Incident (s'il y en a un)
         if self.optional_incident:
-            # Résumer l'incident en une phrase courte
             incident_summary = self._summarize_incident()
             if incident_summary:
                 parts.append(incident_summary)
-
-        # 4. Besoin immédiat (optionnel, si pas d'incident)
         elif self.immediate_need:
             need = self.immediate_need.strip().rstrip(".")
-            # Seulement si c'est court
             if len(need) < 60:
                 parts.append(f"Priorité : {need.lower()}")
 
-        # Assembler avec des points
         summary = ". ".join(parts)
-
-        # S'assurer que ça finit par un point
         if not summary.endswith("."):
             summary += "."
 
-        # Tronquer si trop long (max 300 chars)
         if len(summary) > 300:
             summary = summary[:297].rsplit(" ", 1)[0] + "..."
 
         return summary
 
     def _summarize_incident(self) -> str | None:
-        """Résume un incident en une phrase courte."""
+        """Summarize an incident in a short sentence."""
         if not self.optional_incident:
             return None
 
         incident = self.optional_incident.strip()
 
-        # Si déjà court, le garder
         if len(incident) < 80:
             return incident.rstrip(".")
 
-        # Prendre la première phrase
         first_sentence = incident.split(".")[0].strip()
         if len(first_sentence) < 100:
             return first_sentence
 
-        # Sinon, tronquer intelligemment
         truncated = incident[:80].rsplit(" ", 1)[0]
         return truncated + "..."
 
@@ -235,7 +131,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     # Core elements
     world: WorldData
     protagonist: ProtagonistData
-    personal_ai: PersonalAIData
+    personal_assistant: PersonalAssistantData
 
     # Entities
     characters: list[CharacterData] = Field(..., max_length=8)
@@ -258,7 +154,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     @model_validator(mode="after")
     def validate_soft_minimums(self) -> "WorldGeneration":
-        """Check all list minimums - soft validation (warning, no error)"""
+        """Check all list minimums — soft validation (warning, no error)"""
         for field_name, (minimum, message) in WORLD_GENERATION_SOFT_MINIMUMS.items():
             value = getattr(self, field_name, [])
             if len(value) < minimum:
@@ -274,8 +170,12 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         if not isinstance(data, dict):
             return data
 
+        # Handle personal_ai -> personal_assistant rename
+        if "personal_ai" in data and "personal_assistant" not in data:
+            data["personal_assistant"] = data.pop("personal_ai")
+
         if "arrival_event" not in data or data["arrival_event"] is None:
-            logger.warning("[Validation] arrival_event missing → creating default")
+            logger.warning("[Validation] arrival_event missing — creating default")
             data["arrival_event"] = cls._create_default_arrival_event(data)
 
         return data
@@ -296,16 +196,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             }
             for loc in data["locations"]:
                 if isinstance(loc, dict):
-                    # EAV: look for location_type in attributes
-                    loc_type = ""
-                    attrs = loc.get("attributes", [])
-                    for attr in attrs:
-                        if (
-                            isinstance(attr, dict)
-                            and attr.get("key") == "location_type"
-                        ):
-                            loc_type = attr.get("value", "").lower()
-                            break
+                    loc_type = (loc.get("location_type") or "").lower()
                     if any(t in loc_type for t in arrival_types):
                         arrival_location = loc.get("name", arrival_location)
                         break
@@ -345,15 +236,8 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     def validate_character_diversity(
         cls, v: list[CharacterData]
     ) -> list[CharacterData]:
-        """Ensure species diversity - soft validation"""
-        species_list = []
-        for c in v:
-            species = get_entity_attribute(c, "species")
-            if species:
-                species_list.append(species.lower())
-            else:
-                species_list.append("unknown")
-
+        """Ensure species diversity — soft validation"""
+        species_list = [(c.species or "unknown").lower() for c in v]
         if species_list and species_list.count("human") == len(species_list):
             logger.warning(
                 "[Validation] All characters are human - diversity encouraged"
@@ -363,12 +247,8 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     @field_validator("locations")
     @classmethod
     def validate_essential_locations(cls, v: list[LocationData]) -> list[LocationData]:
-        """Ensure we have arrival point and residence - soft validation"""
-        types = []
-        for loc in v:
-            loc_type = get_entity_attribute(loc, "location_type")
-            if loc_type:
-                types.append(loc_type.lower())
+        """Ensure we have arrival point and residence — soft validation"""
+        types = [(loc.location_type or "").lower() for loc in v]
 
         residence_types = {
             "apartment",
@@ -383,7 +263,9 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         has_residence = any(
             any(keyword in t for keyword in residence_types) for t in types
         )
-        has_arrival = any(any(keyword in t for keyword in arrival_types) for t in types)
+        has_arrival = any(
+            any(keyword in t for keyword in arrival_types) for t in types
+        )
 
         if not has_residence:
             logger.warning("[Validation] No residence location found for Valentin")
@@ -393,47 +275,25 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     @model_validator(mode="after")
     def validate_temporal_coherence_soft(self) -> "WorldGeneration":
-        """Validate all temporal relationships - SOFT MODE."""
+        """Validate all temporal relationships — soft mode"""
         founding = self.world.founding_cycle
 
-        for char in self.characters:
-            arrival_cycle = get_entity_attribute_int(
-                char, AttributeKey.ARRIVAL_CYCLE, None
-            )
-            if (
-                arrival_cycle is not None
-                and founding is not None
-                and arrival_cycle < founding
-            ):
-                logger.warning(
-                    f"[Temporal] Character '{char.name}': arrival_cycle ({arrival_cycle}) "
-                    f"before founding_cycle ({founding}) - correcting"
-                )
-                set_entity_attribute(char, AttributeKey.ARRIVAL_CYCLE, founding)
-
         for org in self.organizations:
-            org_founding = get_entity_attribute_int(
-                org, AttributeKey.FOUNDING_CYCLE, None
-            )
-            if (
-                org_founding is not None
-                and founding is not None
-                and org_founding < founding
-            ):
-                logger.warning(
-                    f"[Temporal] Organization '{org.name}': founding_cycle ({org_founding}) "
-                    f"before world founding ({founding}) - correcting"
-                )
-                set_entity_attribute(org, AttributeKey.FOUNDING_CYCLE, founding)
+            if org.founding_cycle is not None and founding is not None:
+                if org.founding_cycle < founding:
+                    logger.warning(
+                        f"[Temporal] Organization '{org.name}': founding_cycle ({org.founding_cycle}) "
+                        f"before world founding ({founding}) — correcting"
+                    )
+                    org.founding_cycle = founding
         return self
 
     @model_validator(mode="after")
     def validate_references_soft(self) -> "WorldGeneration":
         """
-        Validate all entity references - SOFT MODE.
-        - Optional refs: set to None if invalid
-        - List refs: filter invalid entries
-        - Only filter entity if required refs are invalid or list becomes empty
+        Validate all entity references — soft mode.
+        Optional refs: set to None if invalid.
+        List refs: filter invalid entries.
         """
         max_passes = 5
         pass_num = 0
@@ -443,7 +303,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             changed = False
             known_names = self._build_name_registry()
 
-            # --- Characters: nullify invalid optional refs ---
+            # Characters: nullify invalid optional refs
             for char in self.characters:
                 if char.workplace_ref and char.workplace_ref.lower() not in known_names:
                     logger.warning(
@@ -460,7 +320,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     char.residence_ref = None
                     changed = True
 
-            # --- Locations: nullify invalid optional parent refs ---
+            # Locations: nullify invalid optional parent refs
             for loc in self.locations:
                 if (
                     loc.parent_location_ref
@@ -473,7 +333,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     loc.parent_location_ref = None
                     changed = True
 
-            # --- Organizations: nullify invalid optional HQ refs ---
+            # Organizations: nullify invalid optional HQ refs
             for org in self.organizations:
                 if (
                     org.headquarters_ref
@@ -486,7 +346,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     org.headquarters_ref = None
                     changed = True
 
-            # --- Relations: filter those with invalid required refs ---
+            # Relations: filter those with invalid required refs
             valid_rels = []
             for rel in self.initial_relations:
                 source_valid = rel.source_ref.lower() in known_names
@@ -509,7 +369,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             if len(valid_rels) != len(self.initial_relations):
                 self.initial_relations = valid_rels
 
-            # --- Narrative arcs: filter invalid refs from involved_entities ---
+            # Narrative arcs: filter invalid refs from involved_entities
             valid_arcs = []
             for arc in self.narrative_arcs:
                 valid_entities = [
@@ -540,14 +400,29 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             if len(valid_arcs) != len(self.narrative_arcs):
                 self.narrative_arcs = valid_arcs
 
-            # --- Fix arrival_event refs ---
+            # Deduplicate arcs by title (case-insensitive)
+            seen_titles: set[str] = set()
+            deduped_arcs = []
+            for arc in self.narrative_arcs:
+                key = arc.title.lower().strip()
+                if key in seen_titles:
+                    logger.warning(
+                        f"[SoftRef] Pass {pass_num}: Duplicate arc '{arc.title}' — removing"
+                    )
+                    changed = True
+                else:
+                    seen_titles.add(key)
+                    deduped_arcs.append(arc)
+            self.narrative_arcs = deduped_arcs
+
+            # Fix arrival_event refs
             if self.arrival_event.arrival_location_ref.lower() not in known_names:
                 fallback = self._find_arrival_location_fallback()
                 if fallback:
                     logger.warning(
                         f"[SoftRef] Pass {pass_num}: arrival_location_ref "
                         f"'{self.arrival_event.arrival_location_ref}' not found "
-                        f"→ fallback to '{fallback}'"
+                        f"— fallback to '{fallback}'"
                     )
                     self.arrival_event.arrival_location_ref = fallback
                     changed = True
@@ -557,7 +432,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     logger.warning(
                         f"[SoftRef] Pass {pass_num}: first_npc_encountered "
                         f"'{self.arrival_event.first_npc_encountered}' not found "
-                        f"→ setting to None"
+                        f"— setting to None"
                     )
                     self.arrival_event.first_npc_encountered = None
                     changed = True
@@ -579,7 +454,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     def _build_name_registry(self) -> set[str]:
         """Build a set of all known entity names (lowercase)"""
-        known = {self.protagonist.name.lower(), self.personal_ai.name.lower()}
+        known = {self.protagonist.name.lower(), self.personal_assistant.name.lower()}
         known.add(self.world.name.lower())
         known.update(c.name.lower() for c in self.characters)
         known.update(loc.name.lower() for loc in self.locations)
@@ -591,8 +466,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         """Find a suitable arrival location from existing locations"""
         arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
         for loc in self.locations:
-            loc_type = get_entity_attribute(loc, "location_type")
-            if loc_type and loc_type.lower() in arrival_types:
+            if loc.location_type and loc.location_type.lower() in arrival_types:
                 return loc.name
         if self.locations:
             return self.locations[0].name
@@ -620,14 +494,11 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     @model_validator(mode="after")
     def validate_inventory_for_departure(self) -> "WorldGeneration":
-        """Check inventory matches departure reason - soft validation"""
-        # Get departure_reason from protagonist attributes
-        reason_str = get_entity_attribute(self.protagonist, "departure_reason")
-        if not reason_str:
-            reason_str = "other"
+        """Check inventory matches departure reason — soft validation"""
+        reason = self.protagonist.departure_reason
+        reason_key = reason.value if hasattr(reason, "value") else str(reason)
 
-        # Get credits from protagonist attributes
-        credits = get_entity_attribute_int(self.protagonist, "credits", 1400)
+        credits = self.protagonist.credits
 
         expected_ranges = {
             "flight": (100, 600),
@@ -639,11 +510,11 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             "other": (0, 10000),
         }
 
-        min_c, max_c = expected_ranges.get(reason_str, (0, 10000))
+        min_c, max_c = expected_ranges.get(reason_key, (0, 10000))
         if not (min_c <= credits <= max_c):
             logger.warning(
                 f"[Validation] Credits ({credits}) unusual for departure_reason "
-                f"'{reason_str}' (expected {min_c}-{max_c})"
+                f"'{reason_key}' (expected {min_c}-{max_c})"
             )
 
         return self

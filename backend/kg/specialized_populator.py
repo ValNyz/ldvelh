@@ -1,38 +1,34 @@
 """
-LDVELH - Specialized Populators (EAV Architecture)
+LDVELH - Specialized Populators (Dedicated Tables Architecture)
 WorldPopulator: Initial world generation processing
 ExtractionPopulator: Narrative extraction processing
-
-Utilise KnowledgeGraphPopulator et KnowledgeGraphReader
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from schema import (
-    ArrivalEventData,
-    AttributeKey,
-    AttributeWithVisibility,
-    CommitmentType,
+    ArcCreation,
+    CharacterData,
     EntityCreation,
-    EntityUpdate,
-    InventoryChange,
-    NarrativeExtraction,
-    NarrativeArcData,
-    ObjectCreation,
-    RelationData,
-    RelationType,
     EntityType,
+    EntityUpdate,
     FactData,
     FactParticipant,
     FactType,
+    InventoryChange,
+    LocationData,
+    NarrativeArcData,
+    NarrativeExtraction,
+    ObjectCreation,
+    ObjectData,
+    OrganizationData,
+    RelationType,
 )
 from .populator import KnowledgeGraphPopulator
-from .reader import KnowledgeGraphReader
 
 if TYPE_CHECKING:
     from asyncpg import Connection
@@ -47,232 +43,244 @@ logger = logging.getLogger(__name__)
 
 class WorldPopulator(KnowledgeGraphPopulator):
     """
-    Specialized populator for initial world generation.
-    Takes a complete WorldGeneration and populates the entire KG.
+    Populates the entire game world from a WorldGeneration output.
+    Handles entity creation, FK resolution, relations, and arcs.
     """
 
-    async def populate(self, world_gen) -> UUID:
-        """Main entry point - creates game and populates everything"""
+    async def populate(
+        self, world_gen, user_id: UUID | None = None
+    ) -> UUID:
+        """Main entry point — creates game and populates everything."""
 
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # 1. Create game OR rename existing
+                # 1. Create game or rename existing
                 if self.game_id:
                     await self.rename_game(conn, world_gen.world.name)
                 else:
-                    await self.create_game(conn, world_gen.world.name)
+                    await self.create_game(
+                        conn, world_gen.world.name, user_id
+                    )
 
-                # 2. Create world as top-level location
-                await self._create_world(conn, world_gen.world)
+                # 2. Store world metadata on games table
+                await self.set_world_data(
+                    conn,
+                    world_gen.world,
+                    seed_words=world_gen.generation_seed_words,
+                )
 
-                # 3. Create protagonist
+                # 3. Create station as top-level location
+                await self._create_station_location(conn, world_gen.world)
+
+                # 4. Create protagonist
                 await self.create_protagonist(conn, world_gen.protagonist)
 
-                # 4. Create AI
-                await self.create_ai(conn, world_gen.personal_ai)
+                # 5. Create personal assistant
+                await self.create_personal_assistant(
+                    conn, world_gen.personal_assistant
+                )
 
-                # 5. Create organizations
+                # 6. Create organizations (HQ refs resolved later)
                 for org in world_gen.organizations:
                     await self.create_organization(conn, org)
 
-                # 6. Create locations (two passes for parent refs)
-                await self._create_locations_two_pass(conn, world_gen.locations)
+                # 7. Create locations (parent refs resolved later)
+                for loc in world_gen.locations:
+                    await self.create_location(conn, loc)
 
-                # 7. Update organization HQ refs
-                await self._update_org_headquarters(conn, world_gen.organizations)
+                # 8. Resolve FK refs now that all entities exist
+                await self._resolve_location_parents(conn, world_gen.locations)
+                await self._resolve_org_headquarters(conn, world_gen.organizations)
+                await self._resolve_protagonist_refs(conn, world_gen.protagonist)
 
-                # 8. Create characters
+                # 9. Create characters (with workplace/residence FKs)
                 for char in world_gen.characters:
-                    await self.create_character(conn, char)
-
-                # 9. Create inventory
-                for obj in world_gen.inventory:
-                    await self.create_object(
-                        conn, obj, owner_ref=world_gen.protagonist.name
+                    wp_id = await self._resolve_location_id(
+                        conn, char.workplace_ref
+                    )
+                    res_id = await self._resolve_location_id(
+                        conn, char.residence_ref
+                    )
+                    await self.create_character(
+                        conn, char, cycle=1,
+                        workplace_id=wp_id, residence_id=res_id,
                     )
 
-                # 10. Create all explicit relations
+                # 10. Create objects + inventory entries
+                for obj in world_gen.inventory:
+                    obj_row_id = await self.create_object(conn, obj)
+                    if obj_row_id:
+                        await self.add_to_inventory(
+                            conn, obj_row_id,
+                            quantity=obj.quantity, cycle=1, origin="initial",
+                        )
+
+                # 11. Load registry (entity_registry IDs for relations/arcs)
+                await self.load_registry(conn)
+
+                # 12. Create all explicit relations
                 for rel in world_gen.initial_relations:
                     result = await self.create_relation(conn, rel)
                     if result is None:
                         logger.warning(
-                            f"[POPULATE] Failed to create relation: "
-                            f"{rel.source_ref} --{rel.relation_type.value}--> {rel.target_ref}"
+                            f"[POPULATE] Failed relation: "
+                            f"{rel.source_ref} --{rel.relation_type.value}"
+                            f"--> {rel.target_ref}"
                         )
 
-                # 11. Create narrative arcs as commitments
+                # 13. Create narrative arcs
                 for arc in world_gen.narrative_arcs:
-                    await self._create_narrative_arc(conn, arc)
+                    await self.create_narrative_arc(conn, arc)
 
-                # 12. Store arrival event metadata
+                # 14. Store arrival event
                 await self._store_arrival_event(conn, world_gen.arrival_event)
 
-                # 13. Store generation metadata
+                # 15. Set initial game state
+                arrival_loc_id = await self._resolve_location_id(
+                    conn, world_gen.arrival_event.arrival_location_ref
+                )
+                await self.update_game_state(
+                    conn,
+                    cycle=1,
+                    date=world_gen.arrival_event.arrival_date,
+                    time=world_gen.arrival_event.time,
+                    location_id=arrival_loc_id,
+                )
+
+                # 16. Metadata
                 await self._store_generation_meta(conn, world_gen)
 
-                logger.info(f"World populated: {len(self.registry._by_name)} entities")
+                logger.info(
+                    f"World populated: {len(self.registry._by_name)} entities"
+                )
 
         return self.game_id
 
-    async def _create_world(self, conn: Connection, world) -> UUID:
-        """Create the station as top-level location entity"""
-        entity_id = await self.upsert_entity(conn, EntityType.LOCATION, world.name)
+    # =========================================================================
+    # HELPERS
+    # =========================================================================
 
-        # Set all world attributes
-        attrs = [
-            AttributeWithVisibility(
-                key=AttributeKey.LOCATION_TYPE,
-                value=world.station_type
-                if hasattr(world, "station_type")
-                else "station",
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.ATMOSPHERE,
-                value=world.atmosphere if hasattr(world, "atmosphere") else "",
-                known_by_protagonist=True,
-            ),
-            AttributeWithVisibility(
-                key=AttributeKey.DESCRIPTION,
-                value=world.description if hasattr(world, "description") else "",
-                known_by_protagonist=True,
-            ),
-        ]
-
-        # Add sectors as notable_features
-        if hasattr(world, "sectors") and world.sectors:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.NOTABLE_FEATURES,
-                    value=json.dumps(world.sectors),
-                    known_by_protagonist=True,
-                )
-            )
-
-        await self.set_attributes(
-            conn, entity_id, attrs, cycle=1, entity_type=EntityType.LOCATION
+    async def _create_station_location(self, conn: Connection, world) -> UUID:
+        """Create the station as a top-level location."""
+        loc_data = LocationData(
+            name=world.name,
+            location_type="station",
+            description=world.description,
+            atmosphere=world.atmosphere,
+            notable_features=world.sectors if hasattr(world, "sectors") else [],
         )
+        return await self.create_location(conn, loc_data, cycle=1)
 
-        return entity_id
-
-    async def _create_locations_two_pass(
+    async def _resolve_location_parents(
         self, conn: Connection, locations: list
     ) -> None:
-        """Create locations in two passes to handle parent refs"""
+        """Update parent_id for locations with parent_location_ref."""
         for loc in locations:
-            await self.upsert_entity(conn, EntityType.LOCATION, loc.name)
-
-        for loc in locations:
-            await self.create_location(conn, loc)
-
-    async def _update_org_headquarters(
-        self, conn: Connection, organizations: list
-    ) -> None:
-        """Update organization HQ refs"""
-        for org in organizations:
-            if hasattr(org, "headquarters_ref") and org.headquarters_ref:
-                hq_id = self.registry.resolve(org.headquarters_ref)
-                org_id = self.registry.resolve(org.name)
-                if hq_id and org_id:
-                    await self.update_entity_fk(
-                        conn,
-                        EntityType.ORGANIZATION,
-                        org_id,
-                        "headquarters_id",
-                        hq_id,
+            if loc.parent_location_ref:
+                parent_id = await self._resolve_location_id(
+                    conn, loc.parent_location_ref
+                )
+                if parent_id:
+                    await conn.execute(
+                        "UPDATE locations SET parent_id = $1"
+                        " WHERE game_id = $2 AND LOWER(name) = LOWER($3)",
+                        parent_id,
+                        self.game_id,
+                        loc.name,
                     )
 
-    async def _create_narrative_arc(
-        self, conn: Connection, arc: NarrativeArcData
-    ) -> UUID:
-        """Create a narrative arc as a commitment"""
-        arc_type = (
-            arc.arc_type.value if hasattr(arc.arc_type, "value") else arc.arc_type
-        )
+    async def _resolve_org_headquarters(
+        self, conn: Connection, organizations: list
+    ) -> None:
+        """Update headquarters_id for organizations."""
+        for org in organizations:
+            if org.headquarters_ref:
+                hq_id = await self._resolve_location_id(
+                    conn, org.headquarters_ref
+                )
+                if hq_id:
+                    await conn.execute(
+                        "UPDATE organizations SET headquarters_id = $1"
+                        " WHERE game_id = $2 AND LOWER(name) = LOWER($3)",
+                        hq_id,
+                        self.game_id,
+                        org.name,
+                    )
 
-        commitment_id = await self.create_commitment(
-            conn,
-            commitment_type=arc_type,
-            description=f"{arc.title}: {arc.description}",
-            cycle=1,
-            deadline_cycle=arc.deadline_cycle
-            if hasattr(arc, "deadline_cycle")
-            else None,
-        )
-
-        if hasattr(arc, "arc_type") and arc.arc_type == CommitmentType.ARC:
-            await self.create_commitment_arc(
-                conn,
-                commitment_id,
-                objective=arc.title,
-                obstacle=arc.stakes if hasattr(arc, "stakes") else "",
+    async def _resolve_protagonist_refs(
+        self, conn: Connection, protagonist
+    ) -> None:
+        """Update protagonist employer_id and residence_id."""
+        if protagonist.employer_ref:
+            emp_id = await self._resolve_organization_id(
+                conn, protagonist.employer_ref
             )
-
-        for entity_name in (
-            arc.involved_entities if hasattr(arc, "involved_entities") else []
-        ):
-            entity_id = self.registry.resolve(entity_name)
-            if entity_id:
-                await self.add_commitment_entity(
-                    conn, commitment_id, entity_id, role="involved"
+            if emp_id:
+                await conn.execute(
+                    "UPDATE protagonists SET employer_id = $1"
+                    " WHERE game_id = $2",
+                    emp_id,
+                    self.game_id,
                 )
-                logger.info(f"[ARC] Linked '{entity_name}' to '{arc.title}'")
-            else:
-                logger.warning(
-                    f"[ARC] Entity not found for arc '{arc.title}': '{entity_name}'"
+        if protagonist.residence_ref:
+            res_id = await self._resolve_location_id(
+                conn, protagonist.residence_ref
+            )
+            if res_id:
+                await conn.execute(
+                    "UPDATE protagonists SET residence_id = $1"
+                    " WHERE game_id = $2",
+                    res_id,
+                    self.game_id,
                 )
-                logger.info(
-                    f"[ARC] Available entities: {list(self.registry._by_name.keys())[:15]}..."
-                )
-
-        return commitment_id
 
     async def _store_arrival_event(
-        self, conn: Connection, arrival: ArrivalEventData
+        self, conn: Connection, arrival
     ) -> None:
-        """Store arrival as milestone event with source fact + cycle summary"""
+        """Store arrival as facts + event + chronology entry."""
 
-        # 1. Créer le fact principal d'arrivée
-        arrival_fact_id = await self.create_fact(
+        # 1. Main arrival fact
+        await self.create_fact(
             conn,
             FactData(
                 cycle=1,
                 fact_type=FactType.ENCOUNTER,
-                description=f"Arrivée sur la station via {arrival.arrival_method}",
+                description=(
+                    f"Arrivée sur la station via {arrival.arrival_method}"
+                ),
                 location_ref=arrival.arrival_location_ref,
-                time=arrival.time if hasattr(arrival, "time") else None,
+                time=getattr(arrival, "time", None),
                 importance=4,
-                participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                participants=[
+                    FactParticipant(entity_ref="Valentin", role="actor")
+                ],
                 semantic_key="valentin:arrival:station",
             ),
         )
 
-        # 2. Créer l'événement milestone lié au fact
+        # 2. Milestone event
         event_id = await self.create_event(
             conn,
             event_type="milestone",
             title="Arrivée sur la station",
             planned_cycle=1,
             description=f"Arrivée via {arrival.arrival_method}",
-            time=arrival.time if hasattr(arrival, "time") else None,
+            time=getattr(arrival, "time", None),
             location_ref=arrival.arrival_location_ref,
             completed=True,
-            source_fact_id=arrival_fact_id,
         )
 
-        # 3. Ajouter le protagoniste comme participant
+        # 3. Add protagonist as participant
         protagonist_ids = self.registry.get_by_type(EntityType.PROTAGONIST)
         if protagonist_ids:
-            await self.add_event_participant(
-                conn, event_id, protagonist_ids[0], role="protagonist"
-            )
+            await self.add_event_participant(conn, event_id, protagonist_ids[0])
 
-        # 4. Créer facts supplémentaires (indépendants, même cycle)
-
-        # Atmosphère/sensations
+        # 4. Additional facts
         sensory = getattr(arrival, "immediate_sensory_details", None)
         if sensory:
-            sensory_text = ". ".join(sensory) if isinstance(sensory, list) else sensory
+            sensory_text = (
+                ". ".join(sensory) if isinstance(sensory, list) else sensory
+            )
             await self.create_fact(
                 conn,
                 FactData(
@@ -286,7 +294,6 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 ),
             )
 
-        # Incident
         incident = getattr(arrival, "optional_incident", None)
         if incident:
             await self.create_fact(
@@ -297,12 +304,13 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     description=incident[:300],
                     location_ref=arrival.arrival_location_ref,
                     importance=3,
-                    participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                    participants=[
+                        FactParticipant(entity_ref="Valentin", role="actor")
+                    ],
                     semantic_key="valentin:arrival:incident",
                 ),
             )
 
-        # État émotionnel
         mood = getattr(arrival, "initial_mood", None)
         if mood:
             await self.create_fact(
@@ -312,12 +320,13 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     fact_type=FactType.STATE_CHANGE,
                     description=f"État à l'arrivée : {mood}",
                     importance=2,
-                    participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                    participants=[
+                        FactParticipant(entity_ref="Valentin", role="actor")
+                    ],
                     semantic_key="valentin:arrival:mood",
                 ),
             )
 
-        # Besoin immédiat
         need = getattr(arrival, "immediate_need", None)
         if need:
             await self.create_fact(
@@ -327,40 +336,35 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     fact_type=FactType.OBSERVATION,
                     description=f"Besoin immédiat : {need}",
                     importance=2,
-                    participants=[FactParticipant(entity_ref="Valentin", role="actor")],
+                    participants=[
+                        FactParticipant(entity_ref="Valentin", role="actor")
+                    ],
                     semantic_key="valentin:arrival:need",
                 ),
             )
 
-        # 5. Créer le cycle_summary
-        summary_id = await self.save_cycle_summary(
+        # 5. Chronology entry (replaces old cycle_summary)
+        await self.save_chronology_entry(
             conn,
             cycle=0,
-            date=arrival.arrival_date,
-            summary=arrival._build_arrival_summary(),
-        )
-
-        # 6. Lier l'event au cycle_summary
-        await self.add_event_to_cycle_summary(
-            conn,
-            cycle_summary_id=summary_id,
-            event_id=event_id,
-            role="primary",
-            display_order=0,
+            summary=arrival.build_arrival_summary(),
+            time=getattr(arrival, "time", None),
+            location_ref=arrival.arrival_location_ref,
         )
 
     async def _store_generation_meta(self, conn: Connection, world_gen) -> None:
-        """Store generation metadata"""
+        """Store generation metadata."""
         await self.update_game_timestamp(conn)
-
         await self.log_extraction(
             conn,
             cycle=0,
             stats={
                 "entities_created": len(self.registry._by_name),
-                "relations_created": len(world_gen.initial_relations)
-                if hasattr(world_gen, "initial_relations")
-                else 0,
+                "relations_created": (
+                    len(world_gen.initial_relations)
+                    if hasattr(world_gen, "initial_relations")
+                    else 0
+                ),
             },
         )
 
@@ -372,15 +376,13 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
 class ExtractionPopulator(KnowledgeGraphPopulator):
     """
-    Specialized populator for processing narrative extractions.
-    Uses unified EAV format for all entity types.
+    Processes narrative extractions into the database.
+    Routes entity creation/updates to the correct dedicated tables.
     """
 
-    def _get_reader(self) -> KnowledgeGraphReader:
-        """Crée un reader pour les lookups"""
-        return KnowledgeGraphReader(self.pool, self.game_id)
-
-    async def process_extraction(self, extraction: NarrativeExtraction) -> dict:
+    async def process_extraction(
+        self, extraction: NarrativeExtraction
+    ) -> dict:
         """Process a complete narrative extraction."""
         stats = {
             "facts_created": 0,
@@ -391,7 +393,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             "relations_ended": 0,
             "gauges_changed": 0,
             "credits_changed": 0,
-            "commitments_created": 0,
+            "arcs_created": 0,
             "errors": [],
         }
 
@@ -402,23 +404,28 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 if not self.registry._by_name:
                     await self.load_registry(conn)
 
-                # 1. Create new entities (unified EAV format)
+                # 1. Create new entities
                 for entity in extraction.entities_created:
                     try:
-                        await self._process_entity_creation(conn, entity, cycle)
+                        await self._process_entity_creation(
+                            conn, entity, cycle
+                        )
                         stats["entities_created"] += 1
                     except Exception as e:
                         logger.error(f"Entity creation error: {e}")
                         stats["errors"].append(f"Entity creation: {e}")
 
                 # 2. Create objects from acquisition
-                for obj_creation in extraction.objects_created:
+                for obj in extraction.objects_created:
                     try:
-                        await self._process_object_creation(conn, obj_creation, cycle)
+                        await self._process_object_creation(conn, obj, cycle)
                         stats["objects_created"] += 1
                     except Exception as e:
                         logger.error(f"Object creation error: {e}")
                         stats["errors"].append(f"Object creation: {e}")
+
+                # Reload registry (new entities registered by triggers)
+                await self.load_registry(conn)
 
                 # 3. Process entity updates
                 for update in extraction.entities_updated:
@@ -430,17 +437,18 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
                 # 4. Process entity removals
                 for removal in extraction.entities_removed:
-                    await self.remove_entity(
-                        conn, removal.entity_ref, removal.cycle, removal.reason
-                    )
+                    et = self._detect_entity_type(conn, removal.entity_ref)
+                    if et:
+                        await self.remove_entity(
+                            conn, removal.entity_ref, et, removal.cycle
+                        )
 
                 # 5. Create facts
                 for fact in extraction.facts:
-                    result = await self.create_fact(conn, fact)
-                    if result:
+                    if await self.create_fact(conn, fact):
                         stats["facts_created"] += 1
 
-                # 6. Create new relations (NO owns)
+                # 6. Create relations (skip OWNS — handled by inventory)
                 for rel_creation in extraction.relations_created:
                     if rel_creation.relation.relation_type == RelationType.OWNS:
                         continue
@@ -462,7 +470,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     )
                     stats["relations_ended"] += 1
 
-                # 8. Process gauge changes
+                # 8. Gauge changes
                 for gauge in extraction.gauge_changes:
                     success, _, _ = await self.update_gauge(
                         conn, gauge.gauge, gauge.delta, cycle
@@ -470,7 +478,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     if success:
                         stats["gauges_changed"] += 1
 
-                # 9. Process credit transactions
+                # 9. Credit transactions
                 for tx in extraction.credit_transactions:
                     success, _, error = await self.credit_transaction(
                         conn, tx.amount, cycle, tx.description
@@ -480,302 +488,331 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     elif error:
                         stats["errors"].append(f"Credits: {error}")
 
-                # 10. Process inventory changes
+                # 10. Inventory changes
                 for inv in extraction.inventory_changes:
                     await self._process_inventory_change(conn, inv, cycle)
 
-                # 11. Create commitments
-                for commit in extraction.commitments_created:
-                    await self._create_extraction_commitment(conn, commit, cycle)
-                    stats["commitments_created"] += 1
+                # 11. Create narrative arcs
+                for arc in extraction.arcs_created:
+                    await self._create_arc_from_extraction(conn, arc, cycle)
+                    stats["arcs_created"] += 1
 
-                # 12. Resolve commitments
-                for resolution in extraction.commitments_resolved:
-                    await self._resolve_extraction_commitment(conn, resolution, cycle)
+                # 12. Update arc progress
+                for arc_update in extraction.arcs_updated:
+                    updated = await self.update_arc(
+                        conn,
+                        arc_title=arc_update.arc_title,
+                        intensity=arc_update.intensity,
+                        progress=arc_update.progress,
+                        situation=arc_update.situation,
+                    )
+                    if updated:
+                        stats["arcs_updated"] = stats.get("arcs_updated", 0) + 1
 
-                # 13. Schedule events
+                # 13. Resolve arcs
+                for resolution in extraction.arcs_resolved:
+                    await self.resolve_arc(
+                        conn, resolution.arc_title, resolution.resolution, cycle
+                    )
+
+                # 14. Schedule events
                 for event in extraction.events_scheduled:
-                    await self._schedule_extraction_event(conn, event, cycle)
+                    await self._schedule_event(conn, event)
 
-                # 14. Store extraction log
+                # 15. Apply ambient updates
+                for amb in extraction.ambient_updates:
+                    try:
+                        success = await self.update_entity(
+                            conn, amb.entity_type, amb.entity_ref,
+                            {"ambient": amb.ambient},
+                        )
+                        if success:
+                            stats["ambients_updated"] = (
+                                stats.get("ambients_updated", 0) + 1
+                            )
+                    except Exception as e:
+                        stats["errors"].append(f"Ambient update: {e}")
+
+                # 16. Save chronology entry
+                if extraction.segment_summary:
+                    await self.save_chronology_entry(
+                        conn,
+                        cycle=cycle,
+                        summary=extraction.segment_summary,
+                        time=extraction.time,
+                        location_ref=extraction.current_location_ref,
+                        npc_refs=extraction.key_npcs_present or None,
+                    )
+
+                # 17. Log extraction
                 await self.log_extraction(conn, cycle, stats)
-
-                # # 15. Store cycle summary
-                # await self.save_cycle_summary(
-                #     conn, cycle, summary=extraction.segment_summary, date=data["date"]
-                # )
 
         return stats
 
+    # =========================================================================
+    # ENTITY CREATION ROUTING
+    # =========================================================================
+
     async def _process_entity_creation(
         self, conn: Connection, creation: EntityCreation, cycle: int
-    ) -> UUID:
-        """Process a new entity creation using unified EAV format."""
-        # Create base entity
-        entity_id = await self.upsert_entity(
-            conn,
-            creation.entity_type,
-            creation.name,
-            creation.aliases,
-            cycle,
-            creation.known_by_protagonist,
-            creation.unknown_name,
-        )
+    ) -> None:
+        """Route entity creation to the correct dedicated table."""
+        et = creation.entity_type
+        data = creation.data or {}
 
-        # Set all attributes from unified format
-        if creation.attributes:
-            await self.set_attributes(
-                conn,
-                entity_id,
-                creation.attributes,
-                cycle,
-                entity_type=creation.entity_type,
+        if et == EntityType.CHARACTER:
+            char_data = CharacterData(
+                name=creation.name,
+                known_by_protagonist=creation.known_by_protagonist,
+                unknown_name=creation.unknown_name,
+                **{k: v for k, v in data.items()
+                   if k not in ("workplace_ref", "residence_ref")},
+            )
+            wp_id = await self._resolve_location_id(
+                conn, data.get("workplace_ref")
+            )
+            res_id = await self._resolve_location_id(
+                conn, data.get("residence_ref")
+            )
+            await self.create_character(
+                conn, char_data, cycle, wp_id, res_id
             )
 
-        # Handle FK references via update_entity_fk
-        if creation.entity_type == EntityType.LOCATION and creation.parent_location_ref:
-            parent_id = self.registry.resolve(creation.parent_location_ref)
-            if parent_id:
-                await self.update_entity_fk(
-                    conn,
-                    EntityType.LOCATION,
-                    entity_id,
-                    "parent_location_id",
-                    parent_id,
+        elif et == EntityType.LOCATION:
+            loc_data = LocationData(
+                name=creation.name,
+                **{k: v for k, v in data.items()
+                   if k != "parent_location_ref"},
+            )
+            parent_id = await self._resolve_location_id(
+                conn, data.get("parent_location_ref")
+            )
+            await self.create_location(conn, loc_data, cycle, parent_id)
+
+        elif et == EntityType.ORGANIZATION:
+            org_data = OrganizationData(
+                name=creation.name,
+                **{k: v for k, v in data.items()
+                   if k != "headquarters_ref"},
+            )
+            hq_id = await self._resolve_location_id(
+                conn, data.get("headquarters_ref")
+            )
+            await self.create_organization(conn, org_data, cycle, hq_id)
+
+        elif et == EntityType.OBJECT:
+            obj_data = ObjectData(name=creation.name, **data)
+            obj_id = await self.create_object(conn, obj_data, cycle)
+            if obj_id:
+                await self.add_to_inventory(
+                    conn, obj_id, cycle=cycle, origin="discovered"
                 )
 
-        if (
-            creation.entity_type == EntityType.ORGANIZATION
-            and creation.headquarters_ref
-        ):
-            hq_id = self.registry.resolve(creation.headquarters_ref)
-            if hq_id:
-                await self.update_entity_fk(
-                    conn, EntityType.ORGANIZATION, entity_id, "headquarters_id", hq_id
-                )
-
-        if creation.entity_type == EntityType.AI and creation.creator_ref:
-            creator_id = self.registry.resolve(creation.creator_ref)
-            if creator_id:
-                await self.update_entity_fk(
-                    conn, EntityType.AI, entity_id, "creator_id", creator_id
-                )
-
-        # Auto-create spatial relations for characters
-        if creation.entity_type == EntityType.CHARACTER:
-            if creation.workplace_ref:
-                await self.create_relation(
-                    conn,
-                    RelationData(
-                        source_ref=creation.name,
-                        target_ref=creation.workplace_ref,
-                        relation_type=RelationType.WORKS_AT,
-                    ),
-                    cycle,
-                )
-            if creation.residence_ref:
-                await self.create_relation(
-                    conn,
-                    RelationData(
-                        source_ref=creation.name,
-                        target_ref=creation.residence_ref,
-                        relation_type=RelationType.LIVES_AT,
-                    ),
-                    cycle,
-                )
-
-        return entity_id
+        else:
+            logger.warning(
+                f"[EXTRACT] Unsupported entity type: {et} for '{creation.name}'"
+            )
 
     async def _process_object_creation(
         self, conn: Connection, obj_creation: ObjectCreation, cycle: int
-    ) -> UUID:
-        """Process an object creation from inventory acquisition."""
-        # Get protagonist
-        protagonist_ids = self.registry.get_by_type(EntityType.PROTAGONIST)
-        if not protagonist_ids:
-            raise ValueError("Protagonist not found")
-        protagonist_id = protagonist_ids[0]
-        protagonist_name = self.registry.get_name(protagonist_id)
-
-        # Create entity
-        entity_id = await self.upsert_entity(
-            conn, EntityType.OBJECT, obj_creation.name, cycle=cycle
+    ) -> None:
+        """Create an object from acquisition and add to protagonist inventory."""
+        obj_data = ObjectData(
+            name=obj_creation.name,
+            category=obj_creation.category,
+            description=obj_creation.description,
+            transportable=obj_creation.transportable,
+            stackable=obj_creation.stackable,
+            base_value=obj_creation.base_value,
         )
-
-        # Set attributes
-        if obj_creation.attributes:
-            await self.set_attributes(
+        obj_id = await self.create_object(conn, obj_data, cycle)
+        if obj_id:
+            await self.add_to_inventory(
                 conn,
-                entity_id,
-                obj_creation.attributes,
-                cycle,
-                entity_type=EntityType.OBJECT,
+                obj_id,
+                quantity=obj_creation.quantity,
+                cycle=cycle,
+                origin="acquired",
             )
 
-        # Create owns relation
-        await self.create_relation(
-            conn,
-            RelationData(
-                source_ref=protagonist_name,
-                target_ref=obj_creation.name,
-                relation_type=RelationType.OWNS,
-                quantity=obj_creation.quantity,
-                origin="acquired",
-            ),
-            cycle,
-        )
-
-        return entity_id
+    # =========================================================================
+    # ENTITY UPDATE ROUTING
+    # =========================================================================
 
     async def _process_entity_update(
         self, conn: Connection, update: EntityUpdate, cycle: int
     ) -> None:
-        """Process an entity update using EAV attributes"""
-        entity_id = self.registry.resolve(update.entity_ref)
-        if not entity_id:
-            raise KeyError(f"Entity not found: {update.entity_ref}")
+        """Route entity update to the correct dedicated table."""
+        entity_type = update.entity_type
+        if not entity_type:
+            entity_type = await self._detect_entity_type(
+                conn, update.entity_ref
+            )
+        if not entity_type:
+            logger.warning(
+                f"[UPDATE] Unknown entity type for '{update.entity_ref}'"
+            )
+            return
 
-        # Update aliases
-        if update.new_aliases:
-            await self.update_entity_aliases(conn, entity_id, update.new_aliases)
-
-        # Update known status
-        if update.now_known:
-            await self.mark_entity_known(conn, entity_id, update.real_name)
-
-        # Update attributes
-        if update.attributes_changed:
-            reader = self._get_reader()
-            entity = await reader.get_entity_by_id(conn, entity_id)
-            entity_type = EntityType(entity["type"]) if entity else None
-
-            await self.set_attributes(
-                conn,
-                entity_id,
-                update.attributes_changed,
-                cycle,
-                entity_type=entity_type,
+        # Reveal identity
+        if update.now_known and entity_type == EntityType.CHARACTER:
+            await self.mark_character_known(
+                conn, update.entity_ref, update.real_name
             )
 
-        # Update skills
-        for skill in update.skills_changed:
-            await self.set_skill(conn, entity_id, skill, cycle)
+        # Field changes
+        if update.changes:
+            await self.update_entity(
+                conn, entity_type, update.entity_ref, update.changes
+            )
+
+        # Skill changes
+        if update.skills_changed:
+            await self._update_entity_skills(
+                conn, entity_type, update.entity_ref, update.skills_changed,
+                cycle,
+            )
+
+        # Mark as removed
+        if update.removed:
+            await self.remove_entity(
+                conn, update.entity_ref, entity_type, cycle
+            )
+
+    async def _detect_entity_type(
+        self, conn: Connection, name: str
+    ) -> EntityType | None:
+        """Detect entity type from entity_registry."""
+        row = await conn.fetchrow(
+            "SELECT entity_type FROM entity_registry"
+            " WHERE game_id = $1 AND LOWER(name) = LOWER($2)"
+            " LIMIT 1",
+            self.game_id,
+            name,
+        )
+        if row:
+            try:
+                return EntityType(row["entity_type"])
+            except ValueError:
+                pass
+        return None
+
+    async def _update_entity_skills(
+        self,
+        conn: Connection,
+        entity_type: EntityType,
+        entity_ref: str,
+        skills: list,
+        cycle: int,
+    ) -> None:
+        """Update skills for a character or protagonist."""
+        if entity_type == EntityType.CHARACTER:
+            char_id = await conn.fetchval(
+                "SELECT id FROM characters"
+                " WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+                self.game_id,
+                entity_ref,
+            )
+            if char_id:
+                for skill in skills:
+                    await self.update_skill(
+                        conn, skill, cycle, character_id=char_id
+                    )
+        elif entity_type == EntityType.PROTAGONIST:
+            proto_id = await self._resolve_protagonist_id(conn)
+            if proto_id:
+                for skill in skills:
+                    await self.update_skill(
+                        conn, skill, cycle, protagonist_id=proto_id
+                    )
+
+    # =========================================================================
+    # INVENTORY CHANGES
+    # =========================================================================
 
     async def _process_inventory_change(
         self, conn: Connection, change: InventoryChange, cycle: int
     ) -> None:
-        """Process inventory changes (acquire with ref, lose, use)"""
-        protagonist_ids = self.registry.get_by_type(EntityType.PROTAGONIST)
-        if not protagonist_ids:
-            return
-        protagonist_name = self.registry.get_name(protagonist_ids[0])
-
+        """Process acquire/lose/use inventory actions."""
         if change.action == "acquire":
             if change.object_hint:
                 return  # Handled by objects_created
-
             if change.object_ref:
-                await self.create_relation(
-                    conn,
-                    RelationData(
-                        source_ref=protagonist_name,
-                        target_ref=change.object_ref,
-                        relation_type=RelationType.OWNS,
-                    ),
-                    cycle,
+                obj_id = await self._resolve_object_id(
+                    conn, change.object_ref
                 )
+                if obj_id:
+                    await self.add_to_inventory(
+                        conn, obj_id,
+                        quantity=change.quantity_delta,
+                        cycle=cycle, origin="acquired",
+                    )
 
         elif change.action == "lose" and change.object_ref:
-            await self.end_relation(
-                conn,
-                protagonist_name,
-                change.object_ref,
-                RelationType.OWNS,
-                cycle,
-                change.reason,
-            )
+            obj_id = await self._resolve_object_id(conn, change.object_ref)
+            if obj_id:
+                await self.remove_from_inventory(
+                    conn, obj_id, change.quantity_delta
+                )
 
         elif change.action == "use" and change.object_ref:
-            from schema import FactData, FactParticipant
-
+            safe_key = change.object_ref.lower().replace(" ", "_")[:30]
             await self.create_fact(
                 conn,
                 FactData(
                     cycle=cycle,
                     fact_type=FactType.ACTION,
-                    description=f"Utilise {change.object_ref}. {change.reason or ''}",
+                    description=(
+                        f"Utilise {change.object_ref}."
+                        f" {change.reason or ''}"
+                    ).strip(),
                     importance=2,
-                    participants=[FactParticipant(entity_ref="Valentin", role="actor")],
-                    semantic_key=f"valentin:use:{change.object_ref.lower().replace(' ', '_')}",
+                    participants=[
+                        FactParticipant(entity_ref="Valentin", role="actor")
+                    ],
+                    semantic_key=f"valentin:use:{safe_key}",
                 ),
             )
 
-    async def _create_extraction_commitment(
-        self, conn: Connection, commit, cycle: int
+    # =========================================================================
+    # NARRATIVE ARC FROM EXTRACTION
+    # =========================================================================
+
+    async def _create_arc_from_extraction(
+        self, conn: Connection, arc: ArcCreation, cycle: int
     ) -> UUID:
-        """Create a narrative commitment from extraction"""
-        commitment_id = await self.create_commitment(
-            conn,
-            commitment_type=commit.commitment_type.value,
-            description=commit.description,
-            cycle=cycle,
-            deadline_cycle=commit.deadline_cycle,
+        """Create a narrative arc from extraction output."""
+        arc_data = NarrativeArcData(
+            title=arc.title,
+            domain=arc.domain,
+            description=arc.description,
+            involved_entities=arc.involved_entities,
+            potential_triggers=arc.potential_triggers,
+            stakes=arc.stakes,
+            deadline_cycle=arc.deadline_cycle,
+            intensity=arc.intensity,
         )
+        return await self.create_narrative_arc(conn, arc_data)
 
-        if commit.commitment_type == CommitmentType.ARC and commit.objective:
-            await self.create_commitment_arc(
-                conn,
-                commitment_id,
-                objective=commit.objective,
-                obstacle=commit.obstacle or "",
-            )
+    # =========================================================================
+    # EVENT SCHEDULING
+    # =========================================================================
 
-        for entity_ref in commit.involved_entities:
-            entity_id = self.registry.resolve(entity_ref)
-            if entity_id:
-                await self.add_commitment_entity(conn, commitment_id, entity_id)
-
-        return commitment_id
-
-    async def _resolve_extraction_commitment(
-        self, conn: Connection, resolution, cycle: int
-    ) -> None:
-        """Resolve a commitment by description match"""
-        reader = self._get_reader()
-        commitment = await reader.find_commitment_by_description(
-            conn, resolution.commitment_description
+    async def _schedule_event(self, conn: Connection, event) -> UUID:
+        """Schedule a future event from extraction."""
+        event_type = (
+            event.event_type.value
+            if hasattr(event.event_type, "value")
+            else str(event.event_type)
         )
-
-        if commitment:
-            # Create resolution fact
-            from schema import FactData
-
-            fact = FactData(
-                cycle=cycle,
-                fact_type=FactType.STATE_CHANGE,
-                description=resolution.resolution_description,
-                importance=3,
-                participants=[],
-                semantic_key=f"commitment:resolved:{commitment['id']}",
-            )
-            fact_id = await self.create_fact(conn, fact)
-
-            await self.resolve_commitment(conn, commitment["id"], fact_id)
-
-    async def _schedule_extraction_event(
-        self, conn: Connection, event, source_cycle: int
-    ) -> UUID:
-        """Schedule a future event from extraction"""
         event_id = await self.create_event(
             conn,
-            event_type=event.event_type,
+            event_type=event_type,
             title=event.title,
             planned_cycle=event.planned_cycle,
             description=event.description,
             time=event.time,
             location_ref=event.location_ref,
-            recurrence=event.recurrence,
-            amount=event.amount,
         )
 
         for participant_ref in event.participants:
