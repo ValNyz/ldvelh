@@ -20,8 +20,8 @@ export function useWorldData(gameId, enabled = true) {
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState(null);
 
-	const fetchWorldData = useCallback(async () => {
-		if (!gameId || !enabled) return;
+	const fetchWorldData = useCallback(async (force = false) => {
+		if (!gameId || (!enabled && !force)) return;
 
 		setLoading(true);
 		setError(null);
@@ -37,14 +37,14 @@ export function useWorldData(gameId, enabled = true) {
 		}
 	}, [gameId, enabled]);
 
-	// Charger au montage et quand gameId change
+	// Load on mount and when gameId/enabled changes
 	useEffect(() => {
 		fetchWorldData();
 	}, [fetchWorldData]);
 
-	// Fonction de refresh exposée
+	// Explicit refresh always fetches (bypasses enabled check)
 	const refresh = useCallback(async () => {
-		await fetchWorldData();
+		await fetchWorldData(true);
 	}, [fetchWorldData]);
 
 	return {
