@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { api } from '../../../lib/api';
 
-export default function VerifyPage() {
+function VerifyContent() {
 	const searchParams = useSearchParams();
 	const token = searchParams.get('token');
 	const [status, setStatus] = useState('loading'); // loading, success, already, error
@@ -86,6 +86,19 @@ export default function VerifyPage() {
 				</>
 			)}
 		</div>
+	);
+}
+
+export default function VerifyPage() {
+	return (
+		<Suspense fallback={
+			<div className="bg-gray-900 rounded-xl p-6 space-y-4 border border-gray-800 text-center">
+				<div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
+				<p className="text-gray-400">Chargement...</p>
+			</div>
+		}>
+			<VerifyContent />
+		</Suspense>
 	);
 }
 
