@@ -1,14 +1,16 @@
 """
 LDVELH - Narration Schema
-Input/Output pour le LLM narrateur
+Input/Output models for the narrator LLM
 """
 
-from typing import Optional
+from typing import Literal, Optional
+
 from pydantic import BaseModel, Field
 
 from .core import (
     ArcDomain,
     EntityRef,
+    Name,
     Phrase,
     Tag,
     Text,
@@ -16,52 +18,52 @@ from .core import (
 
 
 # =============================================================================
-# CONTEXT BUILDING BLOCKS (Input pour le narrateur)
+# CONTEXT BUILDING BLOCKS (Narrator input)
 # =============================================================================
 
 
 class GaugeState(BaseModel):
-    """État d'une jauge du protagoniste"""
+    """State of a protagonist gauge"""
 
     value: float = Field(..., ge=0, le=5)
-    trend: Optional[str] = None  # "↑", "↓", "stable"
+    trend: Optional[str] = None  # "up", "down", "stable"
 
 
 class ProtagonistState(BaseModel):
-    """État actuel du protagoniste"""
+    """Current protagonist state"""
 
     name: str
     credits: int
     energy: GaugeState
     morale: GaugeState
     health: GaugeState
-    # skills: list[str]  # "architecture_systemes (4), cuisine (3)"
     hobbies: list[str]
     current_occupation: Optional[str] = None
     employer: Optional[str] = None
 
 
 class InventoryItem(BaseModel):
-    """Objet dans l'inventaire"""
+    """An item in the inventory"""
 
     name: str
     category: str
     quantity: int = 1
-    emotional: bool = False  # A une signification émotionnelle
+    emotional: bool = False  # Has emotional significance
 
 
 class LocationSummary(BaseModel):
-    """Résumé d'un lieu"""
+    """Location summary"""
 
     name: str
     type: str
     sector: str
     atmosphere: str
     accessible: bool = True
+    ambient: str | None = None
 
 
 class ArcSummary(BaseModel):
-    """Résumé d'un arc de personnage"""
+    """Lightweight arc summary (used in NPC context)"""
 
     domain: ArcDomain
     title: str
@@ -70,7 +72,7 @@ class ArcSummary(BaseModel):
 
 
 class NPCLightSummary(BaseModel):
-    """Résumé léger d'un PNJ pour le contexte"""
+    """Lightweight NPC summary for context"""
 
     name: str
     occupation: str | None
@@ -78,43 +80,44 @@ class NPCLightSummary(BaseModel):
     relationship_level: int | None
     usual_location: str | None
     known: bool
+    ambient: str | None = None
 
 
 class NPCSummary(NPCLightSummary):
-    """Résumé d'un PNJ pour le contexte"""
+    """Detailed NPC summary for context"""
 
-    traits: list[str]  # 2-3 traits principaux
-    relationship_to_protagonist: Optional[str] = (
-        None  # "collègue", "voisine", "inconnu"
-    )
-    relationship_level: Optional[int] = None  # 0-10 si connu
+    traits: list[str]  # 2-3 main traits
+    relationship_to_protagonist: Optional[str] = None  # "colleague", "neighbor", etc.
+    relationship_level: Optional[int] = None  # 0-10 if known
     active_arcs: list[ArcSummary] = Field(default_factory=list)
-    last_seen: Optional[str] = None  # "cycle 3, au café"
-    notes: Optional[str] = None  # Infos importantes connues
+    last_seen: Optional[str] = None  # "cycle 3, at the cafe"
+    notes: Optional[str] = None  # Important known info
+    ambient: str | None = None
 
 
 class OrganizationSummary(BaseModel):
-    """Résumé d'une organisation pour le contexte"""
+    """Organization summary for context"""
 
     name: str
     org_type: str | None
     domain: str | None
-    protagonist_relation: str | None  # ex: "employed_by"
+    protagonist_relation: str | None  # e.g. "employed_by"
+    ambient: str | None = None
 
 
-class CommitmentSummary(BaseModel):
-    """Résumé d'un engagement narratif actif"""
+class ActiveArcSummary(BaseModel):
+    """Summary of an active narrative arc"""
 
-    type: str  # foreshadowing, secret, setup, chekhov_gun, arc
+    type: str  # ArcDomain value
     title: str
     description_brief: str
-    involved: list[str]  # Noms des entités impliquées
+    involved: list[str]  # Entity names involved
     deadline_cycle: Optional[int] = None
     urgency: str = "normal"  # low, normal, high, critical
 
 
 class EventSummary(BaseModel):
-    """Résumé d'un événement à venir"""
+    """Upcoming event summary"""
 
     title: str
     planned_cycle: int
@@ -125,7 +128,7 @@ class EventSummary(BaseModel):
 
 
 class Fact(BaseModel):
-    """Fait"""
+    """Fact summary for narrator context"""
 
     cycle: int
     description: str
@@ -133,17 +136,8 @@ class Fact(BaseModel):
     involves: list[str] = Field(default_factory=list)
 
 
-class MessageSummary(BaseModel):
-    """Résumé d'un message passé"""
-
-    role: str  # "user" ou "assistant"
-    summary: str
-    cycle: int
-    time: Optional[str] = None
-
-
 class CycleSummary(BaseModel):
-    """Résumé d'un message passé"""
+    """Cycle summary (from chronology table)"""
 
     summary: Text
     cycle: int
@@ -151,8 +145,8 @@ class CycleSummary(BaseModel):
     events: list[Phrase] = Field(default_factory=list)
 
 
-class PersonalAISummary(BaseModel):
-    """Résumé de l'IA personnelle de Valentin"""
+class PersonalAssistantSummary(BaseModel):
+    """Summary of Valentin's personal AI assistant"""
 
     name: str
     voice_description: Optional[str] = None
@@ -161,74 +155,75 @@ class PersonalAISummary(BaseModel):
 
 
 # =============================================================================
-# NARRATION CONTEXT (Input complet)
+# NARRATION CONTEXT (Complete input)
 # =============================================================================
 
 
 class NarrationContext(BaseModel):
-    """Contexte complet fourni au narrateur"""
+    """Complete context provided to the narrator"""
 
-    # === TEMPS ===
+    # === TIME ===
     current_cycle: int
     current_date: str  # "Mercredi 15 Mars 2847"
     current_time: str  # "14h30"
 
-    # === ESPACE ===
+    # === SPACE ===
     current_location: LocationSummary
     connected_locations: list[LocationSummary] = Field(
         default_factory=list,
-        description="Lieux directement accessibles depuis le lieu actuel",
+        description="Locations directly accessible from current location",
     )
 
-    # === PROTAGONISTE ===
+    # === PROTAGONIST ===
     protagonist: ProtagonistState
     inventory: list[InventoryItem] = Field(default_factory=list)
 
-    # === IA PERSONNELLE ===
-    personal_ai: Optional[PersonalAISummary] = Field(
-        default=None, description="IA personnelle de Valentin (nom, traits, quirk)"
+    # === PERSONAL ASSISTANT ===
+    personal_ai: Optional[PersonalAssistantSummary] = Field(
+        default=None,
+        description="Valentin's personal AI assistant (name, traits, quirk)",
     )
 
-    # === ORGANISATIONS ===
+    # === ORGANIZATIONS ===
     organizations: list[OrganizationSummary]
 
-    # === PNJs ===
+    # === NPCs ===
     all_npcs: list[NPCLightSummary]
     npcs_present: list[NPCSummary] = Field(
-        default_factory=list, description="PNJs actuellement présents dans le lieu"
+        default_factory=list, description="NPCs currently present at the location"
     )
     npcs_relevant: list[NPCSummary] = Field(
         default_factory=list,
-        description="PNJs connus pertinents (mentionnés, attendus, proches)",
+        description="Known relevant NPCs (mentioned, expected, nearby)",
     )
 
-    # === NARRATIF ===
-    active_commitments: list[CommitmentSummary] = Field(
-        default_factory=list, description="Arcs et engagements narratifs actifs"
+    # === NARRATIVE ===
+    active_arcs: list[ActiveArcSummary] = Field(
+        default_factory=list, description="Active narrative arcs"
     )
     upcoming_events: list[EventSummary] = Field(
-        default_factory=list, description="Événements prévus dans les prochains cycles"
+        default_factory=list, description="Upcoming events in the next cycles"
     )
 
-    # === FAITS ===
+    # === FACTS ===
     facts: list[Fact] = Field(
-        default_factory=list, description="Faits importants récents (importance >= 4)"
+        default_factory=list, description="Recent important facts (importance >= 4)"
     )
 
-    # === HISTORIQUE ===
+    # === HISTORY ===
     cycle_summaries: list[CycleSummary] = Field(
-        default_factory=list, description="Résumés des derniers cycles"
-    )
-    recent_messages: list[MessageSummary] = Field(
-        default_factory=list, description="Les derniers messages (détaillés)"
-    )
-    earlier_cycle_messages: list[MessageSummary] = Field(
         default_factory=list,
-        description="Résumés courts des messages plus anciens du cycle en cours",
+        description="Summaries of cycles before conversation window",
     )
 
-    # === INPUT JOUEUR ===
-    player_input: str = Field(..., description="Ce que le joueur a dit/choisi")
+    # === REQUESTED ENTITY DETAILS (prefetched from info_requests) ===
+    requested_entity_details: dict[str, dict] = Field(
+        default_factory=dict,
+        description="Detailed info on entities requested by narrator at previous turn",
+    )
+
+    # === PLAYER INPUT ===
+    player_input: str = Field(..., description="What the player said/chose")
 
     # === META ===
     world_name: str
@@ -237,64 +232,64 @@ class NarrationContext(BaseModel):
 
 
 # =============================================================================
-# NARRATION HINTS (Signaux pour l'extracteur)
+# NARRATION HINTS (Signals for the extractor)
 # =============================================================================
 
 
 class NarrationHints(BaseModel):
-    """Indices du narrateur pour guider l'extraction"""
+    """Hints from the narrator to guide extraction"""
 
-    # Nouvelles entités mentionnées/introduites
+    # New entities mentioned/introduced
     new_entities_mentioned: list[str] = Field(
         default_factory=list,
-        description="Noms de nouveaux PNJs, lieux, objets mentionnés pour la première fois",
+        description="Names of new NPCs, locations, objects mentioned for the first time",
     )
 
-    # Changements détectés
+    # Detected changes
     relationships_changed: bool = Field(
         default=False,
-        description="Une relation a évolué (amitié, tension, romance, pro...)",
+        description="A relationship has evolved (friendship, tension, romance, professional...)",
     )
     protagonist_state_changed: bool = Field(
-        default=False, description="Jauges, crédits, inventaire, skills ont changé"
+        default=False, description="Gauges, credits, inventory, skills have changed"
     )
     information_learned: bool = Field(
-        default=False, description="Le protagoniste a appris quelque chose de nouveau"
+        default=False, description="The protagonist learned something new"
     )
 
     # Narrative
-    commitment_advanced: list[str] = Field(
+    arc_advanced: list[str] = Field(
         default_factory=list,
-        description="Titres des arcs/engagements qui ont progressé",
+        description="Titles of arcs that have progressed",
     )
-    commitment_resolved: list[str] = Field(
-        default_factory=list, description="Titres des arcs/engagements résolus"
+    arc_resolved: list[str] = Field(
+        default_factory=list, description="Titles of arcs that were resolved"
     )
-    new_commitment_created: bool = Field(
+    new_arc_created: bool = Field(
         default=False,
-        description="Un nouveau secret, foreshadowing, setup a été introduit",
+        description="A new secret, foreshadowing, setup, or arc was introduced",
     )
 
-    # Événements
+    # Events
     event_scheduled: bool = Field(
-        default=False, description="Un rendez-vous ou événement futur a été planifié"
+        default=False, description="An appointment or future event was scheduled"
     )
     event_occurred: bool = Field(
-        default=False, description="Un événement prévu s'est produit"
+        default=False, description="A scheduled event occurred"
     )
 
     @property
     def needs_extraction(self) -> bool:
-        """Détermine si une extraction est nécessaire"""
+        """Determine if extraction is needed"""
         return any(
             [
                 self.new_entities_mentioned,
                 self.relationships_changed,
                 self.protagonist_state_changed,
                 self.information_learned,
-                self.commitment_advanced,
-                self.commitment_resolved,
-                self.new_commitment_created,
+                self.arc_advanced,
+                self.arc_resolved,
+                self.new_arc_created,
                 self.event_scheduled,
                 self.event_occurred,
             ]
@@ -307,61 +302,125 @@ class NarrationHints(BaseModel):
 
 
 class TimeProgression(BaseModel):
-    """Progression temporelle"""
+    """Time progression"""
 
-    new_time: str = Field(..., description="Nouvelle heure: 'HHhMM'")
+    new_time: str = Field(..., description="New time: 'HHhMM'")
     ellipse: bool = Field(
         default=False,
-        description="True si saut temporel significatif (ellipse narrative)",
+        description="True if significant time skip (narrative ellipsis)",
     )
     ellipse_summary: Phrase | None = None  # 150 chars
 
 
 class DayTransition(BaseModel):
-    """Transition vers un nouveau jour"""
+    """Transition to a new day"""
 
     new_cycle: int
     new_date: str  # "Jeudi 16 Mars 2847"
     night_summary: Phrase | None = None  # 150 chars
 
 
+class GaugeDelta(BaseModel):
+    """Live gauge change output by the narrator"""
+
+    gauge: Literal["energy", "morale", "health"]
+    delta: float = Field(default=0, ge=-3.0, le=3.0)  # ±0.5 common, ±1.5 exceptional
+
+
+class CreditDelta(BaseModel):
+    """Live credit change output by the narrator"""
+
+    amount: int  # Positive = gain, negative = expense
+    description: str = Field(..., max_length=100)  # "café au Terminal 7"
+
+
+class InventoryHint(BaseModel):
+    """Lightweight inventory change — formalized at batch extraction time"""
+
+    action: Literal["acquire", "lose", "use"]
+    item_name: str = Field(..., max_length=100)
+    item_description: str = Field(..., max_length=200)  # For frontend display
+    quantity: int = 1
+
+
+class EntityReveal(BaseModel):
+    """An entity whose identity/existence was revealed to the protagonist"""
+
+    entity_type: Literal["character", "location"] = "character"
+    current_name: Name  # Name used until now (unknown_name or description)
+    real_name: Name | None = None  # Actual name if revealed (characters only)
+
+
+class EventHint(BaseModel):
+    """Lightweight event hint — formalized at batch extraction time"""
+
+    title: str = Field(..., max_length=100)
+    planned_time: str | None = None  # "HHhMM"
+    planned_cycle: int | None = None
+    location: str | None = None  # Location name
+
+
 class NarrationOutput(BaseModel):
-    """Output complet du LLM narrateur"""
+    """Complete narrator LLM output"""
 
     # === NARRATION ===
     narrative_text: str = Field(
         ...,
         min_length=100,
-        description="Texte narratif en Markdown. Ton Becky Chambers.",
+        description="Narrative text in Markdown. Becky Chambers tone.",
     )
 
-    # === TEMPS ===
+    # === TIME ===
     time: TimeProgression
     day_transition: Optional[DayTransition] = Field(
-        default=None, description="Rempli seulement si on passe à un nouveau jour"
+        default=None, description="Filled only when transitioning to a new day"
     )
 
-    # === ESPACE ===
+    # === SPACE ===
     current_location: EntityRef = Field(
-        ..., description="Nom EXACT du lieu actuel (doit exister)"
+        ..., description="EXACT name of the current location (must exist)"
     )
 
-    # === PNJs ===
+    # === NPCs ===
     npcs_present: list[EntityRef] = Field(
-        default_factory=list, description="Noms EXACTS des PNJs présents dans la scène"
+        default_factory=list, description="EXACT names of NPCs present in the scene"
     )
 
-    # === CHOIX ===
+    # === CHOICES ===
     suggested_actions: list[Phrase] = Field(
-        ...,
-        min_length=2,
-        max_length=5,
-        description="Suggestions d'actions possibles",
+        default_factory=list,
+        description="Suggested possible actions (2-5 ideally)",
     )
 
-    # === HINTS POUR EXTRACTION ===
-    hints: NarrationHints
+    # === LIVE STATE DELTAS ===
+    gauge_deltas: list[GaugeDelta] = Field(
+        default_factory=list, description="Gauge changes to apply immediately"
+    )
+    credit_delta: Optional[CreditDelta] = Field(
+        default=None, description="Credit change to apply immediately"
+    )
+    inventory_hints: list[InventoryHint] = Field(
+        default_factory=list, description="Inventory changes (formalized at batch time)"
+    )
+    entity_reveals: list[EntityReveal] = Field(
+        default_factory=list, description="Entities revealed to the protagonist"
+    )
+
+    # === STRUCTURED HINTS FOR PROCESS_LIGHT ===
+    events_mentioned: list[EventHint] = Field(
+        default_factory=list,
+        description="Events scheduled or that occurred this turn",
+    )
+
+    # === INFO REQUESTS (prefetch for next turn) ===
+    info_requests: list[EntityRef] = Field(
+        default_factory=list,
+        description="Entity names to load in detail for next turn context",
+    )
+
+    # === HINTS FOR EXTRACTION ===
+    hints: NarrationHints = Field(default_factory=NarrationHints)
 
     # === META ===
-    scene_mood: Tag | None = None  # 50 chars - Ambiance en 2-3 mots
-    narrator_notes: Text | None = None  # 300 chars - Notes internes
+    scene_mood: Tag | None = None  # 50 chars - mood in 2-3 words
+    narrator_notes: Text | None = None  # 300 chars - internal notes

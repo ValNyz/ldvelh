@@ -1,4 +1,4 @@
-// 'use client';
+'use client';
 
 import { useRef, useEffect, useCallback } from 'react';
 import Message, { MessageEditForm } from './Message';
@@ -12,13 +12,15 @@ export default function MessageList({
 	fontSize,
 	editingIndex,
 	onEdit,
+	onResend,
 	onCancelEdit,
 	onSubmitEdit,
 	onRegenerate,
 	onCancel,
 	onClearError,
 	onRetry,
-	tooltipMap  // NOUVEAU
+	tooltipMap,
+	showDebug
 }) {
 	const containerRef = useRef(null);
 	const endRef = useRef(null);
@@ -82,8 +84,10 @@ export default function MessageList({
 						isLoading={loading}
 						fontSize={fontSize}
 						onEdit={msg.role === 'user' && !loading ? onEdit : null}
+						onResend={msg.role === 'user' && !loading ? onResend : null}
 						onRegenerate={!loading ? onRegenerate : null}
-						tooltipMap={tooltipMap}  // NOUVEAU : passer la map
+						tooltipMap={tooltipMap}
+						showDebug={showDebug}
 					/>
 				)
 			))}

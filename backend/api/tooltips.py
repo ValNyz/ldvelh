@@ -9,7 +9,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from api.dependencies import get_pool
+from api.dependencies import get_pool, get_current_user
 
 
 router = APIRouter(tags=["tooltips"])
@@ -174,6 +174,7 @@ def format_tooltip(entity_data: dict) -> TooltipInfo:
 @router.get("/tooltips")
 async def get_tooltips(
     partie_id: UUID = Query(..., alias="partieId"),
+    user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """
@@ -247,7 +248,9 @@ async def get_tooltips(
 
 @router.get("/tooltips/{entity_id}")
 async def get_entity_tooltip(
-    entity_id: UUID, pool: asyncpg.Pool = Depends(get_pool)
+    entity_id: UUID,
+    user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
     """
     GET /api/tooltips/{entity_id}

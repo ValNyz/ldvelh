@@ -46,34 +46,6 @@ class TestGetRelationLabel:
         assert GameService._get_relation_label(-10) == "Hostile"
 
 
-class TestGetPriority:
-    """Tests pour _get_priority"""
-
-    def test_with_deadline_always_haute(self):
-        """Avec deadline → haute"""
-        assert GameService._get_priority("task", 5) == "haute"
-        assert GameService._get_priority("promise", 10) == "haute"
-        assert GameService._get_priority("secret", 1) == "haute"
-
-    def test_arc_without_deadline(self):
-        """Arc sans deadline → haute"""
-        assert GameService._get_priority("arc", None) == "haute"
-
-    def test_secret_without_deadline(self):
-        """Secret sans deadline → normale"""
-        assert GameService._get_priority("secret", None) == "normale"
-
-    def test_chekhov_gun_without_deadline(self):
-        """Chekhov gun sans deadline → normale"""
-        assert GameService._get_priority("chekhov_gun", None) == "normale"
-
-    def test_other_types_without_deadline(self):
-        """Autres types sans deadline → basse"""
-        assert GameService._get_priority("task", None) == "basse"
-        assert GameService._get_priority("promise", None) == "basse"
-        assert GameService._get_priority("unknown", None) == "basse"
-        assert GameService._get_priority("", None) == "basse"
-
 
 class TestRelationLabelBoundaries:
     """Tests des valeurs limites pour _get_relation_label"""

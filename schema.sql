@@ -1,178 +1,359 @@
 -- ============================================================================
--- LDVELH - Database Schema (EAV Architecture)
--- Architecture: CORE → NARRATION → HISTORY
--- All entity attributes go through the `attributes` table
+-- LDVELH - Schéma de base de données
+-- Architecture : Tables dédiées + entity_registry pour références croisées
 -- ============================================================================
 
 -- ============================================================================
 -- ENUMS
 -- ============================================================================
 
-CREATE TYPE entity_type AS ENUM (
-  'protagonist', 'character', 'location', 'object', 'ai', 'organization'
-);
-
 CREATE TYPE relation_type AS ENUM (
+  -- Social
   'knows', 'friend_of', 'enemy_of', 'family_of', 'romantic',
+  -- Professionnel
   'employed_by', 'colleague_of', 'manages',
+  -- Spatial
   'frequents', 'lives_at', 'located_in', 'works_at',
+  -- Possession
   'owns', 'owes_to'
 );
 
-CREATE TYPE fact_type AS ENUM (
-  'action', 'npc_action',
-  'statement', 'revelation', 'promise', 'request', 'refusal', 'question',
-  'observation', 'atmosphere',
-  'state_change', 'acquisition', 'loss',
-  'encounter', 'interaction', 'conflict',
-  'flashback', 'foreshadow',
-  'decision', 'realization'
-);
+-- ============================================================================
+-- COUCHE AUTH
+-- ============================================================================
 
-CREATE TYPE participant_role AS ENUM (
-  'actor', 'witness', 'target', 'mentioned'
-);
-
-CREATE TYPE event_type AS ENUM (
-  'milestone', 'appointment', 'deadline', 'celebration', 'recurring', 'financial_due'
-);
-
-CREATE TYPE commitment_type AS ENUM (
-  'foreshadowing', 'secret', 'setup', 'chekhov_gun', 'arc'
-);
-
-CREATE TYPE contradiction_type AS ENUM (
-  'temporal', 'factual', 'relational', 'spatial'
-);
-
-CREATE TYPE contradiction_resolution AS ENUM (
-  'keep_existing', 'accept_new', 'merge', 'manual'
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(255) NOT NULL,
+  display_name VARCHAR(100) UNIQUE,
+  preferences JSONB DEFAULT '{}',
+  email_verified BOOLEAN DEFAULT false,
+  email_verification_token VARCHAR(64),
+  email_verification_sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- ============================================================================
--- CORE: GAMES
+-- COUCHE CORE : PARTIES
 -- ============================================================================
 
 CREATE TABLE games (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name VARCHAR(255) DEFAULT 'New Game',
+  user_id UUID NOT NULL REFERENCES users(id),
+  name VARCHAR(255) DEFAULT 'Nouvelle partie',
+  -- État courant
+  current_cycle INTEGER DEFAULT 0,
+  "current_date" VARCHAR(50),         -- "Lundi 14 Mars 2847"
+  "current_time" VARCHAR(5),          -- "14h30"
+  current_location_id UUID,           -- FK ajoutée après création de locations
+  -- Monde
+  world_name VARCHAR(255),
+  world_description TEXT,
+  world_atmosphere VARCHAR(255),
+  world_seed_words TEXT[],
+  world_founding_cycle INTEGER,
+  -- Extraction tracking
+  extracted_up_to_cycle INTEGER DEFAULT 0,
+  last_extraction_time VARCHAR(5),     -- last in-game time extraction ran
+  detail_requests TEXT[] DEFAULT '{}',
+  --
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE INDEX idx_games_user ON games(user_id);
+CREATE INDEX idx_games_active ON games(user_id) WHERE active = true;
+
 -- ============================================================================
--- CORE: ENTITIES (parent table)
+-- COUCHE CORE : PROTAGONISTE (1 par partie)
 -- ============================================================================
 
-CREATE TABLE entities (
+CREATE TABLE protagonists (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  type entity_type NOT NULL,
-  name VARCHAR(255) NOT NULL,
-  aliases TEXT[] DEFAULT '{}',
-  known_by_protagonist BOOLEAN DEFAULT true,
-  unknown_name VARCHAR(255),
-  created_cycle INTEGER NOT NULL DEFAULT 1,
-  removed_cycle INTEGER,
-  removal_reason TEXT,
+  game_id UUID UNIQUE NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  -- Jauges (valeurs courantes)
+  energy NUMERIC(3,1) DEFAULT 4.0,
+  morale NUMERIC(3,1) DEFAULT 3.0,
+  health NUMERIC(3,1) DEFAULT 5.0,
+  credits INTEGER DEFAULT 1400,
+  -- Profil
+  occupation VARCHAR(255),
+  employer_id UUID,                   -- FK vers organizations (ajoutée plus tard)
+  residence_id UUID,                  -- FK vers locations (ajoutée plus tard)
+  origin VARCHAR(255),
+  departure_reason VARCHAR(50),       -- fresh_start, flight, breakup, etc.
+  backstory TEXT,
+  hobbies TEXT[],
+  description TEXT,
+  -- Flexible
+  details JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(game_id, type, name)
-);
-
-CREATE INDEX idx_entities_game ON entities(game_id);
-CREATE INDEX idx_entities_type ON entities(game_id, type);
-CREATE INDEX idx_entities_name ON entities(game_id, name);
-CREATE INDEX idx_entities_aliases ON entities USING GIN(aliases);
-CREATE INDEX idx_entities_active ON entities(game_id) WHERE removed_cycle IS NULL;
-CREATE INDEX idx_entities_known ON entities(game_id) 
-  WHERE known_by_protagonist = true AND removed_cycle IS NULL;
-
--- ============================================================================
--- CORE: TYPED ENTITY TABLES (FK only - all data in attributes)
--- ============================================================================
-
--- Location: parent_location_id FK needed for hierarchy
-CREATE TABLE entity_locations (
-  entity_id UUID PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
-  parent_location_id UUID REFERENCES entities(id) ON DELETE SET NULL
-);
-
-CREATE INDEX idx_locations_parent ON entity_locations(parent_location_id);
-
--- AI: creator_id FK needed
-CREATE TABLE entity_ais (
-  entity_id UUID PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
-  creator_id UUID REFERENCES entities(id) ON DELETE SET NULL
-);
-
--- Organization: headquarters_id FK needed
-CREATE TABLE entity_organizations (
-  entity_id UUID PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
-  headquarters_id UUID REFERENCES entities(id) ON DELETE SET NULL
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- ============================================================================
--- CORE: ATTRIBUTES (EAV - central table for all entity data)
+-- COUCHE CORE : ASSISTANT PERSONNEL (1 par partie)
 -- ============================================================================
 
-CREATE TABLE attributes (
+CREATE TABLE personal_assistants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  key VARCHAR(100) NOT NULL,
-  value TEXT NOT NULL,
-  details JSONB,
-  known_by_protagonist BOOLEAN DEFAULT true,
-  start_cycle INTEGER NOT NULL,
-  end_cycle INTEGER,
+  game_id UUID UNIQUE NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  voice VARCHAR(255),
+  traits TEXT[],
+  quirk TEXT,
+  substrate VARCHAR(100) DEFAULT 'terminal personnel',
+  details JSONB DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_attributes_entity ON attributes(entity_id);
-CREATE INDEX idx_attributes_key ON attributes(entity_id, key);
-CREATE INDEX idx_attributes_active ON attributes(entity_id) WHERE end_cycle IS NULL;
-CREATE INDEX idx_attributes_game ON attributes(game_id);
-CREATE INDEX idx_attributes_known ON attributes(entity_id) 
-  WHERE known_by_protagonist = true AND end_cycle IS NULL;
-CREATE INDEX idx_attributes_game_key ON attributes(game_id, key) WHERE end_cycle IS NULL;
+-- ============================================================================
+-- COUCHE CORE : LIEUX
+-- ============================================================================
+
+CREATE TABLE locations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  -- Hiérarchie
+  parent_id UUID REFERENCES locations(id),
+  -- Propriétés
+  location_type VARCHAR(100),         -- cafe, terminal, apartment, workplace, etc.
+  sector VARCHAR(255),
+  description TEXT,
+  atmosphere VARCHAR(255),
+  accessible BOOLEAN DEFAULT true,
+  notable_features TEXT[],
+  typical_crowd VARCHAR(255),
+  operating_hours VARCHAR(50),
+  price_range VARCHAR(50),
+  -- Narratif
+  ambient TEXT,
+  -- Flexible
+  details JSONB DEFAULT '{}',
+  -- Versioning
+  created_cycle INTEGER DEFAULT 1,
+  removed_cycle INTEGER,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(game_id, name)
+);
+
+CREATE INDEX idx_locations_game ON locations(game_id);
+CREATE INDEX idx_locations_active ON locations(game_id) WHERE removed_cycle IS NULL;
+CREATE INDEX idx_locations_parent ON locations(parent_id);
+
+-- FK différée : games.current_location_id → locations
+ALTER TABLE games ADD CONSTRAINT fk_games_current_location
+  FOREIGN KEY (current_location_id) REFERENCES locations(id);
+
+-- FK différée : protagonists.residence_id → locations
+ALTER TABLE protagonists ADD CONSTRAINT fk_protagonists_residence
+  FOREIGN KEY (residence_id) REFERENCES locations(id);
 
 -- ============================================================================
--- CORE: SKILLS
+-- COUCHE CORE : ORGANISATIONS
+-- ============================================================================
+
+CREATE TABLE organizations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  org_type VARCHAR(100),              -- company, guild, syndicate, etc.
+  domain VARCHAR(255),
+  size VARCHAR(50),                   -- small, medium, large
+  description TEXT,
+  reputation VARCHAR(255),
+  headquarters_id UUID REFERENCES locations(id),
+  founding_cycle INTEGER,
+  ambient TEXT,
+  details JSONB DEFAULT '{}',
+  created_cycle INTEGER DEFAULT 1,
+  removed_cycle INTEGER,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(game_id, name)
+);
+
+CREATE INDEX idx_organizations_game ON organizations(game_id);
+CREATE INDEX idx_organizations_active ON organizations(game_id) WHERE removed_cycle IS NULL;
+
+-- FK différée : protagonists.employer_id → organizations
+ALTER TABLE protagonists ADD CONSTRAINT fk_protagonists_employer
+  FOREIGN KEY (employer_id) REFERENCES organizations(id);
+
+-- ============================================================================
+-- COUCHE CORE : PERSONNAGES (PNJs)
+-- ============================================================================
+
+CREATE TABLE characters (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  -- Identité
+  known_by_protagonist BOOLEAN DEFAULT false,
+  unknown_name VARCHAR(255),          -- "la femme blonde" si pas encore connu
+  species VARCHAR(100),
+  gender VARCHAR(50),
+  pronouns VARCHAR(30),
+  age VARCHAR(30),
+  description TEXT,
+  -- Personnalité & état
+  traits TEXT[],
+  mood VARCHAR(255),
+  occupation VARCHAR(255),
+  origin VARCHAR(255),
+  -- Lieux liés
+  workplace_id UUID REFERENCES locations(id),
+  residence_id UUID REFERENCES locations(id),
+  -- Narratif
+  romantic_potential BOOLEAN DEFAULT false,
+  is_mandatory BOOLEAN DEFAULT false,
+  ambient TEXT,                       -- effet visible de ses arcs pour le prochain cycle
+  -- Flexible
+  details JSONB DEFAULT '{}',
+  -- Versioning
+  created_cycle INTEGER DEFAULT 1,
+  removed_cycle INTEGER,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(game_id, name)
+);
+
+CREATE INDEX idx_characters_game ON characters(game_id);
+CREATE INDEX idx_characters_active ON characters(game_id) WHERE removed_cycle IS NULL;
+CREATE INDEX idx_characters_known ON characters(game_id)
+  WHERE known_by_protagonist = true AND removed_cycle IS NULL;
+
+-- ============================================================================
+-- COUCHE CORE : OBJETS
+-- ============================================================================
+
+CREATE TABLE objects (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  category VARCHAR(100),              -- tech, weapon, clothing, food, document, etc.
+  description TEXT,
+  transportable BOOLEAN DEFAULT true,
+  stackable BOOLEAN DEFAULT false,
+  base_value INTEGER,
+  details JSONB DEFAULT '{}',
+  created_cycle INTEGER DEFAULT 1,
+  removed_cycle INTEGER,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(game_id, name)
+);
+
+CREATE INDEX idx_objects_game ON objects(game_id);
+CREATE INDEX idx_objects_active ON objects(game_id) WHERE removed_cycle IS NULL;
+
+-- ============================================================================
+-- COUCHE CORE : COMPÉTENCES
 -- ============================================================================
 
 CREATE TABLE skills (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  name VARCHAR(50) NOT NULL,
-  level INTEGER NOT NULL CHECK (level BETWEEN 1 AND 5),
-  start_cycle INTEGER NOT NULL,
+  -- Polymorphe : soit protagonist soit character
+  protagonist_id UUID REFERENCES protagonists(id),
+  character_id UUID REFERENCES characters(id),
+  name VARCHAR(100) NOT NULL,
+  level INTEGER CHECK (level BETWEEN 1 AND 5),
+  start_cycle INTEGER DEFAULT 1,
   end_cycle INTEGER,
   created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(game_id, entity_id, name, start_cycle)
+  CHECK (
+    (protagonist_id IS NOT NULL AND character_id IS NULL) OR
+    (protagonist_id IS NULL AND character_id IS NOT NULL)
+  )
 );
 
-CREATE INDEX idx_skills_entity ON skills(entity_id);
-CREATE INDEX idx_skills_active ON skills(entity_id) WHERE end_cycle IS NULL;
+CREATE INDEX idx_skills_protagonist ON skills(protagonist_id) WHERE end_cycle IS NULL;
+CREATE INDEX idx_skills_character ON skills(character_id) WHERE end_cycle IS NULL;
 
 -- ============================================================================
--- CORE: RELATIONS (parent table)
+-- REGISTRE D'ENTITÉS (lookup pour références croisées)
+-- Pas d'attributs — juste un registre d'IDs pour FK dans relations, facts, arcs
+-- ============================================================================
+
+CREATE TABLE entity_registry (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  entity_type VARCHAR(50) NOT NULL,   -- 'protagonist', 'character', 'location', 'organization', 'object'
+  name VARCHAR(255) NOT NULL,
+  UNIQUE(game_id, entity_type, name)
+);
+
+CREATE INDEX idx_entity_registry_game ON entity_registry(game_id);
+CREATE INDEX idx_entity_registry_name ON entity_registry(game_id, name);
+
+-- Trigger : auto-insertion dans entity_registry à chaque INSERT dans les tables dédiées
+CREATE OR REPLACE FUNCTION register_entity()
+RETURNS TRIGGER LANGUAGE plpgsql AS $func$
+BEGIN
+  INSERT INTO entity_registry (game_id, entity_type, name)
+  VALUES (NEW.game_id, TG_ARGV[0], NEW.name)
+  ON CONFLICT (game_id, entity_type, name) DO NOTHING;
+  RETURN NEW;
+END;
+$func$;
+
+CREATE TRIGGER register_protagonist AFTER INSERT ON protagonists
+  FOR EACH ROW EXECUTE FUNCTION register_entity('protagonist');
+CREATE TRIGGER register_character AFTER INSERT ON characters
+  FOR EACH ROW EXECUTE FUNCTION register_entity('character');
+CREATE TRIGGER register_location AFTER INSERT ON locations
+  FOR EACH ROW EXECUTE FUNCTION register_entity('location');
+CREATE TRIGGER register_organization AFTER INSERT ON organizations
+  FOR EACH ROW EXECUTE FUNCTION register_entity('organization');
+CREATE TRIGGER register_object AFTER INSERT ON objects
+  FOR EACH ROW EXECUTE FUNCTION register_entity('object');
+
+-- Trigger : mise à jour du nom dans entity_registry quand l'entité est renommée
+CREATE OR REPLACE FUNCTION update_entity_registry_name()
+RETURNS TRIGGER LANGUAGE plpgsql AS $func$
+BEGIN
+  IF OLD.name != NEW.name THEN
+    UPDATE entity_registry
+    SET name = NEW.name
+    WHERE game_id = NEW.game_id AND entity_type = TG_ARGV[0] AND name = OLD.name;
+  END IF;
+  RETURN NEW;
+END;
+$func$;
+
+CREATE TRIGGER update_registry_character AFTER UPDATE OF name ON characters
+  FOR EACH ROW EXECUTE FUNCTION update_entity_registry_name('character');
+CREATE TRIGGER update_registry_location AFTER UPDATE OF name ON locations
+  FOR EACH ROW EXECUTE FUNCTION update_entity_registry_name('location');
+CREATE TRIGGER update_registry_organization AFTER UPDATE OF name ON organizations
+  FOR EACH ROW EXECUTE FUNCTION update_entity_registry_name('organization');
+CREATE TRIGGER update_registry_object AFTER UPDATE OF name ON objects
+  FOR EACH ROW EXECUTE FUNCTION update_entity_registry_name('object');
+
+-- ============================================================================
+-- COUCHE RELATIONS
 -- ============================================================================
 
 CREATE TABLE relations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  source_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  target_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   type relation_type NOT NULL,
-  start_cycle INTEGER NOT NULL,
+  source_id UUID NOT NULL REFERENCES entity_registry(id),
+  target_id UUID NOT NULL REFERENCES entity_registry(id),
+  -- Détails
+  level INTEGER,                      -- 0-10 pour relations sociales
+  context TEXT,                       -- "collègues", "voisins", etc.
+  known_by_protagonist BOOLEAN DEFAULT true,
+  -- Versioning
+  start_cycle INTEGER DEFAULT 1,
   end_cycle INTEGER,
   end_reason TEXT,
-  known_by_protagonist BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(game_id, source_id, target_id, type, start_cycle)
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX idx_relations_game ON relations(game_id);
@@ -180,83 +361,94 @@ CREATE INDEX idx_relations_source ON relations(source_id);
 CREATE INDEX idx_relations_target ON relations(target_id);
 CREATE INDEX idx_relations_type ON relations(game_id, type);
 CREATE INDEX idx_relations_active ON relations(game_id) WHERE end_cycle IS NULL;
-CREATE INDEX idx_relations_known ON relations(game_id) 
+CREATE INDEX idx_relations_known ON relations(game_id)
   WHERE known_by_protagonist = true AND end_cycle IS NULL;
 
 -- ============================================================================
--- CORE: TYPED RELATION TABLES
+-- COUCHE NARRATIVE : ARCS NARRATIFS
 -- ============================================================================
 
-CREATE TABLE relations_social (
-  relation_id UUID PRIMARY KEY REFERENCES relations(id) ON DELETE CASCADE,
-  level INTEGER CHECK (level BETWEEN 0 AND 10),
-  context TEXT,
-  romantic_stage INTEGER CHECK (romantic_stage BETWEEN 0 AND 6),
-  family_bond VARCHAR(30)
+CREATE TABLE narrative_arcs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  domain VARCHAR(50),                 -- professional, romantic, health, social, etc.
+  description TEXT,
+  -- État
+  intensity INTEGER DEFAULT 3 CHECK (intensity BETWEEN 1 AND 5),
+  progress INTEGER DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
+  situation TEXT,                     -- état actuel de l'arc
+  desire TEXT,                        -- objectif / tension
+  obstacle TEXT,                      -- ce qui bloque
+  -- Triggers potentiels
+  potential_triggers TEXT[],
+  stakes TEXT,
+  deadline_cycle INTEGER,
+  -- Résolution
+  resolved BOOLEAN DEFAULT false,
+  resolved_cycle INTEGER,
+  resolution TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE TABLE relations_professional (
-  relation_id UUID PRIMARY KEY REFERENCES relations(id) ON DELETE CASCADE,
-  position VARCHAR(100),
-  position_start_cycle INTEGER,
-  part_time BOOLEAN DEFAULT false
+CREATE INDEX idx_arcs_game ON narrative_arcs(game_id);
+CREATE INDEX idx_arcs_active ON narrative_arcs(game_id) WHERE resolved = false;
+CREATE INDEX idx_arcs_deadline ON narrative_arcs(game_id, deadline_cycle)
+  WHERE resolved = false AND deadline_cycle IS NOT NULL;
+
+-- Participants d'un arc (table pivot arc ↔ entités)
+CREATE TABLE arc_participants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  arc_id UUID NOT NULL REFERENCES narrative_arcs(id) ON DELETE CASCADE,
+  entity_id UUID NOT NULL REFERENCES entity_registry(id),
+  role VARCHAR(50),                   -- 'initiator', 'target', 'observer', 'blocker', etc.
+  UNIQUE(arc_id, entity_id)
 );
 
-CREATE TABLE relations_spatial (
-  relation_id UUID PRIMARY KEY REFERENCES relations(id) ON DELETE CASCADE,
-  regularity VARCHAR(30),
-  time_of_day VARCHAR(50)
-);
-
-CREATE TABLE relations_ownership (
-  relation_id UUID PRIMARY KEY REFERENCES relations(id) ON DELETE CASCADE,
-  quantity INTEGER DEFAULT 1,
-  origin VARCHAR(30),
-  amount INTEGER,
-  acquisition_cycle INTEGER
-);
+CREATE INDEX idx_arc_participants_entity ON arc_participants(entity_id);
 
 -- ============================================================================
--- CORE: FACTS (immutable past events)
+-- COUCHE NARRATIVE : FAITS (immutables)
 -- ============================================================================
 
 CREATE TABLE facts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   cycle INTEGER NOT NULL,
-  time VARCHAR(20),
-  type fact_type NOT NULL,
+  time VARCHAR(5),
+  type VARCHAR(50) NOT NULL,          -- action, revelation, encounter, decision, etc.
   description TEXT NOT NULL,
-  location_id UUID REFERENCES entities(id) ON DELETE SET NULL,
+  location_id UUID REFERENCES locations(id),
   importance INTEGER DEFAULT 3 CHECK (importance BETWEEN 1 AND 5),
+  -- Dédup
   semantic_key VARCHAR(100),
+  UNIQUE(game_id, cycle, semantic_key),
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX idx_facts_game ON facts(game_id);
 CREATE INDEX idx_facts_cycle ON facts(game_id, cycle);
 CREATE INDEX idx_facts_type ON facts(game_id, type);
-CREATE INDEX idx_facts_importance ON facts(game_id, importance DESC);
 CREATE INDEX idx_facts_location ON facts(location_id);
-CREATE UNIQUE INDEX idx_facts_dedup ON facts(game_id, cycle, semantic_key) 
-  WHERE semantic_key IS NOT NULL;
 
-CREATE OR REPLACE FUNCTION prevent_fact_update()
+-- Trigger immutabilité des faits
+CREATE OR REPLACE FUNCTION facts_immutable()
 RETURNS TRIGGER LANGUAGE plpgsql AS $func$
 BEGIN
-  RAISE EXCEPTION 'Facts are immutable and cannot be updated';
+  RAISE EXCEPTION 'Les faits sont immutables';
 END;
 $func$;
 
-CREATE TRIGGER facts_immutable
-BEFORE UPDATE ON facts
-FOR EACH ROW EXECUTE FUNCTION prevent_fact_update();
+CREATE TRIGGER facts_no_update BEFORE UPDATE ON facts
+  FOR EACH ROW EXECUTE FUNCTION facts_immutable();
 
+-- Participants d'un fait (table pivot fact ↔ entités)
 CREATE TABLE fact_participants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   fact_id UUID NOT NULL REFERENCES facts(id) ON DELETE CASCADE,
-  entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  role participant_role NOT NULL,
+  entity_id UUID NOT NULL REFERENCES entity_registry(id),
+  role VARCHAR(50),                   -- 'actor', 'witness', 'target', 'mentioned', etc.
   UNIQUE(fact_id, entity_id)
 );
 
@@ -264,314 +456,182 @@ CREATE INDEX idx_fact_participants_fact ON fact_participants(fact_id);
 CREATE INDEX idx_fact_participants_entity ON fact_participants(entity_id);
 
 -- ============================================================================
--- CORE: CONTRADICTIONS
+-- COUCHE NARRATIVE : CHRONOLOGIE
 -- ============================================================================
 
-CREATE TABLE contradictions (
+CREATE TABLE chronology (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  detection_cycle INTEGER NOT NULL,
-  type contradiction_type NOT NULL,
-  entity_id UUID REFERENCES entities(id) ON DELETE CASCADE,
-  relation_id UUID REFERENCES relations(id) ON DELETE CASCADE,
-  field_name VARCHAR(100),
-  existing_value TEXT,
-  new_value TEXT,
-  existing_source VARCHAR(255),
-  new_source VARCHAR(255),
-  resolved BOOLEAN DEFAULT false,
-  resolution contradiction_resolution,
-  resolution_notes TEXT,
-  resolution_cycle INTEGER,
+  cycle INTEGER NOT NULL,
+  time VARCHAR(5),
+  location_id UUID REFERENCES locations(id),
+  summary TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_contradictions_game ON contradictions(game_id);
-CREATE INDEX idx_contradictions_open ON contradictions(game_id) WHERE resolved = false;
+CREATE INDEX idx_chronology_game ON chronology(game_id, cycle);
+
+-- PNJs présents dans un segment de chronologie
+CREATE TABLE chronology_participants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  chronology_id UUID NOT NULL REFERENCES chronology(id) ON DELETE CASCADE,
+  entity_id UUID NOT NULL REFERENCES entity_registry(id),
+  UNIQUE(chronology_id, entity_id)
+);
+
+CREATE INDEX idx_chronology_participants ON chronology_participants(entity_id);
 
 -- ============================================================================
--- NARRATION: EVENTS
+-- COUCHE NARRATIVE : ÉVÉNEMENTS PLANIFIÉS
 -- ============================================================================
 
 CREATE TABLE events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  type event_type NOT NULL,
-  category VARCHAR(50),
+  type VARCHAR(50) NOT NULL,          -- appointment, deadline, celebration, etc.
   title VARCHAR(255) NOT NULL,
   description TEXT,
-  planned_cycle INTEGER NOT NULL,
+  planned_cycle INTEGER,
   time VARCHAR(5),
-  location_id UUID REFERENCES entities(id) ON DELETE SET NULL,
-  recurrence JSONB,
-  amount INTEGER,
-  source_fact_id UUID REFERENCES facts(id) ON DELETE SET NULL,
+  location_id UUID REFERENCES locations(id),
   completed BOOLEAN DEFAULT false,
   cancelled BOOLEAN DEFAULT false,
-  cancellation_reason TEXT,
-  resolution_fact_id UUID REFERENCES facts(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE INDEX idx_events_game ON events(game_id);
-CREATE INDEX idx_events_cycle ON events(game_id, planned_cycle);
-CREATE INDEX idx_events_active ON events(game_id, planned_cycle) 
+CREATE INDEX idx_events_active ON events(game_id, planned_cycle)
   WHERE completed = false AND cancelled = false;
 
+-- Participants d'un événement
 CREATE TABLE event_participants (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-  entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  role VARCHAR(50),
-  confirmed BOOLEAN DEFAULT false,
+  entity_id UUID NOT NULL REFERENCES entity_registry(id),
   UNIQUE(event_id, entity_id)
 );
 
-CREATE INDEX idx_event_participants_event ON event_participants(event_id);
 CREATE INDEX idx_event_participants_entity ON event_participants(entity_id);
 
 -- ============================================================================
--- NARRATION: COMMITMENTS
+-- COUCHE CONVERSATION (Multi-turn, fenêtre glissante)
 -- ============================================================================
 
-CREATE TABLE commitments (
+-- Segments de conversation
+-- Chaque segment couvre quelques cycles. Quand le contexte API grossit trop,
+-- le segment le plus ancien est compacté (extrait → DB) et ses messages
+-- sont remplacés par un recap dans le system prompt.
+CREATE TABLE conversations (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  type commitment_type NOT NULL,
-  description TEXT NOT NULL,
-  created_cycle INTEGER NOT NULL,
-  deadline_cycle INTEGER,
-  resolved BOOLEAN DEFAULT false,
-  resolution_fact_id UUID REFERENCES facts(id) ON DELETE SET NULL,
+  start_cycle INTEGER NOT NULL,
+  end_cycle INTEGER,                  -- NULL = segment actif
+  compacted BOOLEAN DEFAULT false,
+  compacted_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_commitments_game ON commitments(game_id);
-CREATE INDEX idx_commitments_unresolved ON commitments(game_id) WHERE resolved = false;
-CREATE INDEX idx_commitments_deadline ON commitments(game_id, deadline_cycle) 
-  WHERE resolved = false AND deadline_cycle IS NOT NULL;
+CREATE INDEX idx_conversations_game ON conversations(game_id);
+CREATE INDEX idx_conversations_active ON conversations(game_id)
+  WHERE compacted = false;
 
-CREATE TABLE commitment_arcs (
-  commitment_id UUID PRIMARY KEY REFERENCES commitments(id) ON DELETE CASCADE,
-  objective TEXT NOT NULL,
-  obstacle TEXT NOT NULL,
-  progress INTEGER DEFAULT 0 CHECK (progress BETWEEN 0 AND 100)
-);
-
-CREATE TABLE commitment_entities (
-  commitment_id UUID NOT NULL REFERENCES commitments(id) ON DELETE CASCADE,
-  entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
-  role VARCHAR(50),
-  PRIMARY KEY (commitment_id, entity_id)
-);
-
-CREATE INDEX idx_commitment_entities_entity ON commitment_entities(entity_id);
-
--- ============================================================================
--- HISTORY: CHAT MESSAGES
--- ============================================================================
-
-CREATE TABLE chat_messages (
+-- Messages (historique brut pour multi-turn)
+CREATE TABLE messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  role VARCHAR(20) NOT NULL,
+  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role VARCHAR(20) NOT NULL,          -- 'user', 'assistant', 'system'
   content TEXT NOT NULL,
-  tone_notes TEXT,
-  cycle INTEGER NOT NULL,
+  -- Contexte narratif au moment du message
+  cycle INTEGER,
+  "game_date" VARCHAR(50),              -- "Lundi 14 Mars 2847"
   time VARCHAR(5),
-  date VARCHAR(50),
-  location_id UUID REFERENCES entities(id) ON DELETE SET NULL,
-  npcs_present UUID[] DEFAULT '{}',
-  summary TEXT,
+  location_id UUID REFERENCES locations(id),
+  -- Extraction
+  extracted BOOLEAN DEFAULT false,
+  chronology_id UUID REFERENCES chronology(id),
+  narrator_deltas JSONB,                -- Stores gauge_deltas, credit_delta, inventory_hints
+  -- Ordre
+  sequence INTEGER NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_messages_game ON chat_messages(game_id);
-CREATE INDEX idx_messages_cycle ON chat_messages(game_id, cycle);
-CREATE INDEX idx_messages_summary ON chat_messages(game_id, cycle) WHERE summary IS NOT NULL;
+CREATE INDEX idx_messages_conversation ON messages(conversation_id, sequence);
+CREATE INDEX idx_messages_game_cycle ON messages(game_id, cycle);
+CREATE INDEX idx_messages_unextracted ON messages(game_id)
+  WHERE extracted = false;
 
 -- ============================================================================
--- HISTORY: CYCLE SUMMARIES
+-- COUCHE CORE : INVENTAIRE
 -- ============================================================================
 
-CREATE TABLE cycle_summaries (
+CREATE TABLE inventory (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  cycle INTEGER NOT NULL,
-  date VARCHAR(50),
-  summary TEXT,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(game_id, cycle)
+  object_id UUID NOT NULL REFERENCES objects(id),
+  owner_id UUID REFERENCES entity_registry(id), -- NULL = protagoniste
+  quantity INTEGER DEFAULT 1,
+  acquired_cycle INTEGER,
+  origin VARCHAR(50),                 -- purchase, gift, found, craft
+  UNIQUE(game_id, object_id, owner_id)
 );
 
-CREATE INDEX idx_summaries_game ON cycle_summaries(game_id, cycle);
-
-CREATE TABLE cycle_summary_events (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cycle_summary_id UUID NOT NULL REFERENCES cycle_summaries(id) ON DELETE CASCADE,
-  event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-  role VARCHAR(50) DEFAULT 'primary',
-  display_order INTEGER DEFAULT 0,
-  UNIQUE(cycle_summary_id, event_id)
-);
-
-CREATE INDEX idx_cse_summary ON cycle_summary_events(cycle_summary_id);
-CREATE INDEX idx_cse_event ON cycle_summary_events(event_id);
+CREATE INDEX idx_inventory_game ON inventory(game_id);
+CREATE INDEX idx_inventory_owner ON inventory(owner_id);
 
 -- ============================================================================
--- HISTORY: EXTRACTION LOGS
+-- LOGS D'EXTRACTION (télémétrie)
 -- ============================================================================
 
 CREATE TABLE extraction_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
-  cycle INTEGER NOT NULL,
+  conversation_id UUID REFERENCES conversations(id),
+  cycle INTEGER,
+  type VARCHAR(50),                   -- 'mid_cycle', 'end_cycle', 'compaction'
   duration_ms INTEGER,
-  operations_count INTEGER DEFAULT 0,
-  entities_created INTEGER DEFAULT 0,
-  relations_created INTEGER DEFAULT 0,
+  messages_processed INTEGER,
   facts_created INTEGER DEFAULT 0,
-  attributes_modified INTEGER DEFAULT 0,
-  contradictions_found INTEGER DEFAULT 0,
-  contradictions JSONB,
+  entities_modified INTEGER DEFAULT 0,
   errors JSONB,
   created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_logs_game ON extraction_logs(game_id);
-CREATE INDEX idx_logs_cycle ON extraction_logs(game_id, cycle);
+CREATE INDEX idx_extraction_logs_game ON extraction_logs(game_id, cycle);
 
 -- ============================================================================
--- HELPER FUNCTIONS
+-- FONCTIONS UTILITAIRES
 -- ============================================================================
 
+-- Trouver une entité dans le registre par nom (insensible à la casse)
 CREATE OR REPLACE FUNCTION find_entity(
   p_game_id UUID,
   p_name TEXT,
-  p_type entity_type DEFAULT NULL
+  p_type VARCHAR(50) DEFAULT NULL
 )
 RETURNS UUID LANGUAGE plpgsql AS $func$
 DECLARE
   v_id UUID;
-  v_name_lower TEXT := LOWER(TRIM(p_name));
 BEGIN
-  SELECT id INTO v_id FROM entities
+  SELECT id INTO v_id FROM entity_registry
   WHERE game_id = p_game_id
-    AND (p_type IS NULL OR type = p_type)
-    AND removed_cycle IS NULL
-    AND LOWER(name) = v_name_lower
+    AND (p_type IS NULL OR entity_type = p_type)
+    AND LOWER(name) = LOWER(TRIM(p_name))
   LIMIT 1;
-  
-  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
-  
-  SELECT id INTO v_id FROM entities
-  WHERE game_id = p_game_id
-    AND (p_type IS NULL OR type = p_type)
-    AND removed_cycle IS NULL
-    AND v_name_lower = ANY(SELECT LOWER(unnest(aliases)))
-  LIMIT 1;
-  
-  IF v_id IS NOT NULL THEN RETURN v_id; END IF;
-  
-  SELECT id INTO v_id FROM entities
-  WHERE game_id = p_game_id
-    AND (p_type IS NULL OR type = p_type)
-    AND removed_cycle IS NULL
-    AND (LOWER(name) LIKE v_name_lower || ' %' OR LOWER(name) LIKE '% ' || v_name_lower)
-  LIMIT 1;
-  
+
   RETURN v_id;
 END;
 $func$;
 
-CREATE OR REPLACE FUNCTION upsert_entity(
-  p_game_id UUID,
-  p_type entity_type,
-  p_name VARCHAR(255),
-  p_aliases TEXT[] DEFAULT '{}',
-  p_cycle INTEGER DEFAULT 1,
-  p_known_by_protagonist BOOLEAN DEFAULT true,
-  p_unknown_name VARCHAR(255) DEFAULT NULL
-)
-RETURNS UUID LANGUAGE plpgsql AS $func$
-DECLARE
-  v_id UUID;
-  v_existing_aliases TEXT[];
-BEGIN
-  v_id := find_entity(p_game_id, p_name, p_type);
-  
-  IF v_id IS NOT NULL THEN
-    SELECT aliases INTO v_existing_aliases FROM entities WHERE id = v_id;
-    UPDATE entities SET
-      aliases = ARRAY(SELECT DISTINCT unnest(v_existing_aliases || p_aliases)),
-      known_by_protagonist = p_known_by_protagonist,
-      unknown_name = COALESCE(p_unknown_name, unknown_name),
-      updated_at = NOW()
-    WHERE id = v_id;
-    RETURN v_id;
-  ELSE
-    INSERT INTO entities (game_id, type, name, aliases, created_cycle, known_by_protagonist, unknown_name)
-    VALUES (p_game_id, p_type, p_name, p_aliases, p_cycle, p_known_by_protagonist, p_unknown_name)
-    RETURNING id INTO v_id;
-    RETURN v_id;
-  END IF;
-END;
-$func$;
-
-CREATE OR REPLACE FUNCTION set_attribute(
-  p_game_id UUID,
-  p_entity_id UUID,
-  p_key VARCHAR(100),
-  p_value TEXT,
-  p_cycle INTEGER,
-  p_details JSONB DEFAULT NULL,
-  p_known_by_protagonist BOOLEAN DEFAULT true
-)
-RETURNS UUID LANGUAGE plpgsql AS $func$
-DECLARE
-  v_id UUID;
-  v_old_value TEXT;
-BEGIN
-  SELECT value INTO v_old_value FROM attributes
-  WHERE entity_id = p_entity_id AND key = p_key AND end_cycle IS NULL;
-  
-  IF v_old_value = p_value THEN RETURN NULL; END IF;
-  
-  UPDATE attributes SET end_cycle = p_cycle
-  WHERE entity_id = p_entity_id AND key = p_key AND end_cycle IS NULL;
-  
-  INSERT INTO attributes (game_id, entity_id, key, value, details, start_cycle, known_by_protagonist)
-  VALUES (p_game_id, p_entity_id, p_key, p_value, p_details, p_cycle, p_known_by_protagonist)
-  RETURNING id INTO v_id;
-  
-  RETURN v_id;
-END;
-$func$;
-
-CREATE OR REPLACE FUNCTION get_attribute(
-  p_entity_id UUID,
-  p_key VARCHAR(100),
-  p_known_only BOOLEAN DEFAULT false
-)
-RETURNS TEXT LANGUAGE plpgsql AS $func$
-DECLARE
-  v_value TEXT;
-BEGIN
-  SELECT value INTO v_value FROM attributes
-  WHERE entity_id = p_entity_id 
-    AND key = p_key 
-    AND end_cycle IS NULL
-    AND (NOT p_known_only OR known_by_protagonist = true);
-  RETURN v_value;
-END;
-$func$;
-
+-- Upsert une relation (créer ou mettre à jour si elle existe déjà)
 CREATE OR REPLACE FUNCTION upsert_relation(
   p_game_id UUID,
   p_source_id UUID,
   p_target_id UUID,
   p_type relation_type,
   p_cycle INTEGER DEFAULT 1,
+  p_level INTEGER DEFAULT NULL,
+  p_context TEXT DEFAULT NULL,
   p_known_by_protagonist BOOLEAN DEFAULT true
 )
 RETURNS UUID LANGUAGE plpgsql AS $func$
@@ -584,19 +644,24 @@ BEGIN
     AND target_id = p_target_id
     AND type = p_type
     AND end_cycle IS NULL;
-  
+
   IF v_id IS NOT NULL THEN
-    UPDATE relations SET known_by_protagonist = p_known_by_protagonist WHERE id = v_id;
+    UPDATE relations SET
+      level = COALESCE(p_level, level),
+      context = COALESCE(p_context, context),
+      known_by_protagonist = p_known_by_protagonist
+    WHERE id = v_id;
     RETURN v_id;
   ELSE
-    INSERT INTO relations (game_id, source_id, target_id, type, start_cycle, known_by_protagonist)
-    VALUES (p_game_id, p_source_id, p_target_id, p_type, p_cycle, p_known_by_protagonist)
+    INSERT INTO relations (game_id, source_id, target_id, type, start_cycle, level, context, known_by_protagonist)
+    VALUES (p_game_id, p_source_id, p_target_id, p_type, p_cycle, p_level, p_context, p_known_by_protagonist)
     RETURNING id INTO v_id;
     RETURN v_id;
   END IF;
 END;
 $func$;
 
+-- Terminer une relation
 CREATE OR REPLACE FUNCTION end_relation(
   p_game_id UUID,
   p_source_name TEXT,
@@ -612,24 +677,25 @@ DECLARE
 BEGIN
   v_source_id := find_entity(p_game_id, p_source_name);
   v_target_id := find_entity(p_game_id, p_target_name);
-  
+
   IF v_source_id IS NULL OR v_target_id IS NULL THEN RETURN false; END IF;
-  
+
   UPDATE relations SET end_cycle = p_cycle, end_reason = p_reason
   WHERE game_id = p_game_id
     AND source_id = v_source_id
     AND target_id = v_target_id
     AND type = p_type
     AND end_cycle IS NULL;
-  
+
   RETURN FOUND;
 END;
 $func$;
 
+-- Créer un fait avec ses participants
 CREATE OR REPLACE FUNCTION create_fact(
   p_game_id UUID,
   p_cycle INTEGER,
-  p_type fact_type,
+  p_type VARCHAR(50),
   p_description TEXT,
   p_location_id UUID DEFAULT NULL,
   p_time VARCHAR(5) DEFAULT NULL,
@@ -643,6 +709,7 @@ DECLARE
   v_participant JSONB;
   v_entity_id UUID;
 BEGIN
+  -- Dédup par semantic_key
   IF p_semantic_key IS NOT NULL THEN
     SELECT id INTO v_fact_id FROM facts
     WHERE game_id = p_game_id AND cycle = p_cycle AND semantic_key = p_semantic_key;
@@ -652,49 +719,24 @@ BEGIN
   INSERT INTO facts (game_id, cycle, type, description, location_id, time, importance, semantic_key)
   VALUES (p_game_id, p_cycle, p_type, p_description, p_location_id, p_time, p_importance, p_semantic_key)
   RETURNING id INTO v_fact_id;
-  
+
+  -- Insérer les participants
+  -- Format attendu : [{"name": "Valentin", "role": "actor"}, ...]
   FOR v_participant IN SELECT * FROM jsonb_array_elements(p_participants)
   LOOP
     v_entity_id := find_entity(p_game_id, v_participant->>'name');
     IF v_entity_id IS NOT NULL THEN
       INSERT INTO fact_participants (fact_id, entity_id, role)
-      VALUES (v_fact_id, v_entity_id, COALESCE((v_participant->>'role')::participant_role, 'actor'))
+      VALUES (v_fact_id, v_entity_id, v_participant->>'role')
       ON CONFLICT (fact_id, entity_id) DO NOTHING;
     END IF;
   END LOOP;
-  
+
   RETURN v_fact_id;
 END;
 $func$;
 
-CREATE OR REPLACE FUNCTION set_skill(
-  p_game_id UUID,
-  p_entity_id UUID,
-  p_name VARCHAR(50),
-  p_level INTEGER,
-  p_cycle INTEGER
-)
-RETURNS UUID LANGUAGE plpgsql AS $func$
-DECLARE
-  v_id UUID;
-  v_old_level INTEGER;
-BEGIN
-  SELECT level INTO v_old_level FROM skills
-  WHERE entity_id = p_entity_id AND name = p_name AND end_cycle IS NULL;
-  
-  IF v_old_level = p_level THEN RETURN NULL; END IF;
-  
-  UPDATE skills SET end_cycle = p_cycle
-  WHERE entity_id = p_entity_id AND name = p_name AND end_cycle IS NULL;
-  
-  INSERT INTO skills (game_id, entity_id, name, level, start_cycle)
-  VALUES (p_game_id, p_entity_id, p_name, p_level, p_cycle)
-  RETURNING id INTO v_id;
-  
-  RETURN v_id;
-END;
-$func$;
-
+-- Transaction de crédits (protagoniste)
 CREATE OR REPLACE FUNCTION credit_transaction(
   p_game_id UUID,
   p_amount INTEGER,
@@ -703,71 +745,70 @@ CREATE OR REPLACE FUNCTION credit_transaction(
 )
 RETURNS TABLE(success BOOLEAN, new_balance INTEGER, error TEXT) LANGUAGE plpgsql AS $func$
 DECLARE
-  v_protagonist_id UUID;
   v_current_balance INTEGER;
   v_new_balance INTEGER;
 BEGIN
-  SELECT e.id INTO v_protagonist_id FROM entities e
-  WHERE e.game_id = p_game_id AND e.type = 'protagonist' AND e.removed_cycle IS NULL;
-  
-  IF v_protagonist_id IS NULL THEN
-    RETURN QUERY SELECT false, 0, 'Protagonist not found'::TEXT;
+  SELECT credits INTO v_current_balance FROM protagonists
+  WHERE game_id = p_game_id;
+
+  IF v_current_balance IS NULL THEN
+    RETURN QUERY SELECT false, 0, 'Protagoniste non trouvé'::TEXT;
     RETURN;
   END IF;
-  
-  v_current_balance := COALESCE(get_attribute(v_protagonist_id, 'credits')::INTEGER, 1400);
+
   v_new_balance := v_current_balance + p_amount;
-  
+
   IF v_new_balance < 0 THEN
-    RETURN QUERY SELECT false, v_current_balance, 
-      format('Insufficient funds: %s + (%s) = %s', v_current_balance, p_amount, v_new_balance)::TEXT;
+    RETURN QUERY SELECT false, v_current_balance,
+      format('Fonds insuffisants : %s + (%s) = %s', v_current_balance, p_amount, v_new_balance)::TEXT;
     RETURN;
   END IF;
-  
-  PERFORM set_attribute(p_game_id, v_protagonist_id, 'credits', v_new_balance::TEXT, p_cycle,
-    jsonb_build_object('description', p_description, 'amount', p_amount));
-  
+
+  UPDATE protagonists SET credits = v_new_balance, updated_at = now()
+  WHERE game_id = p_game_id;
+
   RETURN QUERY SELECT true, v_new_balance, NULL::TEXT;
 END;
 $func$;
 
+-- Mise à jour d'une jauge (protagoniste)
 CREATE OR REPLACE FUNCTION update_gauge(
   p_game_id UUID,
-  p_attribute VARCHAR(100),
+  p_gauge VARCHAR(20),
   p_delta NUMERIC,
   p_cycle INTEGER
 )
 RETURNS TABLE(success BOOLEAN, old_value NUMERIC, new_value NUMERIC) LANGUAGE plpgsql AS $func$
 DECLARE
-  v_protagonist_id UUID;
-  v_current_value NUMERIC;
-  v_new_value NUMERIC;
+  v_current NUMERIC;
+  v_new NUMERIC;
 BEGIN
-  IF p_attribute NOT IN ('energy', 'morale', 'health') THEN
+  IF p_gauge NOT IN ('energy', 'morale', 'health') THEN
     RETURN QUERY SELECT false, 0::NUMERIC, 0::NUMERIC;
     RETURN;
   END IF;
-  
-  SELECT e.id INTO v_protagonist_id FROM entities e
-  WHERE e.game_id = p_game_id AND e.type = 'protagonist' AND e.removed_cycle IS NULL;
-  
-  IF v_protagonist_id IS NULL THEN
+
+  EXECUTE format('SELECT %I FROM protagonists WHERE game_id = $1', p_gauge)
+    INTO v_current USING p_game_id;
+
+  IF v_current IS NULL THEN
     RETURN QUERY SELECT false, 0::NUMERIC, 0::NUMERIC;
     RETURN;
   END IF;
-  
-  v_current_value := COALESCE(get_attribute(v_protagonist_id, p_attribute)::NUMERIC, 3);
-  v_new_value := ROUND((v_current_value + p_delta) * 2) / 2;
-  v_new_value := GREATEST(0, LEAST(5, v_new_value));
-  
-  IF v_new_value != v_current_value THEN
-    PERFORM set_attribute(p_game_id, v_protagonist_id, p_attribute, v_new_value::TEXT, p_cycle);
+
+  v_new := ROUND((v_current + p_delta) * 2) / 2;
+  v_new := GREATEST(0, LEAST(5, v_new));
+
+  IF v_new != v_current THEN
+    EXECUTE format('UPDATE protagonists SET %I = $1, updated_at = now() WHERE game_id = $2', p_gauge)
+      USING v_new, p_game_id;
   END IF;
-  
-  RETURN QUERY SELECT true, v_current_value, v_new_value;
+
+  RETURN QUERY SELECT true, v_current, v_new;
 END;
 $func$;
 
+-- Rollback à un cycle donné
 CREATE OR REPLACE FUNCTION rollback_to_cycle(
   p_game_id UUID,
   p_target_cycle INTEGER
@@ -775,338 +816,85 @@ CREATE OR REPLACE FUNCTION rollback_to_cycle(
 RETURNS TABLE(
   deleted_facts INTEGER,
   deleted_events INTEGER,
-  deleted_commitments INTEGER,
-  reverted_attributes INTEGER,
+  deleted_arcs INTEGER,
   reverted_relations INTEGER
 ) LANGUAGE plpgsql AS $func$
 DECLARE
   v_deleted_facts INTEGER;
   v_deleted_events INTEGER;
-  v_deleted_commitments INTEGER;
-  v_reverted_attributes INTEGER;
+  v_deleted_arcs INTEGER;
   v_reverted_relations INTEGER;
 BEGIN
+  -- Faits (immutables mais on les supprime via DELETE, pas UPDATE)
   DELETE FROM facts WHERE game_id = p_game_id AND cycle > p_target_cycle;
   GET DIAGNOSTICS v_deleted_facts = ROW_COUNT;
-  
+
+  -- Événements
   DELETE FROM events WHERE game_id = p_game_id AND planned_cycle > p_target_cycle;
   GET DIAGNOSTICS v_deleted_events = ROW_COUNT;
-  
-  DELETE FROM commitments WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
-  GET DIAGNOSTICS v_deleted_commitments = ROW_COUNT;
-  
-  DELETE FROM attributes WHERE game_id = p_game_id AND start_cycle > p_target_cycle;
-  GET DIAGNOSTICS v_reverted_attributes = ROW_COUNT;
-  
-  UPDATE attributes SET end_cycle = NULL 
-  WHERE game_id = p_game_id AND end_cycle > p_target_cycle;
-  
+
+  -- Arcs narratifs créés après le cycle cible
+  DELETE FROM narrative_arcs WHERE game_id = p_game_id
+    AND created_at > (SELECT created_at FROM chronology WHERE game_id = p_game_id AND cycle = p_target_cycle LIMIT 1);
+  GET DIAGNOSTICS v_deleted_arcs = ROW_COUNT;
+
+  -- Relations créées après le cycle cible
   DELETE FROM relations WHERE game_id = p_game_id AND start_cycle > p_target_cycle;
   GET DIAGNOSTICS v_reverted_relations = ROW_COUNT;
-  
+
+  -- Réactiver les relations terminées après le cycle cible
   UPDATE relations SET end_cycle = NULL, end_reason = NULL
   WHERE game_id = p_game_id AND end_cycle > p_target_cycle;
-  
+
+  -- Compétences
   DELETE FROM skills WHERE game_id = p_game_id AND start_cycle > p_target_cycle;
   UPDATE skills SET end_cycle = NULL WHERE game_id = p_game_id AND end_cycle > p_target_cycle;
-  
-  DELETE FROM contradictions WHERE game_id = p_game_id AND detection_cycle > p_target_cycle;
-  DELETE FROM chat_messages WHERE game_id = p_game_id AND cycle > p_target_cycle;
-  DELETE FROM cycle_summaries WHERE game_id = p_game_id AND cycle > p_target_cycle;
+
+  -- Messages et chronologie
+  DELETE FROM messages WHERE game_id = p_game_id AND cycle > p_target_cycle;
+  DELETE FROM chronology WHERE game_id = p_game_id AND cycle > p_target_cycle;
   DELETE FROM extraction_logs WHERE game_id = p_game_id AND cycle > p_target_cycle;
-  
-  UPDATE games SET updated_at = NOW() WHERE id = p_game_id;
-  
-  RETURN QUERY SELECT v_deleted_facts, v_deleted_events, v_deleted_commitments,
-    v_reverted_attributes, v_reverted_relations;
+
+  -- Entités créées après le cycle cible
+  DELETE FROM characters WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
+  DELETE FROM locations WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
+  DELETE FROM organizations WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
+  DELETE FROM objects WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
+
+  UPDATE games SET updated_at = now() WHERE id = p_game_id;
+
+  RETURN QUERY SELECT v_deleted_facts, v_deleted_events, v_deleted_arcs, v_reverted_relations;
 END;
 $func$;
 
 -- ============================================================================
--- RECONSTRUCTION VIEWS (for backward compatibility)
+-- VUES UTILITAIRES
 -- ============================================================================
 
--- View: Characters with attributes pivoted
-CREATE OR REPLACE VIEW v_characters AS
-SELECT 
-  e.id,
-  e.game_id,
-  e.name,
-  e.aliases,
-  e.known_by_protagonist,
-  e.unknown_name,
-  e.created_cycle,
-  get_attribute(e.id, 'species') AS species,
-  get_attribute(e.id, 'gender') AS gender,
-  get_attribute(e.id, 'pronouns') AS pronouns,
-  get_attribute(e.id, 'description') AS physical_description,
-  get_attribute(e.id, 'traits') AS traits,
-  get_attribute(e.id, 'origin') AS origin_location,
-  get_attribute(e.id, 'arrival_cycle')::INTEGER AS station_arrival_cycle,
-  get_attribute(e.id, 'mood') AS mood,
-  get_attribute(e.id, 'age') AS age,
-  get_attribute(e.id, 'occupation') AS occupation,
-  get_attribute(e.id, 'arcs') AS arcs
-FROM entities e
-WHERE e.type = 'character' AND e.removed_cycle IS NULL;
-
--- View: Locations with attributes pivoted
-CREATE OR REPLACE VIEW v_locations AS
-SELECT 
-  e.id,
-  e.game_id,
-  e.name,
-  e.known_by_protagonist,
-  el.parent_location_id,
-  p.name AS parent_location_name,
-  get_attribute(e.id, 'location_type') AS location_type,
-  get_attribute(e.id, 'sector') AS sector,
-  get_attribute(e.id, 'accessible')::BOOLEAN AS accessible,
-  get_attribute(e.id, 'description') AS description,
-  get_attribute(e.id, 'atmosphere') AS atmosphere,
-  get_attribute(e.id, 'notable_features') AS notable_features,
-  get_attribute(e.id, 'typical_crowd') AS typical_crowd,
-  get_attribute(e.id, 'operating_hours') AS operating_hours,
-  get_attribute(e.id, 'price_range') AS price_range
-FROM entities e
-JOIN entity_locations el ON el.entity_id = e.id
-LEFT JOIN entities p ON p.id = el.parent_location_id
-WHERE e.type = 'location' AND e.removed_cycle IS NULL;
-
--- View: Objects with attributes pivoted
-CREATE OR REPLACE VIEW v_objects AS
-SELECT 
-  e.id,
-  e.game_id,
-  e.name,
-  e.known_by_protagonist,
-  get_attribute(e.id, 'category') AS category,
-  get_attribute(e.id, 'transportable')::BOOLEAN AS transportable,
-  get_attribute(e.id, 'stackable')::BOOLEAN AS stackable,
-  get_attribute(e.id, 'base_value')::INTEGER AS base_value,
-  get_attribute(e.id, 'description') AS description,
-  get_attribute(e.id, 'condition') AS condition,
-  get_attribute(e.id, 'emotional_significance') AS emotional_significance
-FROM entities e
-WHERE e.type = 'object' AND e.removed_cycle IS NULL;
-
--- View: Organizations with attributes pivoted
-CREATE OR REPLACE VIEW v_organizations AS
-SELECT 
-  e.id,
-  e.game_id,
-  e.name,
-  e.known_by_protagonist,
-  eo.headquarters_id,
-  h.name AS headquarters_name,
-  get_attribute(e.id, 'org_type') AS org_type,
-  get_attribute(e.id, 'domain') AS domain,
-  get_attribute(e.id, 'size') AS size,
-  get_attribute(e.id, 'founding_cycle')::INTEGER AS founding_cycle,
-  get_attribute(e.id, 'description') AS description,
-  get_attribute(e.id, 'reputation') AS reputation,
-  get_attribute(e.id, 'public_facade') AS public_facade,
-  get_attribute(e.id, 'true_purpose') AS true_purpose,
-  get_attribute(e.id, 'influence_level') AS influence_level
-FROM entities e
-JOIN entity_organizations eo ON eo.entity_id = e.id
-LEFT JOIN entities h ON h.id = eo.headquarters_id
-WHERE e.type = 'organization' AND e.removed_cycle IS NULL;
-
--- View: Protagonist with attributes pivoted
-CREATE OR REPLACE VIEW v_protagonist AS
-SELECT 
-  e.id,
-  e.game_id,
-  e.name,
-  get_attribute(e.id, 'credits')::INTEGER AS credits,
-  get_attribute(e.id, 'energy')::NUMERIC AS energy,
-  get_attribute(e.id, 'morale')::NUMERIC AS morale,
-  get_attribute(e.id, 'health')::NUMERIC AS health,
-  get_attribute(e.id, 'hobbies') AS hobbies,
-  get_attribute(e.id, 'departure_reason') AS departure_reason,
-  get_attribute(e.id, 'origin') AS origin_location,
-  get_attribute(e.id, 'backstory') AS backstory
-FROM entities e
-WHERE e.type = 'protagonist' AND e.removed_cycle IS NULL;
-
--- View: AIs with attributes pivoted
-CREATE OR REPLACE VIEW v_ais AS
-SELECT 
-  e.id,
-  e.game_id,
-  e.name,
-  e.known_by_protagonist,
-  ea.creator_id,
-  c.name AS creator_name,
-  get_attribute(e.id, 'substrate') AS substrate,
-  get_attribute(e.id, 'voice') AS voice,
-  get_attribute(e.id, 'quirk') AS quirk,
-  get_attribute(e.id, 'traits') AS traits,
-  get_attribute(e.id, 'creation_cycle')::INTEGER AS creation_cycle
-FROM entities e
-JOIN entity_ais ea ON ea.entity_id = e.id
-LEFT JOIN entities c ON c.id = ea.creator_id
-WHERE e.type = 'ai' AND e.removed_cycle IS NULL;
-
--- ============================================================================
--- UTILITY VIEWS
--- ============================================================================
-
-CREATE OR REPLACE VIEW v_active_entities AS
-SELECT * FROM entities WHERE removed_cycle IS NULL;
-
+-- Vue : relations actives avec noms des entités
 CREATE OR REPLACE VIEW v_active_relations AS
-SELECT 
-  r.game_id,
+SELECT
   r.id AS relation_id,
-  r.source_id,
-  e_source.type AS source_type,
-  e_source.name AS source_name,
-  r.type AS relation_type,
-  r.target_id,
-  e_target.type AS target_type,
-  e_target.name AS target_name,
-  r.start_cycle,
-  r.known_by_protagonist,
-  rs.level,
-  rs.context,
-  rs.romantic_stage,
-  rs.family_bond,
-  rp.position,
-  rp.position_start_cycle,
-  rp.part_time,
-  rsp.regularity,
-  rsp.time_of_day,
-  ro.quantity,
-  ro.origin,
-  ro.amount,
-  ro.acquisition_cycle
-FROM relations r
-JOIN entities e_source ON r.source_id = e_source.id
-JOIN entities e_target ON r.target_id = e_target.id
-LEFT JOIN relations_social rs ON r.id = rs.relation_id
-LEFT JOIN relations_professional rp ON r.id = rp.relation_id
-LEFT JOIN relations_spatial rsp ON r.id = rsp.relation_id
-LEFT JOIN relations_ownership ro ON r.id = ro.relation_id
-WHERE r.end_cycle IS NULL
-  AND e_source.removed_cycle IS NULL
-  AND e_target.removed_cycle IS NULL;
-
-CREATE OR REPLACE VIEW v_current_attributes AS
-SELECT 
-  a.game_id,
-  a.entity_id,
-  e.type AS entity_type,
-  e.name AS entity_name,
-  a.key,
-  a.value,
-  a.details,
-  a.start_cycle,
-  a.known_by_protagonist
-FROM attributes a
-JOIN entities e ON a.entity_id = e.id
-WHERE a.end_cycle IS NULL AND e.removed_cycle IS NULL;
-
-CREATE OR REPLACE VIEW v_current_skills AS
-SELECT 
-  s.game_id,
-  s.entity_id,
-  e.name AS entity_name,
-  s.name AS skill_name,
-  s.level,
-  s.start_cycle
-FROM skills s
-JOIN entities e ON s.entity_id = e.id
-WHERE s.end_cycle IS NULL AND e.removed_cycle IS NULL;
-
-CREATE OR REPLACE VIEW v_upcoming_events AS
-SELECT 
-  ev.id,
-  ev.game_id,
-  ev.type,
-  ev.category,
-  ev.title,
-  ev.description,
-  ev.planned_cycle,
-  ev.time,
-  ev.recurrence,
-  ev.amount,
-  l.name AS location_name,
-  array_agg(DISTINCT ent.name) FILTER (WHERE ent.name IS NOT NULL) AS participants
-FROM events ev
-LEFT JOIN entities l ON ev.location_id = l.id
-LEFT JOIN event_participants ep ON ev.id = ep.event_id
-LEFT JOIN entities ent ON ep.entity_id = ent.id
-WHERE ev.completed = false AND ev.cancelled = false
-GROUP BY ev.id, l.name;
-
-CREATE OR REPLACE VIEW v_inventory AS
-SELECT 
   r.game_id,
-  e_obj.id AS object_id,
-  e_obj.name AS object_name,
-  get_attribute(e_obj.id, 'category') AS category,
-  get_attribute(e_obj.id, 'base_value')::INTEGER AS base_value,
-  ro.quantity,
-  ro.origin,
-  ro.amount AS purchase_price,
-  get_attribute(e_obj.id, 'condition') AS condition,
-  r.start_cycle AS owned_since
+  r.type AS relation_type,
+  r.source_id,
+  es.entity_type AS source_type,
+  es.name AS source_name,
+  r.target_id,
+  et.entity_type AS target_type,
+  et.name AS target_name,
+  r.level,
+  r.context,
+  r.known_by_protagonist,
+  r.start_cycle
 FROM relations r
-JOIN entities e_proto ON r.source_id = e_proto.id AND e_proto.type = 'protagonist'
-JOIN entities e_obj ON r.target_id = e_obj.id AND e_obj.type = 'object'
-LEFT JOIN relations_ownership ro ON r.id = ro.relation_id
-WHERE r.type = 'owns' AND r.end_cycle IS NULL AND e_obj.removed_cycle IS NULL;
+JOIN entity_registry es ON r.source_id = es.id
+JOIN entity_registry et ON r.target_id = et.id
+WHERE r.end_cycle IS NULL;
 
-CREATE OR REPLACE VIEW v_characters_context AS
-SELECT 
-  e.game_id,
-  e.id AS entity_id,
-  e.name,
-  e.aliases,
-  e.known_by_protagonist,
-  get_attribute(e.id, 'species') AS species,
-  get_attribute(e.id, 'gender') AS gender,
-  get_attribute(e.id, 'pronouns') AS pronouns,
-  get_attribute(e.id, 'arrival_cycle')::INTEGER AS station_arrival_cycle,
-  get_attribute(e.id, 'origin') AS origin_location,
-  get_attribute(e.id, 'description') AS physical_description,
-  get_attribute(e.id, 'traits') AS traits,
-  get_attribute(e.id, 'occupation') AS current_position,
-  get_attribute(e.id, 'mood') AS mood,
-  rs.level AS relation_level,
-  rs.context AS relation_context,
-  rs.romantic_stage
-FROM entities e
-LEFT JOIN relations r_knows ON r_knows.target_id = e.id 
-  AND r_knows.type = 'knows' AND r_knows.end_cycle IS NULL
-  AND r_knows.source_id IN (SELECT id FROM entities WHERE type = 'protagonist' AND game_id = e.game_id)
-LEFT JOIN relations_social rs ON rs.relation_id = r_knows.id
-WHERE e.removed_cycle IS NULL AND e.type = 'character';
-
-CREATE OR REPLACE VIEW v_active_commitments AS
-SELECT 
-  c.id,
-  c.game_id,
-  c.type,
-  c.description,
-  c.created_cycle,
-  c.deadline_cycle,
-  ca.objective,
-  ca.obstacle,
-  ca.progress,
-  array_agg(jsonb_build_object('name', e.name, 'role', ce.role)) 
-    FILTER (WHERE e.name IS NOT NULL) AS entities
-FROM commitments c
-LEFT JOIN commitment_arcs ca ON ca.commitment_id = c.id
-LEFT JOIN commitment_entities ce ON ce.commitment_id = c.id
-LEFT JOIN entities e ON ce.entity_id = e.id
-WHERE c.resolved = false
-GROUP BY c.id, ca.objective, ca.obstacle, ca.progress;
-
+-- Vue : faits récents avec participants
 CREATE OR REPLACE VIEW v_recent_facts AS
-SELECT 
+SELECT
   f.id,
   f.game_id,
   f.cycle,
@@ -1116,63 +904,88 @@ SELECT
   f.importance,
   f.semantic_key,
   l.name AS location_name,
-  array_agg(jsonb_build_object('name', e.name, 'role', fp.role)) 
-    FILTER (WHERE e.name IS NOT NULL) AS participants
+  array_agg(jsonb_build_object('name', er.name, 'role', fp.role))
+    FILTER (WHERE er.name IS NOT NULL) AS participants
 FROM facts f
-LEFT JOIN entities l ON f.location_id = l.id
+LEFT JOIN locations l ON f.location_id = l.id
 LEFT JOIN fact_participants fp ON fp.fact_id = f.id
-LEFT JOIN entities e ON fp.entity_id = e.id
+LEFT JOIN entity_registry er ON fp.entity_id = er.id
 GROUP BY f.id, l.name;
 
-CREATE OR REPLACE VIEW v_cycle_summaries_detailed AS
-SELECT 
-    cs.id,
-    cs.game_id,
-    cs.cycle,
-    cs.date,
-    cs.summary,
-    COALESCE(
-        (
-            SELECT jsonb_agg(
-                jsonb_build_object(
-                    'type', ev.type,
-                    'title', ev.title,
-                    'time', ev.time,
-                    'role', cse.role,
-                    'location', loc.name,
-                    'participants', (
-                        SELECT jsonb_agg(ent.name)
-                        FROM event_participants ep
-                        JOIN entities ent ON ep.entity_id = ent.id
-                        WHERE ep.event_id = ev.id
-                    )
-                )
-                ORDER BY cse.display_order
-            )
-            FROM cycle_summary_events cse
-            JOIN events ev ON ev.id = cse.event_id
-            LEFT JOIN entities loc ON loc.id = ev.location_id
-            WHERE cse.cycle_summary_id = cs.id
-        ),
-        '[]'::jsonb
-    ) as events
-FROM cycle_summaries cs;
+-- Vue : arcs narratifs actifs avec participants
+CREATE OR REPLACE VIEW v_active_arcs AS
+SELECT
+  na.id,
+  na.game_id,
+  na.title,
+  na.domain,
+  na.description,
+  na.intensity,
+  na.progress,
+  na.situation,
+  na.desire,
+  na.obstacle,
+  na.stakes,
+  na.deadline_cycle,
+  array_agg(jsonb_build_object('name', er.name, 'type', er.entity_type, 'role', ap.role))
+    FILTER (WHERE er.name IS NOT NULL) AS participants
+FROM narrative_arcs na
+LEFT JOIN arc_participants ap ON ap.arc_id = na.id
+LEFT JOIN entity_registry er ON ap.entity_id = er.id
+WHERE na.resolved = false
+GROUP BY na.id;
 
-CREATE OR REPLACE VIEW v_open_contradictions AS
-SELECT 
+-- Vue : événements à venir avec participants
+CREATE OR REPLACE VIEW v_upcoming_events AS
+SELECT
+  ev.id,
+  ev.game_id,
+  ev.type,
+  ev.title,
+  ev.description,
+  ev.planned_cycle,
+  ev.time,
+  l.name AS location_name,
+  array_agg(er.name) FILTER (WHERE er.name IS NOT NULL) AS participants
+FROM events ev
+LEFT JOIN locations l ON ev.location_id = l.id
+LEFT JOIN event_participants ep ON ev.id = ep.event_id
+LEFT JOIN entity_registry er ON ep.entity_id = er.id
+WHERE ev.completed = false AND ev.cancelled = false
+GROUP BY ev.id, l.name;
+
+-- Vue : inventaire du protagoniste
+CREATE OR REPLACE VIEW v_protagonist_inventory AS
+SELECT
+  i.game_id,
+  o.id AS object_id,
+  o.name AS object_name,
+  o.category,
+  o.base_value,
+  o.description,
+  i.quantity,
+  i.origin,
+  i.acquired_cycle
+FROM inventory i
+JOIN objects o ON i.object_id = o.id
+WHERE i.owner_id IS NULL
+  AND o.removed_cycle IS NULL;
+
+-- Vue : chronologie avec participants
+CREATE OR REPLACE VIEW v_chronology AS
+SELECT
   c.id,
   c.game_id,
-  c.detection_cycle,
-  c.type,
-  e.name AS entity_name,
-  c.field_name,
-  c.existing_value,
-  c.new_value,
-  c.existing_source,
-  c.new_source
-FROM contradictions c
-LEFT JOIN entities e ON c.entity_id = e.id
-WHERE c.resolved = false;
+  c.cycle,
+  c.time,
+  l.name AS location_name,
+  c.summary,
+  array_agg(er.name) FILTER (WHERE er.name IS NOT NULL) AS npcs_present
+FROM chronology c
+LEFT JOIN locations l ON c.location_id = l.id
+LEFT JOIN chronology_participants cp ON cp.chronology_id = c.id
+LEFT JOIN entity_registry er ON cp.entity_id = er.id
+GROUP BY c.id, l.name;
 
 -- ============================================================================
 -- GRANTS

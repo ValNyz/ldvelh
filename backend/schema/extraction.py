@@ -1,7 +1,7 @@
 """
-LDVELH - Narrative Extraction Schema (EAV Architecture)
-Unified models for extracting data from LLM narrative output
-All entity types use the same attributes-based format
+LDVELH - Narrative Extraction Schema
+Models for extracting structured data from LLM narrative output.
+Uses direct fields instead of EAV attributes.
 """
 
 from typing import Literal
@@ -9,70 +9,42 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
-    AttributeKey,
-    AttributeWithVisibility,
-    CommitmentType,
     Cycle,
     EntityRef,
     EntityType,
     EventType,
     FullText,
-    LongText,
     Name,
-    Tag,
     Phrase,
     ShortText,
     Skill,
     Text,
-    normalize_commitment_type,
     normalize_entity_type,
-    normalize_attribute_key,
 )
 from .narrative import FactData
 from .relations import RelationData, RelationType
 
 
 # =============================================================================
-# ENTITY CREATION (Unified EAV format)
+# ENTITY CREATION (Direct fields, no EAV)
 # =============================================================================
 
 
 class EntityCreation(BaseModel):
     """
     A new entity discovered/introduced in the narrative.
-    All entity types use the same structure with attributes.
+    Entity-specific fields go in the data dict, validated by the populator
+    against the appropriate entity model (CharacterData, LocationData, etc.)
     """
 
     entity_type: EntityType
     name: Name  # 100 chars
-    aliases: list[str] = Field(default_factory=list)
-
-    # Visibility
-    known_by_protagonist: bool = Field(
-        default=True, description="False if Val doesn't know this entity's real name"
-    )
-    unknown_name: Name | None = Field(
-        default=None, description="How Val refers to this entity if unknown"
-    )
-
-    # All data as attributes (unified format)
-    attributes: list[AttributeWithVisibility] = Field(default_factory=list)
-
-    # FK references (resolved by populator)
-    parent_location_ref: EntityRef | None = Field(
-        default=None, description="For locations: parent location"
-    )
-    headquarters_ref: EntityRef | None = Field(
-        default=None, description="For organizations: HQ location"
-    )
-    creator_ref: EntityRef | None = Field(
-        default=None, description="For AIs: creator entity"
-    )
-    workplace_ref: EntityRef | None = Field(
-        default=None, description="For characters: workplace"
-    )
-    residence_ref: EntityRef | None = Field(
-        default=None, description="For characters: residence"
+    known_by_protagonist: bool = True
+    unknown_name: Name | None = None
+    # Entity-specific fields (keys match the target table columns)
+    data: dict = Field(
+        default_factory=dict,
+        description="Entity-specific fields matching the target table columns",
     )
 
     @field_validator("entity_type", mode="before")
@@ -80,91 +52,29 @@ class EntityCreation(BaseModel):
     def _normalize_entity_type(cls, v):
         return normalize_entity_type(v)
 
-    @field_validator("attributes", mode="before")
-    @classmethod
-    def _normalize_attributes(cls, v):
-        """Convert dict format to AttributeWithVisibility list"""
-        if isinstance(v, list):
-            result = []
-            for item in v:
-                if isinstance(item, dict):
-                    try:
-                        # Utiliser normalize_attribute_key au lieu de normalize_key
-                        key = normalize_attribute_key(item.get("key", ""))
-                        result.append(
-                            AttributeWithVisibility(
-                                key=key,
-                                value=item.get("value", ""),
-                                known_by_protagonist=item.get(
-                                    "known", item.get("known_by_protagonist", True)
-                                ),
-                                details=item.get("details"),
-                            )
-                        )
-                    except ValueError as e:
-                        # Log and skip invalid keys
-                        import logging
-
-                        logging.warning(f"[Extraction] Skipping invalid attribute: {e}")
-                elif isinstance(item, AttributeWithVisibility):
-                    result.append(item)
-            return result
-        return v
-
-    def get_attribute(self, key: AttributeKey) -> str | None:
-        """Get an attribute value by key"""
-        for attr in self.attributes:
-            if attr.key == key:
-                return attr.value
-        return None
-
 
 class EntityUpdate(BaseModel):
     """An update to an existing entity"""
 
     entity_ref: EntityRef
-    new_aliases: list[str] = Field(default_factory=list)
-    attributes_changed: list[AttributeWithVisibility] = Field(default_factory=list)
+    entity_type: EntityType | None = None  # Helps routing to the correct table
+    # Direct field changes (keys match the entity table columns)
+    changes: dict = Field(
+        default_factory=dict,
+        description="Fields to update on the entity (column_name: new_value)",
+    )
     skills_changed: list[Skill] = Field(default_factory=list)
-    now_known: bool | None = Field(
-        default=None, description="Set to True when Val learns the entity's real name"
-    )
-    real_name: Name | None = Field(
-        default=None, description="The real name if now_known=True"
-    )
+    now_known: bool | None = None
+    real_name: Name | None = None
     removed: bool = False
     removal_reason: Text | None = None  # 300 chars
 
-    # @field_validator("attributes", mode="before")
-    # @classmethod
-    # def _normalize_attributes(cls, v):
-    #     """Convert dict format to AttributeWithVisibility list"""
-    #     if isinstance(v, list):
-    #         result = []
-    #         for item in v:
-    #             if isinstance(item, dict):
-    #                 try:
-    #                     # Utiliser normalize_attribute_key au lieu de normalize_key
-    #                     key = normalize_attribute_key(item.get("key", ""))
-    #                     result.append(
-    #                         AttributeWithVisibility(
-    #                             key=key,
-    #                             value=item.get("value", ""),
-    #                             known_by_protagonist=item.get(
-    #                                 "known", item.get("known_by_protagonist", True)
-    #                             ),
-    #                             details=item.get("details"),
-    #                         )
-    #                     )
-    #                 except ValueError as e:
-    #                     # Log and skip invalid keys
-    #                     import logging
-    #
-    #                     logging.warning(f"[Extraction] Skipping invalid attribute: {e}")
-    #             elif isinstance(item, AttributeWithVisibility):
-    #                 result.append(item)
-    #         return result
-    #     return v
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def _normalize_entity_type(cls, v):
+        if v is None:
+            return v
+        return normalize_entity_type(v)
 
 
 class EntityRemoval(BaseModel):
@@ -176,79 +86,21 @@ class EntityRemoval(BaseModel):
 
 
 # =============================================================================
-# OBJECT CREATION (from inventory acquisition)
+# OBJECT CREATION
 # =============================================================================
 
 
 class ObjectCreation(BaseModel):
-    """
-    A new object created from inventory acquisition.
-    Produced by the Objects extractor based on inventory hints.
-    """
+    """A new object created from inventory acquisition"""
 
     name: Name  # 100 chars
-    attributes: list[AttributeWithVisibility] = Field(default_factory=list)
+    category: ShortText | None = None
+    description: Text | None = None
+    transportable: bool = True
+    stackable: bool = False
+    base_value: int | None = None
     quantity: int = Field(default=1, ge=1)
-    from_hint: ShortText  # 200 chars - The original hint
-
-    @field_validator("attributes", mode="before")
-    @classmethod
-    def _normalize_attributes(cls, v):
-        """Convert dict or simple format to AttributeWithVisibility list"""
-        if isinstance(v, list):
-            result = []
-            for item in v:
-                if isinstance(item, dict):
-                    result.append(
-                        AttributeWithVisibility(
-                            key=item.get("key"),
-                            value=item.get("value", ""),
-                            known_by_protagonist=item.get("known", True),
-                            details=item.get("details"),
-                        )
-                    )
-                elif isinstance(item, AttributeWithVisibility):
-                    result.append(item)
-            return result
-        return v
-
-    @classmethod
-    def from_extracted(
-        cls,
-        name: str,
-        category: str,
-        description: str,
-        transportable: bool = True,
-        stackable: bool = False,
-        base_value: int = 0,
-        emotional_significance: str | None = None,
-        from_hint: str = "",
-    ) -> "ObjectCreation":
-        """Factory from extracted data"""
-        attrs = [
-            AttributeWithVisibility(
-                key=AttributeKey.DESCRIPTION,
-                value=description,
-                known_by_protagonist=True,
-                details={
-                    "category": category,
-                    "transportable": transportable,
-                    "stackable": stackable,
-                    "base_value": base_value,
-                },
-            ),
-        ]
-
-        if emotional_significance:
-            attrs.append(
-                AttributeWithVisibility(
-                    key=AttributeKey.EMOTIONAL_SIGNIFICANCE,
-                    value=emotional_significance,
-                    known_by_protagonist=True,
-                )
-            )
-
-        return cls(name=name, attributes=attrs, from_hint=from_hint)
+    from_hint: ShortText  # 200 chars - the original hint
 
 
 # =============================================================================
@@ -271,9 +123,7 @@ class RelationUpdate(BaseModel):
     relation_type: RelationType
     new_level: int | None = Field(default=None, ge=0, le=10)
     new_context: ShortText | None = None  # 200 chars
-    now_known: bool | None = Field(
-        default=None, description="Set to True when Val learns about this relation"
-    )
+    now_known: bool | None = None
 
 
 class RelationEnd(BaseModel):
@@ -307,16 +157,11 @@ class CreditTransaction(BaseModel):
 
 
 class InventoryChange(BaseModel):
-    """
-    Item gained, lost, or used.
-    For new objects: use object_hint (object will be created separately).
-    """
+    """Item gained, lost, or used"""
 
     action: Literal["acquire", "lose", "use"]
-    # For existing objects
     object_ref: EntityRef | None = None
-    # For new objects: text description, not ObjectData
-    object_hint: ShortText | None = None  # 200 chars
+    object_hint: ShortText | None = None  # 200 chars - for new objects
     quantity_delta: int = Field(default=1)
     reason: Phrase | None = None  # 150 chars
 
@@ -335,27 +180,33 @@ class InventoryChange(BaseModel):
 # =============================================================================
 
 
-class CommitmentCreationExtraction(BaseModel):
-    """A new narrative commitment (foreshadowing, secret, etc.)"""
+class ArcCreation(BaseModel):
+    """A new narrative arc created during extraction"""
 
-    commitment_type: CommitmentType
-    description: LongText  # 400 chars
+    title: Name  # 100 chars
+    domain: str  # ArcDomain value
+    description: Text  # 300 chars
     involved_entities: list[EntityRef] = Field(default_factory=list)
+    potential_triggers: list[str] = Field(default_factory=list, max_length=4)
+    stakes: ShortText | None = None  # 200 chars
     deadline_cycle: Cycle | None = None
-    objective: ShortText | None = None  # 200 chars
-    obstacle: ShortText | None = None  # 200 chars
-
-    @field_validator("commitment_type", mode="before")
-    @classmethod
-    def _normalize_commitment_type(cls, v):
-        return normalize_commitment_type(v)
+    intensity: int = Field(default=3, ge=1, le=5)
 
 
-class CommitmentResolutionExtraction(BaseModel):
-    """A commitment that was resolved"""
+class ArcUpdate(BaseModel):
+    """An existing narrative arc that progressed"""
 
-    commitment_description: ShortText  # 200 chars - to match existing
-    resolution_description: Text  # 300 chars
+    arc_title: Name  # Match by title
+    intensity: int | None = Field(default=None, ge=1, le=5)
+    progress: int | None = Field(default=None, ge=0, le=100)
+    situation: Text | None = None  # Updated current state, 300 chars
+
+
+class ArcResolutionExtraction(BaseModel):
+    """A narrative arc that was resolved"""
+
+    arc_title: Name  # Match by title
+    resolution: Text  # 300 chars
 
 
 class EventScheduledExtraction(BaseModel):
@@ -365,12 +216,9 @@ class EventScheduledExtraction(BaseModel):
     title: Phrase  # 150 chars
     description: Text | None = None  # 300 chars
     planned_cycle: Cycle = Field(..., ge=1)
-    time: Tag | None
+    time: str | None = None
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
-    recurrence: dict | None = None
-    amount: int | None = None
-    completed: bool = False
 
     @field_validator("event_type", mode="before")
     @classmethod
@@ -390,6 +238,19 @@ class EventScheduledExtraction(BaseModel):
 # =============================================================================
 
 
+class AmbientUpdate(BaseModel):
+    """Ambient text update for an entity — visible effect of ongoing arcs."""
+
+    entity_ref: EntityRef
+    entity_type: EntityType
+    ambient: ShortText  # 200 chars max
+
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def _normalize_entity_type(cls, v):
+        return normalize_entity_type(v)
+
+
 class NarrativeExtraction(BaseModel):
     """
     Complete extraction from a narrative segment.
@@ -398,13 +259,13 @@ class NarrativeExtraction(BaseModel):
 
     # Context
     cycle: Cycle = Field(default=1)
-    time: Tag | None
+    time: str | None = None
     current_location_ref: EntityRef | None = None
 
-    # Facts (immutable events that happened)
+    # Facts (immutable events)
     facts: list[FactData] = Field(default_factory=list)
 
-    # Entity changes (unified EAV format)
+    # Entity changes
     entities_created: list[EntityCreation] = Field(default_factory=list)
     entities_updated: list[EntityUpdate] = Field(default_factory=list)
     entities_removed: list[EntityRemoval] = Field(default_factory=list)
@@ -412,7 +273,7 @@ class NarrativeExtraction(BaseModel):
     # Objects created (from inventory acquisition)
     objects_created: list[ObjectCreation] = Field(default_factory=list)
 
-    # Relation changes (NO owns - handled automatically)
+    # Relation changes
     relations_created: list[RelationCreation] = Field(default_factory=list)
     relations_updated: list[RelationUpdate] = Field(default_factory=list)
     relations_ended: list[RelationEnd] = Field(default_factory=list)
@@ -423,16 +284,16 @@ class NarrativeExtraction(BaseModel):
     inventory_changes: list[InventoryChange] = Field(default_factory=list)
     skills_changed: list[Skill] = Field(default_factory=list)
 
-    # Narrative commitments
-    commitments_created: list[CommitmentCreationExtraction] = Field(
-        default_factory=list
-    )
-    commitments_resolved: list[CommitmentResolutionExtraction] = Field(
-        default_factory=list
-    )
+    # Narrative arcs
+    arcs_created: list[ArcCreation] = Field(default_factory=list)
+    arcs_updated: list[ArcUpdate] = Field(default_factory=list)
+    arcs_resolved: list[ArcResolutionExtraction] = Field(default_factory=list)
 
     # Future events
     events_scheduled: list[EventScheduledExtraction] = Field(default_factory=list)
+
+    # Ambient updates (visible effects of arcs on entities)
+    ambient_updates: list["AmbientUpdate"] = Field(default_factory=list)
 
     # Summary
     segment_summary: FullText = ""  # 500 chars
@@ -445,11 +306,42 @@ class NarrativeExtraction(BaseModel):
 
 
 class NarrativeWithExtraction(BaseModel):
-    """
-    Combined output: narrative text + extraction.
-    Use this when the LLM generates both in one call.
-    """
+    """Combined output: narrative text + extraction"""
 
     narrative_text: str = Field(..., min_length=100)
     extraction: NarrativeExtraction
     narrator_notes: FullText | None = None  # 500 chars
+
+
+# =============================================================================
+# TOOL_USE SCHEMA HELPER
+# =============================================================================
+
+
+def get_extraction_tool_schema() -> dict:
+    """Return JSON schema for NarrativeExtraction, suitable for Anthropic tool_use.
+
+    Strips fields managed by the caller (cycle, time, current_location_ref,
+    gauge_changes, credit_transactions, inventory_changes, skills_changed,
+    key_npcs_present) to keep the schema focused on what the LLM should extract.
+    """
+    schema = NarrativeExtraction.model_json_schema()
+
+    # Remove caller-managed fields from the top-level properties
+    caller_managed = {
+        "cycle", "time", "current_location_ref",
+        "gauge_changes", "credit_transactions", "inventory_changes",
+        "skills_changed", "key_npcs_present",
+        "entities_removed", "relations_ended",
+    }
+    props = schema.get("properties", {})
+    for key in caller_managed:
+        props.pop(key, None)
+
+    # Also remove from required if present
+    if "required" in schema:
+        schema["required"] = [
+            r for r in schema["required"] if r not in caller_managed
+        ]
+
+    return schema

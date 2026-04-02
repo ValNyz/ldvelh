@@ -1,4 +1,5 @@
 import './globals.css';
+import { AuthProvider } from '../lib/AuthContext';
 
 export const metadata = {
 	title: 'LDVELH - Chroniques de l\'Exil Stellaire',
@@ -18,7 +19,9 @@ export default function RootLayout({ children }) {
 				<link rel="icon" href="/favicon.ico" sizes="any" />
 			</head>
 			<body className="min-h-screen bg-gray-900 text-white antialiased">
-				{children}
+				<AuthProvider>
+					{children}
+				</AuthProvider>
 			</body>
 		</html>
 	);

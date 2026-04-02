@@ -13,7 +13,7 @@ from schema import (
     CharacterData,
     OrganizationData,
     ProtagonistData,
-    PersonalAIData,
+    PersonalAssistantData,
     ObjectData,
     # Narration
     NarrationOutput,
@@ -30,13 +30,12 @@ from schema import (
     RelationCreation,
     RelationUpdate,
     FactData,
-    CommitmentCreationExtraction,
-    CommitmentResolutionExtraction,
+    ArcCreation,
+    ArcResolutionExtraction,
     EventScheduledExtraction,
     ObjectCreation,
     NarrativeArcData,
     # Core
-    AttributeKey,
     EntityType,
     RelationType,
     FactType,
@@ -47,10 +46,7 @@ from schema import (
     normalize_entity_type,
     normalize_relation_type,
     normalize_fact_type,
-    normalize_attribute_key,
 )
-
-# Import direct des exemples pour les tests paramétrés
 
 
 # =============================================================================
@@ -67,7 +63,6 @@ class TestWorldGenerationExample:
         assert world.name == "Escale Méridienne"
         assert len(world.sectors) == 3
         assert world.founding_cycle == -4500
-        assert len(world.attributes) == 4
 
     def test_all_locations(self, world_generation_example):
         """Tous les LocationData parsent correctement"""
@@ -77,11 +72,10 @@ class TestWorldGenerationExample:
         for loc_data in locations:
             loc = LocationData(**loc_data)
             assert loc.name
-            assert len(loc.attributes) > 0
+            assert loc.location_type is not None
 
     def test_location_with_parent_ref(self, world_generation_example):
         """LocationData avec parent_location_ref"""
-        # Appartement 4-12 a un parent
         apt = next(
             l
             for l in world_generation_example["locations"]
@@ -90,12 +84,30 @@ class TestWorldGenerationExample:
         loc = LocationData(**apt)
         assert loc.parent_location_ref == "Bloc Tournesol"
 
+    def test_location_direct_fields(self, world_generation_example):
+        """LocationData avec colonnes directes (plus d'attributes)"""
+        terminal = next(
+            l
+            for l in world_generation_example["locations"]
+            if l["name"] == "Terminal Quai 7"
+        )
+        loc = LocationData(**terminal)
+        assert loc.location_type == "terminal"
+        assert loc.sector == "Quai Central"
+        assert loc.atmosphere == "transit impersonnel"
+        assert loc.accessible is True
+        assert len(loc.notable_features) == 2
+        assert loc.typical_crowd == "voyageurs fatigués, dockers indifférents"
+
     def test_all_organizations(self, world_generation_example):
         """Tous les OrganizationData parsent correctement"""
         for org_data in world_generation_example["organizations"]:
             org = OrganizationData(**org_data)
             assert org.name == "Symbiose Tech"
             assert org.headquarters_ref == "Serres Hydro-7"
+            assert org.org_type == "company"
+            assert org.domain == "IA agricole"
+            assert org.size == "medium"
 
     def test_protagonist(self, world_generation_example):
         """ProtagonistData parse correctement"""
@@ -104,12 +116,18 @@ class TestWorldGenerationExample:
         assert len(protag.skills) == 2
         assert protag.skills[0].level == 4
         assert protag.skills[0].name == "architecture_systemes"
+        assert protag.credits == 1650
+        assert protag.energy == 2.5
+        assert protag.employer_ref == "Symbiose Tech"
+        assert protag.residence_ref == "Appartement 4-12"
 
-    def test_personal_ai(self, world_generation_example):
-        """PersonalAIData parse correctement"""
-        ai = PersonalAIData(**world_generation_example["personal_ai"])
+    def test_personal_assistant(self, world_generation_example):
+        """PersonalAssistantData parse correctement"""
+        ai = PersonalAssistantData(**world_generation_example["personal_assistant"])
         assert ai.name == "Célimène"
-        assert len(ai.attributes) == 4
+        assert ai.voice == "voix rauque, débit lent"
+        assert len(ai.traits) == 3
+        assert ai.substrate == "personal_device"
 
     def test_all_characters(self, world_generation_example):
         """Tous les CharacterData parsent correctement"""
@@ -121,28 +139,24 @@ class TestWorldGenerationExample:
             assert char.name
             assert char.known_by_protagonist is False
 
-    def test_character_with_arcs(self, world_generation_example):
-        """CharacterData avec arcs dans attributes"""
+    def test_character_direct_fields(self, world_generation_example):
+        """CharacterData avec colonnes directes"""
         justine_data = world_generation_example["characters"][0]
         justine = CharacterData(**justine_data)
         assert justine.name == "Justine Lépicier"
-        # Vérifie que l'attribut arcs existe
-        arcs_attr = next(
-            (a for a in justine.attributes if a.key == AttributeKey.ARCS), None
-        )
-        assert arcs_attr is not None
-        assert "family" in arcs_attr.value  # domain family dans le JSON
+        assert justine.species == "human"
+        assert justine.gender == "femme"
+        assert justine.romantic_potential is True
+        assert justine.is_mandatory is True
+        assert len(justine.traits) >= 3
+        assert justine.workplace_ref == "Serres Hydro-7"
 
     def test_character_alien_species(self, world_generation_example):
         """CharacterData avec espèce non-humaine"""
         ossek_data = world_generation_example["characters"][2]
         ossek = CharacterData(**ossek_data)
         assert ossek.name == "Ossek"
-        species_attr = next(
-            (a for a in ossek.attributes if a.key == AttributeKey.SPECIES), None
-        )
-        assert species_attr is not None
-        assert "keth" in species_attr.value.lower()
+        assert "keth" in ossek.species.lower()
 
     def test_all_inventory(self, world_generation_example):
         """Tous les ObjectData parsent correctement"""
@@ -150,14 +164,39 @@ class TestWorldGenerationExample:
             obj = ObjectData(**obj_data)
             assert obj.name
             assert obj.quantity >= 1
+            assert obj.category is not None
+
+    def test_inventory_direct_fields(self, world_generation_example):
+        """ObjectData avec colonnes directes"""
+        terminal = world_generation_example["inventory"][0]
+        obj = ObjectData(**terminal)
+        assert obj.name == "Terminal personnel"
+        assert obj.category == "tech"
+        assert obj.transportable is True
+        assert obj.base_value == 300
 
     def test_narrative_arcs(self, world_generation_example):
         """NarrativeArcData parse correctement"""
-        for arc_data in world_generation_example["narrative_arcs"]:
+        arcs = world_generation_example["narrative_arcs"]
+        assert len(arcs) >= 3
+
+        for arc_data in arcs:
             arc = NarrativeArcData(**arc_data)
-            assert arc.title == "Pression sur Symbiose"
-            assert arc.arc_type.value == "foreshadowing"
-            assert len(arc.potential_triggers) >= 1
+            assert arc.title
+            assert arc.domain is not None
+
+    def test_narrative_arc_fields(self, world_generation_example):
+        """NarrativeArcData avec tous les champs"""
+        pression = next(
+            a
+            for a in world_generation_example["narrative_arcs"]
+            if a["title"] == "Pression sur Symbiose"
+        )
+        arc = NarrativeArcData(**pression)
+        assert arc.domain.value == "professional"
+        assert len(arc.potential_triggers) >= 1
+        assert arc.deadline_cycle == 180
+        assert "Symbiose Tech" in arc.involved_entities
 
     def test_all_relations(self, world_generation_example):
         """Toutes les RelationData parsent correctement"""
@@ -192,11 +231,11 @@ class TestNarrationExamples:
         assert output.hints.needs_extraction is False
 
     def test_example_pnj_unavailable(self, narration_examples):
-        """Exemple 2: PNJ indisponible avec commitment_advanced"""
+        """Exemple 2: PNJ indisponible avec arc_advanced"""
         output = NarrationOutput(**narration_examples["pnj_unavailable"])
         assert output.time.new_time == "10h20"
         assert len(output.suggested_actions) == 4
-        assert output.hints.commitment_advanced == ["L'exil du banc"]
+        assert output.hints.arc_advanced == ["L'exil du banc"]
         assert output.hints.needs_extraction is True
         assert output.narrator_notes == "Ossek: mauvaise journée (mal du banc)"
 
@@ -272,26 +311,27 @@ class TestExtractionExamples:
             assert change.quantity_delta == 1
 
     def test_entity_creation(self, extraction_examples):
-        """EntityCreation parse correctement"""
+        """EntityCreation avec data dict (plus d'attributes)"""
         for ec in extraction_examples["entities"]["entities_created"]:
             entity = EntityCreation(**ec)
             assert entity.name == "Elena Vasquez"
             assert entity.entity_type == EntityType.CHARACTER
             assert entity.known_by_protagonist is True
-            assert len(entity.attributes) >= 3
+            assert "description" in entity.data
+            assert entity.data["species"] == "human"
 
     def test_entity_update(self, extraction_examples):
-        """EntityUpdate parse correctement"""
+        """EntityUpdate avec changes dict"""
         for eu in extraction_examples["entities"]["entities_updated"]:
             update = EntityUpdate(**eu)
             assert update.entity_ref == "La femme mystérieuse"
             assert update.now_known is True
             assert update.real_name == "Dr. Sarah Chen"
+            assert "occupation" in update.changes
 
     def test_facts_with_semantic_key(self, extraction_examples):
         """FactData avec semantic_key"""
         for f in extraction_examples["facts"]["facts"]:
-            # Ajouter cycle qui est requis
             fact_data = {**f, "cycle": 5}
             fact = FactData(**fact_data)
             assert fact.fact_type == FactType.REVELATION
@@ -300,13 +340,13 @@ class TestExtractionExamples:
             assert len(fact.participants) == 2
 
     def test_relation_creation(self, extraction_examples):
-        """RelationCreation parse correctement"""
+        """RelationCreation avec level/context directs"""
         for rc in extraction_examples["relations"]["relations_created"]:
             rel = RelationCreation(**rc)
             assert rel.cycle == 5
             assert rel.relation.relation_type == RelationType.KNOWS
-            assert rel.relation.social is not None
-            assert rel.relation.social.level == 3
+            assert rel.relation.level == 3
+            assert rel.relation.context == "Collègues de travail"
 
     def test_relation_update(self, extraction_examples):
         """RelationUpdate parse correctement"""
@@ -315,22 +355,22 @@ class TestExtractionExamples:
             assert update.new_level == 4
             assert update.new_context == "Confidents"
 
-    def test_commitment_creation(self, extraction_examples):
-        """CommitmentCreationExtraction parse correctement"""
-        for cc in extraction_examples["commitments"]["commitments_created"]:
-            commitment = CommitmentCreationExtraction(**cc)
-            assert commitment.commitment_type.value == "foreshadowing"
-            assert "Marie" in commitment.involved_entities
+    def test_arc_creation(self, extraction_examples):
+        """ArcCreation parse correctement"""
+        for ac in extraction_examples["arcs"]["arcs_created"]:
+            arc = ArcCreation(**ac)
+            assert arc.domain == "professional"
+            assert "Marie" in arc.involved_entities
 
-    def test_commitment_resolution(self, extraction_examples):
-        """CommitmentResolutionExtraction parse correctement"""
-        for cr in extraction_examples["commitments"]["commitments_resolved"]:
-            resolution = CommitmentResolutionExtraction(**cr)
-            assert "rapport" in resolution.commitment_description.lower()
+    def test_arc_resolution(self, extraction_examples):
+        """ArcResolutionExtraction parse correctement"""
+        for ar in extraction_examples["arcs"]["arcs_resolved"]:
+            resolution = ArcResolutionExtraction(**ar)
+            assert "rapport" in resolution.arc_title.lower()
 
     def test_event_scheduled(self, extraction_examples):
         """EventScheduledExtraction parse correctement"""
-        for ev in extraction_examples["commitments"]["events_scheduled"]:
+        for ev in extraction_examples["arcs"]["events_scheduled"]:
             event = EventScheduledExtraction(**ev)
             assert event.title == "Déjeuner avec Marie"
             assert event.planned_cycle == 7
@@ -338,17 +378,17 @@ class TestExtractionExamples:
             assert event.location_ref == "Le Quart de Cycle"
 
     def test_object_creation(self, extraction_examples):
-        """ObjectCreation parse correctement"""
+        """ObjectCreation avec colonnes directes"""
         for oc in extraction_examples["objects"]["objects_created"]:
             obj = ObjectCreation(**oc)
             assert obj.name == "Carte d'accès niveau 2"
             assert obj.from_hint == "Carte d'accès temporaire"
+            assert obj.category == "tech"
+            assert obj.base_value == 50
 
     def test_full_extraction(self, extraction_examples):
         """NarrativeExtraction complet parse correctement"""
-        # L'exemple full utilise les facts sans cycle, on doit les enrichir
         full = extraction_examples["full"].copy()
-        # Ajouter cycle aux facts
         full["facts"] = [{**f, "cycle": full["cycle"]} for f in full["facts"]]
         extraction = NarrativeExtraction(**full)
         assert extraction.cycle == 5
@@ -425,36 +465,6 @@ class TestNormalizers:
         assert normalize_fact_type(input_val) == expected
 
 
-class TestAttributeKeys:
-    """Teste la normalisation des clés d'attributs"""
-
-    @pytest.mark.parametrize(
-        "input_key,expected",
-        [
-            ("description", AttributeKey.DESCRIPTION),
-            ("desc", AttributeKey.DESCRIPTION),
-            ("mood", AttributeKey.MOOD),
-            ("humeur", AttributeKey.MOOD),
-            ("atmosphere", AttributeKey.ATMOSPHERE),
-            ("ambiance", AttributeKey.ATMOSPHERE),
-            ("sector", AttributeKey.SECTOR),
-            ("secteur", AttributeKey.SECTOR),
-            ("occupation", AttributeKey.OCCUPATION),
-            ("job", AttributeKey.OCCUPATION),
-            ("traits", AttributeKey.TRAITS),
-            ("personality", AttributeKey.TRAITS),
-        ],
-    )
-    def test_normalize_attribute_key(self, input_key, expected):
-        """normalize_attribute_key gère les synonymes"""
-        assert normalize_attribute_key(input_key) == expected
-
-    def test_invalid_key_raises(self):
-        """Clé invalide lève une exception"""
-        with pytest.raises(ValueError):
-            normalize_attribute_key("invalid_key_xyz_123")
-
-
 # =============================================================================
 # VALIDATION ERRORS - Tests des rejets
 # =============================================================================
@@ -515,7 +525,9 @@ class TestValidationErrors:
     def test_world_founding_cycle_negative(self):
         """WorldData.founding_cycle <= -100"""
         with pytest.raises(ValidationError):
-            WorldData(name="X", attributes=[], sectors=["A", "B"], founding_cycle=0)
+            WorldData(
+                name="X", sectors=["A", "B"], founding_cycle=0
+            )
 
 
 # =============================================================================
@@ -538,9 +550,9 @@ class TestNarrationHintsNeedsExtraction:
             ("relationships_changed", True),
             ("protagonist_state_changed", True),
             ("information_learned", True),
-            ("commitment_advanced", ["Arc"]),
-            ("commitment_resolved", ["Arc"]),
-            ("new_commitment_created", True),
+            ("arc_advanced", ["Arc"]),
+            ("arc_resolved", ["Arc"]),
+            ("new_arc_created", True),
             ("event_scheduled", True),
             ("event_occurred", True),
         ],
@@ -560,17 +572,14 @@ class TestStringTruncation:
     """Teste la troncation automatique des strings"""
 
     def test_long_description_truncated(self):
-        """Descriptions > 500 chars tronquées"""
+        """Descriptions > 300 chars tronquées (Text type)"""
         very_long = "A" * 1000
-        obj = ObjectData(
-            name="Test",
-            attributes=[{"key": "description", "value": very_long, "known": True}],
-        )
-        assert len(obj.attributes[0].value) <= 500
-        assert obj.attributes[0].value.endswith("...")
+        obj = ObjectData(name="Test", description=very_long)
+        assert len(obj.description) <= 300
+        assert obj.description.endswith("...")
 
     def test_name_truncated_at_100(self):
         """Noms > 100 chars tronqués"""
         long_name = "A" * 200
-        loc = LocationData(name=long_name, attributes=[])
+        loc = LocationData(name=long_name)
         assert len(loc.name) <= 100

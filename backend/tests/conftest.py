@@ -36,7 +36,7 @@ from prompts.examples import (
     EXTRACTION_ENTITIES_EXAMPLE,
     EXTRACTION_FACTS_EXAMPLE,
     EXTRACTION_RELATIONS_EXAMPLE,
-    EXTRACTION_COMMITMENTS_EXAMPLE,
+    EXTRACTION_ARCS_EXAMPLE,
     EXTRACTION_OBJECTS_EXAMPLE,
 )
 
@@ -66,7 +66,7 @@ def extraction_examples():
         "entities": EXTRACTION_ENTITIES_EXAMPLE,
         "facts": EXTRACTION_FACTS_EXAMPLE,
         "relations": EXTRACTION_RELATIONS_EXAMPLE,
-        "commitments": EXTRACTION_COMMITMENTS_EXAMPLE,
+        "arcs": EXTRACTION_ARCS_EXAMPLE,
         "objects": EXTRACTION_OBJECTS_EXAMPLE,
         "full": {
             "cycle": 5,
@@ -84,13 +84,9 @@ def extraction_examples():
             "inventory_changes": EXTRACTION_PROTAGONIST_STATE_EXAMPLE[
                 "inventory_changes"
             ],
-            "commitments_created": EXTRACTION_COMMITMENTS_EXAMPLE[
-                "commitments_created"
-            ],
-            "commitments_resolved": EXTRACTION_COMMITMENTS_EXAMPLE[
-                "commitments_resolved"
-            ],
-            "events_scheduled": EXTRACTION_COMMITMENTS_EXAMPLE["events_scheduled"],
+            "arcs_created": EXTRACTION_ARCS_EXAMPLE["arcs_created"],
+            "arcs_resolved": EXTRACTION_ARCS_EXAMPLE["arcs_resolved"],
+            "events_scheduled": EXTRACTION_ARCS_EXAMPLE["events_scheduled"],
             "objects_created": EXTRACTION_OBJECTS_EXAMPLE["objects_created"],
             "segment_summary": "Valentin commande un café au Quart de Cycle et discute brièvement avec Ossek.",
             "key_npcs_present": ["Ossek"],
@@ -179,3 +175,88 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "integration: marque les tests d'intégration (nécessite BDD)"
     )
+
+
+# =============================================================================
+# INTEGRATION FIXTURES (require ldvelh_test database)
+# =============================================================================
+
+import pytest_asyncio
+
+TEST_DB_URL = "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"
+
+_TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE;"
+
+
+@pytest_asyncio.fixture
+async def test_pool():
+    """Function-scoped asyncpg pool to the test database.
+
+    Uses min_size=1 to minimize connection creation overhead.
+    Only TRUNCATEs at setup (not teardown) — next test will TRUNCATE anyway.
+    """
+    import asyncpg
+
+    pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5)
+    async with pool.acquire() as conn:
+        await conn.execute(_TRUNCATE_SQL)
+    yield pool
+    await pool.close()
+
+
+@pytest_asyncio.fixture
+async def test_user(test_pool, monkeypatch) -> dict:
+    """Create a test user and return {id, email, token}."""
+    from services import auth_service
+
+    # Mock email sending in tests (patch on auth_service where it's imported)
+    async def _noop_send(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(auth_service, "send_verification_email", _noop_send)
+
+    async with test_pool.acquire() as conn:
+        result = await auth_service.register(conn, "test@example.com", "testpassword", "Test User")
+    return {"id": result["id"], "email": result["email"], "token": result["token"]}
+
+
+@pytest_asyncio.fixture
+async def second_user(test_pool, monkeypatch) -> dict:
+    """Create a second test user for access-denied tests."""
+    from services import auth_service
+
+    async def _noop_send(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(auth_service, "send_verification_email", _noop_send)
+
+    async with test_pool.acquire() as conn:
+        result = await auth_service.register(conn, "other@example.com", "otherpassword", "Other User")
+    return {"id": result["id"], "email": result["email"], "token": result["token"]}
+
+
+@pytest_asyncio.fixture
+async def client(test_pool, monkeypatch):
+    """httpx.AsyncClient with ASGI transport, using the test DB pool."""
+    import httpx
+    from main import app
+    import main
+    from services import auth_service
+
+    monkeypatch.setattr(main, "db_pool", test_pool)
+
+    # Mock email sending for all HTTP-based registration tests
+    async def _noop_send(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(auth_service, "send_verification_email", _noop_send)
+
+    # Reset rate limiter between tests
+    from utils.rate_limit import auth_limiter
+    auth_limiter._hits.clear()
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac

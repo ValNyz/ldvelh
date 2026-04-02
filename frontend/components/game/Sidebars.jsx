@@ -3,10 +3,10 @@
 import { useMemo } from 'react';
 
 // ============================================================================
-// CONSTANTES
+// CONSTANTS
 // ============================================================================
 
-const LABELS_LOCALISATION = {
+const LOCATION_LABELS = {
 	'sur_soi': { label: 'Sur soi', icon: '📍' },
 	'sac_a_dos': { label: 'Sac à dos', icon: '🎒' },
 	'sac': { label: 'Sac', icon: '🎒' },
@@ -47,34 +47,34 @@ function SidebarWrapper({ isOpen, position, title, icon, onClose, children }) {
 }
 
 // ============================================================================
-// INVENTAIRE SIDEBAR
+// INVENTORY SIDEBAR
 // ============================================================================
 
-export function InventorySidebar({ isOpen, onClose, inventaire }) {
-	// Normaliser et grouper par localisation
-	const parLocalisation = useMemo(() => {
-		if (!inventaire?.length) return {};
+export function InventorySidebar({ isOpen, onClose, inventory }) {
+	// Normalize and group by location
+	const byLocation = useMemo(() => {
+		if (!inventory?.length) return {};
 
-		// Normaliser si ancien format (strings)
-		const items = typeof inventaire[0] === 'string'
-			? inventaire.map(nom => ({ nom, quantite: 1, localisation: 'sur_soi', categorie: 'autre' }))
-			: inventaire;
+		// Normalize legacy format (strings)
+		const items = typeof inventory[0] === 'string'
+			? inventory.map(name => ({ name, quantity: 1, location: 'sur_soi', category: 'misc' }))
+			: inventory;
 
 		const grouped = {};
 		for (const item of items) {
-			const loc = item.localisation || 'sur_soi';
+			const loc = item.location || 'sur_soi';
 			if (!grouped[loc]) grouped[loc] = [];
 			grouped[loc].push(item);
 		}
 
-		// Trier par ordre de priorité
-		const ordre = ['sur_soi', 'sac_a_dos', 'sac', 'valise', 'appartement', 'stockage'];
+		// Sort by priority order
+		const order = ['sur_soi', 'sac_a_dos', 'sac', 'valise', 'appartement', 'stockage'];
 		const sorted = {};
-		for (const loc of ordre) {
+		for (const loc of order) {
 			if (grouped[loc]) sorted[loc] = grouped[loc];
 		}
 		return sorted;
-	}, [inventaire]);
+	}, [inventory]);
 
 	return (
 		<SidebarWrapper
@@ -84,12 +84,12 @@ export function InventorySidebar({ isOpen, onClose, inventaire }) {
 			icon="🎒"
 			onClose={onClose}
 		>
-			{Object.keys(parLocalisation).length === 0 ? (
+			{Object.keys(byLocation).length === 0 ? (
 				<p className="text-gray-500 text-sm italic text-center py-4">Inventaire vide</p>
 			) : (
 				<div className="space-y-4">
-					{Object.entries(parLocalisation).map(([loc, items]) => {
-						const locInfo = LABELS_LOCALISATION[loc] || { label: loc, icon: '📌' };
+					{Object.entries(byLocation).map(([loc, items]) => {
+						const locInfo = LOCATION_LABELS[loc] || { label: loc, icon: '📌' };
 						return (
 							<div key={loc}>
 								<h4 className="text-xs text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
@@ -99,12 +99,12 @@ export function InventorySidebar({ isOpen, onClose, inventaire }) {
 									{items.map((item, idx) => (
 										<div key={idx} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
 											<div className="flex justify-between items-center">
-												<span className="text-gray-200 text-sm">{item.nom}</span>
-												{item.quantite > 1 && (
-													<span className="text-purple-400 text-xs">x{item.quantite}</span>
+												<span className="text-gray-200 text-sm">{item.name}</span>
+												{item.quantity > 1 && (
+													<span className="text-purple-400 text-xs">x{item.quantity}</span>
 												)}
 											</div>
-											<span className="text-xs text-gray-500">{item.categorie}</span>
+											<span className="text-xs text-gray-500">{item.category}</span>
 										</div>
 									))}
 								</div>
@@ -118,7 +118,7 @@ export function InventorySidebar({ isOpen, onClose, inventaire }) {
 }
 
 // ============================================================================
-// MONDE SIDEBAR
+// WORLD SIDEBAR
 // ============================================================================
 
 export function WorldSidebar({ isOpen, onClose, worldData, loading }) {
@@ -138,36 +138,36 @@ export function WorldSidebar({ isOpen, onClose, worldData, loading }) {
 				</div>
 			) : (
 				<div className="space-y-5">
-					{/* PNJs */}
+					{/* NPCs */}
 					{npcs.length > 0 && (
 						<div>
 							<h4 className="text-xs text-gray-500 uppercase tracking-wide mb-2">👥 Personnages ({npcs.length})</h4>
 							<div className="space-y-1">
 								{npcs.map((npc) => (
 									<div key={npc.id} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
-										<span className="text-gray-200 text-sm">{npc.nom}</span>
+										<span className="text-gray-200 text-sm">{npc.name}</span>
 									</div>
 								))}
 							</div>
 						</div>
 					)}
 
-					{/* Lieux */}
+					{/* Locations */}
 					{locations.length > 0 && (
 						<div>
 							<h4 className="text-xs text-gray-500 uppercase tracking-wide mb-2">📍 Lieux ({locations.length})</h4>
 							<div className="space-y-1">
 								{locations.map((loc) => (
 									<div key={loc.id} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
-										<span className="text-gray-200 text-sm">{loc.nom}</span>
-										{loc.secteur && <p className="text-xs text-gray-500">{loc.secteur}</p>}
+										<span className="text-gray-200 text-sm">{loc.name}</span>
+										{loc.sector && <p className="text-xs text-gray-500">{loc.sector}</p>}
 									</div>
 								))}
 							</div>
 						</div>
 					)}
 
-					{/* Quêtes */}
+					{/* Quests */}
 					{quests.length > 0 && (
 						<div>
 							<h4 className="text-xs text-gray-500 uppercase tracking-wide mb-2">📜 Quêtes ({quests.length})</h4>
@@ -175,15 +175,15 @@ export function WorldSidebar({ isOpen, onClose, worldData, loading }) {
 								{quests.map((q) => (
 									<div key={q.id} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
 										<div className="flex justify-between items-center">
-											<span className="text-gray-200 text-sm">{q.nom}</span>
-											<span className={`text-xs px-1.5 py-0.5 rounded ${q.priorite === 'haute' ? 'bg-orange-900/50 text-orange-400' : 'bg-purple-900/50 text-purple-400'
+											<span className="text-gray-200 text-sm">{q.name}</span>
+											<span className={`text-xs px-1.5 py-0.5 rounded ${q.priority === 'high' ? 'bg-orange-900/50 text-orange-400' : 'bg-purple-900/50 text-purple-400'
 												}`}>
-												{q.statut}
+												{q.status}
 											</span>
 										</div>
-										{q.progression > 0 && (
+										{q.progress > 0 && (
 											<div className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden">
-												<div className="h-full bg-purple-500 rounded-full" style={{ width: `${q.progression}%` }} />
+												<div className="h-full bg-purple-500 rounded-full" style={{ width: `${q.progress}%` }} />
 											</div>
 										)}
 									</div>
@@ -192,15 +192,15 @@ export function WorldSidebar({ isOpen, onClose, worldData, loading }) {
 						</div>
 					)}
 
-					{/* Organisations */}
+					{/* Organizations */}
 					{organizations.length > 0 && (
 						<div>
 							<h4 className="text-xs text-gray-500 uppercase tracking-wide mb-2">🏛️ Organisations ({organizations.length})</h4>
 							<div className="space-y-1">
 								{organizations.map((org) => (
 									<div key={org.id} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
-										<span className="text-gray-200 text-sm">{org.nom}</span>
-										{org.domaine && <p className="text-xs text-gray-500">{org.domaine}</p>}
+										<span className="text-gray-200 text-sm">{org.name}</span>
+										{org.domain && <p className="text-xs text-gray-500">{org.domain}</p>}
 									</div>
 								))}
 							</div>

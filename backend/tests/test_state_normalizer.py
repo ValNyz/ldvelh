@@ -1,62 +1,46 @@
 """
-Tests unitaires pour state_normalizer.py
-Priorité haute : c'est le cœur de la sérialisation frontend
+Unit tests for state_normalizer.py
+High priority: core serialization layer for frontend API.
 """
 
 from decimal import Decimal
 from uuid import UUID
 
-from config import STATS_DEFAUT
+from config import DEFAULT_STATS
 from services.state_normalizer import (
-    normalize_inventaire_item,
-    normalize_valentin,
-    normalize_partie,
-    normalize_ia,
+    normalize_inventory_item,
+    normalize_player,
+    normalize_game_session,
+    normalize_ai,
     normalize_game_state,
     merge_game_states,
     game_state_to_dict,
-    InventaireItem,
-    ValentinState,
-    PartieState,
-    IAState,
+    InventoryItem,
+    PlayerState,
+    GameSessionState,
+    AIState,
     GameState,
 )
 
 
 # =============================================================================
-# TESTS INVENTAIRE
+# TESTS INVENTORY
 # =============================================================================
 
 
-class TestNormalizeInventaireItem:
-    """Tests pour normalize_inventaire_item"""
+class TestNormalizeInventoryItem:
+    """Tests for normalize_inventory_item"""
 
     def test_string_input(self):
-        """Ancien format: juste un nom string"""
-        item = normalize_inventaire_item("Lampe torche")
-        assert item.nom == "Lampe torche"
-        assert item.quantite == 1
-        assert item.localisation == "sur_soi"
-        assert item.categorie == "autre"
+        """Legacy format: just a name string"""
+        item = normalize_inventory_item("Lampe torche")
+        assert item.name == "Lampe torche"
+        assert item.quantity == 1
+        assert item.location == "sur_soi"
+        assert item.category == "misc"
 
-    def test_dict_input_french_keys(self):
-        """Format dict avec clés françaises"""
-        data = {
-            "nom": "Carte d'accès",
-            "quantite": 2,
-            "localisation": "sac",
-            "categorie": "outil",
-            "etat": "usé",
-        }
-        item = normalize_inventaire_item(data)
-        assert item.nom == "Carte d'accès"
-        assert item.quantite == 2
-        assert item.localisation == "sac"
-        assert item.categorie == "outil"
-        assert item.etat == "usé"
-
-    def test_dict_input_english_keys(self):
-        """Format dict avec clés anglaises (depuis BDD)"""
+    def test_dict_input(self):
+        """Dict format with English keys"""
         data = {
             "name": "Access Card",
             "quantity": 3,
@@ -64,262 +48,236 @@ class TestNormalizeInventaireItem:
             "category": "tool",
             "condition": "good",
         }
-        item = normalize_inventaire_item(data)
-        assert item.nom == "Access Card"
-        assert item.quantite == 3
-        assert item.localisation == "pocket"
-        assert item.categorie == "tool"
-        assert item.etat == "good"
+        item = normalize_inventory_item(data)
+        assert item.name == "Access Card"
+        assert item.quantity == 3
+        assert item.location == "pocket"
+        assert item.category == "tool"
+        assert item.condition == "good"
 
     def test_missing_fields_use_defaults(self):
-        """Champs manquants → valeurs par défaut"""
-        item = normalize_inventaire_item({"nom": "Truc"})
-        assert item.quantite == 1
-        assert item.localisation == "sur_soi"
-        assert item.categorie == "autre"
-        assert item.etat == "bon"
+        """Missing fields use defaults"""
+        item = normalize_inventory_item({"name": "Thing"})
+        assert item.quantity == 1
+        assert item.location == "sur_soi"
+        assert item.category == "misc"
+        assert item.condition == "bon"
 
     def test_with_uuid(self):
-        """Item avec UUID"""
+        """Item with UUID"""
         uid = UUID("12345678-1234-5678-1234-567812345678")
-        item = normalize_inventaire_item({"id": uid, "nom": "Item"})
+        item = normalize_inventory_item({"id": uid, "name": "Item"})
         assert item.id == uid
 
 
 # =============================================================================
-# TESTS VALENTIN
+# TESTS PLAYER
 # =============================================================================
 
 
-class TestNormalizeValentin:
-    """Tests pour normalize_valentin"""
+class TestNormalizePlayer:
+    """Tests for normalize_player"""
 
     def test_none_input(self):
-        """None → valeurs par défaut"""
-        state = normalize_valentin(None)
-        assert state.energie == STATS_DEFAUT["energie"]
-        assert state.moral == STATS_DEFAUT["moral"]
-        assert state.sante == STATS_DEFAUT["sante"]
-        assert state.credits == STATS_DEFAUT["credits"]
-        assert state.inventaire == []
+        """None -> defaults"""
+        state = normalize_player(None)
+        assert state.energy == DEFAULT_STATS["energy"]
+        assert state.morale == DEFAULT_STATS["morale"]
+        assert state.health == DEFAULT_STATS["health"]
+        assert state.credits == DEFAULT_STATS["credits"]
+        assert state.inventory == []
 
     def test_empty_dict(self):
-        """Dict vide → valeurs par défaut"""
-        state = normalize_valentin({})
-        assert state.energie == STATS_DEFAUT["energie"]
+        """Empty dict -> defaults"""
+        state = normalize_player({})
+        assert state.energy == DEFAULT_STATS["energy"]
 
-    def test_french_keys(self):
-        """Clés françaises"""
-        state = normalize_valentin(
+    def test_english_keys(self):
+        """English keys"""
+        state = normalize_player(
             {
-                "energie": 3.5,
-                "moral": 2.0,
-                "sante": 4.5,
+                "energy": 3.5,
+                "morale": 2.0,
+                "health": 4.5,
                 "credits": 500,
             }
         )
-        assert state.energie == 3.5
-        assert state.moral == 2.0
-        assert state.sante == 4.5
+        assert state.energy == 3.5
+        assert state.morale == 2.0
+        assert state.health == 4.5
         assert state.credits == 500
-
-    def test_english_keys(self):
-        """Clés anglaises (depuis BDD)"""
-        state = normalize_valentin(
-            {
-                "energy": 3.0,
-                "health": 4.0,
-            }
-        )
-        assert state.energie == 3.0
-        assert state.sante == 4.0
 
     def test_decimal_conversion(self):
         """Decimal -> float"""
-        state = normalize_valentin(
+        state = normalize_player(
             {
-                "energie": Decimal("3.75"),
-                "moral": Decimal("2.50"),
+                "energy": Decimal("3.75"),
+                "morale": Decimal("2.50"),
             }
         )
-        assert state.energie == 3.75
-        assert isinstance(state.energie, float)
-        assert state.moral == 2.50
+        assert state.energy == 3.75
+        assert isinstance(state.energy, float)
+        assert state.morale == 2.50
 
-    def test_with_inventaire_strings(self):
-        """Inventaire avec ancien format (strings)"""
-        state = normalize_valentin({"inventaire": ["Lampe", "Clé", "Carte"]})
-        assert len(state.inventaire) == 3
-        assert state.inventaire[0].nom == "Lampe"
-        assert state.inventaire[1].nom == "Clé"
+    def test_with_inventory_strings(self):
+        """Inventory with legacy format (strings)"""
+        state = normalize_player({"inventory": ["Lampe", "Clé", "Carte"]})
+        assert len(state.inventory) == 3
+        assert state.inventory[0].name == "Lampe"
+        assert state.inventory[1].name == "Clé"
 
-    def test_with_inventaire_dicts(self):
-        """Inventaire avec nouveau format (dicts)"""
-        state = normalize_valentin(
+    def test_with_inventory_dicts(self):
+        """Inventory with dict format"""
+        state = normalize_player(
             {
-                "inventaire": [
-                    {"nom": "Lampe", "quantite": 1},
-                    {"nom": "Clé", "quantite": 2},
+                "inventory": [
+                    {"name": "Lampe", "quantity": 1},
+                    {"name": "Clé", "quantity": 2},
                 ]
             }
         )
-        assert len(state.inventaire) == 2
-        assert state.inventaire[1].quantite == 2
+        assert len(state.inventory) == 2
+        assert state.inventory[1].quantity == 2
 
 
 # =============================================================================
-# TESTS PARTIE
+# TESTS GAME SESSION
 # =============================================================================
 
 
-class TestNormalizePartie:
-    """Tests pour normalize_partie"""
+class TestNormalizeGameSession:
+    """Tests for normalize_game_session"""
 
     def test_none_input(self):
-        """None → None"""
-        assert normalize_partie(None) is None
+        """None -> None"""
+        assert normalize_game_session(None) is None
 
     def test_minimal_input(self):
-        """Input minimal"""
-        partie = normalize_partie({"nom": "Ma partie"})
-        assert partie.nom == "Ma partie"
-        assert partie.cycle_actuel == 1
-        assert partie.status == "active"
-
-    def test_french_keys(self):
-        """Clés françaises"""
-        partie = normalize_partie(
-            {
-                "nom": "Aventure",
-                "cycle_actuel": 5,
-                "date_jeu": "Lundi 3 janvier",
-                "heure": "14h30",
-                "lieu_actuel": "Bar du port",
-            }
-        )
-        assert partie.cycle_actuel == 5
-        assert partie.date_jeu == "Lundi 3 janvier"
-        assert partie.heure == "14h30"
-        assert partie.lieu_actuel == "Bar du port"
+        """Minimal input"""
+        session = normalize_game_session({"name": "Ma partie"})
+        assert session.name == "Ma partie"
+        assert session.current_cycle == 1
+        assert session.status == "active"
 
     def test_english_keys(self):
-        """Clés anglaises (depuis BDD)"""
-        partie = normalize_partie(
+        """English keys"""
+        session = normalize_game_session(
             {
                 "name": "Adventure",
-                "current_cycle": 3,
-                "universe_date": "Monday",
-                "current_location": "Dock",
+                "current_cycle": 5,
+                "game_date": "Lundi 3 janvier",
+                "time": "14h30",
+                "current_location": "Bar du port",
             }
         )
-        assert partie.nom == "Adventure"
-        assert partie.cycle_actuel == 3
-        assert partie.date_jeu == "Monday"
-        assert partie.lieu_actuel == "Dock"
+        assert session.current_cycle == 5
+        assert session.game_date == "Lundi 3 janvier"
+        assert session.time == "14h30"
+        assert session.current_location == "Bar du port"
 
-    def test_pnjs_presents(self):
-        """Liste des PNJs présents"""
-        partie = normalize_partie({"pnjs_presents": ["Alice", "Bob"]})
-        assert partie.pnjs_presents == ["Alice", "Bob"]
+    def test_npcs_present(self):
+        """NPCs present list"""
+        session = normalize_game_session({"npcs_present": ["Alice", "Bob"]})
+        assert session.npcs_present == ["Alice", "Bob"]
 
 
 # =============================================================================
-# TESTS IA
+# TESTS AI
 # =============================================================================
 
 
-class TestNormalizeIA:
-    """Tests pour normalize_ia"""
+class TestNormalizeAI:
+    """Tests for normalize_ai"""
 
     def test_none_input(self):
-        """None → None"""
-        assert normalize_ia(None) is None
+        """None -> None"""
+        assert normalize_ai(None) is None
 
     def test_minimal_input(self):
-        """Input minimal"""
-        ia = normalize_ia({"nom": "ARIA"})
-        assert ia.nom == "ARIA"
-        assert ia.personnalite == []
+        """Minimal input"""
+        ai = normalize_ai({"name": "ARIA"})
+        assert ai.name == "ARIA"
+        assert ai.personality == []
 
-    def test_personnalite_as_list(self):
-        """Personnalité en liste"""
-        ia = normalize_ia(
-            {"nom": "ARIA", "personnalite": ["sarcastique", "loyale", "curieuse"]}
+    def test_personality_as_list(self):
+        """Personality as list"""
+        ai = normalize_ai(
+            {"name": "ARIA", "personality": ["sarcastic", "loyal", "curious"]}
         )
-        assert ia.personnalite == ["sarcastique", "loyale", "curieuse"]
+        assert ai.personality == ["sarcastic", "loyal", "curious"]
 
-    def test_personnalite_as_string(self):
-        """Personnalité en string (ancien format) → liste"""
-        ia = normalize_ia({"nom": "ARIA", "personnalite": "sarcastique"})
-        assert ia.personnalite == ["sarcastique"]
+    def test_personality_as_string(self):
+        """Personality as string (legacy) -> list"""
+        ai = normalize_ai({"name": "ARIA", "personality": "sarcastic"})
+        assert ai.personality == ["sarcastic"]
 
-    def test_english_keys(self):
-        """Clés anglaises"""
-        ia = normalize_ia(
+    def test_all_fields(self):
+        """All fields"""
+        ai = normalize_ai(
             {
                 "name": "ARIA",
                 "personality": ["sarcastic"],
                 "voice": "warm",
-                "relationship_level": 5,
+                "relationship": 5,
             }
         )
-        assert ia.nom == "ARIA"
-        assert ia.voix == "warm"
-        assert ia.relation == 5
+        assert ai.name == "ARIA"
+        assert ai.voice == "warm"
+        assert ai.relationship == 5
 
 
 # =============================================================================
-# TESTS GAME STATE COMPLET
+# TESTS FULL GAME STATE
 # =============================================================================
 
 
 class TestNormalizeGameState:
-    """Tests pour normalize_game_state"""
+    """Tests for normalize_game_state"""
 
     def test_empty_input(self):
-        """Aucune donnée → état par défaut"""
+        """No data -> defaults"""
         state = normalize_game_state()
-        assert state.partie is None
-        assert state.valentin.energie == STATS_DEFAUT["energie"]
-        assert state.ia is None
+        assert state.game is None
+        assert state.player.energy == DEFAULT_STATS["energy"]
+        assert state.ai is None
 
     def test_structured_input(self):
-        """Input structuré (partie_data, valentin_data, ia_data)"""
+        """Structured input (game_data, player_data, ai_data)"""
         state = normalize_game_state(
-            partie_data={"nom": "Test", "cycle_actuel": 2},
-            valentin_data={"energie": 3.0, "credits": 1000},
-            ia_data={"nom": "ARIA"},
+            game_data={"name": "Test", "current_cycle": 2},
+            player_data={"energy": 3.0, "credits": 1000},
+            ai_data={"name": "ARIA"},
         )
-        assert state.partie.nom == "Test"
-        assert state.partie.cycle_actuel == 2
-        assert state.valentin.energie == 3.0
-        assert state.valentin.credits == 1000
-        assert state.ia.nom == "ARIA"
+        assert state.game.name == "Test"
+        assert state.game.current_cycle == 2
+        assert state.player.energy == 3.0
+        assert state.player.credits == 1000
+        assert state.ai.name == "ARIA"
 
     def test_flat_input_already_structured(self):
-        """flat_data déjà structuré avec clés partie/valentin"""
+        """flat_data already structured with game/player keys"""
         state = normalize_game_state(
             flat_data={
-                "partie": {"nom": "Flat Test"},
-                "valentin": {"credits": 500},
-                "ia": {"nom": "BOT"},
+                "game": {"name": "Flat Test"},
+                "player": {"credits": 500},
+                "ai": {"name": "BOT"},
             }
         )
-        assert state.partie.nom == "Flat Test"
-        assert state.valentin.credits == 500
-        assert state.ia.nom == "BOT"
+        assert state.game.name == "Flat Test"
+        assert state.player.credits == 500
+        assert state.ai.name == "BOT"
 
     def test_flat_input_raw(self):
-        """flat_data brut (depuis BDD directement)"""
+        """flat_data raw (from DB directly)"""
         state = normalize_game_state(
             flat_data={
-                "nom": "Direct",
-                "energie": 2.5,
+                "name": "Direct",
+                "energy": 2.5,
                 "credits": 800,
             }
         )
-        assert state.valentin.energie == 2.5
-        assert state.valentin.credits == 800
+        assert state.player.energy == 2.5
+        assert state.player.credits == 800
 
 
 # =============================================================================
@@ -328,33 +286,33 @@ class TestNormalizeGameState:
 
 
 class TestMergeGameStates:
-    """Tests pour merge_game_states"""
+    """Tests for merge_game_states"""
 
     def test_merge_partial_update(self):
-        """Mise à jour partielle"""
+        """Partial update"""
         prev = GameState(
-            partie=PartieState(nom="Test", cycle_actuel=1, lieu_actuel="Bar"),
-            valentin=ValentinState(energie=4.0, credits=1000),
+            game=GameSessionState(name="Test", current_cycle=1, current_location="Bar"),
+            player=PlayerState(energy=4.0, credits=1000),
         )
-        merged = merge_game_states(prev, {"partie": {"cycle_actuel": 2}})
+        merged = merge_game_states(prev, {"game": {"current_cycle": 2}})
 
-        # Valeurs mises à jour
-        assert merged.partie.cycle_actuel == 2
-        # Valeurs préservées
-        assert merged.partie.nom == "Test"
-        assert merged.partie.lieu_actuel == "Bar"
-        assert merged.valentin.credits == 1000
+        # Updated values
+        assert merged.game.current_cycle == 2
+        # Preserved values
+        assert merged.game.name == "Test"
+        assert merged.game.current_location == "Bar"
+        assert merged.player.credits == 1000
 
-    def test_merge_preserves_ia(self):
-        """Merge préserve l'IA si pas dans l'update"""
+    def test_merge_preserves_ai(self):
+        """Merge preserves AI if not in update"""
         prev = GameState(
-            valentin=ValentinState(),
-            ia=IAState(nom="ARIA", personnalite=["cool"]),
+            player=PlayerState(),
+            ai=AIState(name="ARIA", personality=["cool"]),
         )
-        merged = merge_game_states(prev, {"valentin": {"credits": 500}})
+        merged = merge_game_states(prev, {"player": {"credits": 500}})
 
-        assert merged.ia.nom == "ARIA"
-        assert merged.ia.personnalite == ["cool"]
+        assert merged.ai.name == "ARIA"
+        assert merged.ai.personality == ["cool"]
 
 
 # =============================================================================
@@ -363,38 +321,37 @@ class TestMergeGameStates:
 
 
 class TestGameStateToDict:
-    """Tests pour game_state_to_dict"""
+    """Tests for game_state_to_dict"""
 
     def test_excludes_none(self):
-        """Les None sont exclus du dict"""
+        """None values are excluded"""
         state = GameState(
-            partie=PartieState(nom="Test"),
-            valentin=ValentinState(),
+            game=GameSessionState(name="Test"),
+            player=PlayerState(),
         )
         d = game_state_to_dict(state)
 
-        # ia est None, ne doit pas apparaître
-        assert "ia" not in d or d.get("ia") is None
+        # ai is None, should not appear
+        assert "ai" not in d or d.get("ai") is None
 
-    def test_serializes_inventaire(self):
-        """L'inventaire est bien sérialisé"""
+    def test_serializes_inventory(self):
+        """Inventory is properly serialized"""
         state = GameState(
-            valentin=ValentinState(inventaire=[InventaireItem(nom="Clé", quantite=2)]),
+            player=PlayerState(inventory=[InventoryItem(name="Clé", quantity=2)]),
         )
         d = game_state_to_dict(state)
 
-        assert len(d["valentin"]["inventaire"]) == 1
-        assert d["valentin"]["inventaire"][0]["nom"] == "Clé"
-        assert d["valentin"]["inventaire"][0]["quantite"] == 2
+        assert len(d["player"]["inventory"]) == 1
+        assert d["player"]["inventory"][0]["name"] == "Clé"
+        assert d["player"]["inventory"][0]["quantity"] == 2
 
     def test_uuid_serialization(self):
-        """Les UUID sont convertis en string"""
+        """UUIDs are converted to strings"""
         uid = UUID("12345678-1234-5678-1234-567812345678")
         state = GameState(
-            partie=PartieState(id=uid, nom="Test"),
-            valentin=ValentinState(),
+            game=GameSessionState(id=uid, name="Test"),
+            player=PlayerState(),
         )
         d = game_state_to_dict(state)
 
-        # Pydantic mode="json" convertit UUID en string
-        assert d["partie"]["id"] == str(uid)
+        assert d["game"]["id"] == str(uid)

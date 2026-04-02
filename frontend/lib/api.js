@@ -1,14 +1,14 @@
 /**
  * LDVELH - API Client Configuration
- * 
+ *
  * Centralise les appels au backend Python FastAPI
  */
 
-// URL du backend Python - À configurer via env
+// URL du backend Python
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 /**
- * Construit l'URL complète de l'API
+ * Build full API URL from a path
  */
 export function apiUrl(path) {
 	const cleanPath = path.startsWith('/api') ? path : `/api${path}`;
@@ -16,12 +16,93 @@ export function apiUrl(path) {
 }
 
 /**
- * Client API avec gestion d'erreurs
+ * Get auth headers from localStorage (if token exists)
+ */
+export function getAuthHeaders() {
+	if (typeof window === 'undefined') return {};
+	const token = localStorage.getItem('ldvelh-auth-token');
+	if (!token) return {};
+	return { 'Authorization': `Bearer ${token}` };
+}
+
+/**
+ * Handle 401: attempt one token refresh, then retry the original request.
+ * If refresh fails, clear auth and redirect to login.
+ */
+let _refreshPromise = null;
+
+async function attemptRefreshAndRetry(method, url, options) {
+	// Coalesce concurrent refresh attempts into one
+	if (!_refreshPromise) {
+		_refreshPromise = fetch(apiUrl('/auth/refresh'), {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+		}).then(async (res) => {
+			if (!res.ok) throw new Error('Refresh failed');
+			const data = await res.json();
+			localStorage.setItem('ldvelh-auth-token', data.token);
+			return data.token;
+		}).finally(() => {
+			_refreshPromise = null;
+		});
+	}
+
+	try {
+		await _refreshPromise;
+	} catch {
+		// Refresh failed — clear auth and redirect
+		localStorage.removeItem('ldvelh-auth-token');
+		localStorage.removeItem('ldvelh-auth-user');
+		if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+			window.location.href = '/login/';
+		}
+		throw new Error('Session expired');
+	}
+
+	// Retry original request with refreshed token
+	const retryOptions = { ...options, headers: { ...options.headers, ...getAuthHeaders() } };
+	const res = await fetch(url, retryOptions);
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({ error: res.statusText }));
+		throw new Error(error.error || error.detail || 'API Error');
+	}
+	return res.json();
+}
+
+/**
+ * Core request function with 401 retry logic.
+ * Skips refresh for auth endpoints to avoid infinite loops.
+ */
+async function request(method, path, body = null) {
+	const isFullUrl = typeof path === 'string' && path.startsWith('http');
+	const url = isFullUrl ? path : apiUrl(path);
+	const isAuthEndpoint = url.includes('/auth/login') ||
+		url.includes('/auth/register') ||
+		url.includes('/auth/refresh');
+
+	const options = { method, headers: { ...getAuthHeaders() } };
+	if (body !== null) {
+		options.headers['Content-Type'] = 'application/json';
+		options.body = JSON.stringify(body);
+	}
+
+	const res = await fetch(url, options);
+
+	if (res.status === 401 && !isAuthEndpoint) {
+		return attemptRefreshAndRetry(method, url, options);
+	}
+
+	if (!res.ok) {
+		const error = await res.json().catch(() => ({ error: res.statusText }));
+		throw new Error(error.error || error.detail || 'API Error');
+	}
+	return res.json();
+}
+
+/**
+ * API client with auth headers
  */
 export const api = {
-	/**
-	 * GET request
-	 */
 	async get(path, params = {}) {
 		const url = new URL(apiUrl(path));
 		Object.entries(params).forEach(([k, v]) => {
@@ -29,189 +110,47 @@ export const api = {
 				url.searchParams.append(k, v);
 			}
 		});
-
-		const res = await fetch(url.toString());
-		if (!res.ok) {
-			const error = await res.json().catch(() => ({ error: res.statusText }));
-			throw new Error(error.error || error.detail || 'API Error');
-		}
-		return res.json();
+		return request('GET', url.toString());
 	},
-
-	/**
-	 * POST request
-	 */
-	async post(path, body = {}) {
-		const res = await fetch(apiUrl(path), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		});
-
-		if (!res.ok) {
-			const error = await res.json().catch(() => ({ error: res.statusText }));
-			throw new Error(error.error || error.detail || 'API Error');
-		}
-		return res.json();
-	},
-
-	/**
-	 * DELETE request
-	 */
-	async delete(path) {
-		const res = await fetch(apiUrl(path), { method: 'DELETE' });
-		if (!res.ok) {
-			const error = await res.json().catch(() => ({ error: res.statusText }));
-			throw new Error(error.error || error.detail || 'API Error');
-		}
-		return res.json();
-	},
-
-	/**
-	 * PATCH request
-	 */
-	async patch(path, body = {}) {
-		const res = await fetch(apiUrl(path), {
-			method: 'PATCH',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		});
-
-		if (!res.ok) {
-			const error = await res.json().catch(() => ({ error: res.statusText }));
-			throw new Error(error.error || error.detail || 'API Error');
-		}
-		return res.json();
-	},
-
-	/**
-	 * POST avec streaming SSE
-	 */
-	async stream(path, body = {}, handlers = {}) {
-		const { onChunk, onProgress, onExtracting, onDone, onSaved, onError } = handlers;
-
-		const res = await fetch(apiUrl(path), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		});
-
-		if (!res.headers.get('content-type')?.includes('text/event-stream')) {
-			const data = await res.json();
-			if (data.error) {
-				onError?.(data.error, data.details);
-				return { success: false };
-			}
-			onDone?.(data.displayText || data.content, data.state);
-			return { success: true, data };
-		}
-
-		const reader = res.body.getReader();
-		const decoder = new TextDecoder();
-		let fullJson = '';
-
-		try {
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-
-				const text = decoder.decode(value, { stream: true });
-
-				for (const line of text.split('\n')) {
-					if (!line.startsWith('data: ')) continue;
-
-					try {
-						const data = JSON.parse(line.slice(6));
-
-						switch (data.type) {
-							case 'chunk':
-								onChunk?.(data.content);
-								break;
-							case 'progress':
-								fullJson = data.rawJson || fullJson;
-								onProgress?.(fullJson);
-								break;
-							case 'extracting':
-								onExtracting?.(data.displayText);
-								break;
-							case 'done':
-								onDone?.(data.displayText, data.state);
-								break;
-							case 'saved':
-								onSaved?.();
-								break;
-							case 'error':
-								onError?.(data.error, data.details);
-								break;
-							case 'warning':
-								console.warn('[API] Warning:', data.message);
-								break;
-						}
-					} catch (e) {
-						// Ignorer les lignes mal formées
-					}
-				}
-			}
-
-			return { success: true, fullJson };
-		} catch (e) {
-			if (e.name === 'AbortError') {
-				return { success: false, aborted: true };
-			}
-			onError?.(e.message);
-			return { success: false, error: e };
-		}
-	}
+	post: (path, body = {}) => request('POST', path, body),
+	delete: (path) => request('DELETE', path),
+	patch: (path, body = {}) => request('PATCH', path, body),
 };
 
 // ============================================================================
-// GAMES API - CRUD des parties (métadonnées)
+// GAMES API
 // ============================================================================
 
 export const gamesApi = {
-	/** Liste toutes les parties */
 	list: () => api.get('/games'),
-
-	/** Crée une nouvelle partie */
 	create: () => api.post('/games'),
-
-	/** Supprime une partie */
 	delete: (gameId) => api.delete(`/games/${gameId}`),
-
-	/** Renomme une partie */
 	rename: (gameId, name) => api.patch(`/games/${gameId}`, { gameId, name })
 };
 
 // ============================================================================
-// STATE API - Données de jeu (state, monde, rollback)
+// STATE API
 // ============================================================================
 
 export const stateApi = {
-	/** Charge l'état complet d'une partie (state + messages + world_info) */
 	load: (gameId) => api.get(`/games/${gameId}`),
-
-	/** Récupère les données du monde pour les sidebars (PNJs, lieux, quêtes, organisations) */
 	getWorld: (gameId) => api.get(`/games/${gameId}/world`),
-
-	/** Rollback à un message spécifique */
 	rollback: (gameId, fromIndex) => api.post(`/games/${gameId}/rollback`, { fromIndex })
 };
 
 // ============================================================================
-// CHAT API - Messages
+// PREFERENCES API
 // ============================================================================
 
-export const chatApi = {
-	/** Envoie un message avec streaming SSE */
-	send: (gameId, message, gameState, handlers) =>
-		api.stream('/chat', { gameId, message, gameState }, handlers)
+export const preferencesApi = {
+	get: () => api.get('/auth/preferences'),
+	update: (prefs) => api.patch('/auth/preferences', { preferences: prefs }),
 };
 
 // ============================================================================
-// TOOLTIPS API - Enrichissement UI
+// TOOLTIPS API
 // ============================================================================
 
 export const tooltipsApi = {
-	/** Récupère les tooltips pour une partie */
-	get: (partieId) => api.get('/tooltips', { partieId })
+	get: (gameId) => api.get('/tooltips', { gameId })
 };

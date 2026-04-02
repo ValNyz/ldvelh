@@ -12,12 +12,11 @@ export default function GameHeader({
 	onShowSettings,
 	onQuit,
 	activeSidebar,
-	showSettings
 }) {
 	const [isRenaming, setIsRenaming] = useState(false);
 	const [newName, setNewName] = useState('');
 
-	const partie = gameState?.partie;
+	const game = gameState?.game;
 
 	const handleRename = () => {
 		if (newName.trim()) {
@@ -29,7 +28,7 @@ export default function GameHeader({
 
 	return (
 		<header className="bg-gray-900/80 border-b border-gray-800/50 px-4 py-3 flex items-center justify-between backdrop-blur-sm">
-			{/* Gauche: Retour + Titre */}
+			{/* Left: Back + Title */}
 			<div className="flex items-center gap-3">
 				<button
 					onClick={onQuit}
@@ -73,15 +72,15 @@ export default function GameHeader({
 								</button>
 							</div>
 							<p className="text-xs text-gray-500">
-								Cycle {partie?.cycle_actuel || 1}
-								{partie?.lieu_actuel && ` • ${partie.lieu_actuel}`}
+								Cycle {game?.current_cycle || 1}
+								{game?.current_location && ` • ${game.current_location}`}
 							</p>
 						</>
 					)}
 				</div>
 			</div>
 
-			{/* Droite: Sidebars + Settings */}
+			{/* Right: Sidebars + Settings */}
 			<div className="flex items-center gap-1">
 				<button
 					onClick={onToggleInventory}
@@ -108,10 +107,7 @@ export default function GameHeader({
 
 				<button
 					onClick={onShowSettings}
-					className={`p-2 rounded-lg transition-colors ${showSettings
-							? 'bg-gray-700 text-white'
-							: 'text-gray-400 hover:text-white hover:bg-gray-800'
-						}`}
+					className="p-2 rounded-lg transition-colors text-gray-400 hover:text-white hover:bg-gray-800"
 					title="Paramètres"
 				>
 					⚙️

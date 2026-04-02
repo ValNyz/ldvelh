@@ -4,10 +4,10 @@ Builds narration context from database using KnowledgeGraphReader
 """
 
 from __future__ import annotations
+import json
 from uuid import UUID
 from typing import TYPE_CHECKING
 
-from utils import parse_json
 from schema.narration import (
     NarrationContext,
     GaugeState,
@@ -16,12 +16,11 @@ from schema.narration import (
     LocationSummary,
     NPCSummary,
     ArcSummary,
-    CommitmentSummary,
+    ActiveArcSummary,
     EventSummary,
     Fact,
-    MessageSummary,
     CycleSummary,
-    PersonalAISummary,
+    PersonalAssistantSummary,
     NPCLightSummary,
     OrganizationSummary,
 )
@@ -54,16 +53,16 @@ class ContextBuilder:
         # World info
         world_info = await self.reader.get_root_location(conn) or {}
 
-        # Date: utilise get_current_date existant
-        date = await self.reader.get_current_date(conn) or "Jour 1"
+        # Game state (date, world metadata)
+        game = await self.reader.get_game(conn) or {}
 
-        # Protagonist avec skills
+        # Protagonist with skills
         protagonist = await self._build_protagonist_state(conn)
 
-        # Inventory via vue existante
+        # Inventory
         inventory = await self._build_inventory(conn)
 
-        # AI companion via méthode existante
+        # AI companion
         personal_ai = await self._build_personal_ai(conn)
 
         # Locations
@@ -74,35 +73,46 @@ class ContextBuilder:
             conn, current_location_name
         )
 
-        # NPCs
+        # NPCs — fetch all once, derive subsets
+        all_characters = await self.reader.get_all_characters(conn)
+        all_npcs = self._build_all_npcs_light(all_characters)
+
         npcs_present = await self._build_npcs_at_location(conn, current_location_name)
-        npcs_relevant = await self._build_relevant_npcs(conn)
-        all_npcs = await self._build_all_npcs_light_summary(conn)
+        present_names = {n.name for n in npcs_present}
+        npcs_relevant = self._build_relevant_npcs(all_characters, present_names)
 
-        # Organizations - AJOUTER
-        organizations = await self._build_organizations(conn)
+        # Load arcs once (used for NPCs and active arcs)
+        arcs_rows = await self.reader.get_active_arcs(conn)
 
-        # Commitments & Events
-        commitments = await self._build_commitments(conn)
+        # Enrich NPCs with arcs
+        self._enrich_npcs_with_arcs(npcs_present, arcs_rows)
+        self._enrich_npcs_with_arcs(npcs_relevant, arcs_rows)
+
+        # Organizations
+        organizations = await self._build_organizations(conn, protagonist)
+
+        # Arcs & Events
+        active_arcs_list = self._build_active_arcs(arcs_rows)
         events = await self._build_events(conn, current_cycle)
 
         # Facts
-        facts = await self._build_facts(
-            conn, current_cycle, current_location_name, npcs_present
-        )
+        facts = await self._build_facts(conn, current_cycle)
 
-        # History
-        cycle_summaries = await self._build_cycle_summaries(conn, current_cycle)
-        (
-            recent_messages,
-            earlier_cycle_messages,
-        ) = await self._build_conversation_context(conn, current_cycle, recent_limit=10)
+        # Requested entity details (from narrator info_requests at previous turn)
+        requested_entity_details = await self._build_requested_details(conn)
+
+        # Cycle summaries — only for cycles BEFORE the conversation window
+        # (last 2 cycles are in the API messages array as multi-turn history)
+        history_window_start = max(1, current_cycle - 1)
+        cycle_summaries = await self._build_cycle_summaries(
+            conn, current_cycle=history_window_start - 1
+        )
         tone_notes = ""
 
         return NarrationContext(
             current_cycle=current_cycle,
             current_time=current_time,
-            current_date=date,
+            current_date=game.get("current_date") or "Jour 1",
             current_location=current_location,
             connected_locations=connected_locations,
             protagonist=protagonist,
@@ -112,15 +122,14 @@ class ContextBuilder:
             npcs_relevant=npcs_relevant,
             all_npcs=all_npcs,
             organizations=organizations,
-            active_commitments=commitments,
+            active_arcs=active_arcs_list,
             upcoming_events=events,
             facts=facts,
+            requested_entity_details=requested_entity_details,
             cycle_summaries=cycle_summaries,
-            recent_messages=recent_messages,
-            earlier_cycle_messages=earlier_cycle_messages,
             player_input=player_input,
-            world_name=world_info.get("name", "Station"),
-            world_atmosphere=world_info.get("atmosphere", ""),
+            world_name=game.get("world_name") or world_info.get("name", "Station"),
+            world_atmosphere=game.get("world_atmosphere") or world_info.get("atmosphere", ""),
             tone_notes=tone_notes,
         )
 
@@ -130,12 +139,11 @@ class ContextBuilder:
 
     async def _build_protagonist_state(self, conn: Connection) -> ProtagonistState:
         """Build protagonist state from reader"""
-        row = await self.reader.get_protagonist_with_skills(conn)
+        row = await self.reader.get_protagonist(conn)
         if not row:
             raise ValueError("Protagonist not found")
 
-        hobbies = parse_json(row.get("hobbies"))
-        # skills_str = [f"{s['name']} ({s['level']})" for s in row.get("skills", [])]
+        hobbies = row.get("hobbies") or []
 
         return ProtagonistState(
             name=row["name"],
@@ -143,33 +151,33 @@ class ContextBuilder:
             energy=GaugeState(value=float(row.get("energy") or 3)),
             morale=GaugeState(value=float(row.get("morale") or 3)),
             health=GaugeState(value=float(row.get("health") or 4)),
-            # skills=skills_str,
             hobbies=hobbies,
             current_occupation=row.get("occupation"),
-            employer=row.get("employer"),
+            employer=row.get("employer_name"),
         )
 
     async def _build_inventory(self, conn: Connection) -> list[InventoryItem]:
-        """Build inventory from existing get_inventory"""
+        """Build inventory from v_protagonist_inventory view"""
         rows = await self.reader.get_inventory(conn)
         return [
             InventoryItem(
                 name=r["object_name"],
                 category=r.get("category") or "misc",
                 quantity=r.get("quantity") or 1,
-                emotional=bool(r.get("emotional_significance")),
             )
             for r in rows
         ]
 
-    async def _build_personal_ai(self, conn: Connection) -> PersonalAISummary | None:
-        """Build AI companion from existing method"""
-        row = await self.reader.get_ai_companion(conn)
+    async def _build_personal_ai(
+        self, conn: Connection
+    ) -> PersonalAssistantSummary | None:
+        """Build AI companion from personal_assistants table"""
+        row = await self.reader.get_personal_assistant(conn)
         if not row:
             return None
 
-        traits = parse_json(row.get("traits"))
-        return PersonalAISummary(
+        traits = row.get("traits") or []
+        return PersonalAssistantSummary(
             name=row["name"],
             voice_description=row.get("voice"),
             personality_traits=traits,
@@ -184,7 +192,7 @@ class ContextBuilder:
         self, conn: Connection, name: str
     ) -> LocationSummary:
         """Build current location summary"""
-        row = await self.reader.get_location_details(conn, name)
+        row = await self.reader.get_location_by_name(conn, name)
         if not row:
             return LocationSummary(
                 name=name, type="Inconnu", sector="Inconnu", atmosphere="Inconnu"
@@ -195,6 +203,7 @@ class ContextBuilder:
             sector=row.get("sector") or "Inconnu",
             atmosphere=row.get("atmosphere") or "Inconnu",
             accessible=row.get("accessible", True),
+            ambient=row.get("ambient"),
         )
 
     async def _build_connected_locations(
@@ -209,6 +218,7 @@ class ContextBuilder:
                 sector=r.get("sector") or "Inconnu",
                 atmosphere=r.get("atmosphere") or "Inconnu",
                 accessible=True,
+                ambient=r.get("ambient"),
             )
             for r in rows
         ]
@@ -217,11 +227,10 @@ class ContextBuilder:
     # NPCs
     # =========================================================================
 
-    async def _build_all_npcs_light_summary(
-        self, conn: Connection
+    def _build_all_npcs_light(
+        self, all_characters: list[dict]
     ) -> list[NPCLightSummary]:
-        """Build light summary of ALL NPCs (known and unknown)"""
-        rows = await self.reader.get_all_characters(conn)
+        """Build light summary of ALL NPCs from pre-fetched data"""
         return [
             NPCLightSummary(
                 name=r["name"]
@@ -232,8 +241,9 @@ class ContextBuilder:
                 relationship_level=r.get("relation_level"),
                 usual_location=r.get("usual_location"),
                 known=r["known_by_protagonist"],
+                ambient=r.get("ambient"),
             )
-            for r in rows
+            for r in all_characters
         ]
 
     async def _build_npcs_at_location(
@@ -243,10 +253,24 @@ class ContextBuilder:
         rows = await self.reader.get_npcs_at_location(conn, location_name)
         return [self._row_to_npc_summary(r) for r in rows]
 
-    async def _build_relevant_npcs(self, conn: Connection) -> list[NPCSummary]:
-        """Build relevant NPCs (highest relationship)"""
-        rows = await self.reader.get_top_related_npcs(conn, limit=5)
-        return [self._row_to_npc_summary(r) for r in rows]
+    def _build_relevant_npcs(
+        self, all_characters: list[dict], exclude_names: set[str]
+    ) -> list[NPCSummary]:
+        """Build relevant NPCs (highest relationship, not at current location)"""
+        # all_characters is already sorted by relation_level DESC
+        result = []
+        for r in all_characters:
+            if len(result) >= 5:
+                break
+            display_name = r["name"]
+            if not r.get("known_by_protagonist", True):
+                display_name = r.get("unknown_name") or "Inconnu(e)"
+            if display_name in exclude_names:
+                continue
+            # Only include NPCs with an established relation
+            if r.get("relation_level") is not None:
+                result.append(self._row_to_npc_summary(r))
+        return result
 
     def _row_to_npc_summary(self, row: dict) -> NPCSummary:
         """Convert DB row to NPCSummary"""
@@ -254,81 +278,116 @@ class ContextBuilder:
         if not row.get("known_by_protagonist", True):
             display_name = row.get("unknown_name") or "Inconnu(e)"
 
-        traits = parse_json(row.get("traits"))
-        arcs = self._parse_arcs(row.get("arcs"))
+        traits = row.get("traits") or []
+        if isinstance(traits, str):
+            import json
+            try:
+                traits = json.loads(traits)
+            except (json.JSONDecodeError, TypeError):
+                traits = []
 
         return NPCSummary(
             name=display_name,
             occupation=row.get("occupation") or "inconnu",
             species=row.get("species") or "human",
             traits=traits[:3],
-            relationship_to_protagonist=row.get("rel_context", "")[:50]
-            if row.get("rel_context")
+            relationship_to_protagonist=row.get("relation_context", "")[:50]
+            if row.get("relation_context")
             else None,
-            relationship_level=row.get("rel_level"),
-            active_arcs=arcs,
+            relationship_level=row.get("relation_level"),
+            usual_location=row.get("usual_location"),
+            known=row.get("known_by_protagonist", True),
+            active_arcs=[],  # Enriched later via _enrich_npcs_with_arcs
+            ambient=row.get("ambient"),
         )
 
-    def _parse_arcs(self, arcs_raw) -> list[ArcSummary]:
-        """Parse arcs JSON to ArcSummary list"""
-        arcs_list = parse_json(arcs_raw)
-        result = []
-        for arc in arcs_list[:2]:
-            if isinstance(arc, dict):
-                try:
-                    result.append(
-                        ArcSummary(
-                            domain=ArcDomain(arc.get("domain", "personal")),
-                            title=arc.get("title", ""),
-                            situation_brief=arc.get("situation", "")[:100],
-                            intensity=arc.get("intensity", 3),
-                        )
-                    )
-                except (ValueError, KeyError):
-                    pass
-        return result
+    def _enrich_npcs_with_arcs(
+        self, npcs: list[NPCSummary], arcs_rows: list[dict]
+    ) -> None:
+        """Add arc summaries to NPCs based on arc participants."""
+        # Build lookup: NPC name → list of arcs they participate in
+        npc_arcs: dict[str, list[ArcSummary]] = {}
+        for arc in arcs_rows:
+            names = self._extract_participant_names(arc.get("participants") or [])
+            for name in names:
+                npc_arcs.setdefault(name.lower(), []).append(arc)
+
+        for npc in npcs:
+            npc_name = npc.name.lower()
+            arcs = npc_arcs.get(npc_name, [])
+            npc.active_arcs = [
+                ArcSummary(
+                    domain=ArcDomain(a.get("domain", "personal")),
+                    title=a.get("title", ""),
+                    situation_brief=(a.get("situation") or "")[:100],
+                    intensity=a.get("intensity", 3),
+                )
+                for a in arcs[:2]
+            ]
 
     # =========================================================================
     # ORGANIZATIONS
     # =========================================================================
 
-    async def _build_organizations(self, conn: Connection) -> list[OrganizationSummary]:
-        """Build organizations summary"""
-        rows = await self.reader.get_known_organizations(conn)
+    async def _build_organizations(
+        self, conn: Connection, protagonist: ProtagonistState
+    ) -> list[OrganizationSummary]:
+        """Build organizations summary with protagonist relation"""
+        rows = await self.reader.get_organizations(conn)
+        employer = (protagonist.employer or "").lower()
         return [
             OrganizationSummary(
                 name=r["name"],
                 org_type=r.get("org_type"),
                 domain=r.get("domain"),
-                protagonist_relation=r.get("protagonist_relation"),
+                protagonist_relation="employed_by"
+                if r["name"].lower() == employer
+                else None,
+                ambient=r.get("ambient"),
             )
             for r in rows
         ]
 
     # =========================================================================
-    # COMMITMENTS & EVENTS
+    # ARCS & EVENTS
     # =========================================================================
 
-    async def _build_commitments(self, conn: Connection) -> list[CommitmentSummary]:
-        """Build commitments from detailed query"""
-        rows = await self.reader.get_commitments_detailed(conn)
+    @staticmethod
+    def _extract_participant_names(participants: list) -> list[str]:
+        """Extract human-readable names from participant entries.
+
+        Handles both parsed dicts and JSON strings (asyncpg codec varies).
+        """
+        names = []
+        for p in participants:
+            if isinstance(p, dict):
+                name = p.get("name")
+            elif isinstance(p, str):
+                # asyncpg may return jsonb elements as strings
+                try:
+                    obj = json.loads(p)
+                    name = obj.get("name") if isinstance(obj, dict) else p
+                except (json.JSONDecodeError, TypeError):
+                    name = p
+            else:
+                name = None
+            if name:
+                names.append(name)
+        return names
+
+    def _build_active_arcs(self, arcs_rows: list[dict]) -> list[ActiveArcSummary]:
+        """Build active arcs from narrative_arcs table"""
         result = []
-        for r in rows:
-            entities_raw = r.get("entities") or []
-            involved = [
-                e["name"] for e in entities_raw if isinstance(e, dict) and e.get("name")
-            ]
-            description = (
-                r["description"].split(":") if r.get("description") else ["", ""]
-            )
+        for arc in arcs_rows:
+            involved = self._extract_participant_names(arc.get("participants") or [])
 
             result.append(
-                CommitmentSummary(
-                    type=r["type"],
-                    title=description[0],
-                    description_brief=description[1][1:],
+                ActiveArcSummary(
+                    type=arc.get("domain") or "personal",
+                    title=arc.get("title", ""),
+                    description_brief=(arc.get("situation") or arc.get("description") or "")[:150],
                     involved=involved,
-                    deadline_cycle=r.get("deadline_cycle"),
+                    deadline_cycle=arc.get("deadline_cycle"),
                 )
             )
         return result
@@ -336,8 +395,8 @@ class ContextBuilder:
     async def _build_events(
         self, conn: Connection, current_cycle: int
     ) -> list[EventSummary]:
-        """Build events from detailed query"""
-        rows = await self.reader.get_events_detailed(conn, current_cycle)
+        """Build events from v_upcoming_events view"""
+        rows = await self.reader.get_upcoming_events(conn, current_cycle)
         return [
             EventSummary(
                 title=r["title"],
@@ -358,59 +417,43 @@ class ContextBuilder:
         self,
         conn: Connection,
         current_cycle: int,
-        current_location_name: str,
-        npcs_present: list[NPCSummary],
     ) -> list[Fact]:
-        """Build unified list of recent facts (deduplicated)"""
-        seen_ids = set()
+        """Build unified list of recent important facts"""
+        rows = await self.reader.get_facts(
+            conn, cycle=current_cycle, min_importance=3, limit=15
+        )
+
         result = []
+        for r in rows:
+            involves = self._extract_participant_names(r.get("participants") or [])
 
-        # 1. Important facts (importance >= 3)
-        important = await self.reader.get_facts_with_participants(
-            conn, cycle=current_cycle, min_importance=3, limit=10
-        )
-        for r in important:
-            if r["id"] not in seen_ids:
-                seen_ids.add(r["id"])
-                result.append(self._row_to_recent_fact(r))
-
-        # 2. Location facts (si pas déjà inclus)
-        location_facts = await self.reader.get_facts_with_participants(
-            conn, cycle=current_cycle, location_name=current_location_name, limit=5
-        )
-        for r in location_facts:
-            if r["id"] not in seen_ids:
-                seen_ids.add(r["id"])
-                result.append(self._row_to_recent_fact(r))
-
-        # 3. NPC facts (si pas déjà inclus)
-        if npcs_present:
-            npc_names = [n.name for n in npcs_present]
-            npc_facts = await self.reader.get_facts_with_participants(
-                conn, cycle=current_cycle, npc_names=npc_names, limit=5
+            result.append(
+                Fact(
+                    cycle=r["cycle"],
+                    description=r.get("description") or "",
+                    importance=r.get("importance", 1),
+                    involves=involves,
+                )
             )
-            for r in npc_facts:
-                if r["id"] not in seen_ids:
-                    seen_ids.add(r["id"])
-                    result.append(self._row_to_recent_fact(r))
 
-        # Trier par importance décroissante puis cycle décroissant
-        result.sort(key=lambda f: (-f.importance, -f.cycle))
-        return result[:15]
+        return result
 
-    def _row_to_recent_fact(self, r: dict) -> Fact:
-        """Convert row to Fact"""
-        participants = r.get("participants") or []
-        involves = [
-            p["name"] for p in participants if isinstance(p, dict) and p.get("name")
-        ]
+    # =========================================================================
+    # REQUESTED ENTITY DETAILS
+    # =========================================================================
 
-        return Fact(
-            cycle=r["cycle"],
-            description=r["description"] if r.get("description") else "",
-            importance=r.get("importance", 1),
-            involves=involves,
-        )
+    async def _build_requested_details(self, conn: "Connection") -> dict[str, dict]:
+        """Load detailed info for entities requested by narrator at previous turn"""
+        detail_requests = await self.reader.get_detail_requests(conn)
+        if not detail_requests:
+            return {}
+
+        result = {}
+        for name in detail_requests:
+            details = await self.reader.get_entity_details_by_name(conn, name)
+            if details:
+                result[name] = details
+        return result
 
     # =========================================================================
     # HISTORY
@@ -418,52 +461,17 @@ class ContextBuilder:
 
     async def _build_cycle_summaries(
         self, conn: Connection, current_cycle: int, limit: int = 15
-    ) -> list[str]:
-        """Build cycle summaries"""
-        rows = await self.reader.get_cycle_summaries(
+    ) -> list[CycleSummary]:
+        """Build cycle summaries from chronology"""
+        rows = await self.reader.get_chronology(
             conn, max_cycle=current_cycle, limit=limit
         )
         return [
-            CycleSummary(cycle=r["cycle"], date=r["date"], summary=r["summary"])
+            CycleSummary(
+                cycle=r["cycle"],
+                date=None,
+                summary=r["summary"],
+            )
             for r in rows
         ]
 
-    async def _build_conversation_context(
-        self, conn: Connection, current_cycle: int, recent_limit: int = 10
-    ) -> tuple[list[MessageSummary], list[MessageSummary]]:
-        """
-        Build conversation context:
-        - recent_messages: les 10 derniers messages (détaillés)
-        - earlier_cycle_messages: résumés des messages plus anciens du cycle en cours
-
-        Returns: (recent_messages, earlier_cycle_messages)
-        """
-        # 1. Les N derniers messages (tous cycles confondus)
-        recent_rows = await self.reader.get_messages(conn, recent_limit)
-        recent_messages = [
-            MessageSummary(
-                role=r["role"],
-                summary=r.get("content", ""),
-                cycle=r["cycle"],
-                time=r.get("time"),
-            )
-            for r in recent_rows
-        ]
-
-        # 2. IDs des messages récents pour les exclure
-        recent_ids = {r.get("id") for r in recent_rows if r.get("id")}
-
-        # 3. Tous les autres messages du cycle en cours (résumés courts)
-        cycle_rows = await self.reader.get_cycle_messages(conn, current_cycle)
-        earlier_cycle_messages = [
-            MessageSummary(
-                role=r["role"],
-                summary=r.get("summary", ""),
-                cycle=r["cycle"],
-                time=r.get("time"),
-            )
-            for r in cycle_rows
-            if r.get("id") not in recent_ids
-        ]
-
-        return recent_messages, earlier_cycle_messages

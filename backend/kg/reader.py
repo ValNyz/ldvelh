@@ -1,9 +1,7 @@
 """
-LDVELH - Knowledge Graph Reader
-
-Architecture:
-- Fonctions génériques pour CRUD simple
-- Fonctions spécifiques pour requêtes optimisées/complexes
+LDVELH - Knowledge Graph Reader (Dedicated Tables Architecture)
+Read-only operations (SELECT) for all game data.
+Uses dedicated tables and views instead of EAV joins.
 """
 
 from __future__ import annotations
@@ -21,7 +19,7 @@ SortOrder = Literal["asc", "desc"]
 
 
 class KnowledgeGraphReader:
-    """Lecteur du Knowledge Graph - SELECT uniquement"""
+    """Read-only access to game data — SELECT only."""
 
     def __init__(self, pool: Pool, game_id: UUID | None = None):
         self.pool = pool
@@ -32,47 +30,48 @@ class KnowledgeGraphReader:
     # =========================================================================
 
     async def list_games(
-        self, conn: Connection, active_only: bool = True
+        self, conn: Connection, active_only: bool = True, user_id=None
     ) -> list[dict]:
-        """
-        Liste les parties avec métadonnées.
-        Requête optimisée avec LEFT JOIN LATERAL au lieu de sous-requête corrélée.
-        """
-        query = """
-            SELECT 
-                g.id, g.name, g.active, g.created_at, g.updated_at,
-                COALESCE(msg.max_cycle, 0) AS current_cycle,
-                cs.date AS current_date
-            FROM games g
-            LEFT JOIN LATERAL (
-                SELECT MAX(cycle) as max_cycle 
-                FROM chat_messages WHERE game_id = g.id
-            ) msg ON true
-            LEFT JOIN LATERAL (
-                SELECT date FROM cycle_summaries 
-                WHERE game_id = g.id ORDER BY cycle DESC LIMIT 1
-            ) cs ON true
-        """
+        """List games with current state, optionally filtered by user."""
+        conditions = []
+        params = []
         if active_only:
-            query += " WHERE g.active = true"
-        query += " ORDER BY g.updated_at DESC"
+            conditions.append("active = true")
+        if user_id is not None:
+            params.append(user_id)
+            conditions.append(f"user_id = ${len(params)}")
 
-        rows = await conn.fetch(query)
+        query = """
+            SELECT id, name, active, created_at, updated_at,
+                   current_cycle, "current_date"
+            FROM games
+        """
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY updated_at DESC"
+        rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
     async def get_game(
         self, conn: Connection, game_id: UUID | None = None
     ) -> dict | None:
-        """Récupère une partie par ID"""
         target_id = game_id or self.game_id
         row = await conn.fetchrow(
-            "SELECT id, name, active, created_at, updated_at FROM games WHERE id = $1",
+            """SELECT id, name, active, created_at, updated_at,
+                      current_cycle, "current_date", "current_time",
+                      current_location_id,
+                      world_name, world_description, world_atmosphere,
+                      world_seed_words, world_founding_cycle,
+                      extracted_up_to_cycle, last_extraction_time,
+                      detail_requests
+               FROM games WHERE id = $1""",
             target_id,
         )
         return dict(row) if row else None
 
-    async def game_exists(self, conn: Connection, active_only: bool = True) -> bool:
-        """Vérifie si la partie existe"""
+    async def game_exists(
+        self, conn: Connection, active_only: bool = True
+    ) -> bool:
         if active_only:
             return await conn.fetchval(
                 "SELECT EXISTS(SELECT 1 FROM games WHERE id = $1 AND active = true)",
@@ -87,257 +86,292 @@ class KnowledgeGraphReader:
     # =========================================================================
 
     async def is_world_created(self, conn: Connection) -> bool:
-        """Vérifie si le monde est créé (protagoniste existe)"""
+        """Check if world is created (protagonist exists)."""
         return await conn.fetchval(
-            """SELECT EXISTS(
-                SELECT 1 FROM entities 
-                WHERE game_id = $1 AND type = 'protagonist' AND removed_cycle IS NULL
-            )""",
+            "SELECT EXISTS(SELECT 1 FROM protagonists WHERE game_id = $1)",
             self.game_id,
         )
 
     async def get_current_cycle(self, conn: Connection) -> int:
-        """Récupère le cycle actuel"""
         result = await conn.fetchval(
-            "SELECT COALESCE(MAX(cycle), 0) FROM chat_messages WHERE game_id = $1",
+            "SELECT COALESCE(current_cycle, 0) FROM games WHERE id = $1",
             self.game_id,
         )
         return result or 0
 
-    async def get_date_for_cycle(self, conn: Connection, cycle: int) -> str | None:
-        """Récupère la date pour un cycle donné"""
+    async def get_current_date(self, conn: Connection) -> str | None:
         return await conn.fetchval(
-            """SELECT date FROM cycle_summaries 
-               WHERE game_id = $1 AND cycle <= $2 
-               ORDER BY cycle DESC LIMIT 1""",
+            'SELECT "current_date" FROM games WHERE id = $1', self.game_id
+        )
+
+    async def get_current_time(self, conn: Connection) -> str | None:
+        return await conn.fetchval(
+            'SELECT "current_time" FROM games WHERE id = $1', self.game_id
+        )
+
+    async def get_current_location_name(self, conn: Connection) -> str | None:
+        return await conn.fetchval(
+            """SELECT l.name FROM games g
+               JOIN locations l ON g.current_location_id = l.id
+               WHERE g.id = $1""",
             self.game_id,
-            cycle,
         )
 
     # =========================================================================
-    # ENTITIES - Fonctions de base
+    # ENTITY REGISTRY
     # =========================================================================
-
-    async def get_entity_by_id(self, conn: Connection, entity_id: UUID) -> dict | None:
-        """Récupère une entité par ID (optimisé: index primaire)"""
-        row = await conn.fetchrow(
-            """SELECT id, name, type, aliases, known_by_protagonist, unknown_name,
-                      created_cycle, removed_cycle, removal_reason
-               FROM entities WHERE id = $1""",
-            entity_id,
-        )
-        return dict(row) if row else None
-
-    async def get_entity_by_name(
-        self, conn: Connection, name: str, include_removed: bool = False
-    ) -> dict | None:
-        """Récupère une entité par nom exact (case-insensitive)"""
-        query = """
-            SELECT id, name, type, aliases, known_by_protagonist, unknown_name,
-                   created_cycle, removed_cycle, removal_reason
-            FROM entities 
-            WHERE game_id = $1 AND LOWER(name) = LOWER($2)
-        """
-        if not include_removed:
-            query += " AND removed_cycle IS NULL"
-
-        row = await conn.fetchrow(query, self.game_id, name)
-        return dict(row) if row else None
-
-    async def find_entity(
-        self, conn: Connection, name: str, entity_type: str | None = None
-    ) -> UUID | None:
-        """Recherche fuzzy via fonction SQL (aliases, préfixes)"""
-        return await conn.fetchval(
-            "SELECT find_entity($1, $2, $3::entity_type)",
-            self.game_id,
-            name,
-            entity_type,
-        )
 
     async def get_entities(
-        self,
-        conn: Connection,
-        entity_type: str | None = None,
-        include_removed: bool = False,
+        self, conn: Connection, entity_type: str | None = None
     ) -> list[dict]:
-        """Récupère les entités avec filtre optionnel par type"""
-        query = "SELECT id, name, type FROM entities WHERE game_id = $1"
+        """Get all entities from entity_registry."""
+        query = "SELECT id, entity_type, name FROM entity_registry WHERE game_id = $1"
         params: list = [self.game_id]
-
-        if not include_removed:
-            query += " AND removed_cycle IS NULL"
-
         if entity_type:
-            query += " AND type = $2"
+            query += " AND entity_type = $2"
             params.append(entity_type)
-
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
     async def resolve_entity_refs(
         self, conn: Connection, names: list[str]
     ) -> dict[str, UUID]:
-        """Résout plusieurs noms en {name_lower: UUID} - batch optimisé"""
+        """Resolve multiple names to {name_lower: entity_registry UUID}."""
         if not names:
             return {}
         rows = await conn.fetch(
-            """SELECT LOWER(name) as name_lower, id FROM entities 
-               WHERE game_id = $1 AND LOWER(name) = ANY($2) AND removed_cycle IS NULL""",
+            """SELECT LOWER(name) as name_lower, id FROM entity_registry
+               WHERE game_id = $1 AND LOWER(name) = ANY($2)""",
             self.game_id,
             [n.lower() for n in names],
         )
         return {r["name_lower"]: r["id"] for r in rows}
 
-    async def get_entity_names_by_ids(
-        self, conn: Connection, entity_ids: list[UUID]
-    ) -> list[str]:
-        """Récupère les noms par IDs - batch optimisé"""
-        if not entity_ids:
-            return []
-        rows = await conn.fetch(
-            "SELECT name FROM entities WHERE id = ANY($1)", entity_ids
-        )
-        return [r["name"] for r in rows]
-
     async def get_entity_counts_by_type(self, conn: Connection) -> dict[str, int]:
-        """Compte les entités actives par type - single query optimisée"""
+        """Count active entities per type."""
         row = await conn.fetchrow(
-            """SELECT 
-                COUNT(*) FILTER (WHERE type = 'character') as characters,
-                COUNT(*) FILTER (WHERE type = 'location') as locations,
-                COUNT(*) FILTER (WHERE type = 'organization') as organizations,
-                COUNT(*) FILTER (WHERE type = 'object') as objects
-               FROM entities
-               WHERE game_id = $1 AND removed_cycle IS NULL""",
+            """SELECT
+                (SELECT COUNT(*) FROM characters WHERE game_id=$1 AND removed_cycle IS NULL) as characters,
+                (SELECT COUNT(*) FROM locations WHERE game_id=$1 AND removed_cycle IS NULL) as locations,
+                (SELECT COUNT(*) FROM organizations WHERE game_id=$1 AND removed_cycle IS NULL) as organizations,
+                (SELECT COUNT(*) FROM objects WHERE game_id=$1 AND removed_cycle IS NULL) as objects
+            """,
             self.game_id,
         )
         return dict(row) if row else {}
 
     # =========================================================================
-    # ATTRIBUTES
+    # PROTAGONIST
     # =========================================================================
 
-    async def get_attribute(
-        self, conn: Connection, entity_id: UUID, key: str
-    ) -> str | None:
-        """Récupère un attribut via fonction SQL get_attribute"""
-        return await conn.fetchval("SELECT get_attribute($1, $2)", entity_id, key)
+    async def get_protagonist(self, conn: Connection) -> dict | None:
+        """Get protagonist with all fields."""
+        row = await conn.fetchrow(
+            """SELECT p.id, p.name,
+                      p.energy, p.morale, p.health, p.credits,
+                      p.occupation, p.origin, p.departure_reason,
+                      p.backstory, p.hobbies, p.description,
+                      p.employer_id, p.residence_id, p.details,
+                      o.name as employer_name,
+                      l.name as residence_name
+               FROM protagonists p
+               LEFT JOIN organizations o ON p.employer_id = o.id
+               LEFT JOIN locations l ON p.residence_id = l.id
+               WHERE p.game_id = $1""",
+            self.game_id,
+        )
+        if not row:
+            return None
+        result = dict(row)
 
-    async def get_attributes(
-        self, conn: Connection, entity_id: UUID, keys: list[str] | None = None
-    ) -> dict[str, str]:
-        """Récupère plusieurs attributs actifs d'une entité"""
-        if keys:
-            rows = await conn.fetch(
-                """SELECT key, value FROM attributes 
-                   WHERE entity_id = $1 AND end_cycle IS NULL AND key = ANY($2)""",
-                entity_id,
-                keys,
-            )
-        else:
-            rows = await conn.fetch(
-                "SELECT key, value FROM attributes WHERE entity_id = $1 AND end_cycle IS NULL",
-                entity_id,
-            )
-        return {r["key"]: r["value"] for r in rows}
+        # Add skills
+        skills = await conn.fetch(
+            "SELECT name, level FROM skills"
+            " WHERE protagonist_id = $1 AND end_cycle IS NULL",
+            result["id"],
+        )
+        result["skills"] = [dict(s) for s in skills]
+        return result
+
+    async def get_protagonist_stats(self, conn: Connection) -> dict | None:
+        """Get protagonist gauges and credits only."""
+        row = await conn.fetchrow(
+            "SELECT energy, morale, health, credits"
+            " FROM protagonists WHERE game_id = $1",
+            self.game_id,
+        )
+        return dict(row) if row else None
 
     # =========================================================================
-    # CHARACTER
+    # PERSONAL ASSISTANT
+    # =========================================================================
+
+    async def get_personal_assistant(self, conn: Connection) -> dict | None:
+        row = await conn.fetchrow(
+            "SELECT id, name, voice, traits, quirk, substrate, details"
+            " FROM personal_assistants WHERE game_id = $1",
+            self.game_id,
+        )
+        return dict(row) if row else None
+
+    # =========================================================================
+    # CHARACTERS
     # =========================================================================
 
     async def get_all_characters(self, conn: Connection) -> list[dict]:
-        """Récupère TOUS les PNJs (connus et inconnus) avec leurs attributs"""
+        """Get all active NPCs with their fields and relation to protagonist."""
         rows = await conn.fetch(
-            """SELECT 
-                e.id, e.name, e.known_by_protagonist, e.unknown_name,
-                get_attribute(e.id, 'occupation') as occupation,
-                get_attribute(e.id, 'species') as species,
-                get_attribute(e.id, 'traits') as traits,
-                get_attribute(e.id, 'mood') as mood,
-                get_attribute(e.id, 'arcs') as arcs,
-                cc.relation_level,
-                cc.relation_context,
-                (SELECT ar.target_name 
-                 FROM v_active_relations ar
-                 WHERE ar.source_id = e.id
-                   AND ar.relation_type IN ('works_at', 'lives_at', 'frequents')
+            """SELECT
+                c.id, c.name, c.known_by_protagonist, c.unknown_name,
+                c.species, c.gender, c.pronouns, c.age, c.description,
+                c.traits, c.mood, c.occupation, c.origin,
+                c.romantic_potential, c.is_mandatory, c.ambient,
+                wp.name as workplace_name,
+                res.name as residence_name,
+                -- Relation to protagonist
+                r_knows.level as relation_level,
+                r_knows.context as relation_context,
+                -- Usual location (first spatial relation target)
+                (SELECT l.name FROM relations r_sp
+                 JOIN entity_registry er_src ON r_sp.source_id = er_src.id AND er_src.name = c.name
+                 JOIN entity_registry er_tgt ON r_sp.target_id = er_tgt.id
+                 JOIN locations l ON l.game_id = c.game_id AND l.name = er_tgt.name
+                 WHERE r_sp.game_id = c.game_id
+                   AND r_sp.type IN ('works_at', 'lives_at', 'frequents')
+                   AND r_sp.end_cycle IS NULL
                  LIMIT 1) as usual_location
-            FROM entities e
-            LEFT JOIN v_characters_context cc ON cc.entity_id = e.id
-            WHERE e.game_id = $1 
-              AND e.type = 'character'
-              AND e.removed_cycle IS NULL
-            ORDER BY COALESCE(cc.relation_level, 0) DESC, e.name ASC""",
+            FROM characters c
+            LEFT JOIN locations wp ON c.workplace_id = wp.id
+            LEFT JOIN locations res ON c.residence_id = res.id
+            -- Join protagonist relation via entity_registry
+            LEFT JOIN LATERAL (
+                SELECT r.level, r.context
+                FROM relations r
+                JOIN entity_registry er_proto ON r.source_id = er_proto.id
+                    AND er_proto.entity_type = 'protagonist'
+                JOIN entity_registry er_char ON r.target_id = er_char.id
+                    AND er_char.name = c.name
+                WHERE r.game_id = c.game_id
+                  AND r.type = 'knows'
+                  AND r.end_cycle IS NULL
+                LIMIT 1
+            ) r_knows ON true
+            WHERE c.game_id = $1 AND c.removed_cycle IS NULL
+            ORDER BY COALESCE(r_knows.level, 0) DESC, c.name ASC""",
             self.game_id,
         )
         return [dict(r) for r in rows]
 
     async def get_known_characters(self, conn: Connection) -> list[dict]:
-        """
-        Récupère les PNJs connus du protagoniste via v_characters_context.
-        Inclut la localisation via v_active_relations.
-        Triés par niveau de relation décroissant.
-        """
+        """Get NPCs known by the protagonist."""
+        all_chars = await self.get_all_characters(conn)
+        return [c for c in all_chars if c["known_by_protagonist"]]
+
+    async def get_npcs_at_location(
+        self, conn: Connection, location_name: str
+    ) -> list[dict]:
+        """Get NPCs whose spatial relations point to a given location."""
         rows = await conn.fetch(
-            """
-            SELECT 
-                cc.entity_id as id,
-                cc.name,
-                cc.species,
-                cc.gender,
-                cc.physical_description,
-                cc.traits,
-                cc.current_position as profession,
-                cc.mood,
-                cc.relation_level,
-                cc.relation_context,
-                (SELECT ar.target_name 
-                 FROM v_active_relations ar
-                 WHERE ar.source_id = cc.entity_id
-                   AND ar.relation_type IN ('works_at', 'lives_at', 'frequents')
-                 LIMIT 1) as location
-            FROM v_characters_context cc
-            WHERE cc.game_id = $1
-            ORDER BY COALESCE(cc.relation_level, 0) DESC, cc.name ASC
-            """,
+            """SELECT DISTINCT
+                c.id, c.name, c.known_by_protagonist, c.unknown_name,
+                c.species, c.occupation, c.traits, c.mood, c.ambient,
+                r_knows.level as relation_level,
+                r_knows.context as relation_context
+            FROM characters c
+            JOIN entity_registry er_c ON er_c.game_id = c.game_id
+                AND er_c.entity_type = 'character' AND er_c.name = c.name
+            JOIN relations r ON r.source_id = er_c.id
+                AND r.type IN ('works_at', 'frequents', 'lives_at')
+                AND r.end_cycle IS NULL
+            JOIN entity_registry er_loc ON r.target_id = er_loc.id
+                AND LOWER(er_loc.name) = LOWER($2)
+            -- Protagonist relation
+            LEFT JOIN LATERAL (
+                SELECT rel.level, rel.context
+                FROM relations rel
+                JOIN entity_registry er_p ON rel.source_id = er_p.id
+                    AND er_p.entity_type = 'protagonist'
+                WHERE rel.target_id = er_c.id
+                  AND rel.type = 'knows' AND rel.end_cycle IS NULL
+                LIMIT 1
+            ) r_knows ON true
+            WHERE c.game_id = $1 AND c.removed_cycle IS NULL""",
+            self.game_id,
+            location_name,
+        )
+        return [dict(r) for r in rows]
+
+    # =========================================================================
+    # LOCATIONS
+    # =========================================================================
+
+    async def get_locations(self, conn: Connection) -> list[dict]:
+        """Get all active locations."""
+        rows = await conn.fetch(
+            """SELECT l.id, l.name, l.location_type, l.sector,
+                      l.description, l.atmosphere, l.accessible,
+                      l.notable_features, l.ambient,
+                      p.name as parent_location_name
+               FROM locations l
+               LEFT JOIN locations p ON l.parent_id = p.id
+               WHERE l.game_id = $1 AND l.removed_cycle IS NULL
+               ORDER BY l.sector NULLS LAST, l.name ASC""",
             self.game_id,
         )
         return [dict(r) for r in rows]
 
-    async def get_character_location(
-        self, conn: Connection, character_id: UUID
-    ) -> str | None:
-        """Récupère le lieu associé à un personnage (works_at, lives_at, frequents)"""
-        return await conn.fetchval(
-            """
-            SELECT target_name FROM v_active_relations
-            WHERE game_id = $1 
-              AND source_id = $2
-              AND relation_type IN ('works_at', 'lives_at', 'frequents')
-            LIMIT 1
-            """,
+    async def get_location_by_name(
+        self, conn: Connection, name: str
+    ) -> dict | None:
+        row = await conn.fetchrow(
+            """SELECT l.id, l.name, l.location_type, l.sector,
+                      l.description, l.atmosphere, l.accessible,
+                      l.notable_features, l.typical_crowd,
+                      l.operating_hours, l.price_range, l.ambient,
+                      p.name as parent_location_name
+               FROM locations l
+               LEFT JOIN locations p ON l.parent_id = p.id
+               WHERE l.game_id = $1 AND LOWER(l.name) = LOWER($2)
+                 AND l.removed_cycle IS NULL""",
             self.game_id,
-            character_id,
+            name,
         )
+        return dict(row) if row else None
 
-    async def get_top_related_npcs(
-        self, conn: Connection, limit: int = 5
-    ) -> list[dict]:
-        """Récupère les NPCs avec la meilleure relation (triés par level)"""
-        rows = await conn.fetch(
-            """SELECT 
-                cc.entity_id as id, cc.name, cc.species,
-                cc.physical_description, cc.traits, cc.current_position as occupation,
-                cc.mood, cc.relation_level as rel_level, cc.relation_context as rel_context,
-                get_attribute(cc.entity_id, 'arcs') as arcs,
-                e.known_by_protagonist, e.unknown_name
-               FROM v_characters_context cc
-               JOIN entities e ON e.id = cc.entity_id
-               WHERE cc.game_id = $1 AND cc.relation_level IS NOT NULL
-               ORDER BY cc.relation_level DESC
-               LIMIT $2""",
+    async def get_root_location(self, conn: Connection) -> dict | None:
+        """Get the top-level location (station)."""
+        row = await conn.fetchrow(
+            """SELECT id, name, location_type, atmosphere,
+                      description, notable_features
+               FROM locations
+               WHERE game_id = $1 AND parent_id IS NULL
+                 AND removed_cycle IS NULL
+               ORDER BY created_at ASC LIMIT 1""",
             self.game_id,
+        )
+        return dict(row) if row else None
+
+    async def get_sibling_locations(
+        self, conn: Connection, location_name: str, limit: int = 10
+    ) -> list[dict]:
+        """Get accessible locations in the same sector or nearby."""
+        rows = await conn.fetch(
+            """WITH current AS (
+                SELECT id, sector FROM locations
+                WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                  AND removed_cycle IS NULL
+                LIMIT 1
+            )
+            SELECT l.name, l.location_type, l.sector, l.atmosphere, l.ambient
+            FROM locations l, current c
+            WHERE l.game_id = $1
+              AND l.removed_cycle IS NULL
+              AND l.id != c.id
+              AND l.parent_id IS NOT NULL
+              AND (l.accessible = true OR l.sector = c.sector)
+            LIMIT $3""",
+            self.game_id,
+            location_name,
             limit,
         )
         return [dict(r) for r in rows]
@@ -347,604 +381,117 @@ class KnowledgeGraphReader:
     # =========================================================================
 
     async def get_organizations(self, conn: Connection) -> list[dict]:
-        """
-        Récupère les organisations connues du protagoniste.
-        Utilise v_organizations qui pivote les attributs EAV.
-        """
+        """Get all active organizations."""
         rows = await conn.fetch(
-            """
-            SELECT 
-                vo.id,
-                vo.name,
-                vo.org_type,
-                vo.domain,
-                vo.size,
-                vo.headquarters_name
-            FROM v_organizations vo
-            WHERE vo.game_id = $1 
-            ORDER BY vo.name ASC
-            """,
+            """SELECT o.id, o.name, o.org_type, o.domain, o.size,
+                      o.description, o.reputation, o.ambient,
+                      l.name as headquarters_name
+               FROM organizations o
+               LEFT JOIN locations l ON o.headquarters_id = l.id
+               WHERE o.game_id = $1 AND o.removed_cycle IS NULL
+               ORDER BY o.name ASC""",
             self.game_id,
         )
         return [dict(r) for r in rows]
 
-    async def get_known_organizations(self, conn: Connection) -> list[dict]:
-        """
-        Récupère les organisations connues du protagoniste.
-        Utilise v_organizations qui pivote les attributs EAV.
-        """
+    async def get_stub_locations(self, conn: Connection) -> list[str]:
+        """Get location names that are stubs (name only, no description)."""
         rows = await conn.fetch(
-            """
-            SELECT 
-                vo.id,
-                vo.name,
-                vo.org_type,
-                vo.domain,
-                vo.size,
-                vo.headquarters_name
-            FROM v_organizations vo
-            WHERE vo.game_id = $1 
-              AND vo.known_by_protagonist = true
-            ORDER BY vo.name ASC
-            """,
+            "SELECT name FROM locations WHERE game_id=$1"
+            " AND description IS NULL AND removed_cycle IS NULL",
             self.game_id,
         )
-        return [dict(r) for r in rows]
+        return [r["name"] for r in rows]
 
     # =========================================================================
-    # LOCATIONS
+    # INVENTORY (via view v_protagonist_inventory)
     # =========================================================================
-
-    async def get_location_details(self, conn: Connection, name: str) -> dict | None:
-        """Récupère une location par nom avec ses attributs"""
-        row = await conn.fetchrow(
-            """SELECT 
-                e.id, e.name,
-                get_attribute(e.id, 'location_type') as location_type,
-                get_attribute(e.id, 'sector') as sector,
-                get_attribute(e.id, 'atmosphere') as atmosphere,
-                COALESCE(get_attribute(e.id, 'accessible'), 'true')::BOOLEAN as accessible
-               FROM entities e
-               WHERE e.game_id = $1 AND e.type = 'location' 
-                 AND LOWER(e.name) = LOWER($2) AND e.removed_cycle IS NULL""",
-            self.game_id,
-            name,
-        )
-        return dict(row) if row else None
-
-    async def get_root_location(self, conn: Connection) -> dict | None:
-        """Récupère la location racine (sans parent) avec attributs"""
-        row = await conn.fetchrow(
-            """SELECT 
-                e.id, e.name,
-                get_attribute(e.id, 'location_type') as location_type,
-                get_attribute(e.id, 'atmosphere') as atmosphere,
-                get_attribute(e.id, 'description') as description,
-                get_attribute(e.id, 'notable_features') as notable_features
-               FROM entities e
-               JOIN entity_locations el ON el.entity_id = e.id
-               WHERE e.game_id = $1 
-                 AND e.type = 'location' 
-                 AND e.removed_cycle IS NULL
-                 AND el.parent_location_id IS NULL
-               ORDER BY e.created_at ASC
-               LIMIT 1""",
-            self.game_id,
-        )
-        return dict(row) if row else None
-
-    async def get_sibling_locations(
-        self, conn: Connection, location_name: str, limit: int = 10
-    ) -> list[dict]:
-        rows = await conn.fetch(
-            """WITH current AS (
-                SELECT e.id, get_attribute(e.id, 'sector') as sector
-                FROM entities e
-                WHERE e.game_id = $1 AND LOWER(e.name) = LOWER($2) AND e.type = 'location'
-            )
-            SELECT e.name,
-                   get_attribute(e.id, 'location_type') as location_type,
-                   get_attribute(e.id, 'sector') as sector,
-                   get_attribute(e.id, 'atmosphere') as atmosphere
-            FROM entities e
-            JOIN entity_locations el ON el.entity_id = e.id
-            CROSS JOIN current c
-            WHERE e.game_id = $1 
-              AND e.type = 'location'
-              AND e.removed_cycle IS NULL
-              AND e.known_by_protagonist = true
-              AND e.id != c.id
-              AND el.parent_location_id IS NOT NULL
-              AND (
-                  COALESCE(get_attribute(e.id, 'accessible'), 'true')::BOOLEAN = true
-                  OR get_attribute(e.id, 'sector') = c.sector
-              )
-            LIMIT $3""",
-            self.game_id,
-            location_name,
-            limit,
-        )
-        return [dict(r) for r in rows]
-
-    async def get_locations(self, conn: Connection) -> list[dict]:
-        """
-        Récupère les lieux connus du protagoniste.
-        Utilise v_locations qui pivote les attributs EAV.
-        """
-        rows = await conn.fetch(
-            """
-            SELECT 
-                vl.id,
-                vl.name,
-                vl.location_type,
-                vl.sector,
-                vl.accessible,
-                vl.parent_location_name
-            FROM v_locations vl
-            WHERE vl.game_id = $1 
-            ORDER BY vl.sector NULLS LAST, vl.name ASC
-            """,
-            self.game_id,
-        )
-        return [dict(r) for r in rows]
-
-    async def get_known_locations(self, conn: Connection) -> list[dict]:
-        """
-        Récupère les lieux connus du protagoniste.
-        Utilise v_locations qui pivote les attributs EAV.
-        """
-        rows = await conn.fetch(
-            """
-            SELECT 
-                vl.id,
-                vl.name,
-                vl.location_type,
-                vl.sector,
-                vl.accessible,
-                vl.parent_location_name
-            FROM v_locations vl
-            WHERE vl.game_id = $1 
-              AND vl.known_by_protagonist = true
-            ORDER BY vl.sector NULLS LAST, vl.name ASC
-            """,
-            self.game_id,
-        )
-        return [dict(r) for r in rows]
-
-    async def get_npcs_at_location(
-        self, conn: Connection, location_name: str
-    ) -> list[dict]:
-        """Récupère les NPCs présents à une location via leurs relations spatiales"""
-        rows = await conn.fetch(
-            """SELECT 
-                e.id, e.name, e.known_by_protagonist, e.unknown_name,
-                get_attribute(e.id, 'occupation') as occupation,
-                get_attribute(e.id, 'species') as species,
-                get_attribute(e.id, 'traits') as traits,
-                get_attribute(e.id, 'arcs') as arcs,
-                rs.context as rel_context,
-                rs.level as rel_level
-               FROM entities e
-               JOIN relations r ON r.source_id = e.id AND r.end_cycle IS NULL
-               JOIN entities loc ON loc.id = r.target_id
-               LEFT JOIN relations r_proto ON r_proto.target_id = e.id 
-                   AND r_proto.type = 'knows' AND r_proto.end_cycle IS NULL
-                   AND r_proto.source_id = (
-                       SELECT id FROM entities WHERE type = 'protagonist' AND game_id = $1 LIMIT 1
-                   )
-               LEFT JOIN relations_social rs ON rs.relation_id = r_proto.id
-               WHERE e.game_id = $1 
-                 AND e.type = 'character'
-                 AND e.removed_cycle IS NULL
-                 AND r.type IN ('works_at', 'frequents', 'lives_at')
-                 AND LOWER(loc.name) = LOWER($2)""",
-            self.game_id,
-            location_name,
-        )
-        return [dict(r) for r in rows]
-
-    # =========================================================================
-    # PROTAGONIST / INVENTORY / AI (via vues SQL pré-optimisées)
-    # =========================================================================
-
-    async def get_protagonist(self, conn: Connection) -> dict | None:
-        """Récupère le protagoniste via vue v_protagonist"""
-        row = await conn.fetchrow(
-            "SELECT * FROM v_protagonist WHERE game_id = $1", self.game_id
-        )
-        return dict(row) if row else None
-
-    async def get_protagonist_stats(self, conn: Connection) -> dict | None:
-        """Récupère seulement les stats du protagoniste"""
-        row = await conn.fetchrow(
-            "SELECT energy, morale, health, credits FROM v_protagonist WHERE game_id = $1",
-            self.game_id,
-        )
-        return dict(row) if row else None
-
-    async def get_protagonist_with_skills(self, conn: Connection) -> dict | None:
-        """
-        Récupère le protagoniste avec skills et employer.
-        Étend v_protagonist avec des données relationnelles.
-        """
-        result = await self.get_protagonist(conn)
-        if not result:
-            return None
-
-        # Skills (pas dans la vue)
-        skills = await conn.fetch(
-            """SELECT name, level FROM skills 
-               WHERE entity_id = $1 AND end_cycle IS NULL""",
-            result["id"],
-        )
-        result["skills"] = [dict(s) for s in skills]
-
-        # Employer via relation
-        result["employer"] = await conn.fetchval(
-            """SELECT e.name FROM relations r
-               JOIN entities e ON e.id = r.target_id
-               WHERE r.source_id = $1 AND r.type = 'employed_by' AND r.end_cycle IS NULL
-               LIMIT 1""",
-            result["id"],
-        )
-
-        return result
 
     async def get_inventory(self, conn: Connection) -> list[dict]:
-        """Récupère l'inventaire via vue v_inventory"""
+        """Get protagonist's inventory."""
         rows = await conn.fetch(
-            "SELECT * FROM v_inventory WHERE game_id = $1", self.game_id
+            "SELECT * FROM v_protagonist_inventory WHERE game_id = $1",
+            self.game_id,
         )
         return [dict(r) for r in rows]
 
-    async def get_ai_companion(self, conn: Connection) -> dict | None:
-        """Récupère l'IA compagnon via vue v_ais"""
-        row = await conn.fetchrow(
-            "SELECT * FROM v_ais WHERE game_id = $1 LIMIT 1", self.game_id
-        )
-        return dict(row) if row else None
-
     # =========================================================================
-    # MESSAGES
-    # =========================================================================
-
-    async def get_message(self, conn: Connection, message_id: UUID) -> dict | None:
-        """Récupère un message par ID"""
-        row = await conn.fetchrow(
-            """SELECT id, role, content, tone_notes, cycle, time, date, 
-                      location_id, npcs_present, summary, created_at
-               FROM chat_messages WHERE id = $1 AND game_id = $2""",
-            message_id,
-            self.game_id,
-        )
-        return dict(row) if row else None
-
-    async def get_messages(
-        self,
-        conn: Connection,
-        limit: int | None = None,
-        order: SortOrder = "ASC",
-    ) -> list[dict]:
-        """Récupère les messages (chronologique par défaut)"""
-        query = """
-            SELECT id, role, content, tone_notes, cycle, time, date, 
-                   location_id, npcs_present, summary, created_at
-            FROM chat_messages WHERE game_id = $1
-            ORDER BY created_at
-        """
-        query = query.replace(
-            "ORDER BY created_at", f"ORDER BY created_at {order.upper()}"
-        )
-
-        if limit:
-            query += f" LIMIT {int(limit)}"  # int() pour sécurité
-
-        rows = await conn.fetch(query, self.game_id)
-        return [dict(r) for r in rows]
-
-    async def get_cycle_messages(
-        self,
-        conn: Connection,
-        cycle: int,
-        limit: int | None = None,
-        order: SortOrder = "ASC",
-    ) -> list[dict]:
-        """Get all messages from a specific cycle"""
-        query = """
-            SELECT id, role, content, tone_notes, cycle, time, date, 
-                   location_id, npcs_present, summary, created_at
-            FROM chat_messages
-            WHERE game_id = $1 AND cycle = $2
-            ORDER BY created_at
-            """
-        query = query.replace(
-            "ORDER BY created_at", f"ORDER BY created_at {order.upper()}"
-        )
-
-        if limit:
-            query += f" LIMIT {int(limit)}"  # int() pour sécurité
-
-        rows = await conn.fetch(
-            query,
-            self.game_id,
-            cycle,
-        )
-        return [dict(r) for r in rows]
-
-    async def get_last_assistant_message(self, conn: Connection) -> dict | None:
-        """Récupère le dernier message assistant avec nom du lieu - requête optimisée"""
-        row = await conn.fetchrow(
-            """SELECT m.id, m.cycle, m.date, m.time, m.location_id, m.npcs_present, m.tone_notes,
-                      e.name as location_name
-               FROM chat_messages m
-               LEFT JOIN entities e ON e.id = m.location_id
-               WHERE m.game_id = $1 AND m.role = 'assistant'
-               ORDER BY m.created_at DESC LIMIT 1""",
-            self.game_id,
-        )
-        return dict(row) if row else None
-
-    async def get_message_count(self, conn: Connection) -> int:
-        """Compte les messages"""
-        return await conn.fetchval(
-            "SELECT COUNT(*) FROM chat_messages WHERE game_id = $1", self.game_id
-        )
-
-    # =========================================================================
-    # CYCLE SUMMARIES
-    # =========================================================================
-
-    async def get_cycle_summaries(
-        self,
-        conn: Connection,
-        *,
-        cycle: int | None = None,
-        max_cycle: int | None = None,
-        limit: int = 7,
-        order: SortOrder = "DESC",
-    ) -> list[dict]:
-        """Récupère les résumés de cycles avec events"""
-        conditions = ["game_id = $1"]
-        params: list = [self.game_id]
-
-        if cycle is not None:
-            conditions.append(f"cycle = ${len(params) + 1}")
-            params.append(cycle)
-        elif max_cycle is not None:
-            conditions.append(f"cycle <= ${len(params) + 1}")
-            params.append(max_cycle)
-
-        query = f"""
-            SELECT id, cycle, date, summary, events
-            FROM v_cycle_summaries_detailed
-            WHERE {" AND ".join(conditions)}
-            ORDER BY cycle {order.upper()}
-        """
-
-        if cycle is None:
-            query += f" LIMIT ${len(params) + 1}"
-            params.append(limit)
-
-        rows = await conn.fetch(query, *params)
-        return [dict(r) for r in rows]
-
-    async def get_cycle_summary(self, conn: Connection, cycle: int) -> dict | None:
-        results = await self.get_cycle_summaries(conn, cycle=cycle)
-        return results[0] if results else None
-
-    async def get_latest_cycle_summary(self, conn: Connection) -> dict | None:
-        results = await self.get_cycle_summaries(conn, limit=1)
-        return results[0] if results else None
-
-    async def get_arrival_event(self, conn: Connection) -> dict | None:
-        """Récupère l'événement d'arrivée avec son fact source"""
-        row = await conn.fetchrow(
-            """SELECT 
-                cs.date,
-                ev.id as event_id,
-                ev.title,
-                ev.time,
-                ev.description,
-                l.name as location_name,
-                f.description as fact_description
-            FROM cycle_summaries cs
-            LEFT JOIN cycle_summary_events cse ON cse.cycle_summary_id = cs.id
-            LEFT JOIN events ev ON ev.id = cse.event_id AND ev.type = 'milestone'
-            LEFT JOIN entities l ON l.id = ev.location_id
-            LEFT JOIN facts f ON f.id = ev.source_fact_id
-            WHERE cs.game_id = $1 AND cs.cycle = 0
-            LIMIT 1""",
-            self.game_id,
-        )
-
-        if not row:
-            return None
-
-        # Récupérer les facts supplémentaires du cycle 1
-        extra_facts = await conn.fetch(
-            """SELECT semantic_key, description 
-               FROM facts 
-               WHERE game_id = $1 AND cycle = 1 
-                 AND semantic_key LIKE 'valentin:arrival:%'
-                 AND semantic_key != 'valentin:arrival:station'""",
-            self.game_id,
-        )
-
-        events = {
-            "arrival_location": row["location_name"],
-            "hour": row["time"],
-        }
-
-        for fact in extra_facts:
-            key = fact["semantic_key"]
-            desc = fact["description"]
-            if key == "valentin:arrival:incident":
-                events["incident"] = desc
-            elif key == "valentin:arrival:mood":
-                # Extraire le mood
-                if desc.startswith("État à l'arrivée : "):
-                    events["initial_mood"] = desc[19:]
-            elif key == "valentin:arrival:need":
-                if desc.startswith("Besoin immédiat : "):
-                    events["immediate_need"] = desc[18:]
-
-        return {
-            "date": row["date"],
-            "time": row["time"],
-            "location": row["location_name"],
-            "events": events,
-        }
-
-    async def get_current_date(self, conn: Connection) -> str | None:
-        """Récupère la date actuelle du jeu"""
-        return await conn.fetchval(
-            """SELECT date FROM cycle_summaries 
-               WHERE game_id = $1 ORDER BY cycle DESC LIMIT 1""",
-            self.game_id,
-        )
-
-    # =========================================================================
-    # RELATIONS
+    # RELATIONS (via view v_active_relations)
     # =========================================================================
 
     async def get_relations(
         self,
         conn: Connection,
-        entity_id: UUID | None = None,
+        entity_name: str | None = None,
         relation_type: str | None = None,
-        active_only: bool = True,
     ) -> list[dict]:
-        """Récupère les relations d'une entité"""
+        """Get active relations, optionally filtered."""
         query = """
-            SELECT r.id, r.source_id, r.target_id, r.type, r.known_by_protagonist,
-                   r.start_cycle, r.end_cycle,
-                   src.name as source_name, tgt.name as target_name
-            FROM relations r
-            JOIN entities src ON src.id = r.source_id
-            JOIN entities tgt ON tgt.id = r.target_id
-            WHERE r.game_id = $1
+            SELECT relation_id, relation_type,
+                   source_name, source_type,
+                   target_name, target_type,
+                   level, context, known_by_protagonist, start_cycle
+            FROM v_active_relations
+            WHERE game_id = $1
         """
         params: list = [self.game_id]
 
-        if active_only:
-            query += " AND r.end_cycle IS NULL"
-
-        if entity_id:
-            query += f" AND (r.source_id = ${len(params) + 1} OR r.target_id = ${len(params) + 1})"
-            params.append(entity_id)
+        if entity_name:
+            params.append(entity_name.lower())
+            query += (
+                f" AND (LOWER(source_name) = ${len(params)}"
+                f" OR LOWER(target_name) = ${len(params)})"
+            )
 
         if relation_type:
-            query += f" AND r.type = ${len(params) + 1}"
             params.append(relation_type)
+            query += f" AND relation_type = ${len(params)}::relation_type"
 
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
-    async def get_relation_between(
-        self,
-        conn: Connection,
-        source_id: UUID,
-        target_id: UUID,
-        relation_type: str | None = None,
-        active_only: bool = True,
+    async def get_protagonist_relation_to(
+        self, conn: Connection, npc_name: str
     ) -> dict | None:
-        """Récupère une relation entre deux entités (par IDs, pas refs)"""
-        query = """
-            SELECT r.*, src.name as source_name, tgt.name as target_name
-            FROM relations r
-            JOIN entities src ON src.id = r.source_id
-            JOIN entities tgt ON tgt.id = r.target_id
-            WHERE r.game_id = $1 AND r.source_id = $2 AND r.target_id = $3
-        """
-        params: list = [self.game_id, source_id, target_id]
-
-        if active_only:
-            query += " AND r.end_cycle IS NULL"
-
-        if relation_type:
-            query += " AND r.type = $4"
-            params.append(relation_type)
-
-        row = await conn.fetchrow(query, *params)
+        """Get the protagonist's 'knows' relation to an NPC."""
+        row = await conn.fetchrow(
+            """SELECT level, context, known_by_protagonist
+               FROM v_active_relations
+               WHERE game_id = $1
+                 AND source_type = 'protagonist'
+                 AND LOWER(target_name) = LOWER($2)
+                 AND relation_type = 'knows'""",
+            self.game_id,
+            npc_name,
+        )
         return dict(row) if row else None
 
     # =========================================================================
-    # FACTS
+    # FACTS (via view v_recent_facts)
     # =========================================================================
 
     async def get_facts(
         self,
         conn: Connection,
         cycle: int | None = None,
-        limit: int | None = None,
+        min_importance: int = 1,
+        limit: int = 20,
         order: SortOrder = "desc",
     ) -> list[dict]:
-        """Récupère les faits avec filtres"""
+        """Get facts with optional filters."""
         query = """
-            SELECT id, cycle, type as fact_type, description, location_id, 
-                   time, importance, semantic_key, created_at
-            FROM facts WHERE game_id = $1
-        """
-        params: list = [self.game_id]
-
-        if cycle is not None:
-            query += f" AND cycle = ${len(params) + 1}"
-            params.append(cycle)
-
-        query += f" ORDER BY cycle {order.upper()}, created_at {order.upper()}"
-
-        if limit:
-            query += f" LIMIT {int(limit)}"
-
-        rows = await conn.fetch(query, *params)
-        return [dict(r) for r in rows]
-
-    async def get_facts_with_participants(
-        self,
-        conn: Connection,
-        cycle: int | None = None,
-        min_importance: int = 1,
-        location_name: str | None = None,
-        npc_names: list[str] | None = None,
-        limit: int = 10,
-    ) -> list[dict]:
-        """
-        Récupère les faits avec participants (requête unifiée).
-        Remplace get_important_facts, get_location_facts, get_npc_facts.
-        """
-        query = """
-            SELECT 
-                f.id, f.cycle, f.type as fact_type, f.description, 
-                f.importance, f.time,
-                (SELECT array_agg(jsonb_build_object('name', e.name, 'role', fp.role))
-                 FROM fact_participants fp
-                 JOIN entities e ON fp.entity_id = e.id
-                 WHERE fp.fact_id = f.id) as participants
-            FROM facts f
-            WHERE f.game_id = $1 AND f.importance >= $2
+            SELECT id, cycle, time, type, description,
+                   importance, semantic_key, location_name, participants
+            FROM v_recent_facts
+            WHERE game_id = $1 AND importance >= $2
         """
         params: list = [self.game_id, min_importance]
 
         if cycle is not None:
             params.append(cycle)
-            query += f" AND f.cycle <= ${len(params)}"
+            query += f" AND cycle <= ${len(params)}"
 
-        if location_name:
-            params.append(location_name.lower())
-            query += f""" AND f.location_id = (
-                SELECT id FROM entities 
-                WHERE game_id = $1 AND LOWER(name) = ${len(params)} AND type = 'location'
-            )"""
-
-        if npc_names:
-            params.append([n.lower() for n in npc_names])
-            query += f""" AND f.id IN (
-                SELECT fp.fact_id FROM fact_participants fp
-                JOIN entities e ON fp.entity_id = e.id
-                WHERE LOWER(e.name) = ANY(${len(params)})
-            )"""
-
-        query += " ORDER BY f.importance DESC, f.cycle DESC"
+        query += f" ORDER BY importance DESC, cycle {order.upper()}"
         params.append(limit)
         query += f" LIMIT ${len(params)}"
 
@@ -954,10 +501,9 @@ class KnowledgeGraphReader:
     async def fact_exists(
         self, conn: Connection, cycle: int, semantic_key: str
     ) -> bool:
-        """Vérifie si un fait existe (utilise l'index unique)"""
         return await conn.fetchval(
             """SELECT EXISTS(
-                SELECT 1 FROM facts 
+                SELECT 1 FROM facts
                 WHERE game_id = $1 AND cycle = $2 AND semantic_key = $3
             )""",
             self.game_id,
@@ -966,87 +512,57 @@ class KnowledgeGraphReader:
         )
 
     # =========================================================================
-    # COMMITMENTS & EVENTS
+    # NARRATIVE ARCS (via view v_active_arcs)
     # =========================================================================
 
-    async def get_commitments(
-        self, conn: Connection, active_only: bool = True
-    ) -> list[dict]:
-        """Récupère les engagements"""
-        query = """
-            SELECT id, type, description, created_cycle, deadline_cycle, resolved
-            FROM commitments WHERE game_id = $1
-        """
-        if active_only:
-            query += " AND resolved = false"
-        query += " ORDER BY deadline_cycle ASC NULLS LAST"
-
-        rows = await conn.fetch(query, self.game_id)
-        return [dict(r) for r in rows]
-
-    async def get_commitments_detailed(self, conn: Connection) -> list[dict]:
-        """Récupère les commitments actifs avec entités impliquées"""
+    async def get_active_arcs(self, conn: Connection) -> list[dict]:
+        """Get active narrative arcs with participants."""
         rows = await conn.fetch(
-            """SELECT 
-                c.id, c.type, c.description, c.created_cycle, c.deadline_cycle,
-                ca.objective, ca.obstacle, ca.progress,
-                (SELECT array_agg(jsonb_build_object('name', e.name, 'role', ce.role))
-                 FROM commitment_entities ce
-                 JOIN entities e ON ce.entity_id = e.id
-                 WHERE ce.commitment_id = c.id) as entities
-               FROM commitments c
-               LEFT JOIN commitment_arcs ca ON ca.commitment_id = c.id
-               WHERE c.game_id = $1 AND c.resolved = false
-               ORDER BY c.deadline_cycle NULLS LAST""",
+            """SELECT id, title, domain, description,
+                      intensity, progress, situation, desire, obstacle,
+                      stakes, deadline_cycle, participants
+               FROM v_active_arcs
+               WHERE game_id = $1
+               ORDER BY intensity DESC, deadline_cycle ASC NULLS LAST""",
             self.game_id,
         )
         return [dict(r) for r in rows]
 
-    async def get_active_commitments(self, conn: Connection) -> list[dict]:
-        """
-        Récupère les quêtes/arcs actifs via v_active_commitments.
-        """
-        rows = await conn.fetch(
-            """
-            SELECT 
-                id,
-                type,
-                description,
-                created_cycle,
-                deadline_cycle,
-                objective,
-                obstacle,
-                progress,
-                entities
-            FROM v_active_commitments
-            WHERE game_id = $1
-            ORDER BY 
-                CASE type 
-                    WHEN 'arc' THEN 1 
-                    WHEN 'secret' THEN 2 
-                    WHEN 'chekhov_gun' THEN 3
-                    ELSE 4 
-                END,
-                deadline_cycle NULLS LAST
-            """,
-            self.game_id,
-        )
-        return [dict(r) for r in rows]
-
-    async def find_commitment_by_description(
-        self, conn: Connection, description: str
+    async def find_arc_by_title(
+        self, conn: Connection, title: str
     ) -> dict | None:
-        """Trouve un commitment par description partielle (pour résolution)"""
+        """Find an arc by partial title match."""
         row = await conn.fetchrow(
-            """SELECT id, type, description, resolved
-               FROM commitments 
+            """SELECT id, title, domain, description, resolved
+               FROM narrative_arcs
                WHERE game_id = $1 AND resolved = false
-                 AND description ILIKE '%' || $2 || '%'
+                 AND title ILIKE '%' || $2 || '%'
                LIMIT 1""",
             self.game_id,
-            description[:50],
+            title[:50],
         )
         return dict(row) if row else None
+
+    # =========================================================================
+    # EVENTS (via view v_upcoming_events)
+    # =========================================================================
+
+    async def get_upcoming_events(
+        self, conn: Connection, from_cycle: int, limit: int = 5
+    ) -> list[dict]:
+        """Get upcoming events with participants."""
+        rows = await conn.fetch(
+            """SELECT id, type, title, description,
+                      planned_cycle, time, location_name, participants
+               FROM v_upcoming_events
+               WHERE game_id = $1 AND planned_cycle >= $2
+               ORDER BY planned_cycle ASC
+               LIMIT $3""",
+            self.game_id,
+            from_cycle,
+            limit,
+        )
+        return [dict(r) for r in rows]
 
     async def get_events(
         self,
@@ -1055,9 +571,9 @@ class KnowledgeGraphReader:
         limit: int | None = None,
         pending_only: bool = True,
     ) -> list[dict]:
-        """Récupère les événements planifiés"""
+        """Get events with basic filters."""
         query = """
-            SELECT id, title, description, planned_cycle, 
+            SELECT id, title, description, planned_cycle,
                    time, location_id, type, completed, cancelled
             FROM events WHERE game_id = $1
         """
@@ -1067,40 +583,299 @@ class KnowledgeGraphReader:
             query += " AND completed = false AND cancelled = false"
 
         if from_cycle is not None:
-            query += f" AND planned_cycle >= ${len(params) + 1}"
             params.append(from_cycle)
+            query += f" AND planned_cycle >= ${len(params)}"
 
         query += " ORDER BY planned_cycle ASC"
 
         if limit:
-            query += f" LIMIT {int(limit)}"
+            params.append(limit)
+            query += f" LIMIT ${len(params)}"
 
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
-    async def get_events_detailed(
-        self, conn: Connection, from_cycle: int, limit: int = 5
+    # =========================================================================
+    # MESSAGES & CONVERSATIONS
+    # =========================================================================
+
+    async def get_conversations(
+        self, conn: Connection, active_only: bool = True
     ) -> list[dict]:
-        """Récupère les événements avec location et participants"""
-        rows = await conn.fetch(
-            """SELECT 
-                ev.id, ev.type, ev.title, ev.description, 
-                ev.planned_cycle, ev.time,
-                loc.name as location_name,
-                (SELECT array_agg(ent.name) 
-                 FROM event_participants ep
-                 JOIN entities ent ON ep.entity_id = ent.id
-                 WHERE ep.event_id = ev.id) as participants
-               FROM events ev
-               LEFT JOIN entities loc ON ev.location_id = loc.id
-               WHERE ev.game_id = $1 
-                 AND ev.completed = false 
-                 AND ev.cancelled = false
-                 AND ev.planned_cycle >= $2
-               ORDER BY ev.planned_cycle ASC
-               LIMIT $3""",
+        """Get conversation segments."""
+        query = """
+            SELECT id, start_cycle, end_cycle, compacted, created_at
+            FROM conversations WHERE game_id = $1
+        """
+        if active_only:
+            query += " AND compacted = false"
+        query += " ORDER BY created_at DESC"
+        rows = await conn.fetch(query, self.game_id)
+        return [dict(r) for r in rows]
+
+    async def get_messages(
+        self,
+        conn: Connection,
+        conversation_id: UUID | None = None,
+        limit: int | None = None,
+        order: SortOrder = "asc",
+    ) -> list[dict]:
+        """Get messages, optionally scoped to a conversation."""
+        query = """
+            SELECT m.id, m.role, m.content, m.cycle, m.game_date, m.time,
+                   m.location_id, m.extracted, m.sequence, m.created_at,
+                   m.narrator_deltas,
+                   l.name as location_name
+            FROM messages m
+            LEFT JOIN locations l ON m.location_id = l.id
+            WHERE m.game_id = $1
+        """
+        params: list = [self.game_id]
+
+        if conversation_id:
+            params.append(conversation_id)
+            query += f" AND m.conversation_id = ${len(params)}"
+
+        query += f" ORDER BY m.sequence {order.upper()}"
+
+        if limit:
+            params.append(limit)
+            query += f" LIMIT ${len(params)}"
+
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_last_assistant_message(
+        self, conn: Connection
+    ) -> dict | None:
+        """Get the most recent assistant message with location name."""
+        row = await conn.fetchrow(
+            """SELECT m.id, m.cycle, m.time, m.location_id, m.sequence,
+                      l.name as location_name
+               FROM messages m
+               LEFT JOIN locations l ON m.location_id = l.id
+               WHERE m.game_id = $1 AND m.role = 'assistant'
+               ORDER BY m.sequence DESC LIMIT 1""",
             self.game_id,
-            from_cycle,
-            limit,
+        )
+        return dict(row) if row else None
+
+    async def get_message_count(self, conn: Connection) -> int:
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM messages WHERE game_id = $1", self.game_id
+        )
+
+    # =========================================================================
+    # CHRONOLOGY (via view v_chronology)
+    # =========================================================================
+
+    async def get_chronology(
+        self,
+        conn: Connection,
+        max_cycle: int | None = None,
+        limit: int = 7,
+        order: SortOrder = "desc",
+    ) -> list[dict]:
+        """Get chronology entries with NPC participants."""
+        query = """
+            SELECT id, cycle, time, location_name, summary, npcs_present
+            FROM v_chronology
+            WHERE game_id = $1
+        """
+        params: list = [self.game_id]
+
+        if max_cycle is not None:
+            params.append(max_cycle)
+            query += f" AND cycle <= ${len(params)}"
+
+        query += f" ORDER BY cycle {order.upper()}"
+        params.append(limit)
+        query += f" LIMIT ${len(params)}"
+
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_chronology_entry(
+        self, conn: Connection, cycle: int
+    ) -> dict | None:
+        results = await self.get_chronology(conn, max_cycle=cycle, limit=1)
+        if results and results[0]["cycle"] == cycle:
+            return results[0]
+        return None
+
+    # =========================================================================
+    # ARRIVAL EVENT (reconstructed from facts + chronology)
+    # =========================================================================
+
+    async def get_arrival_event(self, conn: Connection) -> dict | None:
+        """Get arrival event data from facts and chronology."""
+        # Get chronology entry for cycle 0
+        chrono = await conn.fetchrow(
+            """SELECT summary, time FROM chronology
+               WHERE game_id = $1 AND cycle = 0 LIMIT 1""",
+            self.game_id,
+        )
+
+        # Get arrival facts
+        facts = await conn.fetch(
+            """SELECT semantic_key, description FROM facts
+               WHERE game_id = $1 AND cycle = 1
+                 AND semantic_key LIKE 'valentin:arrival:%'""",
+            self.game_id,
+        )
+
+        if not chrono and not facts:
+            return None
+
+        # Get game state for arrival date
+        game = await conn.fetchrow(
+            'SELECT "current_date" FROM games WHERE id = $1', self.game_id
+        )
+
+        result: dict = {}
+        if chrono:
+            result["summary"] = chrono["summary"]
+            result["time"] = chrono["time"]
+        if game:
+            result["date"] = game["current_date"]
+
+        for fact in facts:
+            key = fact["semantic_key"]
+            desc = fact["description"]
+            if key == "valentin:arrival:station":
+                result["arrival_description"] = desc
+            elif key == "valentin:arrival:incident":
+                result["incident"] = desc
+            elif key == "valentin:arrival:mood" and desc.startswith(
+                "État à l'arrivée : "
+            ):
+                result["initial_mood"] = desc[19:]
+            elif key == "valentin:arrival:need" and desc.startswith(
+                "Besoin immédiat : "
+            ):
+                result["immediate_need"] = desc[18:]
+
+        return result
+
+    # =========================================================================
+    # BATCH EXTRACTION SUPPORT
+    # =========================================================================
+
+    async def get_messages_for_cycles(
+        self,
+        conn: Connection,
+        from_cycle: int,
+        to_cycle: int,
+    ) -> list[dict]:
+        """Get all messages within a cycle range, ordered by sequence."""
+        rows = await conn.fetch(
+            """SELECT m.id, m.role, m.content, m.cycle, m.time,
+                      l.name as location_name, m.narrator_deltas
+               FROM messages m
+               LEFT JOIN locations l ON m.location_id = l.id
+               WHERE m.game_id = $1
+                 AND m.cycle >= $2
+                 AND m.cycle <= $3
+               ORDER BY m.sequence ASC""",
+            self.game_id, from_cycle, to_cycle,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_unextracted_messages(
+        self, conn: Connection, from_cycle: int, to_cycle: int
+    ) -> list[dict]:
+        """Get assistant messages not yet extracted, within cycle range."""
+        rows = await conn.fetch(
+            """SELECT m.id, m.content, m.cycle, m.time, m.narrator_deltas,
+                      l.name as location_name
+               FROM messages m
+               LEFT JOIN locations l ON m.location_id = l.id
+               WHERE m.game_id = $1
+                 AND m.role = 'assistant'
+                 AND m.extracted = false
+                 AND m.cycle > $2
+                 AND m.cycle <= $3
+               ORDER BY m.sequence ASC""",
+            self.game_id, from_cycle, to_cycle,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_detail_requests(self, conn: Connection) -> list[str]:
+        """Get entity detail requests from games table."""
+        result = await conn.fetchval(
+            "SELECT detail_requests FROM games WHERE id = $1",
+            self.game_id,
+        )
+        return result or []
+
+    async def get_entity_details_by_name(
+        self, conn: Connection, name: str
+    ) -> dict | None:
+        """Load full details of an entity by name (character, location, or org)."""
+        # Try character
+        row = await conn.fetchrow(
+            """SELECT c.*, r.level as relation_level, r.context as relation_context
+               FROM characters c
+               LEFT JOIN entity_registry er ON er.game_id = c.game_id
+                   AND er.entity_type = 'character' AND er.name = c.name
+               LEFT JOIN relations r ON r.game_id = c.game_id
+                   AND r.target_id = er.id AND r.end_cycle IS NULL
+                   AND r.source_id = (
+                       SELECT id FROM entity_registry
+                       WHERE game_id = $1 AND entity_type = 'protagonist'
+                       LIMIT 1
+                   )
+               WHERE c.game_id = $1 AND LOWER(c.name) = LOWER($2)
+                 AND c.removed_cycle IS NULL""",
+            self.game_id, name,
+        )
+        if row:
+            d = dict(row)
+            d["_entity_type"] = "character"
+            # Load recent facts involving this character
+            d["recent_facts"] = await self._get_entity_recent_facts(conn, name, limit=5)
+            return d
+
+        # Try location
+        row = await conn.fetchrow(
+            """SELECT * FROM locations
+               WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                 AND removed_cycle IS NULL""",
+            self.game_id, name,
+        )
+        if row:
+            d = dict(row)
+            d["_entity_type"] = "location"
+            d["recent_facts"] = await self._get_entity_recent_facts(conn, name, limit=5)
+            return d
+
+        # Try organization
+        row = await conn.fetchrow(
+            """SELECT * FROM organizations
+               WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                 AND removed_cycle IS NULL""",
+            self.game_id, name,
+        )
+        if row:
+            d = dict(row)
+            d["_entity_type"] = "organization"
+            d["recent_facts"] = await self._get_entity_recent_facts(conn, name, limit=5)
+            return d
+
+        return None
+
+    async def _get_entity_recent_facts(
+        self, conn: Connection, entity_name: str, limit: int = 5
+    ) -> list[dict]:
+        """Get recent facts involving a specific entity."""
+        rows = await conn.fetch(
+            """SELECT f.cycle, f.type, f.description, f.importance
+               FROM facts f
+               JOIN fact_participants fp ON fp.fact_id = f.id
+               JOIN entity_registry er ON er.id = fp.entity_id
+               WHERE f.game_id = $1 AND LOWER(er.name) = LOWER($2)
+               ORDER BY f.cycle DESC, f.importance DESC
+               LIMIT $3""",
+            self.game_id, entity_name, limit,
         )
         return [dict(r) for r in rows]

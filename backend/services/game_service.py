@@ -5,15 +5,29 @@ Utilise kg/reader.py et kg/populator.py pour l'accès BDD
 """
 
 import json
+import logging
 from uuid import UUID
 
 import asyncpg
 
-from config import STATS_DEFAUT
+from config import DEFAULT_STATS
+from utils.json_utils import parse_json
+from services.llm_service import compute_cost_from_stored
 from kg.reader import KnowledgeGraphReader
 from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration, NarrationOutput
+from schema.sse_payload import (
+    AISummary,
+    ArrivalSummary,
+    ProtagonistSummary,
+    WorldInfo,
+    WorldSummary,
+)
+
+from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 
 class GameService:
@@ -23,49 +37,56 @@ class GameService:
         self.pool = pool
 
     def _get_reader(self, game_id: UUID) -> KnowledgeGraphReader:
-        """Crée un reader pour une partie"""
         return KnowledgeGraphReader(self.pool, game_id)
 
     def _get_populator(self, game_id: UUID) -> KnowledgeGraphPopulator:
-        """Crée un populator pour une partie"""
         return KnowledgeGraphPopulator(self.pool, game_id)
+
+    async def verify_ownership(self, game_id: UUID, user_id: UUID) -> None:
+        """Verify user owns the game. Raises 403 if not."""
+        async with self.pool.acquire() as conn:
+            owner = await conn.fetchval(
+                "SELECT user_id FROM games WHERE id = $1 AND active = true", game_id
+            )
+        if owner is None:
+            raise HTTPException(status_code=404, detail="Game not found")
+        if owner != user_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     # =========================================================================
     # CRUD PARTIES
     # =========================================================================
 
-    async def list_games(self) -> list[dict]:
-        """Liste toutes les parties actives"""
+    async def list_games(self, user_id: UUID) -> list[dict]:
+        """List active games for a specific user."""
         reader = KnowledgeGraphReader(self.pool)
         async with self.pool.acquire() as conn:
-            games = await reader.list_games(conn, active_only=True)
+            games = await reader.list_games(conn, active_only=True, user_id=user_id)
 
         return [
             {
                 "id": str(g["id"]),
-                "nom": g["name"],
-                "cycle_actuel": g["current_cycle"],
-                "jour": g["current_date"] or 1,
+                "name": g["name"],
+                "current_cycle": g["current_cycle"],
+                "day": g["current_date"] or 1,
                 "created_at": g["created_at"].isoformat() if g["created_at"] else None,
                 "updated_at": g["updated_at"].isoformat() if g["updated_at"] else None,
             }
             for g in games
         ]
 
-    async def create_game(self) -> UUID:
-        """Crée une nouvelle partie"""
+    async def create_game(self, user_id: UUID) -> UUID:
+        """Create a new game for the given user."""
         populator = KnowledgeGraphPopulator(self.pool)
         async with self.pool.acquire() as conn:
-            return await populator.create_game(conn, "Nouvelle partie")
+            return await populator.create_game(conn, "Nouvelle partie", user_id=user_id)
 
     async def delete_game(self, game_id: UUID) -> None:
-        """Supprime une partie"""
         populator = self._get_populator(game_id)
         async with self.pool.acquire() as conn:
             await populator.delete_game(conn)
 
     async def rename_game(self, game_id: UUID, name: str) -> None:
-        """Renomme une partie"""
         populator = self._get_populator(game_id)
         async with self.pool.acquire() as conn:
             await populator.rename_game(conn, name)
@@ -79,237 +100,130 @@ class GameService:
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
-            # Vérifier existence
             game = await reader.get_game(conn)
             if not game or not game["active"]:
                 raise ValueError(f"Partie {game_id} introuvable")
 
-            # Vérifier si le monde est créé
-            monde_cree = await reader.is_world_created(conn)
+            world_created = await reader.is_world_created(conn)
 
-            # Charger les données
             stats = await self._load_protagonist_stats(reader, conn)
-            inventaire = await self._load_inventory(reader, conn)
-            ia = await self._load_ai_companion(reader, conn)
-            cycle_info = await self._load_cycle_info(reader, conn)
+            inventory = await self._load_inventory(reader, conn)
+            ai_data = await self._load_personal_assistant(reader, conn)
 
-        # Construire l'état
-        partie = {
+            # Cycle info from games table
+            location_name = await reader.get_current_location_name(conn)
+
+        game_data = {
             "id": game_id,
-            "nom": game["name"],
-            "cycle_actuel": cycle_info["cycle"],
-            "date_jeu": cycle_info["date"],
-            "heure": cycle_info["time"],
-            "lieu_actuel": cycle_info["location"],
-            "pnjs_presents": cycle_info["npcs_present"],
+            "name": game["name"],
+            "current_cycle": game["current_cycle"] or 0,
+            "game_date": game["current_date"] or "Jour 1",
+            "time": game["current_time"] or "08h00",
+            "current_location": location_name,
+            "npcs_present": [],  # Ephemeral, set by narration response
+            "last_extraction_time": game.get("last_extraction_time"),
         }
 
-        valentin = {**stats, "inventaire": inventaire}
+        player_data = {**stats, "inventory": inventory}
 
-        # Normaliser avec Pydantic
         from services.state_normalizer import game_state_to_dict, normalize_game_state
 
         state = normalize_game_state(
-            partie_data=partie,
-            valentin_data=valentin,
-            ia_data=ia,
+            game_data=game_data,
+            player_data=player_data,
+            ai_data=ai_data,
         )
 
         result = game_state_to_dict(state)
-        result["monde_cree"] = monde_cree
+        result["world_created"] = world_created
         return result
 
     async def _load_protagonist_stats(self, reader: KnowledgeGraphReader, conn) -> dict:
-        """Charge les stats du protagoniste"""
         row = await reader.get_protagonist_stats(conn)
-
-        stats = dict(STATS_DEFAUT)
+        stats = dict(DEFAULT_STATS)
         if row:
-            stats["energie"] = (
-                float(row["energy"]) if row["energy"] else stats["energie"]
-            )
-            stats["moral"] = float(row["morale"]) if row["morale"] else stats["moral"]
-            stats["sante"] = float(row["health"]) if row["health"] else stats["sante"]
+            stats["energy"] = float(row["energy"]) if row["energy"] else stats["energy"]
+            stats["morale"] = float(row["morale"]) if row["morale"] else stats["morale"]
+            stats["health"] = float(row["health"]) if row["health"] else stats["health"]
             stats["credits"] = (
                 int(row["credits"]) if row["credits"] else stats["credits"]
             )
-
         return stats
 
     async def _load_inventory(self, reader: KnowledgeGraphReader, conn) -> list[dict]:
-        """Charge l'inventaire"""
         rows = await reader.get_inventory(conn)
-
         return [
             {
-                "nom": r["object_name"],
-                "categorie": r["category"] or "misc",
-                "quantite": r["quantity"] or 1,
-                "etat": r["condition"],
-                "valeur_neuve": r["base_value"] or 0,
+                "name": r["object_name"],
+                "category": r.get("category") or "misc",
+                "quantity": r.get("quantity") or 1,
+                "base_value": r.get("base_value") or 0,
             }
             for r in rows
         ]
 
-    async def _load_ai_companion(
+    async def _load_personal_assistant(
         self, reader: KnowledgeGraphReader, conn
     ) -> dict | None:
-        """Charge l'IA compagnon"""
-        row = await reader.get_ai_companion(conn)
+        row = await reader.get_personal_assistant(conn)
         if not row:
             return None
 
-        # Parser traits depuis JSON
-        traits = []
-        if row["traits"]:
-            try:
-                traits = (
-                    json.loads(row["traits"])
-                    if isinstance(row["traits"], str)
-                    else row["traits"]
-                )
-            except (json.JSONDecodeError, TypeError):
-                traits = []
-
+        traits = row.get("traits") or []
         return {
-            "nom": row["name"],
-            "personnalite": traits if isinstance(traits, list) else [],
-            "voix": row["voice"],
-            "quirk": row["quirk"],
-        }
-
-    async def _load_cycle_info(self, reader: KnowledgeGraphReader, conn) -> dict:
-        """Charge les infos du cycle actuel"""
-        # Récupérer le dernier message assistant
-        last_msg = await reader.get_last_assistant_message(conn)
-
-        if last_msg:
-            # Récupérer les noms des NPCs présents
-            npc_names = []
-            if last_msg["npcs_present"]:
-                npc_names = await reader.get_entity_names_by_ids(
-                    conn, last_msg["npcs_present"]
-                )
-
-            return {
-                "cycle": last_msg["cycle"],
-                "date": last_msg["date"],
-                "time": last_msg["time"],
-                "location": last_msg["location_name"],
-                "npcs_present": npc_names,
-            }
-
-        # Fallback sur les infos d'arrivée
-        arrival = await reader.get_arrival_event(conn)
-        if arrival and arrival["events"]:
-            events = arrival["events"]
-            return {
-                "cycle": 1,
-                "date": arrival["date"],
-                "time": arrival["time"],
-                "location": arrival["location"],
-                "npcs_present": [events["first_npc_encountered"]]
-                if events.get("first_npc_encountered")
-                else [],
-            }
-
-        # Fallback total (monde pas encore créé)
-        return {
-            "cycle": 1,
-            "date": "Lundi 1er janvier 2475",
-            "time": "08h00",
-            "location": None,
-            "npcs_present": [],
+            "name": row["name"],
+            "personality": traits if isinstance(traits, list) else [],
+            "voice": row.get("voice"),
+            "quirk": row.get("quirk"),
         }
 
     async def load_world_info(self, game_id: UUID) -> dict | None:
-        """Reconstruit les infos de présentation du monde depuis le KG."""
+        """Reconstruct world presentation info from the KG, matching WorldInfo model."""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
-            # Vérifier si le monde existe
             if not await reader.is_world_created(conn):
                 return None
 
-            # Récupérer le monde/station (location racine)
-            world_row = await reader.get_root_location(conn)
-
-            # Compter les entités
+            game = await reader.get_game(conn)
             counts = await reader.get_entity_counts_by_type(conn)
-
-            # Récupérer l'IA
-            ia_row = await reader.get_ai_companion(conn)
-
-            # Récupérer le protagoniste
+            ia_row = await reader.get_personal_assistant(conn)
             protag_row = await reader.get_protagonist(conn)
-
-            # Récupérer l'événement d'arrivée
             arrival = await reader.get_arrival_event(conn)
 
-        # Construire le résultat
-        monde = None
-        if world_row:
-            sectors = None
-            if world_row["notable_features"]:
-                try:
-                    sectors = json.loads(world_row["notable_features"])
-                except (json.JSONDecodeError, TypeError):
-                    sectors = None
+        world_info = WorldInfo(
+            world=WorldSummary(
+                name=(game.get("world_name") or "Station") if game else "Station",
+                atmosphere=(game.get("world_atmosphere") or "") if game else "",
+                sectors=(game.get("world_seed_words") or []) if game else [],
+            ),
+            protagonist=ProtagonistSummary(
+                name=protag_row["name"] if protag_row else "Inconnu",
+                credits=protag_row.get("credits") or 0 if protag_row else 0,
+            ),
+            ai=AISummary(
+                name=ia_row["name"] if ia_row else "IA",
+                personality=(
+                    ia_row.get("traits") or []
+                    if ia_row and isinstance(ia_row.get("traits"), list)
+                    else []
+                ),
+                quirk=ia_row.get("quirk") or "" if ia_row else "",
+            ),
+            npc_count=counts.get("characters", 0),
+            location_count=counts.get("locations", 0),
+            org_count=counts.get("organizations", 0),
+            arrival=ArrivalSummary(
+                location=arrival.get("arrival_description", ""),
+                date=arrival.get("date"),
+                time=arrival.get("time"),
+                mood=arrival.get("initial_mood"),
+            )
+            if arrival
+            else None,
+        )
 
-            monde = {
-                "nom": world_row["name"],
-                "type": world_row["location_type"],
-                "atmosphere": world_row["atmosphere"],
-                "secteurs": sectors,
-            }
-
-        ia = None
-        if ia_row:
-            traits_data = ia_row["traits"]
-            personality = []
-            if traits_data:
-                try:
-                    personality = (
-                        json.loads(traits_data)
-                        if isinstance(traits_data, str)
-                        else traits_data
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    personality = []
-
-            ia = {
-                "nom": ia_row["name"],
-                "personnalite": personality if isinstance(personality, list) else [],
-                "quirk": ia_row["quirk"],
-            }
-
-        protagoniste = None
-        if protag_row:
-            protagoniste = {
-                "nom": protag_row["name"],
-                "credits": protag_row["credits"] or 0,
-            }
-
-        arrivee = None
-        if arrival and arrival["events"]:
-            events = arrival["events"]
-            arrivee = {
-                "lieu": events.get("arrival_location"),
-                "date": arrival["date"],
-                "heure": events.get("hour"),
-                "ambiance": events.get("initial_mood"),
-            }
-
-        return {
-            "monde_cree": True,
-            "monde": monde,
-            "ia": ia,
-            "protagoniste": protagoniste,
-            "nb_personnages": counts.get("characters", 0),
-            "nb_lieux": counts.get("locations", 0),
-            "nb_organisations": counts.get("organizations", 0),
-            "arrivee": arrivee,
-        }
+        return world_info.model_dump(exclude_none=True)
 
     # =========================================================================
     # WORLD DATA (pour sidebars)
@@ -322,93 +236,114 @@ class GameService:
         async with self.pool.acquire() as conn:
             characters = await reader.get_known_characters(conn)
 
-            # Enrichir avec la localisation de chaque personnage
-            result = []
-            for c in characters:
-                location = await reader.get_character_location(conn, c["id"])
-                result.append(
-                    {
-                        "id": str(c["id"]),
-                        "nom": c["name"],
-                        "profession": c["profession"],
-                        "lieu": location,
-                        "relation": self._get_relation_label(c["relation_level"]),
-                        "relation_level": c["relation_level"],
-                        "description": c["physical_description"],
-                    }
-                )
-
-        return result
+        return [
+            {
+                "id": str(c["id"]),
+                "name": c["name"],
+                "occupation": c.get("occupation"),
+                "location": c.get("workplace_name") or c.get("usual_location"),
+                "relationship": self._get_relation_label(c.get("relation_level")),
+                "relation_level": c.get("relation_level"),
+                "description": c.get("description"),
+            }
+            for c in characters
+        ]
 
     async def load_locations(self, game_id: UUID) -> list[dict]:
-        """Charge les lieux connus du protagoniste"""
+        """Charge les lieux"""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
-            locations = await reader.get_known_locations(conn)
+            locations = await reader.get_locations(conn)
 
         return [
             {
                 "id": str(loc["id"]),
-                "nom": loc["name"],
-                "type": loc["location_type"],
-                "secteur": loc["sector"],
-                "parent": loc["parent_location_name"],
-                "accessible": loc["accessible"],
+                "name": loc["name"],
+                "type": loc.get("location_type"),
+                "sector": loc.get("sector"),
+                "parent": loc.get("parent_location_name"),
+                "accessible": loc.get("accessible", True),
             }
             for loc in locations
         ]
 
     async def load_quests(self, game_id: UUID) -> list[dict]:
-        """Charge les quêtes/arcs actifs"""
+        """Charge les arcs narratifs actifs"""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
-            commitments = await reader.get_active_commitments(conn)
+            arcs = await reader.get_active_arcs(conn)
 
         return [
             {
-                "id": str(c["id"]),
-                "nom": c["objective"]
-                or (c["description"][:50] if c["description"] else ""),
-                "description": c["description"],
-                "type": c["type"],
-                "statut": "En cours",
-                "priorite": self._get_priority(c["type"], c["deadline_cycle"]),
-                "progression": c["progress"] or 0,
+                "id": str(a["id"]),
+                "name": a["title"],
+                "description": a.get("description") or "",
+                "type": a.get("domain") or "personal",
+                "status": "En cours",
+                "priority": "high" if a.get("deadline_cycle") else "normal",
+                "progress": a.get("progress") or 0,
             }
-            for c in commitments
+            for a in arcs
         ]
 
     async def load_organizations(self, game_id: UUID) -> list[dict]:
-        """Charge les organisations connues"""
+        """Charge les organisations"""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
-            organizations = await reader.get_known_organizations(conn)
+            organizations = await reader.get_organizations(conn)
 
         return [
             {
                 "id": str(org["id"]),
-                "nom": org["name"],
-                "type": org["org_type"],
-                "domaine": org["domain"],
-                # "relation": org["protagonist_relation"],
+                "name": org["name"],
+                "type": org.get("org_type"),
+                "domain": org.get("domain"),
             }
             for org in organizations
         ]
 
     async def load_chat_messages(self, game_id: UUID) -> list[dict]:
-        """Charge l'historique des messages"""
+        """Load chat messages for frontend display.
+
+        Filters out protocol tokens (__ARRIVEE__ etc.) from user messages —
+        these are kept in DB for LLM history but not shown to the user.
+        """
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
             messages = await reader.get_messages(conn, order="asc")
 
-        return [
-            {"role": m["role"], "content": m["content"], "cycle": m["cycle"]}
-            for m in messages
-        ]
+        result = []
+        for m in messages:
+            # Hide protocol user messages from frontend
+            if m["role"] == "user" and m["content"].strip().startswith("__"):
+                continue
+
+            msg = {
+                "role": m["role"],
+                "content": m["content"],
+                "cycle": m.get("cycle"),
+                "game_date": m.get("game_date"),
+                "time": m.get("time"),
+                "location": m.get("location_name"),
+            }
+            deltas = parse_json(m.get("narrator_deltas"))
+            if deltas and isinstance(deltas, dict):
+                if deltas.get("cost"):
+                    cost_data = dict(deltas["cost"])
+                    if "cost_usd" not in cost_data:
+                        cost_data["cost_usd"] = compute_cost_from_stored(cost_data)
+                    msg["cost"] = cost_data
+                if deltas.get("extraction_cost"):
+                    ext_cost = dict(deltas["extraction_cost"])
+                    if "cost_usd" not in ext_cost:
+                        ext_cost["cost_usd"] = compute_cost_from_stored(ext_cost)
+                    msg["extraction_cost"] = ext_cost
+            result.append(msg)
+        return result
 
     # =========================================================================
     # PROCESS INIT (World Generation)
@@ -421,59 +356,35 @@ class GameService:
 
         arrival = world_gen.arrival_event
 
-        # Extraire les attributs du protagoniste
-        protagonist_attrs = {
-            attr.key.value: attr.value for attr in world_gen.protagonist.attributes
-        }
-
         return {
-            "monde": {
-                "nom": world_gen.world.name,
-                "atmosphere": next(
-                    (
-                        a.value
-                        for a in world_gen.world.attributes
-                        if a.key.value == "atmosphere"
-                    ),
-                    "",
-                ),
-                "secteurs": world_gen.world.sectors,
+            "world": {
+                "name": world_gen.world.name,
+                "atmosphere": world_gen.world.atmosphere or "",
+                "sectors": world_gen.world.sectors,
             },
-            "protagoniste": {
-                "nom": world_gen.protagonist.name,
-                "origine": protagonist_attrs.get("origin", ""),
-                "raison_depart": protagonist_attrs.get("departure_reason", ""),
-                "credits": int(protagonist_attrs.get("credits", 1400)),
+            "protagonist": {
+                "name": world_gen.protagonist.name,
+                "origin": world_gen.protagonist.origin or "",
+                "departure_reason": world_gen.protagonist.departure_reason.value
+                if hasattr(world_gen.protagonist.departure_reason, "value")
+                else str(world_gen.protagonist.departure_reason),
+                "credits": world_gen.protagonist.credits,
             },
-            "ia": {
-                "nom": world_gen.personal_ai.name,
-                "personnalite": next(
-                    (
-                        json.loads(a.value)
-                        for a in world_gen.personal_ai.attributes
-                        if a.key.value == "traits"
-                    ),
-                    [],
-                ),
-                "quirk": next(
-                    (
-                        a.value
-                        for a in world_gen.personal_ai.attributes
-                        if a.key.value == "quirk"
-                    ),
-                    "",
-                ),
+            "ai": {
+                "name": world_gen.personal_assistant.name,
+                "personality": world_gen.personal_assistant.traits,
+                "quirk": world_gen.personal_assistant.quirk or "",
             },
-            "nb_personnages": len(world_gen.characters),
-            "nb_lieux": len(world_gen.locations),
-            "nb_organisations": len(world_gen.organizations),
-            "inventaire_count": len(world_gen.inventory),
-            "arrivee": {
-                "lieu": arrival.arrival_location_ref,
+            "npc_count": len(world_gen.characters),
+            "location_count": len(world_gen.locations),
+            "org_count": len(world_gen.organizations),
+            "inventory_count": len(world_gen.inventory),
+            "arrival": {
+                "location": arrival.arrival_location_ref,
                 "date": arrival.arrival_date,
-                "heure": arrival.time,
-                "ambiance": arrival.initial_mood,
-                "besoin_immediat": arrival.immediate_need,
+                "time": arrival.time,
+                "mood": arrival.initial_mood,
+                "immediate_need": arrival.immediate_need,
             }
             if arrival
             else None,
@@ -486,7 +397,7 @@ class GameService:
     async def process_light(
         self, game_id: UUID, narration: NarrationOutput, current_cycle: int
     ) -> dict:
-        """Traite la sortie du narrateur et met à jour le cycle"""
+        """Traite la sortie du narrateur et met à jour l'état du jeu"""
         new_cycle = current_cycle + 1 if narration.day_transition else current_cycle
         new_time = narration.time.new_time if narration.time else ""
         location = narration.current_location
@@ -496,28 +407,233 @@ class GameService:
         populator = self._get_populator(game_id)
 
         async with self.pool.acquire() as conn:
-            # Récupérer la date actuelle
+            # Current date
             current_date = await reader.get_current_date(conn)
-
-            # Gérer le changement de jour si présent
             new_date = current_date
             if narration.day_transition:
-                dt = narration.day_transition
-                new_date = getattr(dt, "new_date", None)
+                new_date = getattr(narration.day_transition, "new_date", current_date)
 
-            # Mettre à jour cycle_summaries
-            await populator.save_cycle_summary(conn, new_cycle, date=new_date)
+            # Resolve location for game state update
+            location_id = None
+            resolved_location = location
+            if location:
+                location_id = await conn.fetchval(
+                    "SELECT id FROM locations WHERE game_id = $1"
+                    " AND LOWER(name) = LOWER($2)",
+                    game_id,
+                    location,
+                )
+                if location_id:
+                    old_loc = await reader.get_current_location_name(conn)
+                    if old_loc and old_loc.lower() != location.lower():
+                        logger.info(
+                            f"[GAME] Location changed: '{old_loc}' → '{location}'"
+                        )
+                else:
+                    # Create a stub location (will be fully populated during extraction)
+                    location_id = await conn.fetchval(
+                        """INSERT INTO locations (game_id, name, created_cycle)
+                        VALUES ($1, $2, $3)
+                        ON CONFLICT (game_id, name) DO NOTHING
+                        RETURNING id""",
+                        game_id, location, new_cycle,
+                    )
+                    if not location_id:
+                        # Race condition: created between check and insert
+                        location_id = await conn.fetchval(
+                            "SELECT id FROM locations WHERE game_id = $1"
+                            " AND LOWER(name) = LOWER($2)",
+                            game_id, location,
+                        )
+                    logger.info(
+                        f"[GAME] Created stub location '{location}' "
+                        f"(cycle {new_cycle}), to be enriched during extraction"
+                    )
 
-            # Mettre à jour timestamp de la partie
-            await populator.update_game_timestamp(conn)
+            # Create stubs for events mentioned
+            for evt in narration.events_mentioned:
+                await populator.create_stub_event(conn, evt, new_cycle)
+
+            # Update game state
+            await populator.update_game_state(
+                conn,
+                cycle=new_cycle,
+                date=new_date,
+                time=new_time,
+                location_id=location_id,
+            )
+
+            # Reset detail_requests on day transition (new cycle = fresh slate)
+            if narration.day_transition:
+                await populator.clear_detail_requests(conn)
 
         return {
             "cycle": new_cycle,
             "time": new_time,
-            "location": location,
+            "location": resolved_location,
             "npcs_present": npcs,
             "date": new_date,
         }
+
+    # =========================================================================
+    # NARRATOR DELTAS (live state changes)
+    # =========================================================================
+
+    async def apply_narrator_deltas(
+        self, game_id: UUID, narration: NarrationOutput, cycle: int
+    ) -> dict:
+        """Apply gauge/credit deltas from narrator output immediately."""
+        populator = self._get_populator(game_id)
+        results = {"gauges": [], "credits": None}
+
+        async with self.pool.acquire() as conn:
+            for gd in narration.gauge_deltas:
+                success, old, new = await populator.update_gauge(
+                    conn, gd.gauge, gd.delta, cycle
+                )
+                results["gauges"].append(
+                    {"gauge": gd.gauge, "delta": gd.delta, "old": old, "new": new}
+                )
+
+            if narration.credit_delta:
+                cd = narration.credit_delta
+                success, new_balance, error = await populator.credit_transaction(
+                    conn, cd.amount, cycle, cd.description
+                )
+                results["credits"] = {
+                    "amount": cd.amount,
+                    "new_balance": new_balance,
+                    "error": error,
+                }
+
+            for reveal in narration.entity_reveals:
+                if reveal.entity_type == "character":
+                    await populator.mark_character_known(
+                        conn, reveal.current_name, reveal.real_name
+                    )
+                elif reveal.entity_type == "location":
+                    await populator.mark_location_accessible(conn, reveal.current_name)
+
+        return results
+
+    async def store_info_requests(
+        self, game_id: UUID, info_requests: list[str]
+    ) -> None:
+        """Store narrator info requests for next turn context loading."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE games SET detail_requests = $1 WHERE id = $2",
+                info_requests,
+                game_id,
+            )
+
+    # =========================================================================
+    # MULTI-TURN CONVERSATION
+    # =========================================================================
+
+    # Number of past cycles to include in conversation history
+    HISTORY_CYCLES = 2
+
+    async def build_llm_messages(
+        self,
+        game_id: UUID,
+        current_cycle: int,
+        context_prompt: str,
+        json_history: bool = False,
+    ) -> list[dict]:
+        """
+        Build the messages array for the LLM API.
+
+        Structure:
+        - Past messages from last 2 cycles (user=raw input, assistant=display_text)
+        - cache_control on last message of cycle N-1 (stable prefix)
+        - Final user message = context_prompt (world state + player action)
+
+        If json_history=True, wrap assistant messages in a JSON envelope
+        so the model sees consistent JSON responses.
+        """
+        reader = self._get_reader(game_id)
+
+        async with self.pool.acquire() as conn:
+            min_cycle = max(1, current_cycle - self.HISTORY_CYCLES + 1)
+            rows = await reader.get_messages_for_cycles(
+                conn, from_cycle=min_cycle, to_cycle=current_cycle
+            )
+
+        messages: list[dict] = []
+        last_prev_cycle_idx = -1
+
+        for row in rows:
+            content = row["content"]
+            if row["role"] == "user":
+                # Enrich history user messages with time/location context
+                meta_parts = []
+                if row.get("cycle"):
+                    meta_parts.append(f"Cycle {row['cycle']}")
+                if row.get("time"):
+                    meta_parts.append(row["time"])
+                if row.get("location_name"):
+                    meta_parts.append(row["location_name"])
+                if meta_parts:
+                    content = f"[{' — '.join(meta_parts)}]\n{content}"
+            elif row["role"] == "assistant":
+                # Append arc progression info from narrator_deltas hints
+                arc_suffix = self._extract_arc_suffix(row.get("narrator_deltas"))
+                if arc_suffix:
+                    content = f"{content}\n\n{arc_suffix}"
+                if json_history:
+                    content = json.dumps(
+                        {"narrative_text": content}, ensure_ascii=False
+                    )
+            msg = {"role": row["role"], "content": content}
+            messages.append(msg)
+
+            if row["cycle"] < current_cycle:
+                last_prev_cycle_idx = len(messages) - 1
+
+        # Apply cache_control on last message of cycle N-1 (stable prefix)
+        if last_prev_cycle_idx >= 0:
+            msg = messages[last_prev_cycle_idx]
+            messages[last_prev_cycle_idx] = {
+                "role": msg["role"],
+                "content": [
+                    {
+                        "type": "text",
+                        "text": msg["content"],
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            }
+
+        # Context prompt as final user message
+        messages.append({"role": "user", "content": context_prompt})
+
+        return messages
+
+    @staticmethod
+    def _extract_arc_suffix(narrator_deltas) -> str | None:
+        """Extract arc progression info from narrator_deltas for history context."""
+        if not narrator_deltas:
+            return None
+        if isinstance(narrator_deltas, str):
+            import json
+
+            try:
+                narrator_deltas = json.loads(narrator_deltas)
+            except (json.JSONDecodeError, TypeError):
+                return None
+
+        hints = narrator_deltas.get("hints") or {}
+        parts = []
+        for arc in hints.get("arc_advanced") or []:
+            parts.append(f"{arc} ↑")
+        for arc in hints.get("arc_resolved") or []:
+            parts.append(f"{arc} ✓")
+        if hints.get("new_arc_created"):
+            parts.append("nouvel arc")
+        if not parts:
+            return None
+        return f"[Arcs: {', '.join(parts)}]"
 
     # =========================================================================
     # MESSAGES
@@ -529,33 +645,54 @@ class GameService:
         user_message: str,
         assistant_message: str,
         cycle: int,
-        date: str | None = None,
         time: str | None = None,
+        game_date: str | None = None,
         location_ref: str | None = None,
-        npcs_present_refs: list[str] | None = None,
-        summary: str | None = None,
-        tone_notes: str | None = None,
+        narrator_deltas: dict | None = None,
     ) -> tuple[UUID, UUID]:
         """Sauvegarde une paire de messages (user + assistant)"""
         populator = self._get_populator(game_id)
 
         async with self.pool.acquire() as conn:
-            # Charger le registry pour résoudre les refs
-            await populator.load_registry(conn)
+            # Get or create active conversation
+            conv_id = await populator.get_active_conversation(conn)
+            if not conv_id:
+                conv_id = await populator.create_conversation(conn, cycle)
 
-            # Sauvegarder les messages
-            return await populator.save_message_pair(
-                conn,
-                user_message,
-                assistant_message,
-                cycle,
-                date,
-                time,
-                location_ref,
-                npcs_present_refs,
-                summary,
-                tone_notes=tone_notes,
+            # Get next sequence number
+            max_seq = await conn.fetchval(
+                "SELECT COALESCE(MAX(sequence), 0) FROM messages"
+                " WHERE conversation_id = $1",
+                conv_id,
             )
+
+            # Save user message
+            user_id = await populator.save_message(
+                conn,
+                conv_id,
+                "user",
+                user_message,
+                sequence=max_seq + 1,
+                cycle=cycle,
+                time=time,
+                game_date=game_date,
+                location_ref=location_ref,
+            )
+            # Save assistant message (with narrator deltas for batch reconstruction)
+            assistant_id = await populator.save_message(
+                conn,
+                conv_id,
+                "assistant",
+                assistant_message,
+                sequence=max_seq + 2,
+                cycle=cycle,
+                time=time,
+                game_date=game_date,
+                location_ref=location_ref,
+                narrator_deltas=narrator_deltas,
+            )
+
+            return user_id, assistant_id
 
     # =========================================================================
     # ROLLBACK
@@ -564,42 +701,60 @@ class GameService:
     async def rollback_to_message(self, game_id: UUID, keep_until_index: int) -> dict:
         """
         Rollback: supprime tous les messages à partir de keep_until_index (inclus).
-
-        Exemple: messages = [user0, assistant0, user1, assistant1]
-        - keep_until_index=2 → garde [user0, assistant0], supprime [user1, assistant1]
-        - keep_until_index=0 → supprime tout
         """
         reader = self._get_reader(game_id)
         populator = self._get_populator(game_id)
 
         async with self.pool.acquire() as conn:
-            # Récupérer tous les messages ordonnés
             messages = await reader.get_messages(conn, order="asc")
 
             if keep_until_index >= len(messages):
                 return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
 
-            # Messages à supprimer
             messages_to_delete = messages[keep_until_index:]
-
             if not messages_to_delete:
                 return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
 
-            # Trouver le cycle cible (dernier cycle à GARDER)
-            if keep_until_index > 0:
-                target_cycle = messages[keep_until_index - 1]["cycle"]
-            else:
-                target_cycle = 0
+            target_cycle = (
+                messages[keep_until_index - 1]["cycle"] if keep_until_index > 0 else 0
+            )
 
-            # 1. Supprimer les messages concernés
+            # Delete messages
             ids_to_delete = [m["id"] for m in messages_to_delete]
-            await populator.delete_messages_by_ids(conn, ids_to_delete)
+            await conn.execute(
+                "DELETE FROM messages WHERE id = ANY($1)",
+                ids_to_delete,
+            )
 
-            # 2. Rollback du KG
+            # Rollback KG
             rollback_result = await populator.rollback_to_cycle(conn, target_cycle)
 
-            # 3. Mettre à jour le timestamp
-            await populator.update_game_timestamp(conn)
+            # Restore full game state from last remaining assistant message
+            restore_date = None
+            restore_time = None
+            restore_location_id = None
+            if keep_until_index > 0:
+                for i in range(keep_until_index - 1, -1, -1):
+                    m = messages[i]
+                    if m["role"] == "assistant":
+                        restore_date = m.get("game_date")
+                        restore_time = m.get("time")
+                        restore_location_id = m.get("location_id")
+                        break
+
+            # Explicit UPDATE to reset all state fields (including NULLs)
+            await conn.execute(
+                """UPDATE games
+                   SET current_cycle = $2,
+                       "current_date" = $3,
+                       "current_time" = $4,
+                       current_location_id = $5,
+                       last_extraction_time = NULL,
+                       updated_at = NOW()
+                   WHERE id = $1""",
+                game_id, target_cycle, restore_date,
+                restore_time, restore_location_id,
+            )
 
         return {
             "deleted": len(messages_to_delete),
@@ -608,12 +763,11 @@ class GameService:
         }
 
     # =========================================================================
-    # HELPERS (privés)
+    # HELPERS
     # =========================================================================
 
     @staticmethod
     def _get_relation_label(level: int | None) -> str:
-        """Convertit le niveau de relation en label"""
         if level is None:
             return "Inconnu"
         if level >= 8:
@@ -625,14 +779,3 @@ class GameService:
         if level >= 2:
             return "Neutre"
         return "Hostile"
-
-    @staticmethod
-    def _get_priority(commitment_type: str, deadline: int | None) -> str:
-        """Détermine la priorité d'une quête"""
-        if deadline is not None:
-            return "haute"
-        if commitment_type == "arc":
-            return "haute"
-        if commitment_type in ("secret", "chekhov_gun"):
-            return "normale"
-        return "basse"

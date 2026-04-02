@@ -1,6 +1,6 @@
 """
 LDVELH - State Normalizer
-Normalise l'état du jeu pour le frontend
+Normalizes game state for the frontend API.
 """
 
 from typing import Any, Optional
@@ -8,69 +8,69 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 from decimal import Decimal
 
-from config import STATS_DEFAUT
+from config import DEFAULT_STATS
 
 
 # =============================================================================
-# PYDANTIC MODELS (pour validation et sérialisation)
+# PYDANTIC MODELS
 # =============================================================================
 
 
-class InventaireItem(BaseModel):
-    """Item d'inventaire normalisé"""
+class InventoryItem(BaseModel):
+    """Normalized inventory item"""
 
     id: Optional[UUID] = None
-    nom: str
-    quantite: int = 1
-    localisation: str = "sur_soi"
-    categorie: str = "autre"
-    etat: str = "bon"
-    valeur_neuve: Optional[int] = None
-    prete_a: Optional[str] = None
+    name: str
+    quantity: int = 1
+    location: str = "sur_soi"
+    category: str = "misc"
+    condition: str = "bon"
+    base_value: Optional[int] = None
+    lent_to: Optional[str] = None
 
 
-class ValentinState(BaseModel):
-    """Stats de Valentin normalisées"""
+class PlayerState(BaseModel):
+    """Normalized protagonist stats"""
 
-    energie: float = Field(default=STATS_DEFAUT["energie"])
-    moral: float = Field(default=STATS_DEFAUT["moral"])
-    sante: float = Field(default=STATS_DEFAUT["sante"])
-    credits: int = Field(default=STATS_DEFAUT["credits"])
-    inventaire: list[InventaireItem] = Field(default_factory=list)
+    energy: float = Field(default=DEFAULT_STATS["energy"])
+    morale: float = Field(default=DEFAULT_STATS["morale"])
+    health: float = Field(default=DEFAULT_STATS["health"])
+    credits: int = Field(default=DEFAULT_STATS["credits"])
+    inventory: list[InventoryItem] = Field(default_factory=list)
 
 
-class PartieState(BaseModel):
-    """État de la partie normalisé"""
+class GameSessionState(BaseModel):
+    """Normalized game session state"""
 
     id: Optional[UUID] = None
-    nom: str = "Partie sans nom"
-    cycle_actuel: int = 1
-    jour: str = "Lundi"
-    date_jeu: Optional[str] = None
-    heure: Optional[str] = None
-    lieu_actuel: Optional[str] = None
-    pnjs_presents: list[str] = Field(default_factory=list)
+    name: str = "Nouvelle partie"
+    current_cycle: int = 1
+    day: str = "Lundi"
+    game_date: Optional[str] = None
+    time: Optional[str] = None
+    current_location: Optional[str] = None
+    npcs_present: list[str] = Field(default_factory=list)
     status: str = "active"
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
 
-class IAState(BaseModel):
-    """État de l'IA normalisé"""
+class AIState(BaseModel):
+    """Normalized personal AI state"""
 
-    nom: Optional[str] = None
-    personnalite: list[str] = Field(default_factory=list)  # Liste de traits
-    voix: Optional[str] = None  # Description de la voix
-    quirk: Optional[str] = None  # Particularité comportementale
-    relation: Optional[int] = None
+    name: Optional[str] = None
+    personality: list[str] = Field(default_factory=list)
+    voice: Optional[str] = None
+    quirk: Optional[str] = None
+    relationship: Optional[int] = None
 
 
 class GameState(BaseModel):
-    """État complet du jeu normalisé"""
+    """Full normalized game state"""
 
-    partie: Optional[PartieState] = None
-    valentin: ValentinState = Field(default_factory=ValentinState)
-    ia: Optional[IAState] = None
+    game: Optional[GameSessionState] = None
+    player: PlayerState = Field(default_factory=PlayerState)
+    ai: Optional[AIState] = None
 
 
 # =============================================================================
@@ -78,42 +78,36 @@ class GameState(BaseModel):
 # =============================================================================
 
 
-def normalize_inventaire_item(item: Any) -> InventaireItem:
+def normalize_inventory_item(item: Any) -> InventoryItem:
     """
-    Normalise un item d'inventaire.
-    Supporte ancien format (string) et nouveau format (dict/row).
+    Normalize an inventory item.
+    Supports legacy format (string) and current format (dict/row).
     """
-    # Ancien format: juste un string
     if isinstance(item, str):
-        return InventaireItem(nom=item)
+        return InventoryItem(name=item)
 
-    # Format dict ou asyncpg Record
     data = dict(item) if hasattr(item, "keys") else item
 
-    return InventaireItem(
+    return InventoryItem(
         id=data.get("id"),
-        nom=data.get("nom") or data.get("name", "?"),
-        quantite=data.get("quantite") or data.get("quantity", 1),
-        localisation=data.get("localisation") or data.get("location", "sur_soi"),
-        categorie=data.get("categorie") or data.get("category", "autre"),
-        etat=data.get("etat") or data.get("condition", "bon"),
-        valeur_neuve=data.get("valeur_neuve") or data.get("base_value"),
-        prete_a=data.get("prete_a") or data.get("lent_to"),
+        name=data.get("name", "?"),
+        quantity=data.get("quantity", 1),
+        location=data.get("location", "sur_soi"),
+        category=data.get("category", "misc"),
+        condition=data.get("condition", "bon"),
+        base_value=data.get("base_value"),
+        lent_to=data.get("lent_to"),
     )
 
 
-def normalize_valentin(data: Optional[dict]) -> ValentinState:
-    """
-    Normalise les données de Valentin.
-    """
+def normalize_player(data: Optional[dict]) -> PlayerState:
+    """Normalize protagonist data."""
     if not data:
-        return ValentinState()
+        return PlayerState()
 
-    # Normaliser l'inventaire
-    raw_inventaire = data.get("inventaire") or data.get("inventory") or []
-    inventaire = [normalize_inventaire_item(item) for item in raw_inventaire]
+    raw_inventory = data.get("inventory") or []
+    inventory = [normalize_inventory_item(item) for item in raw_inventory]
 
-    # Convertir Decimal en float si nécessaire
     def to_float(val, default):
         if val is None:
             return default
@@ -121,119 +115,96 @@ def normalize_valentin(data: Optional[dict]) -> ValentinState:
             return float(val)
         return float(val)
 
-    return ValentinState(
-        energie=to_float(
-            data.get("energie") or data.get("energy"), STATS_DEFAUT["energie"]
-        ),
-        moral=to_float(data.get("moral"), STATS_DEFAUT["moral"]),
-        sante=to_float(data.get("sante") or data.get("health"), STATS_DEFAUT["sante"]),
-        credits=int(data.get("credits", STATS_DEFAUT["credits"])),
-        inventaire=inventaire,
+    return PlayerState(
+        energy=to_float(data.get("energy"), DEFAULT_STATS["energy"]),
+        morale=to_float(data.get("morale"), DEFAULT_STATS["morale"]),
+        health=to_float(data.get("health"), DEFAULT_STATS["health"]),
+        credits=int(data.get("credits", DEFAULT_STATS["credits"])),
+        inventory=inventory,
     )
 
 
-def normalize_partie(data: Optional[dict]) -> Optional[PartieState]:
-    """
-    Normalise les données de la partie.
-    """
+def normalize_game_session(data: Optional[dict]) -> Optional[GameSessionState]:
+    """Normalize game session data."""
     if not data:
         return None
 
-    # Gérer les différents noms de champs (snake_case Python vs camelCase ou ancien format)
-    return PartieState(
-        id=data.get("id") or data.get("partie_id"),
-        nom=data.get("nom") or data.get("name", "Partie sans nom"),
-        cycle_actuel=data.get("cycle_actuel") or data.get("current_cycle", 1),
-        date_jeu=data.get("date_jeu") or data.get("universe_date"),
-        heure=data.get("heure") or data.get("time") or data.get("current_time"),
-        lieu_actuel=data.get("lieu_actuel") or data.get("current_location"),
-        pnjs_presents=data.get("pnjs_presents") or data.get("npcs_present") or [],
+    return GameSessionState(
+        id=data.get("id"),
+        name=data.get("name", "Nouvelle partie"),
+        current_cycle=data.get("current_cycle", 1),
+        game_date=data.get("game_date"),
+        time=data.get("time"),
+        current_location=data.get("current_location"),
+        npcs_present=data.get("npcs_present") or [],
         status=data.get("status", "active"),
         created_at=str(data["created_at"]) if data.get("created_at") else None,
         updated_at=str(data["updated_at"]) if data.get("updated_at") else None,
     )
 
 
-def normalize_ia(data: Optional[dict]) -> Optional[IAState]:
-    """
-    Normalise les données de l'IA.
-    Supporte les formats EAV (liste de traits) et ancien (string).
-    """
+def normalize_ai(data: Optional[dict]) -> Optional[AIState]:
+    """Normalize personal AI data."""
     if not data:
         return None
 
-    # Extraire personnalite (peut être liste ou string)
-    raw_personnalite = data.get("personnalite") or data.get("personality") or []
+    raw_personality = data.get("personality") or []
 
-    # Normaliser en liste
-    if isinstance(raw_personnalite, str):
-        # Ancien format: string → convertir en liste
-        personnalite = [raw_personnalite] if raw_personnalite else []
-    elif isinstance(raw_personnalite, list):
-        personnalite = raw_personnalite
+    if isinstance(raw_personality, str):
+        personality = [raw_personality] if raw_personality else []
+    elif isinstance(raw_personality, list):
+        personality = raw_personality
     else:
-        personnalite = []
+        personality = []
 
-    return IAState(
-        nom=data.get("nom") or data.get("name"),
-        personnalite=personnalite,
-        voix=data.get("voix") or data.get("voice"),
+    return AIState(
+        name=data.get("name"),
+        personality=personality,
+        voice=data.get("voice"),
         quirk=data.get("quirk"),
-        relation=data.get("relation") or data.get("relationship_level"),
+        relationship=data.get("relationship"),
     )
 
 
 def normalize_game_state(
-    partie_data: Optional[dict] = None,
-    valentin_data: Optional[dict] = None,
-    ia_data: Optional[dict] = None,
+    game_data: Optional[dict] = None,
+    player_data: Optional[dict] = None,
+    ai_data: Optional[dict] = None,
     flat_data: Optional[dict] = None,
 ) -> GameState:
     """
-    Normalise l'état complet du jeu.
+    Normalize the full game state.
 
-    Peut recevoir soit des données structurées (partie_data, valentin_data, ia_data),
-    soit un dict plat (flat_data) qu'il faut parser.
+    Can receive either structured data (game_data, player_data, ai_data),
+    or a flat dict (flat_data) to parse.
     """
-    # Si on reçoit un dict plat, extraire les données
     if flat_data:
-        # Vérifier si c'est déjà structuré
-        if "partie" in flat_data or "valentin" in flat_data:
-            partie_data = flat_data.get("partie")
-            valentin_data = flat_data.get("valentin")
-            ia_data = flat_data.get("ia")
+        if "game" in flat_data or "player" in flat_data:
+            game_data = flat_data.get("game")
+            player_data = flat_data.get("player")
+            ai_data = flat_data.get("ai")
         else:
-            # Extraire depuis un dict plat (ex: réponse BDD directe)
-            partie_data = extract_partie_from_flat(flat_data)
-            valentin_data = extract_valentin_from_flat(flat_data)
+            game_data = extract_game_fields(flat_data)
+            player_data = extract_player_fields(flat_data)
 
     return GameState(
-        partie=normalize_partie(partie_data),
-        valentin=normalize_valentin(valentin_data),
-        ia=normalize_ia(ia_data),
+        game=normalize_game_session(game_data),
+        player=normalize_player(player_data),
+        ai=normalize_ai(ai_data),
     )
 
 
-def extract_partie_from_flat(data: dict) -> dict:
-    """
-    Extrait les infos de partie depuis un dict plat.
-    """
+def extract_game_fields(data: dict) -> dict:
+    """Extract game session fields from a flat dict."""
     keys = [
         "id",
-        "nom",
         "name",
-        "heure",
         "time",
-        "current_time",
-        "lieu_actuel",
         "current_location",
-        "pnjs_presents",
         "npcs_present",
-        "cycle_actuel",
         "current_cycle",
-        "jour",
-        "date_jeu",
-        "universe_date",
+        "day",
+        "game_date",
         "status",
         "created_at",
         "updated_at",
@@ -241,19 +212,13 @@ def extract_partie_from_flat(data: dict) -> dict:
     return {k: data[k] for k in keys if k in data}
 
 
-def extract_valentin_from_flat(data: dict) -> dict:
-    """
-    Extrait les stats de Valentin depuis un dict plat.
-    """
+def extract_player_fields(data: dict) -> dict:
+    """Extract player fields from a flat dict."""
     keys = [
-        "energie",
         "energy",
-        "moral",
         "morale",
-        "sante",
         "health",
         "credits",
-        "inventaire",
         "inventory",
     ]
     return {k: data[k] for k in keys if k in data}
@@ -266,101 +231,95 @@ def extract_valentin_from_flat(data: dict) -> dict:
 
 def merge_game_states(prev: GameState, update: dict) -> GameState:
     """
-    Fusionne un état existant avec une mise à jour partielle.
-    Utile pour les updates SSE qui ne contiennent qu'une partie des données.
+    Merge an existing state with a partial update.
+    Useful for SSE updates that contain only some fields.
     """
-    # Normaliser l'update
     update_state = normalize_game_state(flat_data=update)
 
-    # Récupérer les clés réellement présentes dans l'update original
-    update_partie_keys = set()
-    update_valentin_keys = set()
-    update_ia_keys = set()
+    update_game_keys = set()
+    update_player_keys = set()
+    update_ai_keys = set()
 
-    if "partie" in update and update["partie"]:
-        update_partie_keys = set(update["partie"].keys())
-    if "valentin" in update and update["valentin"]:
-        update_valentin_keys = set(update["valentin"].keys())
-    if "ia" in update and update["ia"]:
-        update_ia_keys = set(update["ia"].keys())
+    if "game" in update and update["game"]:
+        update_game_keys = set(update["game"].keys())
+    if "player" in update and update["player"]:
+        update_player_keys = set(update["player"].keys())
+    if "ai" in update and update["ai"]:
+        update_ai_keys = set(update["ai"].keys())
 
-    # Fusionner partie
-    new_partie = None
-    if prev.partie or update_state.partie:
-        prev_dict = prev.partie.model_dump() if prev.partie else {}
-        if update_state.partie and update_partie_keys:
-            update_dict = update_state.partie.model_dump()
-            # Ne garder QUE les clés explicitement dans l'update
+    # Merge game session
+    new_game = None
+    if prev.game or update_state.game:
+        prev_dict = prev.game.model_dump() if prev.game else {}
+        if update_state.game and update_game_keys:
+            update_dict = update_state.game.model_dump()
             update_dict = {
                 k: v
                 for k, v in update_dict.items()
-                if k in update_partie_keys and v is not None
+                if k in update_game_keys and v is not None
             }
             merged = {**prev_dict, **update_dict}
         else:
             merged = prev_dict
-        new_partie = PartieState(**merged)
+        new_game = GameSessionState(**merged)
 
-    # Fusionner valentin
-    new_valentin = merge_valentin(
-        prev.valentin, update_state.valentin, update_valentin_keys
+    # Merge player
+    new_player = merge_player(
+        prev.player, update_state.player, update_player_keys
     )
 
-    # Fusionner IA
-    new_ia = None
-    if prev.ia or update_state.ia:
-        prev_dict = prev.ia.model_dump() if prev.ia else {}
-        if update_state.ia and update_ia_keys:
-            update_dict = update_state.ia.model_dump()
+    # Merge AI
+    new_ai = None
+    if prev.ai or update_state.ai:
+        prev_dict = prev.ai.model_dump() if prev.ai else {}
+        if update_state.ai and update_ai_keys:
+            update_dict = update_state.ai.model_dump()
             update_dict = {
                 k: v
                 for k, v in update_dict.items()
-                if k in update_ia_keys and v is not None
+                if k in update_ai_keys and v is not None
             }
             merged = {**prev_dict, **update_dict}
-            new_ia = IAState(**merged)
+            new_ai = AIState(**merged)
         else:
-            new_ia = prev.ia
+            new_ai = prev.ai
 
-    return GameState(partie=new_partie, valentin=new_valentin, ia=new_ia)
+    return GameState(game=new_game, player=new_player, ai=new_ai)
 
 
-def merge_valentin(
-    prev: ValentinState, update: ValentinState, update_keys: set[str] | None = None
-) -> ValentinState:
+def merge_player(
+    prev: PlayerState, update: PlayerState, update_keys: set[str] | None = None
+) -> PlayerState:
     """
-    Fusionne les stats de Valentin.
-    Ne met à jour que les clés explicitement présentes dans update_keys.
+    Merge player stats.
+    Only updates keys explicitly present in update_keys.
     """
     if update_keys is None:
-        # Comportement legacy: comparer avec les defaults
-        return ValentinState(
-            energie=update.energie
-            if update.energie != STATS_DEFAUT["energie"]
-            else prev.energie,
-            moral=update.moral if update.moral != STATS_DEFAUT["moral"] else prev.moral,
-            sante=update.sante if update.sante != STATS_DEFAUT["sante"] else prev.sante,
+        # Legacy behavior: compare with defaults
+        return PlayerState(
+            energy=update.energy
+            if update.energy != DEFAULT_STATS["energy"]
+            else prev.energy,
+            morale=update.morale
+            if update.morale != DEFAULT_STATS["morale"]
+            else prev.morale,
+            health=update.health
+            if update.health != DEFAULT_STATS["health"]
+            else prev.health,
             credits=update.credits
-            if update.credits != STATS_DEFAUT["credits"]
+            if update.credits != DEFAULT_STATS["credits"]
             else prev.credits,
-            inventaire=update.inventaire if update.inventaire else prev.inventaire,
+            inventory=update.inventory if update.inventory else prev.inventory,
         )
 
-    # Nouveau comportement: ne merger que les clés explicites
-    return ValentinState(
-        energie=update.energie
-        if "energie" in update_keys or "energy" in update_keys
-        else prev.energie,
-        moral=update.moral
-        if "moral" in update_keys or "morale" in update_keys
-        else prev.moral,
-        sante=update.sante
-        if "sante" in update_keys or "health" in update_keys
-        else prev.sante,
+    return PlayerState(
+        energy=update.energy if "energy" in update_keys else prev.energy,
+        morale=update.morale if "morale" in update_keys else prev.morale,
+        health=update.health if "health" in update_keys else prev.health,
         credits=update.credits if "credits" in update_keys else prev.credits,
-        inventaire=update.inventaire
-        if "inventaire" in update_keys or "inventory" in update_keys
-        else prev.inventaire,
+        inventory=update.inventory
+        if "inventory" in update_keys
+        else prev.inventory,
     )
 
 
@@ -370,15 +329,10 @@ def merge_valentin(
 
 
 def game_state_to_dict(state: GameState) -> dict:
-    """
-    Convertit un GameState en dict pour JSON.
-    Utilise les alias français pour le frontend.
-    """
+    """Convert a GameState to a dict for JSON serialization."""
     return state.model_dump(exclude_none=True, mode="json")
 
 
 def game_state_to_json(state: GameState) -> str:
-    """
-    Convertit un GameState en JSON string.
-    """
+    """Convert a GameState to a JSON string."""
     return state.model_dump_json(exclude_none=True)
