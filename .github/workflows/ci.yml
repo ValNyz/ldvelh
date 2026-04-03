@@ -7,47 +7,8 @@ on:
     branches: [main, dev]
 
 jobs:
-  backend-unit-tests:
-    name: Backend Unit Tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install dependencies
-        run: pip install -r requirements.txt pytest-cov
-
-      - name: Run unit tests with coverage
-        run: |
-          pytest tests/ \
-            -m "not integration" \
-            -o asyncio_mode=auto \
-            --cov=. \
-            --cov-branch \
-            --cov-report=term-missing \
-            --cov-report=xml:coverage.xml \
-            -q
-
-      - name: Upload coverage to Codecov
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@v5
-        with:
-          file: backend/coverage.xml
-          flags: backend
-          fail_ci_if_error: false
-
-  backend-integration-tests:
-    name: Backend Integration Tests
+  backend-tests:
+    name: Backend Tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -79,7 +40,7 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt pytest-cov
 
       - name: Apply DB schema
         run: psql -f ../schema.sql
@@ -90,11 +51,14 @@ jobs:
           PGPASSWORD: test
           PGDATABASE: ldvelh_test
 
-      - name: Run integration tests
+      - name: Run all tests with coverage
         run: |
           pytest tests/ \
-            -m integration \
             -o asyncio_mode=auto \
+            --cov=. \
+            --cov-branch \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
             -q
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/ldvelh_test
@@ -102,3 +66,11 @@ jobs:
           JWT_SECRET: ci-test-secret
           DEBUG: "true"
           ENCRYPTION_KEY: "WkpQHs-KU7XuScnVGAxm35ucMGXCCGt1yLenNhtGqR0="
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          file: backend/coverage.xml
+          flags: backend
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
