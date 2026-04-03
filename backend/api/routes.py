@@ -615,7 +615,7 @@ async def _handle_chat(
                         extraction_triggers=narration.extraction_triggers,
                         cost=narration_cost if narration_cost else None,
                     )
-                    await game_service.save_messages(
+                    _, assistant_msg_id = await game_service.save_messages(
                         game_id=game_id,
                         user_message=message,
                         assistant_message=display_text,
@@ -644,6 +644,7 @@ async def _handle_chat(
                                 triggers=extraction_triggers,
                                 provider_name=provider_name,
                                 api_key=user_api_key,
+                                assistant_message_id=assistant_msg_id,
                             )
                         )
 
