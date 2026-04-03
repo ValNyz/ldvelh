@@ -18,6 +18,29 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+async def _seed_dev_user(pool: asyncpg.Pool, settings) -> None:
+    """Create a dev user if it doesn't already exist (debug mode only)."""
+    from services.auth_service import hash_password
+
+    email = settings.dev_user_email
+    password = settings.dev_user_password
+    async with pool.acquire() as conn:
+        existing = await conn.fetchval(
+            "SELECT id FROM users WHERE email = $1", email
+        )
+        if existing:
+            logger.info(f"[STARTUP] Dev user already exists: {email}")
+            return
+        pw_hash = hash_password(password)
+        await conn.execute(
+            """INSERT INTO users (email, password_hash, display_name, email_verified)
+               VALUES ($1, $2, $3, true)""",
+            email, pw_hash, "dev",
+        )
+        logger.info(f"[STARTUP] Dev user created: {email} / {password}")
+
+
 # Pool de connexions global
 db_pool: asyncpg.Pool | None = None
 
@@ -41,6 +64,10 @@ async def lifespan(app: FastAPI):
         settings.database_url, min_size=2, max_size=10, command_timeout=60
     )
     print("[STARTUP] Pool de connexions créé")
+
+    # Seed dev user if debug mode is enabled
+    if settings.debug:
+        await _seed_dev_user(db_pool, settings)
 
     yield
 

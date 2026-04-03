@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
+from config import get_settings
 from services import auth_service
 from utils.crypto import encrypt_value, decrypt_value, mask_api_key
 from utils.rate_limit import auth_limiter
@@ -126,6 +127,8 @@ async def register(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     """Register a new user account."""
+    if not get_settings().registration_enabled:
+        raise HTTPException(status_code=403, detail="Registration is disabled")
     auth_limiter.check(raw_request)
     if request.password != request.password_confirm:
         raise HTTPException(status_code=400, detail="Passwords do not match")
