@@ -76,7 +76,7 @@ Ne le cite jamais mot pour mot — incorpore-le naturellement.
 ### Nouveaux éléments
 - Tu peux introduire de NOUVEAUX PNJs secondaires si narrativement pertinent
 - Tu peux mentionner de nouveaux lieux (qui seront créés ensuite)
-- Signale-les dans `hints.new_entities_mentioned`
+- Signale-les dans `extraction_triggers` avec "characters" et/ou "locations"
 
 ### Choix du joueur
 - Le joueur peut faire ce qu'il veut, tes suggestions sont des guides
@@ -145,21 +145,16 @@ Ils sont appliqués **immédiatement** — pas besoin d'extraction séparée.
 - Persist pour tout le cycle en cours
 - **Liste vide `[]` par défaut**
 
-## HINTS - QUAND LES ACTIVER
+## extraction_triggers — QUAND LES ACTIVER
 
-| Situation | Hint |
-|-----------|------|
-| Nouveau PNJ/lieu mentionné | `new_entities_mentioned: ["Nom"]` |
-| Objet/argent gagné/perdu | `protagonist_state_changed: true` |
-| Fatigue, blessure, humeur | `protagonist_state_changed: true` |
-| Relation évolue | `relationships_changed: true` |
-| Info importante apprise | `information_learned: true` |
-| Arc existant progresse | `arc_advanced: ["Titre EXACT de la section ARCS"]` |
-| Arc existant se résout | `arc_resolved: ["Titre EXACT de la section ARCS"]` |
-| Nouveau mystère/foreshadowing (pas dans ARCS) | `new_arc_created: true` |
-| RDV pris, deadline fixée | `event_scheduled: true` |
-| Événement prévu se produit | `event_occurred: true` |
-| **Interaction neutre/échec** | **Aucun hint - c'est NORMAL** |
+Liste des extracteurs à lancer après ce tour. N'inclure QUE ce qui a RÉELLEMENT changé :
+- `"characters"` : nouveau PNJ introduit, identité révélée, état change significativement
+- `"locations"` : nouveau lieu découvert, état d'un lieu change
+- `"organizations"` : nouvelle organisation mentionnée, réputation/état change
+- `"inventory"` : objet acquis, perdu, ou utilisé
+- `"narrative_arcs"` : arc avance/se résout/créé, relation évolue, événement important
+
+**Liste vide `[]` = aucune extraction nécessaire. C'est NORMAL pour la plupart des tours.**
 
 ## MARKDOWN DANS NARRATIVE_TEXT
 
@@ -497,17 +492,7 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
   "entity_reveals": [],
   "events_mentioned": [],
   "info_requests": [],
-  "hints": {
-    "new_entities_mentioned": [],
-    "relationships_changed": false,
-    "protagonist_state_changed": false,
-    "information_learned": false,
-    "arc_advanced": [],
-    "arc_resolved": [],
-    "new_arc_created": false,
-    "event_scheduled": false,
-    "event_occurred": false
-  },
+  "extraction_triggers": [],
   "scene_mood": "2-3 mots",
   "narrator_notes": "Notes courtes"
 }""")

@@ -97,8 +97,8 @@ class NarratorDeltasStored(BaseModel):
     Three logical sections:
     1. Game mechanics — immediate state changes applied by the narrator
        (gauge_deltas, credit_delta, inventory_hints, entity_reveals)
-    2. Extraction hints — metadata for batch extraction pipeline
-       (hints)
+    2. Extraction triggers — which specialized extractors to run
+       (extraction_triggers)
     3. Billing — cost tracking per message
        (cost, extraction_cost)
     """
@@ -108,8 +108,8 @@ class NarratorDeltasStored(BaseModel):
     credit_delta: dict | None = None
     inventory_hints: list[dict] = Field(default_factory=list)
     entity_reveals: list[dict] = Field(default_factory=list)
-    # -- Extraction hints --
-    hints: dict | None = None
+    # -- Extraction triggers --
+    extraction_triggers: list[str] = Field(default_factory=list)
     # -- Billing --
     cost: dict | None = None
     extraction_cost: dict | None = None

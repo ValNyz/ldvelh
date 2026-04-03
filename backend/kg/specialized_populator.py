@@ -627,6 +627,13 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         )
         obj_id = await self.create_object(conn, obj_data, cycle)
         if obj_id:
+            # Store canonical_name if provided
+            canonical = getattr(obj_creation, "canonical_name", None)
+            if canonical:
+                await conn.execute(
+                    "UPDATE objects SET canonical_name = $1 WHERE id = $2",
+                    canonical, obj_id,
+                )
             await self.add_to_inventory(
                 conn,
                 obj_id,
@@ -634,6 +641,46 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 cycle=cycle,
                 origin="acquired",
             )
+
+    async def create_object_with_canonical(
+        self, conn: Connection, obj_creation: ObjectCreation, cycle: int
+    ) -> UUID | None:
+        """Create object with canonical_name dedup.
+
+        If an active object with the same canonical_name already exists,
+        just add to inventory instead of creating a new record.
+        """
+        canonical = getattr(obj_creation, "canonical_name", None)
+        if canonical:
+            existing = await conn.fetchval(
+                "SELECT id FROM objects"
+                " WHERE game_id = $1 AND canonical_name = $2"
+                " AND removed_cycle IS NULL",
+                self.game_id, canonical,
+            )
+            if existing:
+                logger.info(
+                    f"[CANONICAL] Object '{canonical}' already exists, "
+                    f"adding to inventory"
+                )
+                await self.add_to_inventory(
+                    conn, existing,
+                    quantity=obj_creation.quantity,
+                    cycle=cycle, origin="acquired",
+                )
+                return existing
+
+        # No canonical match — create normally
+        await self._process_object_creation(conn, obj_creation, cycle)
+        # Resolve the newly created object ID
+        row = await conn.fetchval(
+            "SELECT id FROM objects"
+            " WHERE game_id = $1 AND LOWER(name) = LOWER($2)"
+            " AND removed_cycle IS NULL"
+            " ORDER BY created_at DESC LIMIT 1",
+            self.game_id, obj_creation.name,
+        )
+        return row
 
     # =========================================================================
     # ENTITY UPDATE ROUTING

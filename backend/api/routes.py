@@ -35,7 +35,7 @@ from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from prompts.world_generation_prompt import get_full_generation_prompt
 from services.context_builder import ContextBuilder
-from services.extraction_service import run_batch_extraction
+from services.extraction import run_triggered_extraction
 from services.game_service import GameService
 from services.llm_service import get_llm_service
 
@@ -599,7 +599,7 @@ async def _handle_chat(
                         display_text, payload.model_dump(exclude_none=True)
                     )
 
-                    # 7. Save messages (with narrator deltas + hints for batch extraction)
+                    # 7. Save messages (with narrator deltas + extraction triggers)
                     t1 = time.perf_counter()
                     deltas_typed = NarratorDeltasStored(
                         gauge_deltas=[g.model_dump() for g in narration.gauge_deltas],
@@ -612,7 +612,7 @@ async def _handle_chat(
                         entity_reveals=[
                             r.model_dump() for r in narration.entity_reveals
                         ],
-                        hints=narration.hints.model_dump() if narration.hints else None,
+                        extraction_triggers=narration.extraction_triggers,
                         cost=narration_cost if narration_cost else None,
                     )
                     await game_service.save_messages(
@@ -630,57 +630,20 @@ async def _handle_chat(
                     )
                     await sse_writer.send_saved()
 
-                    # 8. Trigger batch extraction (day transition or time interval)
-                    # User preference overrides server default
-                    extraction_interval = settings.extraction_interval_hours
-                    if user_id:
-                        try:
-                            async with pool.acquire() as pref_conn:
-                                prefs_raw = await pref_conn.fetchval(
-                                    "SELECT preferences FROM users WHERE id = $1", user_id
-                                )
-                            if prefs_raw:
-                                prefs = prefs_raw if isinstance(prefs_raw, dict) else json.loads(prefs_raw)
-                                extraction_interval = prefs.get(
-                                    "extraction_interval_hours", extraction_interval
-                                )
-                        except Exception:
-                            pass  # Fall back to server default
-
-                    should_extract = False
-                    if narration.day_transition:
-                        should_extract = True
+                    # 8. Trigger specialized extraction (narrator-driven)
+                    extraction_triggers = getattr(narration, "extraction_triggers", [])
+                    if extraction_triggers:
                         logger.info(
-                            f"[CHAT] Day transition detected, triggering batch extraction"
+                            f"[CHAT] Extraction triggers: {extraction_triggers}"
                         )
-                    elif extraction_interval > 0:
-                        from utils.time_utils import game_hours_elapsed
-
-                        last_ext_time = game_session.get("last_extraction_time") or "00h00"
-                        new_time = process_result.get("time", "")
-                        elapsed = game_hours_elapsed(last_ext_time, new_time)
-                        if elapsed >= extraction_interval:
-                            should_extract = True
-                            logger.info(
-                                f"[CHAT] Time-based extraction: {elapsed:.1f}h elapsed "
-                                f"(threshold: {extraction_interval}h)"
-                            )
-
-                    if should_extract:
-                        if narration.day_transition:
-                            # Reset for new day
-                            async with pool.acquire() as ext_conn:
-                                await ext_conn.execute(
-                                    "UPDATE games SET last_extraction_time=NULL WHERE id=$1",
-                                    game_id,
-                                )
                         asyncio.create_task(
-                            run_batch_extraction(
-                                pool,
-                                game_id,
-                                current_cycle,
-                                provider_name,
-                                user_api_key,
+                            run_triggered_extraction(
+                                pool=pool,
+                                game_id=game_id,
+                                trigger_cycle=current_cycle,
+                                triggers=extraction_triggers,
+                                provider_name=provider_name,
+                                api_key=user_api_key,
                             )
                         )
 

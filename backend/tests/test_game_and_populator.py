@@ -48,17 +48,7 @@ def _make_narration_output(location: str, **overrides) -> dict:
         "entity_reveals": [],
         "events_mentioned": [],
         "info_requests": [],
-        "hints": {
-            "new_entities_mentioned": [],
-            "relationships_changed": False,
-            "protagonist_state_changed": True,
-            "information_learned": False,
-            "arc_advanced": [],
-            "arc_resolved": [],
-            "new_arc_created": False,
-            "event_scheduled": False,
-            "event_occurred": False,
-        },
+        "extraction_triggers": [],
     }
     base.update(overrides)
     return base
@@ -503,7 +493,7 @@ class TestMessages:
         )
 
         deltas = {
-            "hints": {"arc_advanced": ["La mère malade"]},
+            "extraction_triggers": ["characters", "narrative_arcs"],
             "cost": {
                 "input_tokens": 1000,
                 "output_tokens": 500,

@@ -137,7 +137,7 @@ class TestNarratorDeltasStored:
         d = NarratorDeltasStored()
         assert d.gauge_deltas == []
         assert d.credit_delta is None
-        assert d.hints is None
+        assert d.extraction_triggers == []
         assert d.cost is None
 
     def test_with_data(self):
@@ -146,12 +146,12 @@ class TestNarratorDeltasStored:
             credit_delta={"amount": -15, "description": "cafe"},
             inventory_hints=[{"item_name": "Key", "action": "acquire"}],
             entity_reveals=[{"entity_type": "character", "current_name": "Alice"}],
-            hints={"relationships_changed": True, "new_entities_mentioned": ["Bob"]},
+            extraction_triggers=["characters", "narrative_arcs"],
             cost={"input_tokens": 500, "output_tokens": 200, "model": "claude-sonnet-4-6"},
         )
         assert len(d.gauge_deltas) == 1
         assert d.credit_delta["amount"] == -15
-        assert d.hints["relationships_changed"] is True
+        assert d.extraction_triggers == ["characters", "narrative_arcs"]
 
     def test_exclude_none(self):
         d = NarratorDeltasStored(
@@ -159,6 +159,5 @@ class TestNarratorDeltasStored:
         )
         dumped = d.model_dump(exclude_none=True)
         assert "credit_delta" not in dumped
-        assert "hints" not in dumped
         assert "cost" not in dumped
         assert len(dumped["gauge_deltas"]) == 1

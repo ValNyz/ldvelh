@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     jwt_secret: str = os.getenv("JWT_SECRET", "dev-secret-change-me-in-production!!")
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 72
+    registration_enabled: bool = os.getenv("REGISTRATION_ENABLED", "true").lower() == "true"
+    dev_user_email: str = os.getenv("DEV_USER_EMAIL", "dev@ldvelh.local")
+    dev_user_password: str = os.getenv("DEV_USER_PASSWORD", "devpassword")
 
     # Email (Resend)
     resend_api_key: str = os.getenv("RESEND_API_KEY", "")
@@ -56,7 +59,7 @@ class Settings(BaseSettings):
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
     # Extraction
-    extraction_interval_hours: float = float(os.getenv("EXTRACTION_INTERVAL_HOURS", "24.0"))
+    extraction_model: str = os.getenv("EXTRACTION_MODEL", "")
 
     # App
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"

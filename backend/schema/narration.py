@@ -232,71 +232,6 @@ class NarrationContext(BaseModel):
 
 
 # =============================================================================
-# NARRATION HINTS (Signals for the extractor)
-# =============================================================================
-
-
-class NarrationHints(BaseModel):
-    """Hints from the narrator to guide extraction"""
-
-    # New entities mentioned/introduced
-    new_entities_mentioned: list[str] = Field(
-        default_factory=list,
-        description="Names of new NPCs, locations, objects mentioned for the first time",
-    )
-
-    # Detected changes
-    relationships_changed: bool = Field(
-        default=False,
-        description="A relationship has evolved (friendship, tension, romance, professional...)",
-    )
-    protagonist_state_changed: bool = Field(
-        default=False, description="Gauges, credits, inventory, skills have changed"
-    )
-    information_learned: bool = Field(
-        default=False, description="The protagonist learned something new"
-    )
-
-    # Narrative
-    arc_advanced: list[str] = Field(
-        default_factory=list,
-        description="Titles of arcs that have progressed",
-    )
-    arc_resolved: list[str] = Field(
-        default_factory=list, description="Titles of arcs that were resolved"
-    )
-    new_arc_created: bool = Field(
-        default=False,
-        description="A new secret, foreshadowing, setup, or arc was introduced",
-    )
-
-    # Events
-    event_scheduled: bool = Field(
-        default=False, description="An appointment or future event was scheduled"
-    )
-    event_occurred: bool = Field(
-        default=False, description="A scheduled event occurred"
-    )
-
-    @property
-    def needs_extraction(self) -> bool:
-        """Determine if extraction is needed"""
-        return any(
-            [
-                self.new_entities_mentioned,
-                self.relationships_changed,
-                self.protagonist_state_changed,
-                self.information_learned,
-                self.arc_advanced,
-                self.arc_resolved,
-                self.new_arc_created,
-                self.event_scheduled,
-                self.event_occurred,
-            ]
-        )
-
-
-# =============================================================================
 # NARRATION OUTPUT
 # =============================================================================
 
@@ -418,8 +353,11 @@ class NarrationOutput(BaseModel):
         description="Entity names to load in detail for next turn context",
     )
 
-    # === HINTS FOR EXTRACTION ===
-    hints: NarrationHints = Field(default_factory=NarrationHints)
+    # === EXTRACTION TRIGGERS ===
+    extraction_triggers: list[str] = Field(
+        default_factory=list,
+        description="Extractors to run: characters, locations, organizations, inventory, narrative_arcs",
+    )
 
     # === META ===
     scene_mood: Tag | None = None  # 50 chars - mood in 2-3 words

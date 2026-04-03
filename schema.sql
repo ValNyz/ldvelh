@@ -55,6 +55,7 @@ CREATE TABLE games (
   world_founding_cycle INTEGER,
   -- Extraction tracking
   extracted_up_to_cycle INTEGER DEFAULT 0,
+  extraction_checkpoints JSONB DEFAULT '{}',  -- per-type: {"characters": 5, "inventory": 3, ...}
   last_extraction_time VARCHAR(5),     -- last in-game time extraction ran
   detail_requests TEXT[] DEFAULT '{}',
   --
@@ -236,6 +237,7 @@ CREATE TABLE objects (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
   name VARCHAR(255) NOT NULL,
+  canonical_name VARCHAR(100),        -- snake_case dedup key (e.g. carte_acces_niveau_2)
   category VARCHAR(100),              -- tech, weapon, clothing, food, document, etc.
   description TEXT,
   transportable BOOLEAN DEFAULT true,
@@ -250,6 +252,8 @@ CREATE TABLE objects (
 
 CREATE INDEX idx_objects_game ON objects(game_id);
 CREATE INDEX idx_objects_active ON objects(game_id) WHERE removed_cycle IS NULL;
+CREATE UNIQUE INDEX idx_objects_canonical ON objects(game_id, canonical_name)
+  WHERE canonical_name IS NOT NULL AND removed_cycle IS NULL;
 
 -- ============================================================================
 -- COUCHE CORE : COMPÉTENCES

@@ -300,17 +300,7 @@ async def test_build_context_after_messages(
         "inventory_hints": [],
         "entity_reveals": [],
         "info_requests": [],
-        "hints": {
-            "new_entities_mentioned": [],
-            "relationships_changed": False,
-            "protagonist_state_changed": False,
-            "information_learned": False,
-            "arc_advanced": [],
-            "arc_resolved": [],
-            "new_arc_created": False,
-            "event_scheduled": False,
-            "event_occurred": False,
-        },
+        "extraction_triggers": [],
     }
     narration = NarrationOutput.model_validate(narration_data)
     await service.process_light(game_id, narration, current_cycle=1)

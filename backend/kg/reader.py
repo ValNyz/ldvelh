@@ -758,6 +758,55 @@ class KnowledgeGraphReader:
         return result
 
     # =========================================================================
+    # OBJECTS
+    # =========================================================================
+
+    async def get_object_canonical_names(self, conn: Connection) -> list[str]:
+        """Get all canonical_name values for active objects in this game."""
+        rows = await conn.fetch(
+            "SELECT canonical_name FROM objects"
+            " WHERE game_id = $1 AND canonical_name IS NOT NULL"
+            " AND removed_cycle IS NULL",
+            self.game_id,
+        )
+        return [r["canonical_name"] for r in rows]
+
+    async def get_objects(self, conn: Connection) -> list[dict]:
+        """Get all active objects."""
+        rows = await conn.fetch(
+            """SELECT id, name, canonical_name, category, description,
+                      transportable, stackable, base_value
+               FROM objects
+               WHERE game_id = $1 AND removed_cycle IS NULL
+               ORDER BY name ASC""",
+            self.game_id,
+        )
+        return [dict(r) for r in rows]
+
+    # =========================================================================
+    # EXTRACTION CHECKPOINTS
+    # =========================================================================
+
+    async def get_extraction_checkpoint(
+        self, conn: Connection, extraction_type: str
+    ) -> int:
+        """Get the last extracted cycle for a specific extraction type.
+
+        Falls back to extracted_up_to_cycle if no per-type checkpoint exists.
+        """
+        row = await conn.fetchrow(
+            "SELECT extraction_checkpoints, extracted_up_to_cycle"
+            " FROM games WHERE id = $1",
+            self.game_id,
+        )
+        if not row:
+            return 0
+        checkpoints = row["extraction_checkpoints"] or {}
+        if extraction_type in checkpoints:
+            return checkpoints[extraction_type]
+        return row["extracted_up_to_cycle"] or 0
+
+    # =========================================================================
     # BATCH EXTRACTION SUPPORT
     # =========================================================================
 
