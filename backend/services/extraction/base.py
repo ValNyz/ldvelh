@@ -84,7 +84,7 @@ class BaseExtractor(ABC):
                 schema = self._get_tool_schema()
 
             # 6. Call LLM (outside connection — may take a while)
-            raw_result = await self._call_llm(system_prompt, user_prompt, schema)
+            raw_result, call_cost = await self._call_llm(system_prompt, user_prompt, schema)
             if not raw_result:
                 logger.warning(f"[{et.upper()}] LLM returned empty result")
                 return {"type": et, "success": False, "error": "empty_response"}
@@ -110,7 +110,10 @@ class BaseExtractor(ABC):
                 f"[{et.upper()}] Done in {elapsed:.0f}ms: "
                 f"{json.dumps(stats, default=str)}"
             )
-            return {"type": et, "success": True, "stats": stats, "ms": int(elapsed)}
+            return {
+                "type": et, "success": True, "stats": stats,
+                "ms": int(elapsed), "cost": call_cost,
+            }
 
         except Exception as e:
             logger.error(f"[{et.upper()}] Extraction failed: {e}", exc_info=True)
@@ -118,10 +121,10 @@ class BaseExtractor(ABC):
 
     async def _call_llm(
         self, system_prompt: str, user_prompt: str, schema: dict
-    ) -> dict | None:
-        """Call the LLM service for structured extraction."""
+    ) -> tuple[dict | None, dict | None]:
+        """Call the LLM service for structured extraction. Returns (result, cost)."""
         llm = get_llm_service()
-        return await llm.extract_structured(
+        result = await llm.extract_structured(
             system_prompt=system_prompt,
             user_message=user_prompt,
             tool_name=self.tool_name,
@@ -130,6 +133,8 @@ class BaseExtractor(ABC):
             provider_name=self.provider_name,
             api_key=self.api_key,
         )
+        cost = getattr(llm, "_last_call_cost", None)
+        return result, cost
 
     @abstractmethod
     async def _build_context(

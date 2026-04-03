@@ -4,6 +4,7 @@ Runs triggered extractors in parallel via asyncio.gather.
 """
 
 import asyncio
+import json
 import logging
 from uuid import UUID
 
@@ -36,6 +37,7 @@ async def run_triggered_extraction(
     triggers: list[str],
     provider_name: str = "anthropic",
     api_key: str | None = None,
+    assistant_message_id: UUID | None = None,
 ) -> dict:
     """Run triggered extractors in parallel.
 
@@ -71,8 +73,9 @@ async def run_triggered_extraction(
         # Run in parallel
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Aggregate results
+        # Aggregate results and costs
         aggregated = {"extractors": {}}
+        total_cost = 0.0
         for trigger, result in zip(valid_triggers, results):
             if isinstance(result, Exception):
                 logger.error(
@@ -84,14 +87,25 @@ async def run_triggered_extraction(
                 }
             else:
                 aggregated["extractors"][trigger] = result
+                cost = result.get("cost") if isinstance(result, dict) else None
+                if cost and isinstance(cost, dict):
+                    total_cost += cost.get("cost_usd", 0)
 
         successes = sum(
             1 for r in aggregated["extractors"].values()
             if isinstance(r, dict) and r.get("success")
         )
         logger.info(
-            f"[EXTRACTION] Complete: {successes}/{len(valid_triggers)} succeeded"
+            f"[EXTRACTION] Complete: {successes}/{len(valid_triggers)} succeeded, "
+            f"total cost: ${total_cost:.6f}"
         )
+
+        # Update the assistant message with extraction cost
+        if assistant_message_id and total_cost > 0:
+            await _append_extraction_cost(
+                pool, assistant_message_id, aggregated, total_cost
+            )
+
         return aggregated
 
     except Exception as e:
@@ -100,3 +114,54 @@ async def run_triggered_extraction(
 
     finally:
         _extracting_games.discard(key)
+
+
+async def _append_extraction_cost(
+    pool: asyncpg.Pool,
+    message_id: UUID,
+    aggregated: dict,
+    total_cost: float,
+) -> None:
+    """Append extraction cost to the assistant message's narrator_deltas."""
+    try:
+        async with pool.acquire() as conn:
+            row = await conn.fetchval(
+                "SELECT narrator_deltas FROM messages WHERE id = $1",
+                message_id,
+            )
+            deltas = json.loads(row) if isinstance(row, str) else (row or {})
+
+            # Build extraction cost summary
+            extraction_cost = {
+                "cost_usd": round(total_cost, 6),
+                "extractors": {},
+            }
+            for name, result in aggregated.get("extractors", {}).items():
+                if isinstance(result, dict) and result.get("cost"):
+                    c = result["cost"]
+                    extraction_cost["extractors"][name] = {
+                        "cost_usd": c.get("cost_usd", 0),
+                        "input_tokens": c.get("input_tokens", 0),
+                        "output_tokens": c.get("output_tokens", 0),
+                        "model": c.get("model", ""),
+                    }
+
+            deltas["extraction_cost"] = extraction_cost
+
+            # Also update total cost if narration cost exists
+            narration_cost = deltas.get("cost", {}).get("cost_usd", 0)
+            if narration_cost:
+                deltas["total_cost_usd"] = round(narration_cost + total_cost, 6)
+
+            await conn.execute(
+                "UPDATE messages SET narrator_deltas = $1 WHERE id = $2",
+                json.dumps(deltas),
+                message_id,
+            )
+            logger.info(
+                f"[EXTRACTION] Updated message {message_id} with extraction cost: "
+                f"${total_cost:.6f}"
+            )
+
+    except Exception as e:
+        logger.warning(f"[EXTRACTION] Failed to update message cost: {e}")
