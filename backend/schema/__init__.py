@@ -83,7 +83,6 @@ from .narrative import (
 # =============================================================================
 from .narration import (
     NarrationContext,
-    NarrationHints,
     NarrationOutput,
     # Live delta models
     CreditDelta,
@@ -112,6 +111,8 @@ from .narration import (
 # EXTRACTION - LLM extraction output models (direct fields, no EAV)
 # =============================================================================
 from .extraction import (
+    # Extraction type enum
+    ExtractionType,
     # Entity changes
     EntityCreation,
     EntityRemoval,
@@ -129,9 +130,15 @@ from .extraction import (
     ArcCreation,
     ArcResolutionExtraction,
     EventScheduledExtraction,
-    # Complete extraction
+    # Complete extraction (legacy — used by populator)
     NarrativeExtraction,
     NarrativeWithExtraction,
+    # Specialized extraction outputs
+    CharactersExtraction,
+    LocationsExtraction,
+    OrganizationsExtraction,
+    InventoryExtraction,
+    NarrativeArcsExtraction,
 )
 
 # =============================================================================
@@ -233,7 +240,6 @@ __all__ = [
     # NARRATION
     # =========================================================================
     "NarrationContext",
-    "NarrationHints",
     "NarrationOutput",
     "CreditDelta",
     "EntityReveal",
@@ -257,6 +263,7 @@ __all__ = [
     # =========================================================================
     # EXTRACTION
     # =========================================================================
+    "ExtractionType",
     "EntityCreation",
     "EntityRemoval",
     "EntityUpdate",
@@ -272,6 +279,11 @@ __all__ = [
     "EventScheduledExtraction",
     "NarrativeExtraction",
     "NarrativeWithExtraction",
+    "CharactersExtraction",
+    "LocationsExtraction",
+    "OrganizationsExtraction",
+    "InventoryExtraction",
+    "NarrativeArcsExtraction",
     # =========================================================================
     # WORLD GENERATION
     # =========================================================================

@@ -628,13 +628,12 @@ class TestNarratorSystemPrompt:
                       "entity_reveals", "events_mentioned", "info_requests"]:
             assert field in NARRATOR_SYSTEM_PROMPT, f"Missing delta docs for: {field}"
 
-    def test_contains_hints_documentation(self):
-        """Documents the hint flags."""
-        for hint in ["new_entities_mentioned", "protagonist_state_changed",
-                     "relationships_changed", "information_learned",
-                     "arc_advanced", "arc_resolved", "new_arc_created",
-                     "event_scheduled", "event_occurred"]:
-            assert hint in NARRATOR_SYSTEM_PROMPT, f"Missing hint doc: {hint}"
+    def test_contains_extraction_triggers_documentation(self):
+        """Documents the extraction trigger types."""
+        assert "extraction_triggers" in NARRATOR_SYSTEM_PROMPT
+        for trigger in ["characters", "locations", "organizations",
+                        "inventory", "narrative_arcs"]:
+            assert trigger in NARRATOR_SYSTEM_PROMPT, f"Missing trigger doc: {trigger}"
 
     def test_contains_json_template(self):
         """Contains the output JSON template."""
@@ -1381,7 +1380,7 @@ class TestNarratorContextPromptBranches:
         assert "## FORMAT DE RÉPONSE ATTENDU (rappel)" in prompt
         assert '"narrative_text": "..."' in prompt
         assert '"gauge_deltas": []' in prompt
-        assert '"hints":' in prompt
+        assert '"extraction_triggers":' in prompt
         assert '"scene_mood":' in prompt
         assert "Génère la suite de l'histoire en JSON." in prompt
 

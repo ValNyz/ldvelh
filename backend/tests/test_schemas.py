@@ -17,7 +17,6 @@ from schema import (
     ObjectData,
     # Narration
     NarrationOutput,
-    NarrationHints,
     TimeProgression,
     DayTransition,
     # Extraction
@@ -228,15 +227,14 @@ class TestNarrationExamples:
         assert output.npcs_present == ["Ossek"]
         assert len(output.suggested_actions) == 3
         assert output.scene_mood == "banal et indifférent"
-        assert output.hints.needs_extraction is False
+        assert output.extraction_triggers == []
 
     def test_example_pnj_unavailable(self, narration_examples):
         """Exemple 2: PNJ indisponible avec arc_advanced"""
         output = NarrationOutput(**narration_examples["pnj_unavailable"])
         assert output.time.new_time == "10h20"
         assert len(output.suggested_actions) == 4
-        assert output.hints.arc_advanced == ["L'exil du banc"]
-        assert output.hints.needs_extraction is True
+        assert "narrative_arcs" in output.extraction_triggers
         assert output.narrator_notes == "Ossek: mauvaise journée (mal du banc)"
 
     def test_example_day_transition(self, narration_examples):
@@ -528,39 +526,6 @@ class TestValidationErrors:
             WorldData(
                 name="X", sectors=["A", "B"], founding_cycle=0
             )
-
-
-# =============================================================================
-# NARRATION HINTS - Tests needs_extraction
-# =============================================================================
-
-
-class TestNarrationHintsNeedsExtraction:
-    """Teste la propriété needs_extraction"""
-
-    def test_all_false_returns_false(self):
-        """Tous hints False → needs_extraction = False"""
-        hints = NarrationHints()
-        assert hints.needs_extraction is False
-
-    @pytest.mark.parametrize(
-        "field,value",
-        [
-            ("new_entities_mentioned", ["Test"]),
-            ("relationships_changed", True),
-            ("protagonist_state_changed", True),
-            ("information_learned", True),
-            ("arc_advanced", ["Arc"]),
-            ("arc_resolved", ["Arc"]),
-            ("new_arc_created", True),
-            ("event_scheduled", True),
-            ("event_occurred", True),
-        ],
-    )
-    def test_single_true_triggers(self, field, value):
-        """Un seul hint True → needs_extraction = True"""
-        hints = NarrationHints(**{field: value})
-        assert hints.needs_extraction is True
 
 
 # =============================================================================

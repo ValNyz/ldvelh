@@ -4,6 +4,7 @@ Models for extracting structured data from LLM narrative output.
 Uses direct fields instead of EAV attributes.
 """
 
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -23,6 +24,21 @@ from .core import (
 )
 from .narrative import FactData
 from .relations import RelationData, RelationType
+
+
+# =============================================================================
+# EXTRACTION TYPE ENUM
+# =============================================================================
+
+
+class ExtractionType(str, Enum):
+    """Identifies which specialized extractor to run."""
+
+    CHARACTERS = "characters"
+    LOCATIONS = "locations"
+    ORGANIZATIONS = "organizations"
+    INVENTORY = "inventory"
+    NARRATIVE_ARCS = "narrative_arcs"
 
 
 # =============================================================================
@@ -94,6 +110,11 @@ class ObjectCreation(BaseModel):
     """A new object created from inventory acquisition"""
 
     name: Name  # 100 chars
+    canonical_name: str | None = Field(
+        default=None,
+        max_length=100,
+        description="Snake_case dedup key (e.g. 'cafe_au_lait')",
+    )
     category: ShortText | None = None
     description: Text | None = None
     transportable: bool = True
@@ -345,3 +366,59 @@ def get_extraction_tool_schema() -> dict:
         ]
 
     return schema
+
+
+# =============================================================================
+# SPECIALIZED EXTRACTION OUTPUTS (one per extractor)
+# =============================================================================
+
+
+class CharactersExtraction(BaseModel):
+    """Output of the characters extractor — character CRUD + ambient + facts."""
+
+    entities_created: list[EntityCreation] = Field(default_factory=list)
+    entities_updated: list[EntityUpdate] = Field(default_factory=list)
+    entities_removed: list[EntityRemoval] = Field(default_factory=list)
+    ambient_updates: list[AmbientUpdate] = Field(default_factory=list)
+    skills_changed: list[Skill] = Field(default_factory=list)
+    facts: list[FactData] = Field(default_factory=list)
+
+
+class LocationsExtraction(BaseModel):
+    """Output of the locations extractor — location CRUD + ambient + facts."""
+
+    entities_created: list[EntityCreation] = Field(default_factory=list)
+    entities_updated: list[EntityUpdate] = Field(default_factory=list)
+    ambient_updates: list[AmbientUpdate] = Field(default_factory=list)
+    facts: list[FactData] = Field(default_factory=list)
+
+
+class OrganizationsExtraction(BaseModel):
+    """Output of the organizations extractor — org CRUD + ambient + facts."""
+
+    entities_created: list[EntityCreation] = Field(default_factory=list)
+    entities_updated: list[EntityUpdate] = Field(default_factory=list)
+    ambient_updates: list[AmbientUpdate] = Field(default_factory=list)
+    facts: list[FactData] = Field(default_factory=list)
+
+
+class InventoryExtraction(BaseModel):
+    """Output of the inventory extractor — objects + inventory changes + facts."""
+
+    objects_created: list[ObjectCreation] = Field(default_factory=list)
+    inventory_changes: list[InventoryChange] = Field(default_factory=list)
+    facts: list[FactData] = Field(default_factory=list)
+
+
+class NarrativeArcsExtraction(BaseModel):
+    """Output of the narrative_arcs extractor — arcs, relations, events, summary."""
+
+    arcs_created: list[ArcCreation] = Field(default_factory=list)
+    arcs_updated: list[ArcUpdate] = Field(default_factory=list)
+    arcs_resolved: list[ArcResolutionExtraction] = Field(default_factory=list)
+    relations_created: list[RelationCreation] = Field(default_factory=list)
+    relations_updated: list[RelationUpdate] = Field(default_factory=list)
+    relations_ended: list[RelationEnd] = Field(default_factory=list)
+    events_scheduled: list[EventScheduledExtraction] = Field(default_factory=list)
+    facts: list[FactData] = Field(default_factory=list)
+    segment_summary: FullText = ""  # 500 chars

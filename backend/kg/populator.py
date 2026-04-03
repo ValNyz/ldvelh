@@ -1219,3 +1219,15 @@ class KnowledgeGraphPopulator:
             stats.get("entities_created", 0) + stats.get("entities_updated", 0),
             json.dumps(stats.get("errors")) if stats.get("errors") else None,
         )
+
+    async def set_extraction_checkpoint(
+        self, conn: Connection, extraction_type: str, cycle: int
+    ) -> None:
+        """Update the per-type extraction checkpoint in games.extraction_checkpoints."""
+        await conn.execute(
+            """UPDATE games
+               SET extraction_checkpoints = COALESCE(extraction_checkpoints, '{}'::jsonb)
+                   || jsonb_build_object($2, $3::int)
+               WHERE id = $1""",
+            self.game_id, extraction_type, cycle,
+        )
