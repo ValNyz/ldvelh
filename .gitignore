@@ -4,3 +4,7 @@ node_modules
 .env*.local
 .env
 *.pyc
+__pycache__/
+frontend/out/
+backend/.coverage
+*.egg-info/

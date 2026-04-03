@@ -183,7 +183,11 @@ def pytest_configure(config):
 
 import pytest_asyncio
 
-TEST_DB_URL = "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"
+import os
+
+TEST_DB_URL = os.getenv(
+    "TEST_DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"
+)
 
 _TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE;"
 
