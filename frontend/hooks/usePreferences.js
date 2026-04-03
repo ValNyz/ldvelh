@@ -6,7 +6,6 @@ import { preferencesApi } from '../lib/api';
 const DEFAULTS = {
 	fontSize: 14,
 	showDebug: false,
-	extractionInterval: 24,
 	apiKeys: {},
 	activeProvider: null,
 	activeModel: null,
@@ -28,7 +27,6 @@ export function usePreferences(user) {
 				...prev,
 				fontSize: prefs.font_size ?? prev.fontSize,
 				showDebug: prefs.show_debug ?? prev.showDebug,
-				extractionInterval: prefs.extraction_interval_hours ?? prev.extractionInterval,
 				apiKeys: prefs.api_keys ?? prev.apiKeys,
 				activeProvider: prefs.active_provider ?? prev.activeProvider,
 				activeModel: prefs.active_model ?? prev.activeModel,
@@ -43,7 +41,6 @@ export function usePreferences(user) {
 		const keyMap = {
 			fontSize: 'font_size',
 			showDebug: 'show_debug',
-			extractionInterval: 'extraction_interval_hours',
 			activeProvider: 'active_provider',
 			activeModel: 'active_model',
 		};

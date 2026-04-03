@@ -23,7 +23,6 @@ export default function SettingsPage({
 	const [activeTab, setActiveTab] = useState('anthropic');
 	const [keyInputs, setKeyInputs] = useState({});
 	const [showKey, setShowKey] = useState({});
-	const extractionVal = preferences.extractionInterval ?? 24;
 	const [saving, setSaving] = useState({});
 	const [saveSuccess, setSaveSuccess] = useState({});
 	const [providers, setProviders] = useState([]);
@@ -266,35 +265,6 @@ export default function SettingsPage({
 									/>
 									<div className="w-9 h-5 bg-gray-700 peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-gray-400 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600 peer-checked:after:bg-white" />
 								</label>
-							</div>
-
-							{/* Extraction interval */}
-							<div className="flex items-center justify-between">
-								<div className="flex flex-col">
-									<span className="text-sm text-gray-300">Extraction auto</span>
-									<span className="text-xs text-gray-500">
-										{`Toutes les ${extractionVal}h en jeu`}
-									</span>
-								</div>
-								<div className="flex items-center gap-3">
-									<button
-										onClick={() => preferences.updatePreference('extractionInterval', Math.max(6, extractionVal - 6))}
-										disabled={extractionVal <= 6}
-										className="px-3 py-1 bg-gray-800 rounded text-gray-300 hover:bg-gray-700 disabled:opacity-50 transition-colors"
-									>
-										−
-									</button>
-									<span className="text-white text-sm w-12 text-center font-mono">
-										{`${extractionVal}h`}
-									</span>
-									<button
-										onClick={() => preferences.updatePreference('extractionInterval', Math.min(48, extractionVal + 6))}
-										disabled={extractionVal >= 48}
-										className="px-3 py-1 bg-gray-800 rounded text-gray-300 hover:bg-gray-700 disabled:opacity-50 transition-colors"
-									>
-										+
-									</button>
-								</div>
 							</div>
 						</div>
 					</section>
