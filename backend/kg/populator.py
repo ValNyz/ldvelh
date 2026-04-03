@@ -1227,7 +1227,7 @@ class KnowledgeGraphPopulator:
         await conn.execute(
             """UPDATE games
                SET extraction_checkpoints = COALESCE(extraction_checkpoints, '{}'::jsonb)
-                   || jsonb_build_object($2, $3::int)
+                   || jsonb_build_object($2::text, $3::int)
                WHERE id = $1""",
             self.game_id, extraction_type, cycle,
         )
