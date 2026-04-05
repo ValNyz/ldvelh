@@ -155,7 +155,7 @@ async def _append_extraction_cost(
 
             await conn.execute(
                 "UPDATE messages SET narrator_deltas = $1 WHERE id = $2",
-                json.dumps(deltas),
+                deltas,
                 message_id,
             )
             logger.info(

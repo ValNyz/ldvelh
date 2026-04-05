@@ -357,7 +357,7 @@ async def update_preferences(
     async with pool.acquire() as conn:
         await conn.execute(
             "UPDATE users SET preferences = $1 WHERE id = $2",
-            json.dumps(current),
+            current,
             user["id"],
         )
 

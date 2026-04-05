@@ -4,6 +4,7 @@ Point d'entrée principal
 """
 
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 
@@ -60,8 +61,15 @@ async def lifespan(app: FastAPI):
 
     # Startup: créer le pool de connexions
     print("[STARTUP] Connexion à la base de données...")
+
+    async def _init_connection(conn):
+        await conn.set_type_codec(
+            "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+        )
+
     db_pool = await asyncpg.create_pool(
-        settings.database_url, min_size=2, max_size=10, command_timeout=60
+        settings.database_url, min_size=2, max_size=10,
+        command_timeout=60, init=_init_connection,
     )
     print("[STARTUP] Pool de connexions créé")
 
