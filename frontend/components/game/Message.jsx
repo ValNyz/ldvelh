@@ -99,11 +99,21 @@ export default function Message({
 				{/* Cost debug info */}
 				{showDebug && !isUser && message.cost && (
 					<div className="mt-1 text-[10px] text-gray-600 font-mono">
-						{message.cost.provider && `[${message.cost.provider}] `}
-						{message.cost.model && `${message.cost.model} · `}
-						${message.cost.cost_usd?.toFixed(4)} · {message.cost.input_tokens}in · {message.cost.output_tokens}out
-						{message.cost.cache_read_input_tokens > 0 && ` · ${message.cost.cache_read_input_tokens} cached`}
-						{message.cost.cache_creation_input_tokens > 0 && ` · ${message.cost.cache_creation_input_tokens} cache_write`}
+						<span>
+							narr: {message.cost.provider && `[${message.cost.provider}] `}
+							{message.cost.model && `${message.cost.model} · `}
+							${message.cost.cost_usd?.toFixed(4)} · {message.cost.input_tokens}in · {message.cost.output_tokens}out
+							{message.cost.cache_read_input_tokens > 0 && ` · ${message.cost.cache_read_input_tokens} cached`}
+							{message.cost.cache_creation_input_tokens > 0 && ` · ${message.cost.cache_creation_input_tokens} cache_write`}
+						</span>
+						{message.extraction_cost && (
+							<span className="block text-gray-500">
+								extr: ${message.extraction_cost.cost_usd?.toFixed(4)}
+								{message.extraction_cost.extractors && Object.entries(message.extraction_cost.extractors).map(([name, c]) => (
+									` · ${name}: $${c.cost_usd?.toFixed(4)}`
+								))}
+							</span>
+						)}
 					</div>
 				)}
 			</div>
