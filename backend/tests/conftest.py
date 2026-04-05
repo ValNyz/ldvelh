@@ -200,8 +200,14 @@ async def test_pool():
     Only TRUNCATEs at setup (not teardown) — next test will TRUNCATE anyway.
     """
     import asyncpg
+    import json
 
-    pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5)
+    async def _init_conn(conn):
+        await conn.set_type_codec(
+            "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+        )
+
+    pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5, init=_init_conn)
     async with pool.acquire() as conn:
         await conn.execute(_TRUNCATE_SQL)
     yield pool

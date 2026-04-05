@@ -355,7 +355,7 @@ class KnowledgeGraphPopulator:
             data.backstory,
             data.hobbies,
             data.description,
-            json.dumps(data.details) if data.details else "{}",
+            data.details if data.details else {},
         )
         for skill in data.skills:
             await self._insert_skill(conn, skill, protagonist_id=row_id)
@@ -375,7 +375,7 @@ class KnowledgeGraphPopulator:
             data.traits,
             data.quirk,
             data.substrate or "terminal personnel",
-            json.dumps(data.details) if data.details else "{}",
+            data.details if data.details else {},
         )
 
     async def create_character(
@@ -425,7 +425,7 @@ class KnowledgeGraphPopulator:
             data.romantic_potential,
             data.is_mandatory,
             data.ambient,
-            json.dumps(data.details) if data.details else "{}",
+            data.details if data.details else {},
             cycle,
         )
 
@@ -465,7 +465,7 @@ class KnowledgeGraphPopulator:
             data.operating_hours,
             data.price_range,
             data.ambient,
-            json.dumps(data.details) if data.details else "{}",
+            data.details if data.details else {},
             cycle,
         )
 
@@ -500,7 +500,7 @@ class KnowledgeGraphPopulator:
             headquarters_id,
             data.founding_cycle,
             data.ambient,
-            json.dumps(data.details) if data.details else "{}",
+            data.details if data.details else {},
             cycle,
         )
 
@@ -522,7 +522,7 @@ class KnowledgeGraphPopulator:
             data.transportable,
             data.stackable,
             data.base_value,
-            json.dumps(data.details) if data.details else "{}",
+            data.details if data.details else {},
             cycle,
         )
         if not obj_id:
@@ -737,7 +737,7 @@ class KnowledgeGraphPopulator:
             location_id,
             fact.time,
             fact.importance,
-            json.dumps(participants_json),
+            participants_json,
             fact.semantic_key,
         )
 
@@ -1119,10 +1119,7 @@ class KnowledgeGraphPopulator:
         narrator_deltas: dict | None = None,
     ) -> UUID:
         """Save a message in a conversation."""
-        import json as _json
-
         location_id = await self._resolve_location_id(conn, location_ref)
-        deltas_json = _json.dumps(narrator_deltas) if narrator_deltas else None
         return await conn.fetchval(
             """INSERT INTO messages (
                 game_id, conversation_id, role, content,
@@ -1137,7 +1134,7 @@ class KnowledgeGraphPopulator:
             time,
             location_id,
             sequence,
-            deltas_json,
+            narrator_deltas,
         )
 
     # =========================================================================
@@ -1217,7 +1214,7 @@ class KnowledgeGraphPopulator:
             cycle,
             stats.get("facts_created", 0),
             stats.get("entities_created", 0) + stats.get("entities_updated", 0),
-            json.dumps(stats.get("errors")) if stats.get("errors") else None,
+            stats.get("errors"),
         )
 
     async def set_extraction_checkpoint(
