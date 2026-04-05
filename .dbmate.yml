@@ -1,0 +1,4 @@
+env: DATABASE_URL
+migrations-dir: ./db/migrations
+schema-file: ./db/schema.sql
+migrations-table: schema_migrations
