@@ -1418,6 +1418,11 @@ PARTICIPANT_ROLE_SYNONYMS = {
     "absent": "mentioned",
     "indirect": "mentioned",
     "third_party": "mentioned",
+    # entity types sometimes output as roles by LLM
+    "location": "mentioned",
+    "place": "mentioned",
+    "organization": "mentioned",
+    "item": "mentioned",
 }
 
 # =============================================================================
