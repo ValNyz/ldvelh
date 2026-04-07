@@ -96,9 +96,6 @@ WORLD_GENERATION_EXAMPLE = """{
         "occupation": "développeur IA senior",
         "hobbies": ["cuisine", "lecture", "course à pied"],
         "credits": 1650,
-        "energy": 2.5,
-        "morale": 2.5,
-        "health": 4.0,
         "employer_ref": "Symbiose Tech",
         "residence_ref": "Appartement 4-12",
         "skills": [
@@ -326,7 +323,6 @@ NARRATION_EXAMPLE_NEUTRAL = {
         "S'installer dans un coin",
         "Partir",
     ],
-    "gauge_deltas": [],
     "credit_delta": None,
     "inventory_hints": [],
     "entity_reveals": [],
@@ -349,7 +345,6 @@ NARRATION_EXAMPLE_PNJ_UNAVAILABLE = {
         "S'installer et observer",
         "Partir",
     ],
-    "gauge_deltas": [],
     "credit_delta": None,
     "inventory_hints": [],
     "entity_reveals": [],
@@ -374,7 +369,6 @@ NARRATION_EXAMPLE_DAY_TRANSITION = {
         "Se lever",
         "Rester au lit encore un peu",
     ],
-    "gauge_deltas": [],
     "credit_delta": None,
     "inventory_hints": [],
     "entity_reveals": [],
@@ -396,9 +390,6 @@ NARRATION_EXAMPLE_WITH_DELTAS = {
         "Commander un deuxième café",
         "Consulter le terminal personnel",
         "Partir travailler",
-    ],
-    "gauge_deltas": [
-        {"gauge": "energy", "delta": 0.5},
     ],
     "credit_delta": {"amount": -8, "description": "Café au Quart de Cycle"},
     "inventory_hints": [],
@@ -422,7 +413,6 @@ NARRATION_EXAMPLE_WITH_REVEAL = {
         "Demander depuis quand elle est sur la station",
         "S'excuser et continuer sa route",
     ],
-    "gauge_deltas": [],
     "credit_delta": None,
     "inventory_hints": [],
     "entity_reveals": [
@@ -447,7 +437,6 @@ NARRATION_OUTPUT_TEMPLATE = {
         "Action courte 2",
         "Action courte 3",
     ],
-    "gauge_deltas": [],
     "credit_delta": None,
     "inventory_hints": [],
     "entity_reveals": [],
@@ -464,9 +453,6 @@ NARRATION_OUTPUT_TEMPLATE = {
 # =============================================================================
 
 EXTRACTION_PROTAGONIST_STATE_EXAMPLE = {
-    "gauge_changes": [
-        {"gauge": "energy", "delta": -0.5, "reason": "Conversation épuisante"}
-    ],
     "credit_transactions": [{"amount": -15, "description": "Café au Quart de Cycle"}],
     "inventory_changes": [
         {

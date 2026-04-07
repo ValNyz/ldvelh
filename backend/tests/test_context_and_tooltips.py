@@ -83,9 +83,6 @@ async def test_build_context_fresh_game(client, test_user, test_pool, world_gen_
     # Protagonist should exist with correct name
     assert ctx.protagonist.name == "Valentin"
     assert ctx.protagonist.credits == 1650
-    assert ctx.protagonist.energy.value == 2.5
-    assert ctx.protagonist.morale.value == 2.5
-    assert ctx.protagonist.health.value == 4.0
     assert "cuisine" in ctx.protagonist.hobbies
 
     # Employer should be resolved
@@ -295,7 +292,6 @@ async def test_build_context_after_messages(
         "current_location": arrival_loc,
         "npcs_present": [],
         "suggested_actions": ["Explorer", "S'asseoir"],
-        "gauge_deltas": [],
         "credit_delta": None,
         "inventory_hints": [],
         "entity_reveals": [],

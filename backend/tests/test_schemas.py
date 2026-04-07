@@ -23,7 +23,6 @@ from schema import (
     NarrativeExtraction,
     EntityCreation,
     EntityUpdate,
-    GaugeChange,
     CreditTransaction,
     InventoryChange,
     RelationCreation,
@@ -116,7 +115,6 @@ class TestWorldGenerationExample:
         assert protag.skills[0].level == 4
         assert protag.skills[0].name == "architecture_systemes"
         assert protag.credits == 1650
-        assert protag.energy == 2.5
         assert protag.employer_ref == "Symbiose Tech"
         assert protag.residence_ref == "Appartement 4-12"
 
@@ -284,14 +282,6 @@ class TestNarrationSubModels:
 
 class TestExtractionExamples:
     """Teste tous les exemples des prompts d'extraction"""
-
-    def test_gauge_changes(self, extraction_examples):
-        """GaugeChange parse correctement"""
-        for gc in extraction_examples["protagonist_state"]["gauge_changes"]:
-            change = GaugeChange(**gc)
-            assert change.gauge == "energy"
-            assert change.delta == -0.5
-            assert change.reason == "Conversation épuisante"
 
     def test_credit_transactions(self, extraction_examples):
         """CreditTransaction parse correctement"""
@@ -470,18 +460,6 @@ class TestNormalizers:
 
 class TestValidationErrors:
     """Teste que les validations Pydantic fonctionnent"""
-
-    def test_gauge_change_invalid_gauge(self):
-        """GaugeChange rejette les jauges invalides"""
-        with pytest.raises(ValidationError):
-            GaugeChange(gauge="invalid", delta=1, reason="test")
-
-    def test_gauge_change_delta_bounds(self):
-        """GaugeChange respecte les bornes [-5, 5]"""
-        GaugeChange(gauge="energy", delta=5, reason="max")
-        GaugeChange(gauge="energy", delta=-5, reason="min")
-        with pytest.raises(ValidationError):
-            GaugeChange(gauge="energy", delta=10, reason="trop")
 
     def test_inventory_change_acquire_validation(self):
         """InventoryChange.acquire nécessite ref ou hint"""

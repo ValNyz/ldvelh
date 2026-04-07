@@ -561,7 +561,7 @@ class TestExtractionValidators:
         # These fields should be stripped
         assert "cycle" not in props
         assert "time" not in props
-        assert "gauge_changes" not in props
+        assert "credit_transactions" not in props
         assert "inventory_changes" not in props
         assert "entities_removed" not in props
         # These should remain

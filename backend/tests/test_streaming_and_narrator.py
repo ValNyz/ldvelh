@@ -30,7 +30,6 @@ from schema import (
     CycleSummary,
     EventSummary,
     Fact,
-    GaugeState,
     InventoryItem,
     LocationSummary,
     NarrationContext,
@@ -62,9 +61,6 @@ def _make_context(**overrides) -> NarrationContext:
         protagonist=ProtagonistState(
             name="Valentin",
             credits=1500,
-            energy=GaugeState(value=3.0),
-            morale=GaugeState(value=3.0),
-            health=GaugeState(value=4.0),
             hobbies=["lecture"],
         ),
         organizations=[],
@@ -87,7 +83,7 @@ class TestSSEEvent:
 
     def test_enum_values(self):
         """All expected event types exist."""
-        expected = {"chunk", "progress", "extracting", "done", "saved", "error", "warning", "state"}
+        expected = {"chunk", "progress", "extracting", "done", "saved", "error", "warning", "state", "roll_result", "roll_pending"}
         actual = {e.value for e in SSEEvent}
         assert actual == expected
 
@@ -623,8 +619,8 @@ class TestNarratorSystemPrompt:
         assert "HHhMM" in NARRATOR_SYSTEM_PROMPT
 
     def test_contains_delta_documentation(self):
-        """Documents the live delta fields."""
-        for field in ["gauge_deltas", "credit_delta", "inventory_hints",
+        """Documents the live delta fields (gauges removed)."""
+        for field in ["credit_delta", "inventory_hints",
                       "entity_reveals", "events_mentioned", "info_requests"]:
             assert field in NARRATOR_SYSTEM_PROMPT, f"Missing delta docs for: {field}"
 
@@ -778,9 +774,6 @@ class TestNarratorContextPromptBranches:
             protagonist=ProtagonistState(
                 name="Valentin",
                 credits=800,
-                energy=GaugeState(value=2.0),
-                morale=GaugeState(value=3.0),
-                health=GaugeState(value=4.0),
                 hobbies=["gaming"],
                 current_occupation="Technicien",
                 employer="DataCorp",
@@ -802,9 +795,6 @@ class TestNarratorContextPromptBranches:
             protagonist=ProtagonistState(
                 name="Valentin",
                 credits=500,
-                energy=GaugeState(value=3.0),
-                morale=GaugeState(value=3.0),
-                health=GaugeState(value=4.0),
                 hobbies=["lecture", "cuisine", "échecs"],
             )
         )
@@ -817,9 +807,6 @@ class TestNarratorContextPromptBranches:
             protagonist=ProtagonistState(
                 name="Valentin",
                 credits=500,
-                energy=GaugeState(value=3.0),
-                morale=GaugeState(value=3.0),
-                health=GaugeState(value=4.0),
                 hobbies=[],
             )
         )
@@ -1379,30 +1366,27 @@ class TestNarratorContextPromptBranches:
         prompt = build_narrator_context_prompt(ctx)
         assert "## FORMAT DE RÉPONSE ATTENDU (rappel)" in prompt
         assert '"narrative_text": "..."' in prompt
-        assert '"gauge_deltas": []' in prompt
         assert '"extraction_triggers":' in prompt
         assert '"scene_mood":' in prompt
         assert "Génère la suite de l'histoire en JSON." in prompt
 
-    # ---- Gauges display ----
+    # ---- Credits display (gauges removed) ----
 
-    def test_gauges_display_format(self):
-        """Protagonist gauges are displayed in the expected format."""
+    def test_credits_display_format(self):
+        """Protagonist credits are displayed, gauges are not."""
         ctx = _make_context(
             protagonist=ProtagonistState(
                 name="Valentin",
                 credits=2000,
-                energy=GaugeState(value=1.5),
-                morale=GaugeState(value=4.5),
-                health=GaugeState(value=5.0),
                 hobbies=[],
             )
         )
         prompt = build_narrator_context_prompt(ctx)
-        assert "Énergie: 1.5/5" in prompt
-        assert "Moral: 4.5/5" in prompt
-        assert "Santé: 5.0/5" in prompt
         assert "Crédits: 2000" in prompt
+        # Gauges no longer displayed in context prompt
+        assert "Énergie:" not in prompt
+        assert "Moral:" not in prompt
+        assert "Santé:" not in prompt
 
     # ---- Full integration: all sections present at once ----
 
@@ -1425,9 +1409,6 @@ class TestNarratorContextPromptBranches:
             protagonist=ProtagonistState(
                 name="Valentin",
                 credits=500,
-                energy=GaugeState(value=2.0),
-                morale=GaugeState(value=2.0),
-                health=GaugeState(value=3.0),
                 hobbies=["musique"],
                 current_occupation="Dev",
                 employer="SynTech",

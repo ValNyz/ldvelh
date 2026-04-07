@@ -19,6 +19,8 @@ class SSEGameState(BaseModel):
     player: dict | None = None
     ai: dict | None = None
     world_created: bool = False
+    engine: str | None = None
+    engine_stats: dict | None = None
 
 
 # =============================================================================
@@ -76,6 +78,7 @@ class SSEMeta(BaseModel):
     """Debug and billing metadata."""
 
     narration_cost: dict | None = None
+    mechanical_cost: dict | None = None
 
 
 class SSEUIHints(BaseModel):
@@ -96,7 +99,7 @@ class NarratorDeltasStored(BaseModel):
 
     Three logical sections:
     1. Game mechanics — immediate state changes applied by the narrator
-       (gauge_deltas, credit_delta, inventory_hints, entity_reveals)
+       (credit_delta, inventory_hints, entity_reveals)
     2. Extraction triggers — which specialized extractors to run
        (extraction_triggers)
     3. Billing — cost tracking per message
@@ -104,7 +107,6 @@ class NarratorDeltasStored(BaseModel):
     """
 
     # -- Game mechanics (applied immediately) --
-    gauge_deltas: list[dict] = Field(default_factory=list)
     credit_delta: dict | None = None
     inventory_hints: list[dict] = Field(default_factory=list)
     entity_reveals: list[dict] = Field(default_factory=list)

@@ -13,7 +13,7 @@ from prompts.world_generation_prompt import (
 )
 
 # Specialized extraction prompts (replaces old extractor_prompts)
-from prompts.extractions import EXTRACTOR_MODULES
+from prompts.extraction import EXTRACTOR_MODULES
 
 __all__ = [
     # Narrator

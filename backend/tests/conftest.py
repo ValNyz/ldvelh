@@ -77,7 +77,6 @@ def extraction_examples():
             "entities_updated": EXTRACTION_ENTITIES_EXAMPLE["entities_updated"],
             "relations_created": EXTRACTION_RELATIONS_EXAMPLE["relations_created"],
             "relations_updated": EXTRACTION_RELATIONS_EXAMPLE["relations_updated"],
-            "gauge_changes": EXTRACTION_PROTAGONIST_STATE_EXAMPLE["gauge_changes"],
             "credit_transactions": EXTRACTION_PROTAGONIST_STATE_EXAMPLE[
                 "credit_transactions"
             ],
@@ -135,7 +134,6 @@ def sample_narration_context():
         NarrationContext,
         LocationSummary,
         ProtagonistState,
-        GaugeState,
     )
 
     return NarrationContext(
@@ -151,9 +149,6 @@ def sample_narration_context():
         protagonist=ProtagonistState(
             name="Valentin",
             credits=1500,
-            energy=GaugeState(value=3.0),
-            morale=GaugeState(value=3.0),
-            health=GaugeState(value=4.0),
             hobbies=["lecture"],
         ),
         organizations=[],
@@ -184,6 +179,11 @@ def pytest_configure(config):
 import pytest_asyncio
 
 import os
+
+# Set a test encryption key for API key storage tests (valid Fernet key)
+if not os.getenv("ENCRYPTION_KEY"):
+    from cryptography.fernet import Fernet
+    os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
 
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"

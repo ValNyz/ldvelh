@@ -3,7 +3,7 @@ Tests for prompt builder functions.
 No LLM calls, pure logic only.
 """
 
-from prompts.extractions import EXTRACTOR_MODULES
+from prompts.extraction import EXTRACTOR_MODULES
 
 
 # =============================================================================
@@ -55,7 +55,7 @@ class TestExtractionExampleKeys:
         )
 
         assert set(EXTRACTION_PROTAGONIST_STATE_EXAMPLE.keys()) == {
-            "gauge_changes", "credit_transactions", "inventory_changes"
+            "credit_transactions", "inventory_changes"
         }
         assert set(EXTRACTION_ENTITIES_EXAMPLE.keys()) == {
             "entities_created", "entities_updated"
@@ -84,7 +84,6 @@ class TestNarratorPromptBuilder:
             NarrationContext,
             LocationSummary,
             ProtagonistState,
-            GaugeState,
         )
 
         defaults = dict(
@@ -100,9 +99,6 @@ class TestNarratorPromptBuilder:
             protagonist=ProtagonistState(
                 name="Valentin",
                 credits=1500,
-                energy=GaugeState(value=3.0),
-                morale=GaugeState(value=3.0),
-                health=GaugeState(value=4.0),
                 hobbies=["lecture"],
             ),
             organizations=[],
@@ -226,3 +222,164 @@ class TestWorldGenerationPromptBuilder:
         assert "user" in result
         assert len(result["system"]) > 100
         assert len(result["user"]) > 100
+
+    # =================================================================
+    # Engine-aware world generation prompt tests
+    # =================================================================
+
+    def test_engine_none_no_engine_section(self):
+        """engine=none produces no engine section"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(engine="none")
+        assert "MOTEUR DE JEU" not in prompt
+
+    def test_engine_none_default_no_engine_section(self):
+        """No engine param produces no engine section"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt()
+        assert "MOTEUR DE JEU" not in prompt
+
+    def test_engine_narrative_section(self):
+        """engine=narrative adds narrative section"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            engine="narrative",
+            world_config={"genre": "sci-fi", "difficulty": "moderate"},
+        )
+        assert "MOTEUR DE JEU" in prompt
+        assert "Narratif" in prompt
+        assert "traits narratifs" in prompt
+        # Narrative engine should NOT ask for NPC stats
+        assert "fate_skills" not in prompt
+        assert "d6_attributes" not in prompt
+
+    def test_engine_fate_core_section(self):
+        """engine=fate_core adds Fate Core section with skills and NPC hints"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            engine="fate_core",
+            world_config={"genre": "sci-fi", "difficulty": "hard"},
+        )
+        assert "MOTEUR DE JEU" in prompt
+        assert "Fate Core" in prompt
+        assert "fate_skills" in prompt
+        assert "fate_aspects" in prompt
+        # Should list actual skills
+        assert "Athlétisme" in prompt
+        assert "Technologie" in prompt  # sci-fi genre skill
+
+    def test_engine_d6_section(self):
+        """engine=d6 adds D6 System section with attributes and NPC hints"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            engine="d6",
+            world_config={"genre": "sci-fi", "difficulty": "moderate"},
+        )
+        assert "MOTEUR DE JEU" in prompt
+        assert "D6 System" in prompt
+        assert "d6_attributes" in prompt
+        assert "d6_skills" in prompt
+        assert "Dextérité" in prompt
+
+    def test_engine_with_lore(self):
+        """World config lore is included in prompt"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            engine="fate_core",
+            world_config={
+                "genre": "cthulhu",
+                "lore": "The station orbits a dead star. Strange whispers at night.",
+            },
+        )
+        assert "Contexte supplémentaire" in prompt
+        assert "dead star" in prompt
+
+    def test_engine_with_custom_rules(self):
+        """World config custom_rules is included"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            engine="d6",
+            world_config={
+                "genre": "sci-fi",
+                "custom_rules": "No force users allowed",
+            },
+        )
+        assert "Règles personnalisées" in prompt
+        assert "No force users" in prompt
+
+    def test_engine_hardcore_mode(self):
+        """Hardcore flag adds brutal section"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            engine="narrative",
+            world_config={"genre": "sci-fi", "hardcore": True},
+        )
+        assert "Mode Hardcore" in prompt
+        assert "BRUTAL" in prompt
+
+    def test_manual_entities_npcs(self):
+        """Manual entities NPCs are included"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            manual_entities={
+                "npcs": [
+                    {"name": "Zara", "description": "A mysterious engineer"},
+                ],
+            },
+        )
+        assert "ENTITÉS IMPOSÉES" in prompt
+        assert "Zara" in prompt
+        assert "mysterious engineer" in prompt
+
+    def test_manual_entities_locations_and_orgs(self):
+        """Manual entities locations and orgs are included"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        prompt = build_world_generation_user_prompt(
+            manual_entities={
+                "locations": [
+                    {"name": "The Void Bar", "description": "A hidden speakeasy"},
+                ],
+                "organizations": [
+                    {"name": "Syndicate X", "description": "Shadowy group"},
+                ],
+            },
+        )
+        assert "Lieux imposés" in prompt
+        assert "The Void Bar" in prompt
+        assert "Organisations imposées" in prompt
+        assert "Syndicate X" in prompt
+
+    def test_get_full_generation_prompt_with_engine(self):
+        """get_full_generation_prompt passes engine params through"""
+        from prompts.world_generation_prompt import get_full_generation_prompt
+
+        result = get_full_generation_prompt(
+            engine="fate_core",
+            world_config={"genre": "fantasy"},
+        )
+        assert "Fate Core" in result["user"]
+        assert "Magie" in result["user"]  # fantasy genre skill
+
+    def test_fate_genre_skills_vary(self):
+        """Different genres produce different skill lists"""
+        from prompts.world_generation_prompt import build_world_generation_user_prompt
+
+        scifi = build_world_generation_user_prompt(
+            engine="fate_core", world_config={"genre": "sci-fi"}
+        )
+        fantasy = build_world_generation_user_prompt(
+            engine="fate_core", world_config={"genre": "fantasy"}
+        )
+        assert "Technologie" in scifi
+        assert "Magie" in fantasy
+        assert "Magie" not in scifi

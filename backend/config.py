@@ -36,8 +36,10 @@ class Settings(BaseSettings):
     max_tokens_narration: int = 4000
     max_tokens_extraction: int = 3000
     max_tokens_summary: int = 500
+    max_tokens_mechanical: int = 500
     temperature: float = 0.8
     temperature_extraction: float = 0.3
+    temperature_mechanical: float = 0.2
 
     # Encryption (for API key storage)
     encryption_key: str = os.getenv("ENCRYPTION_KEY", "")

@@ -17,6 +17,7 @@ from kg.reader import KnowledgeGraphReader
 from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration, NarrationOutput
+from services.engine import get_engine
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
@@ -69,17 +70,21 @@ class GameService:
                 "name": g["name"],
                 "current_cycle": g["current_cycle"],
                 "day": g["current_date"] or 1,
+                "engine": g.get("engine", "none"),
                 "created_at": g["created_at"].isoformat() if g["created_at"] else None,
                 "updated_at": g["updated_at"].isoformat() if g["updated_at"] else None,
             }
             for g in games
         ]
 
-    async def create_game(self, user_id: UUID) -> UUID:
+    async def create_game(self, user_id: UUID, engine: str | None = None) -> UUID:
         """Create a new game for the given user."""
         populator = KnowledgeGraphPopulator(self.pool)
         async with self.pool.acquire() as conn:
-            return await populator.create_game(conn, "Nouvelle partie", user_id=user_id)
+            game_id = await populator.create_game(conn, "Nouvelle partie", user_id=user_id)
+            if engine and engine != "none":
+                await populator.set_engine(conn, engine, world_config=None)
+            return game_id
 
     async def delete_game(self, game_id: UUID) -> None:
         populator = self._get_populator(game_id)
@@ -110,6 +115,13 @@ class GameService:
             inventory = await self._load_inventory(reader, conn)
             ai_data = await self._load_personal_assistant(reader, conn)
 
+            # Engine stats
+            engine_type = game.get("engine", "none")
+            engine = get_engine(engine_type)
+            engine_stats = None
+            if engine_type != "none":
+                engine_stats = await engine.get_vitals_display(conn, game_id)
+
             # Cycle info from games table
             location_name = await reader.get_current_location_name(conn)
 
@@ -122,9 +134,11 @@ class GameService:
             "current_location": location_name,
             "npcs_present": [],  # Ephemeral, set by narration response
             "last_extraction_time": game.get("last_extraction_time"),
+            "engine": engine_type,
+            "engine_locked": game.get("engine_locked", False),
         }
 
-        player_data = {**stats, "inventory": inventory}
+        player_data = {**stats, "inventory": inventory, "engine_stats": engine_stats}
 
         from services.state_normalizer import game_state_to_dict, normalize_game_state
 
@@ -140,15 +154,10 @@ class GameService:
 
     async def _load_protagonist_stats(self, reader: KnowledgeGraphReader, conn) -> dict:
         row = await reader.get_protagonist_stats(conn)
-        stats = dict(DEFAULT_STATS)
-        if row:
-            stats["energy"] = float(row["energy"]) if row["energy"] else stats["energy"]
-            stats["morale"] = float(row["morale"]) if row["morale"] else stats["morale"]
-            stats["health"] = float(row["health"]) if row["health"] else stats["health"]
-            stats["credits"] = (
-                int(row["credits"]) if row["credits"] else stats["credits"]
-            )
-        return stats
+        credits = DEFAULT_STATS["credits"]
+        if row and row["credits"] is not None:
+            credits = int(row["credits"])
+        return {"credits": credits}
 
     async def _load_inventory(self, reader: KnowledgeGraphReader, conn) -> list[dict]:
         rows = await reader.get_inventory(conn)
@@ -330,6 +339,10 @@ class GameService:
                 "time": m.get("time"),
                 "location": m.get("location_name"),
             }
+            # Include roll data from mechanic_rolls join
+            roll_details = m.get("roll_details")
+            if roll_details:
+                msg["roll"] = roll_details if isinstance(roll_details, dict) else parse_json(roll_details)
             deltas = parse_json(m.get("narrator_deltas"))
             if deltas and isinstance(deltas, dict):
                 if deltas.get("cost"):
@@ -482,19 +495,11 @@ class GameService:
     async def apply_narrator_deltas(
         self, game_id: UUID, narration: NarrationOutput, cycle: int
     ) -> dict:
-        """Apply gauge/credit deltas from narrator output immediately."""
+        """Apply credit deltas and entity reveals from narrator output immediately."""
         populator = self._get_populator(game_id)
-        results = {"gauges": [], "credits": None}
+        results = {"credits": None}
 
         async with self.pool.acquire() as conn:
-            for gd in narration.gauge_deltas:
-                success, old, new = await populator.update_gauge(
-                    conn, gd.gauge, gd.delta, cycle
-                )
-                results["gauges"].append(
-                    {"gauge": gd.gauge, "delta": gd.delta, "old": old, "new": new}
-                )
-
             if narration.credit_delta:
                 cd = narration.credit_delta
                 success, new_balance, error = await populator.credit_transaction(
@@ -649,8 +654,9 @@ class GameService:
         game_date: str | None = None,
         location_ref: str | None = None,
         narrator_deltas: dict | None = None,
+        engine_snapshot: dict | None = None,
     ) -> tuple[UUID, UUID]:
-        """Sauvegarde une paire de messages (user + assistant)"""
+        """Save a user + assistant message pair."""
         populator = self._get_populator(game_id)
 
         async with self.pool.acquire() as conn:
@@ -678,7 +684,7 @@ class GameService:
                 game_date=game_date,
                 location_ref=location_ref,
             )
-            # Save assistant message (with narrator deltas for batch reconstruction)
+            # Save assistant message (with narrator deltas + engine snapshot)
             assistant_id = await populator.save_message(
                 conn,
                 conv_id,
@@ -690,9 +696,75 @@ class GameService:
                 game_date=game_date,
                 location_ref=location_ref,
                 narrator_deltas=narrator_deltas,
+                engine_snapshot=engine_snapshot,
             )
 
             return user_id, assistant_id
+
+    async def log_mechanic_roll(
+        self,
+        game_id: UUID,
+        message_id: UUID | None,
+        engine: str,
+        skill_used: str | None,
+        roll_details: dict,
+        outcome: str,
+        complication: bool,
+        cycle: int | None,
+    ) -> UUID:
+        """Log a mechanical roll result linked to an assistant message.
+
+        Returns the roll ID (UUID).
+        """
+        populator = self._get_populator(game_id)
+        async with self.pool.acquire() as conn:
+            return await populator.log_mechanic_roll(
+                conn, game_id, message_id, engine,
+                skill_used, roll_details, outcome, complication, cycle,
+            )
+
+    async def load_pending_roll(self, game_id: UUID, roll_id: UUID) -> dict | None:
+        """Load a pending mechanic roll by ID for aspect invocation resume."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """SELECT id, roll_details, outcome, engine, skill_used, cycle
+                FROM mechanic_rolls
+                WHERE id = $1 AND game_id = $2 AND message_id IS NULL""",
+                roll_id,
+                game_id,
+            )
+            if not row:
+                return None
+            details = row["roll_details"]
+            if isinstance(details, str):
+                details = parse_json(details)
+            return {
+                "id": row["id"],
+                "roll_details": details,
+                "outcome": row["outcome"],
+                "engine": row["engine"],
+                "skill_used": row["skill_used"],
+                "cycle": row["cycle"],
+            }
+
+    async def update_mechanic_roll(
+        self,
+        roll_id: UUID,
+        roll_details: dict,
+        outcome: str,
+        message_id: UUID | None = None,
+    ) -> None:
+        """Update a mechanic roll after aspect invocation."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """UPDATE mechanic_rolls
+                SET roll_details = $1::jsonb, outcome = $2, message_id = $3
+                WHERE id = $4""",
+                json.dumps(roll_details),
+                outcome,
+                message_id,
+                roll_id,
+            )
 
     # =========================================================================
     # ROLLBACK
@@ -700,7 +772,8 @@ class GameService:
 
     async def rollback_to_message(self, game_id: UUID, keep_until_index: int) -> dict:
         """
-        Rollback: supprime tous les messages à partir de keep_until_index (inclus).
+        Rollback: delete all messages from keep_until_index onwards.
+        Also restores engine state from the last remaining message's snapshot.
         """
         reader = self._get_reader(game_id)
         populator = self._get_populator(game_id)
@@ -733,6 +806,7 @@ class GameService:
             restore_date = None
             restore_time = None
             restore_location_id = None
+            engine_snapshot = None
             if keep_until_index > 0:
                 for i in range(keep_until_index - 1, -1, -1):
                     m = messages[i]
@@ -740,6 +814,7 @@ class GameService:
                         restore_date = m.get("game_date")
                         restore_time = m.get("time")
                         restore_location_id = m.get("location_id")
+                        engine_snapshot = m.get("engine_snapshot")
                         break
 
             # Explicit UPDATE to reset all state fields (including NULLs)
@@ -755,6 +830,14 @@ class GameService:
                 game_id, target_cycle, restore_date,
                 restore_time, restore_location_id,
             )
+
+            # Restore engine state from snapshot
+            if engine_snapshot:
+                game = await reader.get_game(conn)
+                engine_type = game.get("engine", "none") if game else "none"
+                if engine_type != "none":
+                    engine = get_engine(engine_type)
+                    await engine.restore_snapshot(conn, game_id, engine_snapshot)
 
         return {
             "deleted": len(messages_to_delete),

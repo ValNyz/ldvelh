@@ -9,7 +9,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from prompts.extractions import narrative_arcs_prompt
+from prompts.extraction import narrative_arcs_prompt
 from schema import FactData, NarrativeArcData, RelationType
 from schema.extraction import (
     ArcCreation,

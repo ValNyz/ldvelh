@@ -338,16 +338,13 @@ class KnowledgeGraphPopulator:
         )
         row_id = await conn.fetchval(
             """INSERT INTO protagonists (
-                game_id, name, energy, morale, health, credits,
+                game_id, name, credits,
                 occupation, origin, departure_reason, backstory,
                 hobbies, description, details
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
             RETURNING id""",
             self.game_id,
             data.name,
-            data.energy,
-            data.morale,
-            data.health,
             data.credits,
             data.occupation,
             data.origin,
@@ -761,21 +758,8 @@ class KnowledgeGraphPopulator:
         return created
 
     # =========================================================================
-    # PROTAGONIST — Gauges & Credits
+    # PROTAGONIST — Credits
     # =========================================================================
-
-    async def update_gauge(
-        self, conn: Connection, gauge: str, delta: float, cycle: int
-    ) -> tuple[bool, float, float]:
-        """Update energy/morale/health via SQL function update_gauge."""
-        result = await conn.fetchrow(
-            "SELECT * FROM update_gauge($1, $2, $3, $4)",
-            self.game_id,
-            gauge,
-            delta,
-            cycle,
-        )
-        return result["success"], result["old_value"], result["new_value"]
 
     async def credit_transaction(
         self,
@@ -1117,14 +1101,16 @@ class KnowledgeGraphPopulator:
         game_date: str | None = None,
         location_ref: str | None = None,
         narrator_deltas: dict | None = None,
+        engine_snapshot: dict | None = None,
     ) -> UUID:
         """Save a message in a conversation."""
         location_id = await self._resolve_location_id(conn, location_ref)
         return await conn.fetchval(
             """INSERT INTO messages (
                 game_id, conversation_id, role, content,
-                cycle, game_date, time, location_id, sequence, narrator_deltas
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id""",
+                cycle, game_date, time, location_id, sequence,
+                narrator_deltas, engine_snapshot
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id""",
             self.game_id,
             conversation_id,
             role,
@@ -1135,6 +1121,7 @@ class KnowledgeGraphPopulator:
             location_id,
             sequence,
             narrator_deltas,
+            engine_snapshot,
         )
 
     # =========================================================================
@@ -1227,4 +1214,69 @@ class KnowledgeGraphPopulator:
                    || jsonb_build_object($2::text, $3::int)
                WHERE id = $1""",
             self.game_id, extraction_type, cycle,
+        )
+
+    # =========================================================================
+    # ENGINE
+    # =========================================================================
+
+    async def set_engine(
+        self,
+        conn: Connection,
+        engine_type: str,
+        world_config: dict | None = None,
+    ) -> None:
+        """Set the engine type and world config on the game."""
+        await conn.execute(
+            """UPDATE games SET engine = $1, world_config = $2, updated_at = NOW()
+               WHERE id = $3""",
+            engine_type,
+            world_config,
+            self.game_id,
+        )
+
+    async def lock_engine(self, conn: Connection) -> None:
+        """Lock the engine (immutable after first message)."""
+        await conn.execute(
+            "UPDATE games SET engine_locked = TRUE, updated_at = NOW() WHERE id = $1",
+            self.game_id,
+        )
+
+    async def log_mechanic_roll(
+        self,
+        conn: Connection,
+        game_id: UUID,
+        message_id: UUID | None,
+        engine: str,
+        skill_used: str | None,
+        roll_details: dict,
+        outcome: str,
+        complication: bool,
+        cycle: int | None,
+    ) -> UUID:
+        """Insert a mechanic roll log entry."""
+        return await conn.fetchval(
+            """INSERT INTO mechanic_rolls
+               (game_id, message_id, engine, skill_used,
+                roll_details, outcome, complication, cycle)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               RETURNING id""",
+            game_id,
+            message_id,
+            engine,
+            skill_used,
+            roll_details,
+            outcome,
+            complication,
+            cycle,
+        )
+
+    async def save_engine_snapshot(
+        self, conn: Connection, message_id: UUID, snapshot: dict
+    ) -> None:
+        """Store engine state snapshot on an assistant message."""
+        await conn.execute(
+            "UPDATE messages SET engine_snapshot = $1 WHERE id = $2",
+            snapshot,
+            message_id,
         )

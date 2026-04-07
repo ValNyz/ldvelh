@@ -9,6 +9,7 @@ export default function GameHeader({
 	onRename,
 	onToggleInventory,
 	onToggleWorld,
+	onToggleCharacterSheet,
 	onShowSettings,
 	onQuit,
 	activeSidebar,
@@ -82,6 +83,16 @@ export default function GameHeader({
 
 			{/* Right: Sidebars + Settings */}
 			<div className="flex items-center gap-1">
+				<button
+					onClick={onToggleCharacterSheet}
+					className={`p-2 rounded-lg transition-colors ${activeSidebar === 'character'
+							? 'bg-purple-600 text-white'
+							: 'text-gray-400 hover:text-white hover:bg-gray-800'
+						}`}
+					title="Fiche personnage"
+				>
+					👤
+				</button>
 				<button
 					onClick={onToggleInventory}
 					className={`p-2 rounded-lg transition-colors ${activeSidebar === 'inventory'

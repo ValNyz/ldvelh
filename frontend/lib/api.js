@@ -123,7 +123,7 @@ export const api = {
 
 export const gamesApi = {
 	list: () => api.get('/games'),
-	create: () => api.post('/games'),
+	create: (engine = null) => api.post('/games', engine ? { engine } : {}),
 	delete: (gameId) => api.delete(`/games/${gameId}`),
 	rename: (gameId, name) => api.patch(`/games/${gameId}`, { gameId, name })
 };

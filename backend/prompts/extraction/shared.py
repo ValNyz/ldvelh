@@ -30,7 +30,7 @@ CORE_RULES = """## CORE RULES
 
 1. Extract ONLY what is EXPLICIT in the narrative text
 2. Do NOT invent or deduce — only extract what is clearly stated
-3. Gauges (energy, morale, health) and credits are handled by the narrator — do NOT extract them
+3. Credits are handled by the narrator — do NOT extract them
 4. Inventory hints are already applied — only create detailed object records for new acquisitions
 5. Deduplicate: an entity/fact should appear only once
 6. known_by_protagonist=true if Valentin SAW/HEARD the name"""

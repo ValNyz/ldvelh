@@ -391,7 +391,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             "entities_updated": 0,
             "relations_created": 0,
             "relations_ended": 0,
-            "gauges_changed": 0,
             "credits_changed": 0,
             "arcs_created": 0,
             "errors": [],
@@ -470,15 +469,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     )
                     stats["relations_ended"] += 1
 
-                # 8. Gauge changes
-                for gauge in extraction.gauge_changes:
-                    success, _, _ = await self.update_gauge(
-                        conn, gauge.gauge, gauge.delta, cycle
-                    )
-                    if success:
-                        stats["gauges_changed"] += 1
-
-                # 9. Credit transactions
+                # 8. Credit transactions
                 for tx in extraction.credit_transactions:
                     success, _, error = await self.credit_transaction(
                         conn, tx.amount, cycle, tx.description

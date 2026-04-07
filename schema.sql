@@ -58,6 +58,10 @@ CREATE TABLE games (
   extraction_checkpoints JSONB DEFAULT '{}',  -- per-type: {"characters": 5, "inventory": 3, ...}
   last_extraction_time VARCHAR(5),     -- last in-game time extraction ran
   detail_requests TEXT[] DEFAULT '{}',
+  -- Engine
+  engine VARCHAR(20) NOT NULL DEFAULT 'none',
+  engine_locked BOOLEAN NOT NULL DEFAULT FALSE,
+  world_config JSONB,
   --
   active BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now(),
@@ -555,6 +559,7 @@ CREATE TABLE messages (
   extracted BOOLEAN DEFAULT false,
   chronology_id UUID REFERENCES chronology(id),
   narrator_deltas JSONB,                -- Stores gauge_deltas, credit_delta, inventory_hints
+  engine_snapshot JSONB,                -- Engine state snapshot for rollback
   -- Ordre
   sequence INTEGER NOT NULL,
   created_at TIMESTAMPTZ DEFAULT now()
@@ -602,6 +607,147 @@ CREATE TABLE extraction_logs (
 );
 
 CREATE INDEX idx_extraction_logs_game ON extraction_logs(game_id, cycle);
+
+-- ============================================================================
+-- GAME ENGINE TABLES
+-- ============================================================================
+
+-- Engine character tables (1:1 with game, protagonist only)
+CREATE TABLE character_fate (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID UNIQUE NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  aspects JSONB DEFAULT '[]',
+  stunts JSONB DEFAULT '[]',
+  stress_physical BOOLEAN[] DEFAULT '{f,f,f,f}',
+  stress_mental BOOLEAN[] DEFAULT '{f,f,f,f}',
+  consequences JSONB DEFAULT '{}',
+  fate_points INTEGER DEFAULT 3,
+  refresh INTEGER DEFAULT 3,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE character_d6 (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID UNIQUE NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  attributes JSONB DEFAULT '{}',
+  wounds JSONB DEFAULT '{}',
+  force_points INTEGER DEFAULT 3,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE character_narrative (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID UNIQUE NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Per-engine skill/trait tables
+CREATE TABLE skills_fate (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(100) NOT NULL,
+  level INTEGER NOT NULL DEFAULT 0,
+  custom BOOLEAN DEFAULT FALSE,
+  UNIQUE(game_id, name)
+);
+
+CREATE TABLE skills_d6 (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  attribute VARCHAR(50) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  dice_value VARCHAR(10) NOT NULL,
+  custom BOOLEAN DEFAULT FALSE,
+  UNIQUE(game_id, name)
+);
+
+CREATE TABLE traits_narrative (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  name VARCHAR(200) NOT NULL,
+  description TEXT,
+  active BOOLEAN DEFAULT TRUE,
+  replaced_by UUID REFERENCES traits_narrative(id),
+  created_cycle INTEGER DEFAULT 1,
+  UNIQUE(game_id, name)
+);
+
+CREATE INDEX idx_skills_fate_game ON skills_fate(game_id);
+CREATE INDEX idx_skills_d6_game ON skills_d6(game_id);
+CREATE INDEX idx_traits_narrative_game ON traits_narrative(game_id) WHERE active = TRUE;
+
+-- Mechanic rolls log
+CREATE TABLE mechanic_rolls (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  game_id UUID NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+  message_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+  engine VARCHAR(20) NOT NULL,
+  skill_used VARCHAR(100),
+  roll_details JSONB NOT NULL,
+  outcome VARCHAR(50) NOT NULL,
+  complication BOOLEAN DEFAULT FALSE,
+  cycle INTEGER,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_mechanic_rolls_game ON mechanic_rolls(game_id, cycle);
+
+-- NPC engine extension tables (FK to characters, lighter than protagonist)
+CREATE TABLE npc_fate (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  character_id UUID UNIQUE NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  aspects JSONB DEFAULT '[]',
+  skills JSONB DEFAULT '{}',
+  stunts JSONB DEFAULT '[]',
+  stress_physical BOOLEAN[] DEFAULT '{f,f}',
+  stress_mental BOOLEAN[] DEFAULT '{f,f}',
+  consequences JSONB DEFAULT '{}',
+  fate_points INTEGER DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE npc_d6 (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  character_id UUID UNIQUE NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  attributes JSONB DEFAULT '{}',
+  skills JSONB DEFAULT '{}',
+  wounds JSONB DEFAULT '{}',
+  force_points INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE npc_narrative (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  character_id UUID UNIQUE NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+  traits JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_npc_fate_char ON npc_fate(character_id);
+CREATE INDEX idx_npc_d6_char ON npc_d6(character_id);
+CREATE INDEX idx_npc_narrative_char ON npc_narrative(character_id);
+
+-- Item engine extensions (FK to existing objects table)
+CREATE TABLE object_d6 (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  object_id UUID UNIQUE NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+  stats JSONB DEFAULT '{}'
+);
+
+CREATE TABLE object_fate (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  object_id UUID UNIQUE NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+  item_type VARCHAR(20),
+  stunts JSONB DEFAULT '[]'
+);
+
+CREATE TABLE object_narrative (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  object_id UUID UNIQUE NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+  narrative_description TEXT
+);
 
 -- ============================================================================
 -- FONCTIONS UTILITAIRES
@@ -853,6 +999,9 @@ BEGIN
   -- Compétences
   DELETE FROM skills WHERE game_id = p_game_id AND start_cycle > p_target_cycle;
   UPDATE skills SET end_cycle = NULL WHERE game_id = p_game_id AND end_cycle > p_target_cycle;
+
+  -- Mechanic rolls
+  DELETE FROM mechanic_rolls WHERE game_id = p_game_id AND cycle > p_target_cycle;
 
   -- Messages et chronologie
   DELETE FROM messages WHERE game_id = p_game_id AND cycle > p_target_cycle;

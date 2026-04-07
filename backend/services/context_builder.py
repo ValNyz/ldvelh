@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 
 from schema.narration import (
     NarrationContext,
-    GaugeState,
     ProtagonistState,
     InventoryItem,
     LocationSummary,
@@ -27,6 +26,7 @@ from schema.narration import (
 from schema import ArcDomain
 
 from kg.reader import KnowledgeGraphReader
+from services.engine import get_engine
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
@@ -56,7 +56,14 @@ class ContextBuilder:
         # Game state (date, world metadata)
         game = await self.reader.get_game(conn) or {}
 
-        # Protagonist with skills
+        # Engine info
+        engine_type = game.get("engine", "none")
+        engine = get_engine(engine_type)
+        engine_stats = None
+        if engine_type != "none":
+            engine_stats = await engine.get_stats(conn, self.game_id)
+
+        # Protagonist
         protagonist = await self._build_protagonist_state(conn)
 
         # Inventory
@@ -131,6 +138,8 @@ class ContextBuilder:
             world_name=game.get("world_name") or world_info.get("name", "Station"),
             world_atmosphere=game.get("world_atmosphere") or world_info.get("atmosphere", ""),
             tone_notes=tone_notes,
+            engine_type=engine_type,
+            engine_stats=engine_stats,
         )
 
     # =========================================================================
@@ -148,9 +157,6 @@ class ContextBuilder:
         return ProtagonistState(
             name=row["name"],
             credits=row.get("credits") or 0,
-            energy=GaugeState(value=float(row.get("energy") or 3)),
-            morale=GaugeState(value=float(row.get("morale") or 3)),
-            health=GaugeState(value=float(row.get("health") or 4)),
             hobbies=hobbies,
             current_occupation=row.get("occupation"),
             employer=row.get("employer_name"),

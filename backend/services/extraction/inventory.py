@@ -8,9 +8,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from prompts.extractions import inventory_prompt
+from prompts.extraction import inventory_prompt
 from schema import FactData
 from schema.extraction import InventoryChange, ObjectCreation
+from services.engine import get_engine
 
 from .base import BaseExtractor
 
@@ -28,6 +29,11 @@ class InventoryExtractor(BaseExtractor):
     async def _build_context(self, conn: Connection, messages: list[dict]) -> dict:
         canonical_names = await self.reader.get_object_canonical_names(conn)
         objects = await self.reader.get_objects(conn)
+
+        # Load engine for object extensions
+        engine_type = await self.reader.get_engine_type(conn)
+        self._engine = get_engine(engine_type)
+        self._engine_type = engine_type
 
         # Collect inventory_hints from narrator_deltas
         inventory_hints = []
@@ -55,6 +61,7 @@ class InventoryExtractor(BaseExtractor):
             existing_canonical_names=context["canonical_names"],
             inventory_hints=context.get("inventory_hints") or None,
             known_objects=known_objs or None,
+            engine_object_addon=self._engine.get_object_prompt_addon() or None,
         )
         return inventory_prompt.SYSTEM_PROMPT, user_prompt
 
@@ -78,6 +85,19 @@ class InventoryExtractor(BaseExtractor):
                 )
                 if result:
                     stats["objects_created"] += 1
+                    # Create engine-specific extension if engine_data present
+                    engine_data = obj.engine_data
+                    if engine_data and self._engine_type != "none":
+                        object_id = result if isinstance(result, type(self.game_id)) else None
+                        if object_id:
+                            try:
+                                await self._engine.create_object_extension(
+                                    conn, object_id, engine_data
+                                )
+                            except Exception as ext_err:
+                                logger.warning(
+                                    f"[INVENTORY] Engine extension failed: {ext_err}"
+                                )
             except Exception as e:
                 stats["errors"].append(f"object: {e}")
 

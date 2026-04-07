@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import DiceRollDisplay from './DiceRollDisplay';
 // import EntityTooltip from './EntityTooltip';
 // import { formatTooltip, fuzzyMatchEntity } from '../../lib/js/kg/knowledgeService';
 
@@ -18,7 +19,8 @@ export default function Message({
 	onResend,
 	onRegenerate,
 	tooltipMap,
-	showDebug
+	showDebug,
+	engine
 }) {
 	const [showActions, setShowActions] = useState(false);
 	const isUser = message.role === 'user';
@@ -41,6 +43,11 @@ export default function Message({
 						}
           `}
 				>
+					{/* Dice roll result (shown before narrative) */}
+					{!isUser && message.roll && (
+						<DiceRollDisplay roll={message.roll} engine={engine} />
+					)}
+
 					{/* In-game time & location header */}
 					{!isUser && (message.time || message.game_date) && (
 						<div className="text-[11px] text-gray-500 font-mono mb-2">
