@@ -128,7 +128,7 @@ export default function Home() {
 	}
 
 	// Game list screen
-	if (phaseHook.gamePhase === phaseHook.GAME_PHASE.LIST || !gs.gameId) {
+	if ((phaseHook.gamePhase === phaseHook.GAME_PHASE.LIST || !gs.gameId) && !phaseHook.isWizard) {
 		return (
 			<>
 				{user && !user.email_verified && <EmailVerificationBanner />}
