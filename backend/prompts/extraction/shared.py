@@ -34,3 +34,14 @@ CORE_RULES = """## CORE RULES
 4. Inventory hints are already applied — only create detailed object records for new acquisitions
 5. Deduplicate: an entity/fact should appear only once
 6. known_by_protagonist=true if Valentin SAW/HEARD the name"""
+
+RESOLUTION_SECTION_HEADER = """## ENTITY RESOLUTION MAP
+
+The following narrative mentions have been pre-resolved to canonical entity names.
+When extracting data about these entities, you MUST use the CANONICAL name (right side),
+NOT the narrative mention (left side). This tells you WHO is being referred to in the text.
+
+For EXISTING entities: use the exact canonical name from the database.
+For NEW entities: use the suggested canonical name.
+
+"""

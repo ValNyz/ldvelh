@@ -475,3 +475,45 @@ class NarrativeTraitEvolution(BaseModel):
         default_factory=list,
         description="[{old_trait, new_trait_name, new_trait_description}]",
     )
+
+
+# =============================================================================
+# ENTITY RESOLUTION (Phase 1 — pre-extraction disambiguation)
+# =============================================================================
+
+
+class ResolvedMention(BaseModel):
+    """A group of narrative mentions resolved to an existing DB entity."""
+
+    mentions: list[str] = Field(
+        ..., min_length=1,
+        description="Exact text references from the narrative",
+    )
+    canonical: str = Field(
+        ..., description="Exact canonical name from the database"
+    )
+    entity_type: str = Field(
+        ..., description="character, location, organization, object, arc"
+    )
+
+
+class NewMention(BaseModel):
+    """A group of narrative mentions for a genuinely new entity."""
+
+    mentions: list[str] = Field(
+        ..., min_length=1,
+        description="Exact text references from the narrative",
+    )
+    suggested_name: str = Field(
+        ..., description="Clean canonical name to use for this new entity"
+    )
+    entity_type: str = Field(
+        ..., description="character, location, organization, object, arc"
+    )
+
+
+class EntityResolution(BaseModel):
+    """LLM output of Phase 1 entity resolution."""
+
+    existing: list[ResolvedMention] = Field(default_factory=list)
+    new: list[NewMention] = Field(default_factory=list)
