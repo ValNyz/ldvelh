@@ -1141,9 +1141,15 @@ LEFT JOIN entity_registry er ON cp.entity_id = er.id
 GROUP BY c.id, l.name;
 
 -- ============================================================================
--- GRANTS
+-- GRANTS (skip if role doesn't exist, e.g. in CI)
 -- ============================================================================
 
-GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres;
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'postgres') THEN
+    EXECUTE 'GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres';
+    EXECUTE 'GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres';
+    EXECUTE 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres';
+  END IF;
+END
+$$;
