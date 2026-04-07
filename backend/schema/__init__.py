@@ -87,7 +87,6 @@ from .narration import (
     # Live delta models
     CreditDelta,
     EntityReveal,
-    GaugeDelta,
     InventoryHint,
     # Context summary models
     ArcSummary,
@@ -96,7 +95,6 @@ from .narration import (
     DayTransition,
     EventSummary,
     Fact,
-    GaugeState,
     InventoryItem,
     LocationSummary,
     NPCLightSummary,
@@ -124,7 +122,6 @@ from .extraction import (
     RelationUpdate,
     # Protagonist changes
     CreditTransaction,
-    GaugeChange,
     InventoryChange,
     # Narrative elements
     ArcCreation,
@@ -139,6 +136,41 @@ from .extraction import (
     OrganizationsExtraction,
     InventoryExtraction,
     NarrativeArcsExtraction,
+    # Progression extraction outputs (engine-specific)
+    D6ProgressionExtraction,
+    D6SkillUpgrade,
+    FateAspectRename,
+    FateMilestoneExtraction,
+    NarrativeTraitEvolution,
+)
+
+# =============================================================================
+# ENGINE - Game engine types, character data, roll models
+# =============================================================================
+from .engine import (
+    EngineType,
+    WorldConfig,
+    # Fate Core
+    FateAspect,
+    FateCharacterData,
+    FateConsequences,
+    FateSkill,
+    FateStunt,
+    # D6 System
+    D6CharacterData,
+    D6Skill,
+    D6WoundLevel,
+    # Narrative
+    NarrativeCharacterData,
+    NarrativeTrait,
+    # NPC engine data
+    NPCD6Data,
+    NPCFateData,
+    NPCNarrativeData,
+    # Mechanical pipeline
+    MechanicalDecision,
+    MechanicalResult,
+    RollResult,
 )
 
 # =============================================================================
@@ -243,7 +275,6 @@ __all__ = [
     "NarrationOutput",
     "CreditDelta",
     "EntityReveal",
-    "GaugeDelta",
     "InventoryHint",
     "ArcSummary",
     "ActiveArcSummary",
@@ -251,7 +282,6 @@ __all__ = [
     "DayTransition",
     "EventSummary",
     "Fact",
-    "GaugeState",
     "InventoryItem",
     "LocationSummary",
     "NPCLightSummary",
@@ -272,7 +302,6 @@ __all__ = [
     "RelationEnd",
     "RelationUpdate",
     "CreditTransaction",
-    "GaugeChange",
     "InventoryChange",
     "ArcCreation",
     "ArcResolutionExtraction",
@@ -284,6 +313,32 @@ __all__ = [
     "OrganizationsExtraction",
     "InventoryExtraction",
     "NarrativeArcsExtraction",
+    "D6ProgressionExtraction",
+    "D6SkillUpgrade",
+    "FateAspectRename",
+    "FateMilestoneExtraction",
+    "NarrativeTraitEvolution",
+    # =========================================================================
+    # ENGINE
+    # =========================================================================
+    "EngineType",
+    "WorldConfig",
+    "FateAspect",
+    "FateCharacterData",
+    "FateConsequences",
+    "FateSkill",
+    "FateStunt",
+    "D6CharacterData",
+    "D6Skill",
+    "D6WoundLevel",
+    "NarrativeCharacterData",
+    "NarrativeTrait",
+    "NPCD6Data",
+    "NPCFateData",
+    "NPCNarrativeData",
+    "MechanicalDecision",
+    "MechanicalResult",
+    "RollResult",
     # =========================================================================
     # WORLD GENERATION
     # =========================================================================

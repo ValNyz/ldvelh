@@ -6,7 +6,6 @@ Normalizes game state for the frontend API.
 from typing import Any, Optional
 from uuid import UUID
 from pydantic import BaseModel, Field
-from decimal import Decimal
 
 from config import DEFAULT_STATS
 
@@ -32,11 +31,9 @@ class InventoryItem(BaseModel):
 class PlayerState(BaseModel):
     """Normalized protagonist stats"""
 
-    energy: float = Field(default=DEFAULT_STATS["energy"])
-    morale: float = Field(default=DEFAULT_STATS["morale"])
-    health: float = Field(default=DEFAULT_STATS["health"])
     credits: int = Field(default=DEFAULT_STATS["credits"])
     inventory: list[InventoryItem] = Field(default_factory=list)
+    engine_stats: Optional[dict] = None
 
 
 class GameSessionState(BaseModel):
@@ -51,6 +48,8 @@ class GameSessionState(BaseModel):
     current_location: Optional[str] = None
     npcs_present: list[str] = Field(default_factory=list)
     status: str = "active"
+    engine: Optional[str] = None
+    engine_locked: Optional[bool] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -108,19 +107,10 @@ def normalize_player(data: Optional[dict]) -> PlayerState:
     raw_inventory = data.get("inventory") or []
     inventory = [normalize_inventory_item(item) for item in raw_inventory]
 
-    def to_float(val, default):
-        if val is None:
-            return default
-        if isinstance(val, Decimal):
-            return float(val)
-        return float(val)
-
     return PlayerState(
-        energy=to_float(data.get("energy"), DEFAULT_STATS["energy"]),
-        morale=to_float(data.get("morale"), DEFAULT_STATS["morale"]),
-        health=to_float(data.get("health"), DEFAULT_STATS["health"]),
         credits=int(data.get("credits", DEFAULT_STATS["credits"])),
         inventory=inventory,
+        engine_stats=data.get("engine_stats"),
     )
 
 
@@ -138,6 +128,8 @@ def normalize_game_session(data: Optional[dict]) -> Optional[GameSessionState]:
         current_location=data.get("current_location"),
         npcs_present=data.get("npcs_present") or [],
         status=data.get("status", "active"),
+        engine=data.get("engine"),
+        engine_locked=data.get("engine_locked"),
         created_at=str(data["created_at"]) if data.get("created_at") else None,
         updated_at=str(data["updated_at"]) if data.get("updated_at") else None,
     )
@@ -206,6 +198,8 @@ def extract_game_fields(data: dict) -> dict:
         "day",
         "game_date",
         "status",
+        "engine",
+        "engine_locked",
         "created_at",
         "updated_at",
     ]
@@ -215,11 +209,9 @@ def extract_game_fields(data: dict) -> dict:
 def extract_player_fields(data: dict) -> dict:
     """Extract player fields from a flat dict."""
     keys = [
-        "energy",
-        "morale",
-        "health",
         "credits",
         "inventory",
+        "engine_stats",
     ]
     return {k: data[k] for k in keys if k in data}
 
@@ -295,31 +287,22 @@ def merge_player(
     Only updates keys explicitly present in update_keys.
     """
     if update_keys is None:
-        # Legacy behavior: compare with defaults
         return PlayerState(
-            energy=update.energy
-            if update.energy != DEFAULT_STATS["energy"]
-            else prev.energy,
-            morale=update.morale
-            if update.morale != DEFAULT_STATS["morale"]
-            else prev.morale,
-            health=update.health
-            if update.health != DEFAULT_STATS["health"]
-            else prev.health,
             credits=update.credits
             if update.credits != DEFAULT_STATS["credits"]
             else prev.credits,
             inventory=update.inventory if update.inventory else prev.inventory,
+            engine_stats=update.engine_stats if update.engine_stats else prev.engine_stats,
         )
 
     return PlayerState(
-        energy=update.energy if "energy" in update_keys else prev.energy,
-        morale=update.morale if "morale" in update_keys else prev.morale,
-        health=update.health if "health" in update_keys else prev.health,
         credits=update.credits if "credits" in update_keys else prev.credits,
         inventory=update.inventory
         if "inventory" in update_keys
         else prev.inventory,
+        engine_stats=update.engine_stats
+        if "engine_stats" in update_keys
+        else prev.engine_stats,
     )
 
 

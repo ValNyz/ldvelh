@@ -39,6 +39,7 @@ class ExtractionType(str, Enum):
     ORGANIZATIONS = "organizations"
     INVENTORY = "inventory"
     NARRATIVE_ARCS = "narrative_arcs"
+    PROGRESSION = "progression"
 
 
 # =============================================================================
@@ -122,6 +123,10 @@ class ObjectCreation(BaseModel):
     base_value: int | None = None
     quantity: int = Field(default=1, ge=1)
     from_hint: ShortText  # 200 chars - the original hint
+    engine_data: dict | None = Field(
+        default=None,
+        description="Engine-specific object data (d6 stats, fate aspects, etc.)",
+    )
 
 
 # =============================================================================
@@ -160,14 +165,6 @@ class RelationEnd(BaseModel):
 # =============================================================================
 # PROTAGONIST CHANGES
 # =============================================================================
-
-
-class GaugeChange(BaseModel):
-    """Change to protagonist's energy/morale/health"""
-
-    gauge: Literal["energy", "morale", "health"]
-    delta: float = Field(..., ge=-5, le=5)
-    reason: Name  # 100 chars
 
 
 class CreditTransaction(BaseModel):
@@ -300,7 +297,6 @@ class NarrativeExtraction(BaseModel):
     relations_ended: list[RelationEnd] = Field(default_factory=list)
 
     # Protagonist changes
-    gauge_changes: list[GaugeChange] = Field(default_factory=list)
     credit_transactions: list[CreditTransaction] = Field(default_factory=list)
     inventory_changes: list[InventoryChange] = Field(default_factory=list)
     skills_changed: list[Skill] = Field(default_factory=list)
@@ -351,7 +347,7 @@ def get_extraction_tool_schema() -> dict:
     # Remove caller-managed fields from the top-level properties
     caller_managed = {
         "cycle", "time", "current_location_ref",
-        "gauge_changes", "credit_transactions", "inventory_changes",
+        "credit_transactions", "inventory_changes",
         "skills_changed", "key_npcs_present",
         "entities_removed", "relations_ended",
     }
@@ -422,3 +418,60 @@ class NarrativeArcsExtraction(BaseModel):
     events_scheduled: list[EventScheduledExtraction] = Field(default_factory=list)
     facts: list[FactData] = Field(default_factory=list)
     segment_summary: FullText = ""  # 500 chars
+
+
+# =============================================================================
+# PROGRESSION EXTRACTION OUTPUTS (engine-specific)
+# =============================================================================
+
+
+class D6SkillUpgrade(BaseModel):
+    """A D6 skill dice upgrade from progression."""
+
+    skill_name: Name
+    new_dice_value: str = Field(
+        ..., description="New dice code, e.g. '3D+1', '4D'"
+    )
+    reason: ShortText
+
+
+class D6ProgressionExtraction(BaseModel):
+    """Output of D6 progression extraction."""
+
+    skill_upgrades: list[D6SkillUpgrade] = Field(default_factory=list)
+
+
+class FateAspectRename(BaseModel):
+    """A Fate Core aspect rename from milestone."""
+
+    old_name: str
+    new_name: str
+
+
+class FateMilestoneExtraction(BaseModel):
+    """Output of Fate Core progression extraction."""
+
+    milestone_type: Literal["minor", "significant", "major"] | None = None
+    aspect_renames: list[FateAspectRename] = Field(default_factory=list)
+    new_stunts: list[dict] = Field(
+        default_factory=list, description="[{name, description}]"
+    )
+    skill_upgrades: list[dict] = Field(
+        default_factory=list, description="[{skill_name, new_level}]"
+    )
+    refresh_increase: bool = False
+
+
+class NarrativeTraitEvolution(BaseModel):
+    """Output of narrative engine progression extraction."""
+
+    new_traits: list[dict] = Field(
+        default_factory=list, description="[{name, description}]"
+    )
+    traits_deactivated: list[str] = Field(
+        default_factory=list, description="Trait names to deactivate"
+    )
+    traits_replaced: list[dict] = Field(
+        default_factory=list,
+        description="[{old_trait, new_trait_name, new_trait_description}]",
+    )

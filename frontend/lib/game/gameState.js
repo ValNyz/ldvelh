@@ -10,10 +10,8 @@
 // ============================================================================
 
 export const DEFAULT_STATS = {
-	energy: 3.0,
-	morale: 3.0,
-	health: 4.0,
-	credits: 1400
+	credits: 1400,
+	engine_stats: null
 };
 
 // ============================================================================
@@ -69,11 +67,9 @@ function mergePlayer(prev, next) {
 	if (!next) return prev;
 
 	return {
-		energy: next.energy ?? prev.energy,
-		morale: next.morale ?? prev.morale,
-		health: next.health ?? prev.health,
 		credits: next.credits ?? prev.credits,
-		inventory: next.inventory !== undefined ? next.inventory : prev.inventory
+		inventory: next.inventory !== undefined ? next.inventory : prev.inventory,
+		engine_stats: next.engine_stats !== undefined ? next.engine_stats : prev.engine_stats
 	};
 }
 

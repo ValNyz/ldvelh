@@ -58,7 +58,7 @@ class TestExtractionType:
 
     def test_enum_values(self):
         values = {e.value for e in ExtractionType}
-        assert values == {"characters", "locations", "organizations", "inventory", "narrative_arcs"}
+        assert values == {"characters", "locations", "organizations", "inventory", "narrative_arcs", "progression"}
 
 
 # =============================================================================

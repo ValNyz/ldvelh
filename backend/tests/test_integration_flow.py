@@ -30,19 +30,18 @@ def _make_narration_output(location: str) -> dict:
     return {
         "narrative_text": (
             "Valentin pousse la porte du terminal et observe les alentours. "
-            "L'air recycl\u00e9 sent le m\u00e9tal et le caf\u00e9 ti\u00e8de. "
-            "Quelques voyageurs tra\u00eenent leurs bagages sur le sol us\u00e9."
+            "L'air recyclé sent le métal et le café tiède. "
+            "Quelques voyageurs traînent leurs bagages sur le sol usé."
         ),
         "time": {"new_time": "09h15", "ellipse": False},
         "current_location": location,
         "npcs_present": [],
         "suggested_actions": [
             "Explorer le terminal",
-            "Chercher un caf\u00e9",
+            "Chercher un café",
             "Consulter le panneau d'information",
         ],
-        "gauge_deltas": [{"gauge": "energy", "delta": -0.5}],
-        "credit_delta": {"amount": -15, "description": "caf\u00e9 au terminal"},
+        "credit_delta": {"amount": -15, "description": "café au terminal"},
         "inventory_hints": [],
         "entity_reveals": [],
         "info_requests": [],
@@ -75,7 +74,7 @@ async def test_create_and_populate_world(client, test_user, test_pool, world_gen
     init_result = await service.process_init(game_id, world_gen)
 
     # 4. Verify init_result shape
-    assert init_result["world"]["name"] == "Escale M\u00e9ridienne"
+    assert init_result["world"]["name"] == "Escale Méridienne"
     assert init_result["npc_count"] >= 3
     assert init_result["location_count"] >= 4
     assert init_result["org_count"] >= 1
@@ -119,7 +118,7 @@ async def test_load_world_info(client, test_user, test_pool, world_gen_data):
 
     world_info = await service.load_world_info(game_id)
     assert world_info is not None
-    assert world_info["world"]["name"] == "Escale M\u00e9ridienne"
+    assert world_info["world"]["name"] == "Escale Méridienne"
     assert world_info["npc_count"] >= 3
     assert world_info["ai"]["name"] is not None
     assert world_info["protagonist"]["name"] is not None
@@ -158,10 +157,8 @@ async def test_process_narration_and_save(client, test_user, test_pool, world_ge
     assert result["time"] == "09h15"
     assert result["location"] == arrival_loc
 
-    # Apply deltas
+    # Apply deltas (credits + entity reveals)
     delta_result = await service.apply_narrator_deltas(game_id, narration, result["cycle"])
-    assert len(delta_result["gauges"]) == 1
-    assert delta_result["gauges"][0]["gauge"] == "energy"
     assert delta_result["credits"]["amount"] == -15
 
     # Save messages
@@ -191,7 +188,7 @@ async def test_process_narration_and_save(client, test_user, test_pool, world_ge
 async def test_narrator_deltas_update_stats(
     client, test_user, test_pool, world_gen_data
 ):
-    """Verify that gauge and credit deltas are correctly applied to player stats."""
+    """Verify that credit deltas are correctly applied to player stats."""
     from schema import WorldGeneration, NarrationOutput
     from services.game_service import GameService
     from uuid import UUID
@@ -205,7 +202,6 @@ async def test_narrator_deltas_update_stats(
 
     # Record initial state
     state_before = await service.load_game_state(game_id)
-    energy_before = state_before["player"]["energy"]
     credits_before = state_before["player"]["credits"]
 
     # Process narration with deltas
@@ -216,9 +212,8 @@ async def test_narrator_deltas_update_stats(
     await service.process_light(game_id, narration, current_cycle=1)
     await service.apply_narrator_deltas(game_id, narration, 1)
 
-    # Check deltas were applied
+    # Check credit delta was applied
     state_after = await service.load_game_state(game_id)
-    assert state_after["player"]["energy"] == energy_before - 0.5
     assert state_after["player"]["credits"] == credits_before - 15
 
 
@@ -311,6 +306,156 @@ async def test_rollback_via_api(client, test_user, test_pool, world_gen_data):
     assert data["success"] is True
     assert data["deleted"] == 2
     assert len(data["messages"]) == 2
+
+
+# =============================================================================
+# MECHANIC ROLL PERSISTENCE
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_mechanic_roll_persists_and_loads(
+    client, test_user, test_pool, world_gen_data
+):
+    """Full flow: save messages, log roll, load messages — roll data included."""
+    from schema import WorldGeneration, NarrationOutput
+    from services.game_service import GameService
+    from uuid import UUID
+
+    resp = await client.post("/api/games", headers=auth_headers(test_user["token"]))
+    game_id = UUID(resp.json()["gameId"])
+
+    world_gen = WorldGeneration.model_validate(world_gen_data)
+    service = GameService(test_pool)
+    await service.process_init(game_id, world_gen)
+
+    arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+    # Process narration
+    narration_data = _make_narration_output(arrival_loc)
+    narration = NarrationOutput.model_validate(narration_data)
+    result = await service.process_light(game_id, narration, current_cycle=1)
+
+    # Save messages
+    _, assistant_id = await service.save_messages(
+        game_id=game_id,
+        user_message="Je tente de forcer la serrure",
+        assistant_message=narration.narrative_text,
+        cycle=result["cycle"],
+        time=result["time"],
+        location_ref=result["location"],
+    )
+
+    # Log a Fate Core roll
+    roll = {
+        "dice": [-1, 1, 0, 1],
+        "total": 1,
+        "skill_total": 4,
+        "opposition_total": None,
+        "outcome": "success",
+        "shifts": 2,
+        "complication": False,
+        "details": {
+            "skill_name": "Cambriolage",
+            "skill_label": "Bon",
+            "difficulty": 2,
+            "difficulty_label": "Correct",
+        },
+    }
+    await service.log_mechanic_roll(
+        game_id=game_id,
+        message_id=assistant_id,
+        engine="fate_core",
+        skill_used="Cambriolage",
+        roll_details=roll,
+        outcome="success",
+        complication=False,
+        cycle=result["cycle"],
+    )
+
+    # Load and verify roll data is included
+    messages = await service.load_chat_messages(game_id)
+    assistant_msgs = [m for m in messages if m["role"] == "assistant"]
+    assert len(assistant_msgs) == 1
+    assert "roll" in assistant_msgs[0]
+    assert assistant_msgs[0]["roll"]["outcome"] == "success"
+    assert assistant_msgs[0]["roll"]["details"]["skill_name"] == "Cambriolage"
+    assert assistant_msgs[0]["roll"]["shifts"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rollback_cleans_mechanic_rolls(
+    client, test_user, test_pool, world_gen_data
+):
+    """Rollback removes mechanic_rolls for deleted messages."""
+    from schema import WorldGeneration, NarrationOutput
+    from services.game_service import GameService
+    from uuid import UUID
+
+    resp = await client.post("/api/games", headers=auth_headers(test_user["token"]))
+    game_id = UUID(resp.json()["gameId"])
+
+    world_gen = WorldGeneration.model_validate(world_gen_data)
+    service = GameService(test_pool)
+    await service.process_init(game_id, world_gen)
+
+    arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+    # Two rounds with rolls
+    assistant_ids = []
+    for i in range(2):
+        narration_data = _make_narration_output(arrival_loc)
+        narration = NarrationOutput.model_validate(narration_data)
+        await service.process_light(game_id, narration, current_cycle=1)
+        _, aid = await service.save_messages(
+            game_id=game_id,
+            user_message=f"Action {i + 1}",
+            assistant_message=narration.narrative_text,
+            cycle=1,
+            time="09h15",
+            location_ref=arrival_loc,
+        )
+        assistant_ids.append(aid)
+        await service.log_mechanic_roll(
+            game_id=game_id,
+            message_id=aid,
+            engine="d6",
+            skill_used=f"Skill{i}",
+            roll_details={"dice": [i + 1], "total": i + 1, "outcome": "success"},
+            outcome="success",
+            complication=False,
+            cycle=1,
+        )
+
+    # Verify 2 rolls exist
+    async with test_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM mechanic_rolls WHERE game_id = $1", game_id
+        )
+    assert count == 2
+
+    # Rollback second round (keep first 2 messages)
+    await service.rollback_to_message(game_id, keep_until_index=2)
+
+    # After rollback: second message and its roll should be gone
+    # (mechanic_rolls has ON DELETE SET NULL on message_id,
+    #  but the messages themselves are deleted, so the roll's message_id becomes NULL)
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT message_id FROM mechanic_rolls WHERE game_id = $1",
+            game_id,
+        )
+    # First roll still linked, second roll's message was deleted (SET NULL)
+    linked = [r for r in rows if r["message_id"] is not None]
+    orphaned = [r for r in rows if r["message_id"] is None]
+    assert len(linked) == 1
+    assert len(orphaned) == 1
+
+    # But load_chat_messages only shows rolls with linked messages
+    messages = await service.load_chat_messages(game_id)
+    assistant_msgs = [m for m in messages if m["role"] == "assistant"]
+    assert len(assistant_msgs) == 1
+    assert "roll" in assistant_msgs[0]
 
 
 # =============================================================================

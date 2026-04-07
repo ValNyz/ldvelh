@@ -3,7 +3,6 @@ Unit tests for state_normalizer.py
 High priority: core serialization layer for frontend API.
 """
 
-from decimal import Decimal
 from uuid import UUID
 
 from config import DEFAULT_STATS
@@ -81,43 +80,25 @@ class TestNormalizePlayer:
     def test_none_input(self):
         """None -> defaults"""
         state = normalize_player(None)
-        assert state.energy == DEFAULT_STATS["energy"]
-        assert state.morale == DEFAULT_STATS["morale"]
-        assert state.health == DEFAULT_STATS["health"]
         assert state.credits == DEFAULT_STATS["credits"]
         assert state.inventory == []
+        assert state.engine_stats is None
 
     def test_empty_dict(self):
         """Empty dict -> defaults"""
         state = normalize_player({})
-        assert state.energy == DEFAULT_STATS["energy"]
+        assert state.credits == DEFAULT_STATS["credits"]
 
-    def test_english_keys(self):
-        """English keys"""
+    def test_credits_and_engine_stats(self):
+        """Credits and engine_stats are normalized"""
         state = normalize_player(
             {
-                "energy": 3.5,
-                "morale": 2.0,
-                "health": 4.5,
                 "credits": 500,
+                "engine_stats": {"wounds": {}, "force_points": 3},
             }
         )
-        assert state.energy == 3.5
-        assert state.morale == 2.0
-        assert state.health == 4.5
         assert state.credits == 500
-
-    def test_decimal_conversion(self):
-        """Decimal -> float"""
-        state = normalize_player(
-            {
-                "energy": Decimal("3.75"),
-                "morale": Decimal("2.50"),
-            }
-        )
-        assert state.energy == 3.75
-        assert isinstance(state.energy, float)
-        assert state.morale == 2.50
+        assert state.engine_stats == {"wounds": {}, "force_points": 3}
 
     def test_with_inventory_strings(self):
         """Inventory with legacy format (strings)"""
@@ -238,19 +219,18 @@ class TestNormalizeGameState:
         """No data -> defaults"""
         state = normalize_game_state()
         assert state.game is None
-        assert state.player.energy == DEFAULT_STATS["energy"]
+        assert state.player.credits == DEFAULT_STATS["credits"]
         assert state.ai is None
 
     def test_structured_input(self):
         """Structured input (game_data, player_data, ai_data)"""
         state = normalize_game_state(
             game_data={"name": "Test", "current_cycle": 2},
-            player_data={"energy": 3.0, "credits": 1000},
+            player_data={"credits": 1000},
             ai_data={"name": "ARIA"},
         )
         assert state.game.name == "Test"
         assert state.game.current_cycle == 2
-        assert state.player.energy == 3.0
         assert state.player.credits == 1000
         assert state.ai.name == "ARIA"
 
@@ -272,11 +252,9 @@ class TestNormalizeGameState:
         state = normalize_game_state(
             flat_data={
                 "name": "Direct",
-                "energy": 2.5,
                 "credits": 800,
             }
         )
-        assert state.player.energy == 2.5
         assert state.player.credits == 800
 
 
@@ -292,7 +270,7 @@ class TestMergeGameStates:
         """Partial update"""
         prev = GameState(
             game=GameSessionState(name="Test", current_cycle=1, current_location="Bar"),
-            player=PlayerState(energy=4.0, credits=1000),
+            player=PlayerState(credits=1000),
         )
         merged = merge_game_states(prev, {"game": {"current_cycle": 2}})
 

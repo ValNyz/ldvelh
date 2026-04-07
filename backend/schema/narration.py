@@ -22,21 +22,11 @@ from .core import (
 # =============================================================================
 
 
-class GaugeState(BaseModel):
-    """State of a protagonist gauge"""
-
-    value: float = Field(..., ge=0, le=5)
-    trend: Optional[str] = None  # "up", "down", "stable"
-
-
 class ProtagonistState(BaseModel):
     """Current protagonist state"""
 
     name: str
     credits: int
-    energy: GaugeState
-    morale: GaugeState
-    health: GaugeState
     hobbies: list[str]
     current_occupation: Optional[str] = None
     employer: Optional[str] = None
@@ -225,6 +215,12 @@ class NarrationContext(BaseModel):
     # === PLAYER INPUT ===
     player_input: str = Field(..., description="What the player said/chose")
 
+    # === ENGINE ===
+    engine_type: str = "none"
+    engine_stats: Optional[dict] = Field(
+        default=None, description="Engine-specific stats (Fate stress, D6 wounds, etc.)"
+    )
+
     # === META ===
     world_name: str
     world_atmosphere: str
@@ -253,13 +249,6 @@ class DayTransition(BaseModel):
     new_cycle: int
     new_date: str  # "Jeudi 16 Mars 2847"
     night_summary: Phrase | None = None  # 150 chars
-
-
-class GaugeDelta(BaseModel):
-    """Live gauge change output by the narrator"""
-
-    gauge: Literal["energy", "morale", "health"]
-    delta: float = Field(default=0, ge=-3.0, le=3.0)  # ±0.5 common, ±1.5 exceptional
 
 
 class CreditDelta(BaseModel):
@@ -328,9 +317,6 @@ class NarrationOutput(BaseModel):
     )
 
     # === LIVE STATE DELTAS ===
-    gauge_deltas: list[GaugeDelta] = Field(
-        default_factory=list, description="Gauge changes to apply immediately"
-    )
     credit_delta: Optional[CreditDelta] = Field(
         default=None, description="Credit change to apply immediately"
     )

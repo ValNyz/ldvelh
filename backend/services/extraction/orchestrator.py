@@ -15,6 +15,7 @@ from .inventory import InventoryExtractor
 from .locations import LocationsExtractor
 from .narrative_arcs import NarrativeArcsExtractor
 from .organizations import OrganizationsExtractor
+from .progression import ProgressionExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ EXTRACTOR_MAP = {
     "organizations": OrganizationsExtractor,
     "inventory": InventoryExtractor,
     "narrative_arcs": NarrativeArcsExtractor,
+    "progression": ProgressionExtractor,
 }
 
 # Guard against concurrent extractions for the same game

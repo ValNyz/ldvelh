@@ -30,6 +30,8 @@ class SSEEvent(str, Enum):
     ERROR = "error"
     WARNING = "warning"
     STATE = "state"
+    ROLL_RESULT = "roll_result"
+    ROLL_PENDING = "roll_pending"
 
 
 @dataclass
@@ -110,6 +112,18 @@ class SSEWriter:
         """Envoie un avertissement"""
         logger.warning(f"[SSE:{self._stream_id}] Warning: {message}")
         await self.send(SSEEvent.WARNING, {"message": message, "details": details})
+
+    async def send_roll_result(self, roll_data: dict) -> None:
+        """Send a dice roll result to the frontend for display."""
+        await self.send(SSEEvent.ROLL_RESULT, {"roll": roll_data})
+
+    async def send_roll_pending(self, pending_data: dict) -> None:
+        """Send a pending roll for Fate Core aspect invocation.
+
+        Frontend should show the invocation modal and POST /chat
+        with roll_id + invoked_aspects to resume.
+        """
+        await self.send(SSEEvent.ROLL_PENDING, pending_data)
 
     async def send_debug(self, message: str, data: Any = None) -> None:
         """Envoie un message de debug (dev only)"""

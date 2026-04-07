@@ -22,7 +22,10 @@ import InputArea from '../components/game/InputArea';
 import { DebugStatePanel } from '../components/game/SettingsPanel';
 import SettingsPage from '../components/game/SettingsPage';
 import WorldGenerationScreen from '../components/game/WorldGenerationScreen';
+import WizardContainer from '../components/game/wizard/WizardContainer';
 import { InventorySidebar, WorldSidebar } from '../components/game/Sidebars';
+import CharacterSheet from '../components/game/CharacterSheet';
+import AspectInvocationModal from '../components/game/AspectInvocationModal';
 
 export default function Home() {
 	// =========================================================================
@@ -143,6 +146,17 @@ export default function Home() {
 		);
 	}
 
+	// Wizard screen (engine + world config + character creation)
+	if (phaseHook.isWizard) {
+		return (
+			<WizardContainer
+				onComplete={orch.handleWizardComplete}
+				onCancel={orch.handleWizardCancel}
+				loading={gs.loading}
+			/>
+		);
+	}
+
 	// World generation screen
 	if (phaseHook.isGenerating || phaseHook.isWorldReady) {
 		return (
@@ -178,6 +192,13 @@ export default function Home() {
 		<div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
 			<div className="flex-1 flex overflow-hidden">
 
+				{/* Character Sheet Sidebar (left) */}
+				<CharacterSheet
+					isOpen={activeSidebar === 'character'}
+					onClose={() => setActiveSidebar(null)}
+					gameState={gs.gameState}
+				/>
+
 				{/* Inventory Sidebar (left) */}
 				<InventorySidebar
 					isOpen={activeSidebar === 'inventory'}
@@ -191,6 +212,7 @@ export default function Home() {
 						partieName={gs.gameName}
 						gameState={gs.gameState}
 						onRename={orch.handleRenameGame}
+						onToggleCharacterSheet={() => toggleSidebar('character')}
 						onToggleInventory={() => toggleSidebar('inventory')}
 						onToggleWorld={() => toggleSidebar('world')}
 						onShowSettings={openSettings}
@@ -219,6 +241,7 @@ export default function Home() {
 						onRetry={orch.handleRetry}
 						tooltipMap={tooltipMap}
 						showDebug={prefs.showDebug}
+						engine={gs.gameState?.game?.engine}
 					/>
 
 					<InputArea
@@ -237,6 +260,15 @@ export default function Home() {
 					loading={worldLoading}
 				/>
 			</div>
+
+			{/* Fate Core Aspect Invocation Modal */}
+			{orch.invocationData && (
+				<AspectInvocationModal
+					invocationData={orch.invocationData}
+					onInvoke={orch.handleInvoke}
+					onSkip={orch.handleSkipInvocation}
+				/>
+			)}
 		</div>
 	);
 }

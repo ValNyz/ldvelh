@@ -96,11 +96,9 @@ function mergePlayer(prev, next) {
 	if (!next) return prev;
 
 	return {
-		energy: next.energy ?? prev.energy,
-		morale: next.morale ?? prev.morale,
-		health: next.health ?? prev.health,
 		credits: next.credits ?? prev.credits,
-		inventory: next.inventory !== undefined ? next.inventory : (prev.inventory || [])
+		inventory: next.inventory !== undefined ? next.inventory : (prev.inventory || []),
+		engine_stats: next.engine_stats !== undefined ? next.engine_stats : prev.engine_stats
 	};
 }
 
@@ -124,8 +122,8 @@ export function useGames() {
 		}
 	}, []);
 
-	const createGame = useCallback(async () => {
-		const data = await gamesApi.create();
+	const createGame = useCallback(async (engine = null) => {
+		const data = await gamesApi.create(engine);
 		if (data.error) throw new Error(data.error);
 		return data.gameId;
 	}, []);

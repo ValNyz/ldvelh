@@ -43,7 +43,7 @@ class KnowledgeGraphReader:
 
         query = """
             SELECT id, name, active, created_at, updated_at,
-                   current_cycle, "current_date"
+                   current_cycle, "current_date", engine
             FROM games
         """
         if conditions:
@@ -63,7 +63,8 @@ class KnowledgeGraphReader:
                       world_name, world_description, world_atmosphere,
                       world_seed_words, world_founding_cycle,
                       extracted_up_to_cycle, last_extraction_time,
-                      detail_requests
+                      detail_requests,
+                      engine, engine_locked, world_config
                FROM games WHERE id = $1""",
             target_id,
         )
@@ -168,7 +169,7 @@ class KnowledgeGraphReader:
         """Get protagonist with all fields."""
         row = await conn.fetchrow(
             """SELECT p.id, p.name,
-                      p.energy, p.morale, p.health, p.credits,
+                      p.credits,
                       p.occupation, p.origin, p.departure_reason,
                       p.backstory, p.hobbies, p.description,
                       p.employer_id, p.residence_id, p.details,
@@ -194,10 +195,9 @@ class KnowledgeGraphReader:
         return result
 
     async def get_protagonist_stats(self, conn: Connection) -> dict | None:
-        """Get protagonist gauges and credits only."""
+        """Get protagonist credits only."""
         row = await conn.fetchrow(
-            "SELECT energy, morale, health, credits"
-            " FROM protagonists WHERE game_id = $1",
+            "SELECT credits FROM protagonists WHERE game_id = $1",
             self.game_id,
         )
         return dict(row) if row else None
@@ -625,9 +625,11 @@ class KnowledgeGraphReader:
             SELECT m.id, m.role, m.content, m.cycle, m.game_date, m.time,
                    m.location_id, m.extracted, m.sequence, m.created_at,
                    m.narrator_deltas,
-                   l.name as location_name
+                   l.name as location_name,
+                   mr.roll_details
             FROM messages m
             LEFT JOIN locations l ON m.location_id = l.id
+            LEFT JOIN mechanic_rolls mr ON mr.message_id = m.id
             WHERE m.game_id = $1
         """
         params: list = [self.game_id]
@@ -928,3 +930,65 @@ class KnowledgeGraphReader:
             self.game_id, entity_name, limit,
         )
         return [dict(r) for r in rows]
+
+    # =========================================================================
+    # ENGINE
+    # =========================================================================
+
+    async def get_engine_type(self, conn: Connection) -> str:
+        """Get the engine type for this game."""
+        result = await conn.fetchval(
+            "SELECT engine FROM games WHERE id = $1", self.game_id
+        )
+        return result or "none"
+
+    async def get_world_config(self, conn: Connection) -> dict | None:
+        """Get the world configuration for this game."""
+        return await conn.fetchval(
+            "SELECT world_config FROM games WHERE id = $1", self.game_id
+        )
+
+    async def is_engine_locked(self, conn: Connection) -> bool:
+        """Check if engine is locked (no longer changeable)."""
+        result = await conn.fetchval(
+            "SELECT engine_locked FROM games WHERE id = $1", self.game_id
+        )
+        return bool(result)
+
+    async def get_mechanic_rolls(
+        self,
+        conn: Connection,
+        cycle: int | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        """Get mechanic roll history."""
+        query = """
+            SELECT id, engine, skill_used, roll_details, outcome,
+                   complication, cycle, created_at
+            FROM mechanic_rolls
+            WHERE game_id = $1
+        """
+        params: list = [self.game_id]
+        if cycle is not None:
+            params.append(cycle)
+            query += f" AND cycle = ${len(params)}"
+        query += " ORDER BY created_at DESC"
+        params.append(limit)
+        query += f" LIMIT ${len(params)}"
+
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_engine_snapshot_for_cycle(
+        self, conn: Connection, cycle: int
+    ) -> dict | None:
+        """Get the engine snapshot from the last assistant message at or before a cycle."""
+        result = await conn.fetchval(
+            """SELECT engine_snapshot FROM messages
+               WHERE game_id = $1 AND role = 'assistant'
+                 AND cycle <= $2 AND engine_snapshot IS NOT NULL
+               ORDER BY sequence DESC LIMIT 1""",
+            self.game_id,
+            cycle,
+        )
+        return result

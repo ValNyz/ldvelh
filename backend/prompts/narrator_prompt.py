@@ -1,9 +1,11 @@
 """
 LDVELH - Narrator Prompt
-Prompt système et construction pour le LLM narrateur
+System prompt and context builder for the narrator LLM.
+Engine-aware: adapts for none/narrative/fate_core/d6.
 """
 
 import json
+from typing import TYPE_CHECKING
 
 from prompts.shared import TONE_STYLE, FRICTION_RULES, COHERENCE_RULES
 from prompts.examples import (
@@ -14,6 +16,11 @@ from prompts.examples import (
     NARRATION_EXAMPLE_WITH_DELTAS,
     NARRATION_EXAMPLE_WITH_REVEAL,
 )
+from services.engine import get_engine
+
+if TYPE_CHECKING:
+    from schema.engine import MechanicalResult
+    from schema.narration import NarrationContext
 
 # Serialize examples as proper JSON (not Python repr with single quotes/True/False)
 _json = lambda d: json.dumps(d, indent=2, ensure_ascii=False)
@@ -24,11 +31,12 @@ _EX_DELTAS = _json(NARRATION_EXAMPLE_WITH_DELTAS)
 _EX_DAY = _json(NARRATION_EXAMPLE_DAY_TRANSITION)
 _EX_REVEAL = _json(NARRATION_EXAMPLE_WITH_REVEAL)
 
+
 # =============================================================================
-# SYSTEM PROMPT
+# BASE SYSTEM PROMPT (shared across all engines)
 # =============================================================================
 
-NARRATOR_SYSTEM_PROMPT = f"""Tu es le narrateur d'un jeu de rôle narratif solo dans un univers de science-fiction.
+_BASE_SYSTEM_PROMPT = f"""Tu es le narrateur d'un jeu de rôle narratif solo dans un univers de science-fiction.
 
 ## TON RÔLE
 Tu racontes l'histoire de Valentin, le protagoniste, à travers des scènes vivantes. Tu réagis aux actions du joueur et fais vivre le monde autour de lui.
@@ -104,12 +112,6 @@ Ne le cite jamais mot pour mot — incorpore-le naturellement.
 Tu gères directement les changements d'état du protagoniste via ces champs.
 Ils sont appliqués **immédiatement** — pas besoin d'extraction séparée.
 
-### `gauge_deltas` — Jauges (énergie, moral, santé)
-- `gauge`: "energy", "morale", ou "health"
-- `delta`: variation numérique (±0.5 courant, ±1.0 notable, ±1.5 exceptionnel)
-- Exemples : café → energy +0.5, mauvaise nouvelle → morale -1.0, blessure → health -1.5
-- **Liste vide `[]` si rien ne change** (le cas le plus fréquent)
-
 ### `credit_delta` — Crédits (achats, gains)
 - `amount`: positif = gain, négatif = dépense
 - `description`: raison courte (100 car. max)
@@ -180,7 +182,7 @@ Description de l'environnement avec **emphase** sur les détails.
 {_EX_PNJ}
 ```
 
-### Exemple 3 : Achat + effet sur les jauges
+### Exemple 3 : Achat
 ```json
 {_EX_DELTAS}
 ```
@@ -208,23 +210,55 @@ Description de l'environnement avec **emphase** sur les détails.
 
 
 # =============================================================================
+# FACTORY: build_narrator_system_prompt(engine_type)
+# =============================================================================
+
+# Keep backward compat: NARRATOR_SYSTEM_PROMPT is the default (none engine)
+NARRATOR_SYSTEM_PROMPT = _BASE_SYSTEM_PROMPT
+
+
+def build_narrator_system_prompt(engine_type: str = "none") -> str:
+    """Build the appropriate narrator system prompt for the engine type.
+
+    Delegates to engine.get_system_prompt_addon() for engine-specific sections.
+    """
+    engine = get_engine(engine_type)
+    addon = engine.get_system_prompt_addon()
+    if addon:
+        return _BASE_SYSTEM_PROMPT + addon
+    return _BASE_SYSTEM_PROMPT
+
+
+# =============================================================================
 # CONTEXT BUILDER
 # =============================================================================
 
 
-def build_narrator_context_prompt(context: "NarrationContext") -> str:
-    """Construit le prompt utilisateur avec le contexte complet"""
+def build_narrator_context_prompt(
+    context: "NarrationContext",
+    engine_type: str | None = None,
+    mechanical_result: "MechanicalResult | None" = None,
+) -> str:
+    """Build the user message with complete context.
+
+    Args:
+        context: Full narration context from DB
+        engine_type: Engine type (none/narrative/fate_core/d6), defaults to context.engine_type
+        mechanical_result: Result of mechanical step (dice roll) if any
+    """
+    if engine_type is None:
+        engine_type = getattr(context, "engine_type", "none")
 
     lines = ["## CONTEXTE ACTUEL", ""]
 
-    # Temps
+    # Time
     lines.append("### TEMPS")
     lines.append(f"- Cycle: {context.current_cycle}")
     lines.append(f"- Date: {context.current_date}")
     lines.append(f"- Heure: {context.current_time}")
     lines.append("")
 
-    # === MONDE ===
+    # === WORLD ===
     if context.world_name:
         lines.append("### MONDE")
         lines.append(f"**{context.world_name}**")
@@ -234,7 +268,7 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
             lines.append(f"Notes de ton: {context.tone_notes}")
         lines.append("")
 
-    # Lieu
+    # Location
     lines.append("### LIEU ACTUEL")
     loc = context.current_location
     lines.append(f"**{loc.name}** ({loc.type}, {loc.sector})")
@@ -250,21 +284,23 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
             lines.append(f"- {l.name} ({l.type})")
         lines.append("")
 
-    # Protagoniste
+    # Protagonist
     lines.append("### PROTAGONISTE")
     p = context.protagonist
     lines.append(f"**{p.name}** - {p.current_occupation or 'sans emploi'}")
     if p.employer:
         lines.append(f"Employeur: {p.employer}")
     lines.append(f"Crédits: {p.credits}")
-    lines.append(
-        f"Énergie: {p.energy.value}/5 | Moral: {p.morale.value}/5 | Santé: {p.health.value}/5"
-    )
     if p.hobbies:
         lines.append(f"Hobbies: {', '.join(p.hobbies)}")
     lines.append("")
 
-    # Inventaire (résumé)
+    # === ENGINE STATS (delegated to engine class) ===
+    if engine_type != "none" and context.engine_stats:
+        engine = get_engine(engine_type)
+        lines.extend(engine.build_context_stats(context.engine_stats))
+
+    # Inventory
     if context.inventory:
         items = [
             f"{i.name}" + (f" (×{i.quantity})" if i.quantity > 1 else "")
@@ -273,7 +309,7 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
         lines.append(f"Inventaire: {', '.join(items)}")
         lines.append("")
 
-    # IA Personnelle
+    # Personal AI
     if context.personal_ai:
         lines.append("### IA PERSONNELLE")
         ai = context.personal_ai
@@ -286,7 +322,7 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
             lines.append(f"Particularité: {ai.quirk}")
         lines.append("")
 
-    # === ORGANISATIONS CONNUES ===
+    # === ORGANIZATIONS ===
     if context.organizations:
         lines.append("### ORGANISATIONS CONNUES")
         for org in context.organizations:
@@ -299,18 +335,138 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
         lines.append("")
 
     # === UNIFIED NPC SECTION ===
+    _append_npc_section(lines, context)
+
+    # === NON-CHARACTER REQUESTED DETAILS ===
+    requested_other = {}
+    for name, details in context.requested_entity_details.items():
+        entity_type = details.get("_entity_type") or details.get("type", "")
+        if entity_type != "character":
+            requested_other[name] = details
+
+    if requested_other:
+        lines.append("### DÉTAILS DEMANDÉS")
+        for entity_name, details in requested_other.items():
+            lines.append(f"**{entity_name}** ({details.get('_entity_type', 'inconnu')})")
+            if details.get("description"):
+                lines.append(f"  {details['description']}")
+            if details.get("sector"):
+                lines.append(f"  Secteur: {details['sector']}")
+            if details.get("atmosphere"):
+                lines.append(f"  Ambiance: {details['atmosphere']}")
+            if details.get("location_type"):
+                lines.append(f"  Type: {details['location_type']}")
+            if details.get("domain"):
+                lines.append(f"  Domaine: {details['domain']}")
+            if details.get("org_type"):
+                lines.append(f"  Type: {details['org_type']}")
+            if details.get("recent_facts"):
+                lines.append("  Faits récents:")
+                for fact in details["recent_facts"][:3]:
+                    desc = fact.get("description", fact) if isinstance(fact, dict) else fact
+                    lines.append(f"    - {desc}")
+            lines.append("")
+
+    # Active arcs
+    if context.active_arcs:
+        lines.append("### ARCS & ENGAGEMENTS ACTIFS")
+        for c in context.active_arcs:
+            deadline = (
+                f" [deadline: cycle {c.deadline_cycle}]" if c.deadline_cycle else ""
+            )
+            lines.append(f"- **{c.title}** ({c.type}){deadline}")
+            lines.append(f"  {c.description_brief}")
+            if c.involved:
+                lines.append(f"  Impliqués: {', '.join(c.involved)}")
+        lines.append("")
+
+    # Upcoming events
+    if context.upcoming_events:
+        lines.append("### ÉVÉNEMENTS À VENIR")
+        for e in context.upcoming_events:
+            time_info = f" à {e.planned_time}" if e.planned_time else ""
+            loc_info = f" @ {e.location}" if e.location else ""
+            lines.append(
+                f"- Cycle {e.planned_cycle}{time_info}: **{e.title}**{loc_info}"
+            )
+        lines.append("")
+
+    # Recent facts
+    if context.facts:
+        lines.append("### FAITS PERTINENTS")
+        for f in sorted(context.facts, key=lambda x: (-x.importance, -x.cycle)):
+            involves_str = f" [{', '.join(f.involves)}]" if f.involves else ""
+            lines.append(f"- [Cycle {f.cycle}] {f.description}{involves_str}")
+        lines.append("")
+
+    # === CYCLE HISTORY ===
+    if context.cycle_summaries:
+        lines.append("### RÉSUMÉ DES CYCLES PRÉCÉDENTS")
+        for summary in context.cycle_summaries:
+            lines.append(f"Cycle {summary.cycle} - {summary.summary}")
+        lines.append("")
+
+    # === MECHANICAL RESULT (delegated to engine class) ===
+    if mechanical_result and mechanical_result.roll:
+        engine = get_engine(engine_type)
+        lines.extend(
+            engine.build_mechanical_result_section(
+                mechanical_result.decision, mechanical_result.roll
+            )
+        )
+
+    # Player input
+    lines.append("---")
+    lines.append("")
+    lines.append("## ACTION DU JOUEUR")
+    lines.append("")
+    lines.append(f"> {context.player_input}")
+    lines.append("")
+    # Condensed output format reminder
+    lines.append("## FORMAT DE RÉPONSE ATTENDU (rappel)")
+    lines.append("")
+    lines.append("```json")
+    lines.append("""{
+  "narrative_text": "...",
+  "time": {"new_time": "HHhMM", "ellipse": false},
+  "day_transition": null,
+  "current_location": "Nom EXACT",
+  "npcs_present": [],
+  "suggested_actions": ["Action 1", "Action 2", "Action 3"],
+  "credit_delta": null,
+  "inventory_hints": [],
+  "entity_reveals": [],
+  "events_mentioned": [],
+  "info_requests": [],
+  "extraction_triggers": [],
+  "scene_mood": "2-3 mots",
+  "narrator_notes": "Notes courtes"
+}""")
+    lines.append("```")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("Génère la suite de l'histoire en JSON.")
+
+    return "\n".join(lines)
+
+
+# =============================================================================
+# HELPER: NPC SECTION
+# =============================================================================
+
+
+def _append_npc_section(lines: list[str], context: "NarrationContext") -> None:
+    """Append the unified NPC section to the context prompt."""
     present_names = {npc.name for npc in context.npcs_present}
-    # Build lookup for present NPCs (have arc enrichment)
     present_by_name = {npc.name: npc for npc in context.npcs_present}
+
     # Separate character vs non-character requested details
     requested_characters = {}
-    requested_other = {}
     for name, details in context.requested_entity_details.items():
         entity_type = details.get("_entity_type") or details.get("type", "")
         if entity_type == "character":
             requested_characters[name] = details
-        else:
-            requested_other[name] = details
 
     displayed = set()
     npc_lines: list[str] = []
@@ -342,7 +498,6 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
             npc_lines.append(f"  Relation: niveau {rel_level}/10")
         if d.get("mood"):
             npc_lines.append(f"  Humeur: {d['mood']}")
-        # Include arcs from present NPC data if available
         present_npc = present_by_name.get(name)
         if present_npc and present_npc.active_arcs:
             for arc in present_npc.active_arcs:
@@ -403,110 +558,3 @@ def build_narrator_context_prompt(context: "NarrationContext") -> str:
         lines.append("### PNJs")
         lines.extend(npc_lines)
         lines.append("")
-
-    # === NON-CHARACTER REQUESTED DETAILS (locations, organizations) ===
-    if requested_other:
-        lines.append("### DÉTAILS DEMANDÉS")
-        for entity_name, details in requested_other.items():
-            lines.append(f"**{entity_name}** ({details.get('_entity_type', 'inconnu')})")
-            if details.get("description"):
-                lines.append(f"  {details['description']}")
-            if details.get("sector"):
-                lines.append(f"  Secteur: {details['sector']}")
-            if details.get("atmosphere"):
-                lines.append(f"  Ambiance: {details['atmosphere']}")
-            if details.get("location_type"):
-                lines.append(f"  Type: {details['location_type']}")
-            if details.get("domain"):
-                lines.append(f"  Domaine: {details['domain']}")
-            if details.get("org_type"):
-                lines.append(f"  Type: {details['org_type']}")
-            if details.get("recent_facts"):
-                lines.append("  Faits récents:")
-                for fact in details["recent_facts"][:3]:
-                    desc = fact.get("description", fact) if isinstance(fact, dict) else fact
-                    lines.append(f"    - {desc}")
-            lines.append("")
-
-    # Engagements narratifs
-    if context.active_arcs:
-        lines.append("### ARCS & ENGAGEMENTS ACTIFS")
-        for c in context.active_arcs:
-            deadline = (
-                f" [deadline: cycle {c.deadline_cycle}]" if c.deadline_cycle else ""
-            )
-            lines.append(f"- **{c.title}** ({c.type}){deadline}")
-            lines.append(f"  {c.description_brief}")
-            if c.involved:
-                lines.append(f"  Impliqués: {', '.join(c.involved)}")
-        lines.append("")
-
-    # Événements à venir
-    if context.upcoming_events:
-        lines.append("### ÉVÉNEMENTS À VENIR")
-        for e in context.upcoming_events:
-            time_info = f" à {e.planned_time}" if e.planned_time else ""
-            loc_info = f" @ {e.location}" if e.location else ""
-            lines.append(
-                f"- Cycle {e.planned_cycle}{time_info}: **{e.title}**{loc_info}"
-            )
-        lines.append("")
-
-    # Faits récents importants
-    if context.facts:
-        lines.append("### FAITS PERTINENTS")
-        for f in sorted(context.facts, key=lambda x: (-x.importance, -x.cycle)):
-            involves_str = f" [{', '.join(f.involves)}]" if f.involves else ""
-            lines.append(f"- [Cycle {f.cycle}] {f.description}{involves_str}")
-        lines.append("")
-
-    # === HISTORIQUE DES CYCLES ===
-    if context.cycle_summaries:
-        lines.append("### RÉSUMÉ DES CYCLES PRÉCÉDENTS")
-        # Grouper par tranches pour lisibilité
-        for summary in context.cycle_summaries:
-            lines.append(f"Cycle {summary.cycle} - {summary.summary}")
-        lines.append("")
-
-    # Input joueur
-    lines.append("---")
-    lines.append("")
-    lines.append("## ACTION DU JOUEUR")
-    lines.append("")
-    lines.append(f"> {context.player_input}")
-    lines.append("")
-    # Condensed output format reminder (helps non-Claude models follow the structure)
-    lines.append("## FORMAT DE RÉPONSE ATTENDU (rappel)")
-    lines.append("")
-    lines.append("```json")
-    lines.append("""{
-  "narrative_text": "...",
-  "time": {"new_time": "HHhMM", "ellipse": false},
-  "day_transition": null,
-  "current_location": "Nom EXACT",
-  "npcs_present": [],
-  "suggested_actions": ["Action 1", "Action 2", "Action 3"],
-  "gauge_deltas": [],
-  "credit_delta": null,
-  "inventory_hints": [],
-  "entity_reveals": [],
-  "events_mentioned": [],
-  "info_requests": [],
-  "extraction_triggers": [],
-  "scene_mood": "2-3 mots",
-  "narrator_notes": "Notes courtes"
-}""")
-    lines.append("```")
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-    lines.append("Génère la suite de l'histoire en JSON.")
-
-    return "\n".join(lines)
-
-
-# Type hint
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from schema.narration import NarrationContext

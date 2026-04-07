@@ -51,10 +51,6 @@ class ProtagonistData(BaseModel):
     """The player character"""
 
     name: Tag = "Valentin"
-    # Gauges
-    energy: float = Field(default=4.0, ge=0, le=5)
-    morale: float = Field(default=3.0, ge=0, le=5)
-    health: float = Field(default=5.0, ge=0, le=5)
     credits: int = Field(default=1400, ge=0)
     # Profile
     occupation: Name | None = None

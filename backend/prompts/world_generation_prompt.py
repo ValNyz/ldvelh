@@ -152,11 +152,128 @@ JSON valide uniquement. Pas de markdown, pas de commentaires.
 # =============================================================================
 
 
+def _build_engine_section(engine: str, world_config: dict | None = None) -> list[str]:
+    """Build engine-specific prompt section for world generation."""
+    if engine == "none" or not engine:
+        return []
+
+    parts = ["## MOTEUR DE JEU", ""]
+    genre = world_config.get("genre", "sci-fi") if world_config else "sci-fi"
+    difficulty = world_config.get("difficulty", "moderate") if world_config else "moderate"
+
+    if engine == "narrative":
+        parts.extend([
+            "Moteur : **Narratif** (résistance basée sur les traits)",
+            f"Genre : {genre} | Difficulté : {difficulty}",
+            "",
+            "Le protagoniste aura des **traits narratifs** qui influencent les épreuves.",
+            "Les PNJ n'ont pas besoin de stats mécaniques.",
+            "",
+        ])
+
+    elif engine == "fate_core":
+        from services.engine.engine_data import get_fate_skills, FATE_DIFFICULTY_LADDER
+
+        skills = get_fate_skills(genre)
+        parts.extend([
+            "Moteur : **Fate Core** (dés Fudge, aspects, compétences, points de destin)",
+            f"Genre : {genre} | Difficulté : {difficulty}",
+            "",
+            f"Compétences disponibles : {', '.join(skills)}",
+            "",
+            "### PNJ — Stats Fate (IMPORTANT)",
+            "Chaque PNJ doit avoir dans son champ `details` :",
+            '- `"fate_skills"`: dict de 2-4 compétences clés avec niveaux (0-6)',
+            '  Exemple: `{"Combat": 3, "Athlétisme": 2, "Discrétion": 4}`',
+            '- `"fate_aspects"`: liste de 1-2 aspects narratifs',
+            '  Exemple: `["Mécanicienne hors pair", "Méfiante des étrangers"]`',
+            "",
+            "Ces stats serviront pour les jets opposés contre le protagoniste.",
+            "",
+        ])
+
+    elif engine == "d6":
+        from services.engine.engine_data import get_d6_skills, D6_ATTRIBUTES
+
+        skills = get_d6_skills(genre)
+        parts.extend([
+            "Moteur : **D6 System** (pools de D6, dé sauvage, attributs/compétences)",
+            f"Genre : {genre} | Difficulté : {difficulty}",
+            "",
+            f"Attributs : {', '.join(D6_ATTRIBUTES)}",
+            "",
+            "### PNJ — Stats D6 (IMPORTANT)",
+            "Chaque PNJ doit avoir dans son champ `details` :",
+            '- `"d6_attributes"`: dict d\'attributs principaux en code dé',
+            '  Exemple: `{"Dextérité": "3D", "Force": "2D+1", "Perception": "3D+2"}`',
+            '- `"d6_skills"`: dict de 2-4 compétences clés en code dé',
+            '  Exemple: `{"Esquive": "4D", "Bagarre": "3D+2"}`',
+            "",
+            "Ces stats serviront pour les jets opposés contre le protagoniste.",
+            "",
+        ])
+
+    # World config extras
+    if world_config:
+        if world_config.get("lore"):
+            parts.extend([
+                "### Contexte supplémentaire",
+                world_config["lore"],
+                "",
+            ])
+        if world_config.get("custom_rules"):
+            parts.extend([
+                "### Règles personnalisées",
+                world_config["custom_rules"],
+                "",
+            ])
+        if world_config.get("hardcore"):
+            parts.extend([
+                "### Mode Hardcore",
+                "Ce monde est BRUTAL. Les ressources sont rares, les PNJ hostiles,",
+                "et les conséquences des erreurs sont graves. Augmente la friction.",
+                "",
+            ])
+
+    return parts
+
+
+def _build_manual_entities_section(manual_entities: dict) -> list[str]:
+    """Build section for user-defined entities."""
+    parts = ["## ENTITÉS IMPOSÉES PAR LE JOUEUR", ""]
+
+    if "npcs" in manual_entities:
+        parts.append("### PNJ imposés")
+        for npc in manual_entities["npcs"]:
+            parts.append(f"- **{npc.get('name', '???')}**: {npc.get('description', '')}")
+        parts.append("")
+
+    if "locations" in manual_entities:
+        parts.append("### Lieux imposés")
+        for loc in manual_entities["locations"]:
+            parts.append(f"- **{loc.get('name', '???')}**: {loc.get('description', '')}")
+        parts.append("")
+
+    if "organizations" in manual_entities:
+        parts.append("### Organisations imposées")
+        for org in manual_entities["organizations"]:
+            parts.append(f"- **{org.get('name', '???')}**: {org.get('description', '')}")
+        parts.append("")
+
+    parts.append("Intègre ces entités naturellement dans le monde généré.")
+    parts.append("")
+    return parts
+
+
 def build_world_generation_user_prompt(
     mandatory_npcs: list[dict] | None = None,
     theme_preferences: str | None = None,
     employer_preference: str = "employed",
     include_example: bool = True,
+    engine: str | None = None,
+    world_config: dict | None = None,
+    character_data: dict | None = None,
+    manual_entities: dict | None = None,
 ) -> str:
     """Build the user prompt for world generation"""
 
@@ -177,6 +294,14 @@ def build_world_generation_user_prompt(
                 "",
             ]
         )
+
+    # Engine-specific section
+    if engine and engine != "none":
+        parts.extend(_build_engine_section(engine, world_config))
+
+    # Manual entities (user-defined NPCs, locations, orgs)
+    if manual_entities:
+        parts.extend(_build_manual_entities_section(manual_entities))
 
     parts.extend(
         [
@@ -308,6 +433,10 @@ def get_full_generation_prompt(
     mandatory_npcs: list[dict] | None = None,
     theme_preferences: str | None = None,
     employer_preference: str = "employed",
+    engine: str | None = None,
+    world_config: dict | None = None,
+    character_data: dict | None = None,
+    manual_entities: dict | None = None,
 ) -> dict:
     """Returns the complete prompt structure for the LLM API call"""
 
@@ -317,5 +446,9 @@ def get_full_generation_prompt(
             mandatory_npcs=mandatory_npcs,
             theme_preferences=theme_preferences,
             employer_preference=employer_preference,
+            engine=engine,
+            world_config=world_config,
+            character_data=character_data,
+            manual_entities=manual_entities,
         ),
     }

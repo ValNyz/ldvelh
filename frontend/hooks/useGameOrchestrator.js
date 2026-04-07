@@ -36,20 +36,29 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const [isExtracting, setIsExtracting] = useState(false);
 	const [editingIndex, setEditingIndex] = useState(null);
 	const [lastUserMessage, setLastUserMessage] = useState('');
+	const [invocationData, setInvocationData] = useState(null);
 	const sendingRef = useRef(false);
+	const pendingRollRef = useRef(null);
 
 	// =========================================================================
 	// STREAMING CALLBACKS
 	// =========================================================================
 
 	const { startStream, cancel, isStreaming } = useStreaming({
+		onRollResult: (roll) => {
+			// Store roll data in ref — will be attached to the assistant message on first chunk
+			pendingRollRef.current = roll;
+		},
 		onChunk: (content) => {
 			gs.setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.role === 'assistant' && last.streaming) {
 					return [...prev.slice(0, -1), { ...last, content: last.content + content }];
 				}
-				return [...prev, { role: 'assistant', content, streaming: true }];
+				// First chunk — attach any pending roll result
+				const roll = pendingRollRef.current;
+				pendingRollRef.current = null;
+				return [...prev, { role: 'assistant', content, streaming: true, ...(roll ? { roll } : {}) }];
 			});
 		},
 		onProgress: (rawJson) => {
@@ -120,6 +129,18 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			tooltips.refresh();
 			world.refresh();
 		},
+		onRollPending: (data) => {
+			// Fate Core: roll failed, player can invoke aspects
+			sendingRef.current = false;
+			gs.setLoading(false);
+			gs.setSaving(false);
+			setInvocationData({
+				rollId: data.roll_id,
+				roll: data.roll,
+				aspects: data.aspects,
+				fatePoints: data.fate_points,
+			});
+		},
 		onError: (err, details) => {
 			sendingRef.current = false;
 			gs.setError({ message: err, details, recoverable: true });
@@ -167,26 +188,47 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	// =========================================================================
 
 	const handleNewGame = useCallback(async () => {
+		gs.setError(null);
+		gs.setMessages([]);
+		gs.replaceGameState(null);
+		phase.setWorldGenProgress('');
+		phase.setWorldData(null);
+		phase.setGamePhase(phase.GAME_PHASE.WIZARD);
+	}, [gs, phase]);
+
+	const handleWizardComplete = useCallback(async ({ engine, worldConfig, characterData, manualEntities }) => {
 		gs.setLoading(true);
 		gs.setError(null);
 		try {
-			const id = await games.createGame();
+			const id = await games.createGame(engine);
 			gs.setGameId(id);
 			gs.setGameName(MESSAGES.NEW_GAME_NAME);
-			gs.setMessages([]);
-			gs.replaceGameState(null);
-			phase.setWorldGenProgress('');
-			phase.setWorldData(null);
 
 			await games.loadGames();
 			phase.setGamePhase(phase.GAME_PHASE.GENERATING_WORLD);
 			gs.setLoading(false);
-			generateWorld(id);
+
+			// Start world generation with engine params
+			await startStream('/chat', {
+				message: PROTOCOL.INIT_TOKEN,
+				gameId: id,
+				gameState: null,
+				provider: preferences?.activeProvider || 'anthropic',
+				model: preferences?.activeModel || null,
+				engine,
+				world_config: worldConfig,
+				character_data: characterData,
+				manual_entities: manualEntities,
+			});
 		} catch (e) {
 			gs.setError({ message: e.message });
 			gs.setLoading(false);
 		}
-	}, [games, gs, phase, generateWorld]);
+	}, [games, gs, phase, startStream, preferences]);
+
+	const handleWizardCancel = useCallback(() => {
+		phase.setGamePhase(phase.GAME_PHASE.LIST);
+	}, [phase]);
 
 	const handleLoadGame = useCallback(async (id) => {
 		gs.setLoading(true);
@@ -357,6 +399,52 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	}, [lastUserMessage, handleSendMessage]);
 
 	// =========================================================================
+	// ASPECT INVOCATION (Fate Core)
+	// =========================================================================
+
+	const handleInvoke = useCallback(async (selectedAspects) => {
+		if (!invocationData || !gs.gameId) return;
+
+		setInvocationData(null);
+		gs.setLoading(true);
+		gs.setSaving(true);
+		sendingRef.current = true;
+
+		await startStream('/chat', {
+			gameId: gs.gameId,
+			message: lastUserMessage,
+			gameState: gs.gameState,
+			provider: preferences?.activeProvider || 'anthropic',
+			model: preferences?.activeModel || null,
+			roll_id: invocationData.rollId,
+			invoked_aspects: selectedAspects,
+		});
+	}, [invocationData, gs.gameId, gs.gameState, lastUserMessage, startStream, gs, preferences]);
+
+	const handleSkipInvocation = useCallback(async () => {
+		if (!invocationData || !gs.gameId) return;
+
+		setInvocationData(null);
+		gs.setLoading(true);
+		gs.setSaving(true);
+		sendingRef.current = true;
+
+		await startStream('/chat', {
+			gameId: gs.gameId,
+			message: lastUserMessage,
+			gameState: gs.gameState,
+			provider: preferences?.activeProvider || 'anthropic',
+			model: preferences?.activeModel || null,
+			roll_id: invocationData.rollId,
+			invoked_aspects: [],
+		});
+	}, [invocationData, gs.gameId, gs.gameState, lastUserMessage, startStream, gs, preferences]);
+
+	const handleDismissInvocation = useCallback(() => {
+		setInvocationData(null);
+	}, []);
+
+	// =========================================================================
 	// RETURN
 	// =========================================================================
 
@@ -365,6 +453,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		isExtracting,
 		isStreaming,
 		editingIndex,
+		invocationData,
 
 		// Game handlers
 		handleNewGame,
@@ -383,7 +472,14 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		handleRegenerate,
 		handleRetry,
 
+		// Aspect invocation (Fate Core)
+		handleInvoke,
+		handleSkipInvocation,
+		handleDismissInvocation,
+
 		// World generation
 		handleStartAdventure,
+		handleWizardComplete,
+		handleWizardCancel,
 	};
 }

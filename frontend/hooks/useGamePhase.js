@@ -8,6 +8,7 @@ import { useState, useCallback, useMemo } from 'react';
 
 export const GAME_PHASE = {
 	LIST: 'list',
+	WIZARD: 'wizard',
 	GENERATING_WORLD: 'generating',
 	WORLD_READY: 'world_ready',
 	STARTING_ADVENTURE: 'starting',
@@ -31,6 +32,7 @@ export function useGamePhase() {
 	}, []);
 
 	const derived = useMemo(() => ({
+		isWizard: gamePhase === GAME_PHASE.WIZARD,
 		isPlaying: gamePhase === GAME_PHASE.PLAYING,
 		isGenerating: gamePhase === GAME_PHASE.GENERATING_WORLD,
 		isWorldReady: gamePhase === GAME_PHASE.WORLD_READY,

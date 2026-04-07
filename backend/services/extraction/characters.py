@@ -9,7 +9,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from prompts.extractions import characters_prompt
+from prompts.extraction import characters_prompt
 from schema import EntityType, FactData
 from schema.extraction import AmbientUpdate, CharactersExtraction, EntityCreation, EntityUpdate
 

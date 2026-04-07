@@ -105,6 +105,7 @@ def build_user_prompt(
     existing_canonical_names: list[str],
     inventory_hints: list[dict] | None = None,
     known_objects: list[dict] | None = None,
+    engine_object_addon: str | None = None,
 ) -> str:
     """Build the user prompt for the inventory extractor."""
     texts_joined = "\n\n---\n\n".join(narrative_texts)
@@ -124,11 +125,16 @@ def build_user_prompt(
         obj_lines = [f"- {o.get('name', '?')} [{o.get('category', '?')}]" for o in known_objects[:30]]
         objects_section = "\n\nKnown objects in inventory:\n" + "\n".join(obj_lines)
 
+    engine_section = ""
+    if engine_object_addon:
+        engine_section = f"\n\n## ENGINE-SPECIFIC OBJECT DATA\n{engine_object_addon}"
+
     return f"""## CONTEXT
 - Cycle: {cycle}
 - Existing canonical_names (do NOT create duplicates): {canon_str}
 {objects_section}
 {hints_section}
+{engine_section}
 
 ## NARRATIVE TEXTS
 

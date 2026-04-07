@@ -20,7 +20,8 @@ export default function MessageList({
 	onClearError,
 	onRetry,
 	tooltipMap,
-	showDebug
+	showDebug,
+	engine
 }) {
 	const containerRef = useRef(null);
 	const endRef = useRef(null);
@@ -88,6 +89,7 @@ export default function MessageList({
 						onRegenerate={!loading ? onRegenerate : null}
 						tooltipMap={tooltipMap}
 						showDebug={showDebug}
+						engine={engine}
 					/>
 				)
 			))}
