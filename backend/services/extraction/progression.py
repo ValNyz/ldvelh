@@ -24,7 +24,7 @@ class ProgressionExtractor(BaseExtractor):
     tool_name = "extract_progression"
     tool_description = "Extract character progression from narrative text"
 
-    async def run(self, trigger_cycle: int) -> dict:
+    async def run(self, trigger_cycle: int, resolution_map=None) -> dict:
         """Override run() to short-circuit for engines without progression."""
         async with self.pool.acquire() as conn:
             engine_type = await self.reader.get_engine_type(conn)
@@ -72,7 +72,8 @@ class ProgressionExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int
+        self, context: dict, narrative_texts: list[str], cycle: int,
+        resolution_map=None,
     ) -> tuple[str, str]:
         system_prompt = self._engine.get_progression_system_prompt()
         user_prompt = self._engine.build_progression_user_prompt(

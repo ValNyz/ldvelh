@@ -10,12 +10,16 @@ from uuid import UUID
 
 import asyncpg
 
+from config import get_settings
+from kg.reader import KnowledgeGraphReader
+
 from .characters import CharactersExtractor
 from .inventory import InventoryExtractor
 from .locations import LocationsExtractor
 from .narrative_arcs import NarrativeArcsExtractor
 from .organizations import OrganizationsExtractor
 from .progression import ProgressionExtractor
+from .resolver import resolve_entities
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +70,34 @@ async def run_triggered_extraction(
             f"for game {game_id}: {valid_triggers}"
         )
 
-        # Create extractor instances
+        # Phase 1: Entity resolution (single Haiku call)
+        resolution_map = None
+        resolver_cost = None
+        try:
+            settings = get_settings()
+            reader = KnowledgeGraphReader(pool, game_id)
+            async with pool.acquire() as conn:
+                recent = await reader.get_messages(
+                    conn,
+                    limit=settings.resolution_context_window,
+                    order="desc",
+                )
+                recent.reverse()  # chronological order
+
+            if recent:
+                resolution_map, resolver_cost = await resolve_entities(
+                    pool, game_id, recent, provider_name, api_key
+                )
+        except Exception as e:
+            logger.warning(
+                f"[EXTRACTION] Phase 1 (resolver) failed, continuing without: {e}"
+            )
+
+        # Phase 2: Parallel extractors (with resolution map)
         tasks = [
-            EXTRACTOR_MAP[t](pool, game_id, provider_name, api_key).run(trigger_cycle)
+            EXTRACTOR_MAP[t](pool, game_id, provider_name, api_key).run(
+                trigger_cycle, resolution_map=resolution_map
+            )
             for t in valid_triggers
         ]
 
@@ -78,6 +107,9 @@ async def run_triggered_extraction(
         # Aggregate results and costs
         aggregated = {"extractors": {}}
         total_cost = 0.0
+        if resolver_cost and isinstance(resolver_cost, dict):
+            total_cost += resolver_cost.get("cost_usd", 0)
+            aggregated["resolver_cost"] = resolver_cost
         for trigger, result in zip(valid_triggers, results):
             if isinstance(result, Exception):
                 logger.error(
