@@ -127,6 +127,18 @@ export default function Home() {
 		);
 	}
 
+	// Wizard screen (engine + world config + character creation)
+	// Must be checked before LIST because gameId is still null during wizard
+	if (phaseHook.isWizard) {
+		return (
+			<WizardContainer
+				onComplete={orch.handleWizardComplete}
+				onCancel={orch.handleWizardCancel}
+				loading={gs.loading}
+			/>
+		);
+	}
+
 	// Game list screen
 	if (phaseHook.gamePhase === phaseHook.GAME_PHASE.LIST || !gs.gameId) {
 		return (
@@ -143,17 +155,6 @@ export default function Home() {
 					onLogout={() => { logout(); window.location.href = '/login/'; }}
 				/>
 			</>
-		);
-	}
-
-	// Wizard screen (engine + world config + character creation)
-	if (phaseHook.isWizard) {
-		return (
-			<WizardContainer
-				onComplete={orch.handleWizardComplete}
-				onCancel={orch.handleWizardCancel}
-				loading={gs.loading}
-			/>
 		);
 	}
 
