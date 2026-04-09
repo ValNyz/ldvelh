@@ -65,7 +65,8 @@ class CharactersExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int
+        self, context: dict, narrative_texts: list[str], cycle: int,
+        resolution_map=None,
     ) -> tuple[str, str]:
         known_chars = [
             {
@@ -83,6 +84,11 @@ class CharactersExtractor(BaseExtractor):
             known_characters=known_chars,
             active_arcs_with_characters=context.get("arcs_with_characters"),
         )
+        if resolution_map:
+            from prompts.extraction.shared import RESOLUTION_SECTION_HEADER
+            section = resolution_map.to_prompt_section("character")
+            if section:
+                user_prompt += f"\n\n{RESOLUTION_SECTION_HEADER}{section}"
         return characters_prompt.SYSTEM_PROMPT, user_prompt
 
     def _get_tool_schema(self) -> dict:

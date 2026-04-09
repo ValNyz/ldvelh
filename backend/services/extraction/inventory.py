@@ -49,7 +49,8 @@ class InventoryExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int
+        self, context: dict, narrative_texts: list[str], cycle: int,
+        resolution_map=None,
     ) -> tuple[str, str]:
         known_objs = [
             {"name": o["name"], "category": o.get("category", "misc")}
@@ -63,6 +64,11 @@ class InventoryExtractor(BaseExtractor):
             known_objects=known_objs or None,
             engine_object_addon=self._engine.get_object_prompt_addon() or None,
         )
+        if resolution_map:
+            from prompts.extraction.shared import RESOLUTION_SECTION_HEADER
+            section = resolution_map.to_prompt_section("object")
+            if section:
+                user_prompt += f"\n\n{RESOLUTION_SECTION_HEADER}{section}"
         return inventory_prompt.SYSTEM_PROMPT, user_prompt
 
     def _get_tool_schema(self) -> dict:
