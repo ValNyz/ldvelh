@@ -20,6 +20,8 @@ from services.llm_service import get_llm_service
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
+    from .resolver import ResolutionMap
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +46,11 @@ class BaseExtractor(ABC):
         self.reader = KnowledgeGraphReader(pool, game_id)
         self.populator = ExtractionPopulator(pool, game_id)
 
-    async def run(self, trigger_cycle: int) -> dict:
+    async def run(
+        self,
+        trigger_cycle: int,
+        resolution_map: "ResolutionMap | None" = None,
+    ) -> dict:
         """Template method: load checkpoint -> load messages -> build prompt -> LLM -> populate."""
         t0 = time.perf_counter()
         et = self.extraction_type
@@ -77,7 +83,8 @@ class BaseExtractor(ABC):
 
                 # 4. Build prompts
                 system_prompt, user_prompt = self._build_prompts(
-                    context, narrative_texts, trigger_cycle
+                    context, narrative_texts, trigger_cycle,
+                    resolution_map=resolution_map,
                 )
 
                 # 5. Get tool schema
@@ -144,7 +151,8 @@ class BaseExtractor(ABC):
 
     @abstractmethod
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int
+        self, context: dict, narrative_texts: list[str], cycle: int,
+        resolution_map: "ResolutionMap | None" = None,
     ) -> tuple[str, str]:
         """Return (system_prompt, user_prompt)."""
 
