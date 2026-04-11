@@ -117,13 +117,13 @@ Only extract protagonist skill changes (new skills learned or level-ups).
 
 
 def build_user_prompt(
-    narrative_texts: list[str],
+    narrative_text: str,
     cycle: int,
     known_characters: list[dict],
     active_arcs_with_characters: list[dict] | None = None,
 ) -> str:
     """Build the user prompt for the characters extractor."""
-    texts_joined = "\n\n---\n\n".join(narrative_texts)
+    texts_joined = narrative_text
 
     chars_lines = []
     for c in known_characters[:50]:

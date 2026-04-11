@@ -103,14 +103,14 @@ describing the VISIBLE effect: atmosphere shift, physical changes, crowd behavio
 
 
 def build_user_prompt(
-    narrative_texts: list[str],
+    narrative_text: str,
     cycle: int,
     known_locations: list[dict],
     stub_locations: list[str] | None = None,
     active_arcs_with_locations: list[dict] | None = None,
 ) -> str:
     """Build the user prompt for the locations extractor."""
-    texts_joined = "\n\n---\n\n".join(narrative_texts)
+    texts_joined = narrative_text
 
     loc_lines = []
     for loc in known_locations[:40]:

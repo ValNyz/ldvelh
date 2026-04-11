@@ -100,7 +100,7 @@ canonical_name is a snake_case ASCII key for deduplication.
 
 
 def build_user_prompt(
-    narrative_texts: list[str],
+    narrative_text: str,
     cycle: int,
     existing_canonical_names: list[str],
     inventory_hints: list[dict] | None = None,
@@ -108,7 +108,7 @@ def build_user_prompt(
     engine_object_addon: str | None = None,
 ) -> str:
     """Build the user prompt for the inventory extractor."""
-    texts_joined = "\n\n---\n\n".join(narrative_texts)
+    texts_joined = narrative_text
 
     canon_str = ", ".join(existing_canonical_names[:50]) if existing_canonical_names else "None"
 

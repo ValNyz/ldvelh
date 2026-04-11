@@ -44,7 +44,7 @@ class OrganizationsExtractor(BaseExtractor):
     tool_name = "extract_organizations"
     tool_description = "Extract organization changes from narrative text"
 
-    async def _build_context(self, conn: Connection, messages: list[dict]) -> dict:
+    async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         organizations = await self.reader.get_organizations(conn)
         active_arcs = await self.reader.get_active_arcs(conn)
 
@@ -64,7 +64,7 @@ class OrganizationsExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int,
+        self, context: dict, narrative_text: str, cycle: int,
         resolution_map=None,
     ) -> tuple[str, str]:
         known_orgs = [
@@ -77,7 +77,7 @@ class OrganizationsExtractor(BaseExtractor):
             for org in context["organizations"]
         ]
         user_prompt = organizations_prompt.build_user_prompt(
-            narrative_texts=narrative_texts,
+            narrative_text=narrative_text,
             cycle=cycle,
             known_organizations=known_orgs,
             active_arcs_with_orgs=context.get("arcs_with_orgs"),

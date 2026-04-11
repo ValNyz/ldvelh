@@ -1,7 +1,8 @@
 """
 LDVELH - Base Extractor
 Template class for all specialized extractors.
-Each extractor runs in its own DB transaction (independent failure).
+Per-message extraction: each extractor receives the message content
+and narrator_deltas directly (no DB reload, no checkpoint system).
 """
 
 from __future__ import annotations
@@ -48,69 +49,54 @@ class BaseExtractor(ABC):
 
     async def run(
         self,
+        message_content: str,
+        narrator_deltas: dict,
         trigger_cycle: int,
         resolution_map: "ResolutionMap | None" = None,
     ) -> dict:
-        """Template method: load checkpoint -> load messages -> build prompt -> LLM -> populate."""
+        """Extract entities from a single message."""
         t0 = time.perf_counter()
         et = self.extraction_type
 
         try:
             async with self.pool.acquire() as conn:
-                # 1. Read checkpoint
-                from_cycle = await self.reader.get_extraction_checkpoint(
-                    conn, et
-                )
+                # 1. Build domain-specific context
+                context = await self._build_context(conn, narrator_deltas)
 
-                # 2. Load unextracted messages
-                messages = await self.reader.get_unextracted_messages(
-                    conn, from_cycle, trigger_cycle
-                )
-                if not messages:
-                    logger.info(
-                        f"[{et.upper()}] No messages to extract "
-                        f"(cycles {from_cycle+1}-{trigger_cycle})"
-                    )
-                    await self.populator.set_extraction_checkpoint(
-                        conn, et, trigger_cycle
-                    )
-                    return {"type": et, "skipped": True}
-
-                narrative_texts = [m["content"] for m in messages]
-
-                # 3. Build domain-specific context
-                context = await self._build_context(conn, messages)
-
-                # 4. Build prompts
+                # 2. Build prompts
                 system_prompt, user_prompt = self._build_prompts(
-                    context, narrative_texts, trigger_cycle,
+                    context, message_content, trigger_cycle,
                     resolution_map=resolution_map,
                 )
 
-                # 5. Get tool schema
+                # 3. Get tool schema
                 schema = self._get_tool_schema()
 
-            # 6. Call LLM (outside connection — may take a while)
+            # 4. Call LLM (outside connection — may take a while)
             raw_result, call_cost = await self._call_llm(system_prompt, user_prompt, schema)
             if not raw_result:
                 logger.warning(f"[{et.upper()}] LLM returned empty result")
                 return {"type": et, "success": False, "error": "empty_response"}
 
-            # 7. Populate DB (new connection + transaction)
+            # 5. Populate DB (new connection + transaction)
+            stats = {}
             async with self.pool.acquire() as conn:
-                async with conn.transaction():
-                    await self.populator.load_registry(conn)
-                    stats = await self._populate(conn, raw_result, trigger_cycle)
-
-                    # 8. Update checkpoint
-                    await self.populator.set_extraction_checkpoint(
-                        conn, et, trigger_cycle
+                try:
+                    async with conn.transaction():
+                        await self.populator.load_registry(conn)
+                        stats = await self._populate(conn, raw_result, trigger_cycle)
+                except Exception as pop_err:
+                    logger.warning(
+                        f"[{et.upper()}] Populate failed (rolled back): {pop_err}"
                     )
 
-                    # 9. Log extraction
+                # Log extraction for auditing
+                try:
                     await self.populator.log_extraction(
                         conn, trigger_cycle, stats
                     )
+                except Exception as log_err:
+                    logger.warning(f"[{et.upper()}] Log failed: {log_err}")
 
             elapsed = (time.perf_counter() - t0) * 1000
             logger.info(
@@ -145,13 +131,13 @@ class BaseExtractor(ABC):
 
     @abstractmethod
     async def _build_context(
-        self, conn: Connection, messages: list[dict]
+        self, conn: Connection, narrator_deltas: dict
     ) -> dict:
         """Load domain-specific context from DB. Returns a dict used by _build_prompts."""
 
     @abstractmethod
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int,
+        self, context: dict, narrative_text: str, cycle: int,
         resolution_map: "ResolutionMap | None" = None,
     ) -> tuple[str, str]:
         """Return (system_prompt, user_prompt)."""

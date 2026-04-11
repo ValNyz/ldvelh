@@ -142,14 +142,14 @@ Focus on the most important narrative developments.
 
 
 def build_user_prompt(
-    narrative_texts: list[str],
+    narrative_text: str,
     cycle: int,
     known_entities: list[str],
     active_arcs: list[dict] | None = None,
     known_relations: list[dict] | None = None,
 ) -> str:
     """Build the user prompt for the narrative arcs extractor."""
-    texts_joined = "\n\n---\n\n".join(narrative_texts)
+    texts_joined = narrative_text
     entities_str = ", ".join(known_entities[:60]) if known_entities else "None"
 
     arcs_section = ""

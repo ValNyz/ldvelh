@@ -7,11 +7,11 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 // ============================================================================
 
 const ENTITY_COLORS = {
-	personnage: { bg: 'bg-purple-500/20', border: 'border-purple-500/50', text: 'text-purple-300' },
-	lieu: { bg: 'bg-blue-500/20', border: 'border-blue-500/50', text: 'text-blue-300' },
-	organisation: { bg: 'bg-amber-500/20', border: 'border-amber-500/50', text: 'text-amber-300' },
-	objet: { bg: 'bg-emerald-500/20', border: 'border-emerald-500/50', text: 'text-emerald-300' },
-	ia: { bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'text-cyan-300' },
+	character: { bg: 'bg-purple-500/20', border: 'border-purple-500/50', text: 'text-purple-300' },
+	location: { bg: 'bg-blue-500/20', border: 'border-blue-500/50', text: 'text-blue-300' },
+	organization: { bg: 'bg-amber-500/20', border: 'border-amber-500/50', text: 'text-amber-300' },
+	object: { bg: 'bg-emerald-500/20', border: 'border-emerald-500/50', text: 'text-emerald-300' },
+	arc: { bg: 'bg-cyan-500/20', border: 'border-cyan-500/50', text: 'text-cyan-300' },
 	default: { bg: 'bg-gray-500/20', border: 'border-gray-500/50', text: 'text-gray-300' }
 };
 
@@ -44,11 +44,11 @@ const INFO_ICONS = {
 };
 
 const TYPE_LABELS = {
-	personnage: 'Personnage',
-	lieu: 'Lieu',
-	organisation: 'Organisation',
-	objet: 'Objet',
-	ia: 'IA'
+	character: 'Personnage',
+	location: 'Lieu',
+	organization: 'Organisation',
+	object: 'Objet',
+	arc: 'Arc narratif',
 };
 
 // ============================================================================
@@ -177,9 +177,10 @@ export default function EntityTooltip({ children, data, className = '' }) {
 
 	// Extraire les données formatées
 	const formatted = data.formatted || data;
-	const { icon, nom, type, infos, relation } = formatted;
+	const { icon, name, nom, type, infos, relation } = formatted;
+	const displayName = name || nom;
 
-	if (!nom && !infos?.length) {
+	if (!displayName && !infos?.length) {
 		return <span className={className}>{children}</span>;
 	}
 
@@ -215,7 +216,7 @@ export default function EntityTooltip({ children, data, className = '' }) {
 							<div className="flex items-center gap-2">
 								<span className="text-lg">{icon}</span>
 								<div className="flex-1 min-w-0">
-									<div className="font-semibold text-white truncate">{nom}</div>
+									<div className="font-semibold text-white truncate">{displayName}</div>
 									<div className={`text-xs ${colors.text} opacity-80`}>{typeLabel}</div>
 								</div>
 							</div>
