@@ -26,7 +26,7 @@ class InventoryExtractor(BaseExtractor):
     tool_name = "extract_inventory"
     tool_description = "Extract inventory changes from narrative text"
 
-    async def _build_context(self, conn: Connection, messages: list[dict]) -> dict:
+    async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         canonical_names = await self.reader.get_object_canonical_names(conn)
         objects = await self.reader.get_objects(conn)
 
@@ -36,11 +36,7 @@ class InventoryExtractor(BaseExtractor):
         self._engine_type = engine_type
 
         # Collect inventory_hints from narrator_deltas
-        inventory_hints = []
-        for m in messages:
-            deltas = m.get("narrator_deltas")
-            if deltas and isinstance(deltas, dict):
-                inventory_hints.extend(deltas.get("inventory_hints", []))
+        inventory_hints = narrator_deltas.get("inventory_hints", [])
 
         return {
             "canonical_names": canonical_names,
@@ -49,7 +45,7 @@ class InventoryExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int,
+        self, context: dict, narrative_text: str, cycle: int,
         resolution_map=None,
     ) -> tuple[str, str]:
         known_objs = [
@@ -57,7 +53,7 @@ class InventoryExtractor(BaseExtractor):
             for o in context["objects"]
         ]
         user_prompt = inventory_prompt.build_user_prompt(
-            narrative_texts=narrative_texts,
+            narrative_text=narrative_text,
             cycle=cycle,
             existing_canonical_names=context["canonical_names"],
             inventory_hints=context.get("inventory_hints") or None,

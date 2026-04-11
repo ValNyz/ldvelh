@@ -44,7 +44,7 @@ class LocationsExtractor(BaseExtractor):
     tool_name = "extract_locations"
     tool_description = "Extract location changes from narrative text"
 
-    async def _build_context(self, conn: Connection, messages: list[dict]) -> dict:
+    async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         locations = await self.reader.get_locations(conn)
         stub_locations = await self.reader.get_stub_locations(conn)
         active_arcs = await self.reader.get_active_arcs(conn)
@@ -66,7 +66,7 @@ class LocationsExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int,
+        self, context: dict, narrative_text: str, cycle: int,
         resolution_map=None,
     ) -> tuple[str, str]:
         known_locs = [
@@ -79,7 +79,7 @@ class LocationsExtractor(BaseExtractor):
             for loc in context["locations"]
         ]
         user_prompt = locations_prompt.build_user_prompt(
-            narrative_texts=narrative_texts,
+            narrative_text=narrative_text,
             cycle=cycle,
             known_locations=known_locs,
             stub_locations=context.get("stub_locations"),

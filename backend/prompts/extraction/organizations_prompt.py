@@ -91,13 +91,13 @@ describing the VISIBLE effect: atmosphere in offices, employee behavior, public 
 
 
 def build_user_prompt(
-    narrative_texts: list[str],
+    narrative_text: str,
     cycle: int,
     known_organizations: list[dict],
     active_arcs_with_orgs: list[dict] | None = None,
 ) -> str:
     """Build the user prompt for the organizations extractor."""
-    texts_joined = "\n\n---\n\n".join(narrative_texts)
+    texts_joined = narrative_text
 
     org_lines = []
     for org in known_organizations[:20]:

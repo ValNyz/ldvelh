@@ -117,9 +117,11 @@ def get_db_pool() -> asyncpg.Pool:
 # Import des routes après la création de l'app pour éviter les imports circulaires
 from api.routes import router
 from api.auth import router as auth_router
+from api.tooltips import router as tooltips_router
 
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
+app.include_router(tooltips_router, prefix="/api")
 
 
 @app.get("/health")

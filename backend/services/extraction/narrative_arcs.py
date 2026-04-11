@@ -52,7 +52,7 @@ class NarrativeArcsExtractor(BaseExtractor):
     tool_name = "extract_narrative_arcs"
     tool_description = "Extract arcs, relations, events, and summary from narrative text"
 
-    async def _build_context(self, conn: Connection, messages: list[dict]) -> dict:
+    async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         entities = await self.reader.get_entities(conn)
         known_entities = [e["name"] for e in entities]
 
@@ -86,11 +86,11 @@ class NarrativeArcsExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int,
+        self, context: dict, narrative_text: str, cycle: int,
         resolution_map=None,
     ) -> tuple[str, str]:
         user_prompt = narrative_arcs_prompt.build_user_prompt(
-            narrative_texts=narrative_texts,
+            narrative_text=narrative_text,
             cycle=cycle,
             known_entities=context["known_entities"],
             active_arcs=context.get("active_arcs") or None,
