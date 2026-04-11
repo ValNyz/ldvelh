@@ -1,19 +1,23 @@
 """
-LDVELH - Entity Resolver (Phase 1)
-Resolves narrative entity mentions to canonical DB names before parallel extraction.
-Single Haiku call on the recent scene + known entity catalog.
+LDVELH - Entity Resolver (Context-Propagation)
+Resolves narrative entity mentions to canonical DB names using two-message
+coreference: the previous turn's annotated response + current response.
+
+The previous assistant message carries span annotations (narrator_context)
+that map text ranges to canonical entity names. The resolver reads those
+to understand what entities exist, then maps mentions in the new response.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from config import get_settings
-from kg.reader import KnowledgeGraphReader
 from schema.extraction import EntityResolution
 from services.llm_service import get_llm_service
 
@@ -52,18 +56,13 @@ class ResolutionMap:
         return None
 
     def to_prompt_section(self, entity_type: str | None = None) -> str:
-        """Render a lookup table for injection into extractor prompts.
-
-        Groups mentions by canonical name for readability.
-        If entity_type is given, filter to that type only.
-        """
+        """Render a lookup table for injection into extractor prompts."""
         filtered = self.mappings
         if entity_type:
             filtered = [m for m in filtered if m.entity_type == entity_type]
         if not filtered:
             return ""
 
-        # Group by (canonical, is_new)
         groups: dict[tuple[str, bool], list[MentionMapping]] = {}
         for m in filtered:
             key = (m.canonical, m.is_new)
@@ -95,127 +94,72 @@ class ResolutionMap:
 
 
 # =============================================================================
-# ENTITY CATALOG
+# SPAN ANNOTATIONS
 # =============================================================================
 
 
-async def _build_entity_catalog(
-    pool: Pool, game_id: UUID
-) -> dict[str, list[dict]]:
-    """Load compact entity catalog from DB for the resolver prompt."""
-    reader = KnowledgeGraphReader(pool, game_id)
-    catalog: dict[str, list[dict]] = {}
+def build_span_annotations(
+    text: str, resolution_map: ResolutionMap
+) -> list[list]:
+    """Find spans of resolved mentions in the narrator response text.
 
-    async with pool.acquire() as conn:
-        # Characters
-        characters = await reader.get_all_characters(conn)
-        catalog["character"] = [
-            {
-                "name": c["name"],
-                "occupation": c.get("occupation"),
-                "unknown_name": c.get("unknown_name"),
-                "species": c.get("species"),
-            }
-            for c in characters[:50]
-        ]
+    Returns list of [char_start, char_end, canonical_name, entity_type].
+    """
+    annotations = []
+    text_lower = text.lower()
 
-        # Locations
-        locations = await reader.get_locations(conn)
-        catalog["location"] = [
-            {
-                "name": loc["name"],
-                "location_type": loc.get("location_type"),
-                "sector": loc.get("sector"),
-            }
-            for loc in locations[:50]
-        ]
+    # Group by canonical to avoid duplicate spans
+    seen_spans: set[tuple[int, int]] = set()
 
-        # Organizations
-        organizations = await reader.get_organizations(conn)
-        catalog["organization"] = [
-            {
-                "name": org["name"],
-                "org_type": org.get("org_type"),
-                "domain": org.get("domain"),
-            }
-            for org in organizations[:50]
-        ]
+    for mapping in resolution_map.mappings:
+        mention_lower = mapping.mention.lower()
+        # Find all occurrences of this mention in the text
+        start = 0
+        while True:
+            idx = text_lower.find(mention_lower, start)
+            if idx == -1:
+                break
+            end = idx + len(mapping.mention)
+            span = (idx, end)
+            if span not in seen_spans:
+                seen_spans.add(span)
+                annotations.append([
+                    idx, end, mapping.canonical, mapping.entity_type
+                ])
+            start = idx + 1
 
-        # Objects
-        objects = await reader.get_objects(conn)
-        catalog["object"] = [
-            {"name": obj["name"], "category": obj.get("category")}
-            for obj in objects[:50]
-        ]
-
-        # Arcs
-        arcs = await reader.get_active_arcs(conn)
-        catalog["arc"] = [
-            {"title": arc["title"], "domain": arc.get("domain")}
-            for arc in arcs[:50]
-        ]
-
-    return catalog
+    # Sort by position
+    annotations.sort(key=lambda a: a[0])
+    return annotations
 
 
-def _format_catalog_section(catalog: dict[str, list[dict]]) -> str:
-    """Format the entity catalog as a compact prompt section."""
-    lines = []
+def _rebuild_annotated_text(text: str, annotations: list | None) -> str:
+    """Rebuild a text with inline entity annotations for the resolver prompt.
 
-    if catalog.get("character"):
-        entries = []
-        for c in catalog["character"]:
-            parts = [c["name"]]
-            if c.get("occupation"):
-                parts.append(f"occupation: {c['occupation']}")
-            if c.get("unknown_name"):
-                parts.append(f"also known as: {c['unknown_name']}")
-            if c.get("species") and c["species"] != "human":
-                parts.append(f"species: {c['species']}")
-            entries.append(f"  - {', '.join(parts)}")
-        lines.append("Characters:\n" + "\n".join(entries))
+    Transforms: "le docteur sourit" with annotation [3, 13, "Dr. Voss", "character"]
+    Into: "le docteur [= Dr. Voss] sourit"
+    """
+    if not annotations:
+        return text
 
-    if catalog.get("location"):
-        entries = []
-        for loc in catalog["location"]:
-            parts = [loc["name"]]
-            if loc.get("location_type"):
-                parts.append(f"type: {loc['location_type']}")
-            if loc.get("sector"):
-                parts.append(f"sector: {loc['sector']}")
-            entries.append(f"  - {', '.join(parts)}")
-        lines.append("Locations:\n" + "\n".join(entries))
+    # Handle double-encoded strings from DB (legacy data)
+    if isinstance(annotations, str):
+        import json
+        try:
+            annotations = json.loads(annotations)
+        except (json.JSONDecodeError, TypeError):
+            return text
 
-    if catalog.get("organization"):
-        entries = []
-        for org in catalog["organization"]:
-            parts = [org["name"]]
-            if org.get("org_type"):
-                parts.append(f"type: {org['org_type']}")
-            if org.get("domain"):
-                parts.append(f"domain: {org['domain']}")
-            entries.append(f"  - {', '.join(parts)}")
-        lines.append("Organizations:\n" + "\n".join(entries))
+    # Sort by position descending to insert without shifting offsets
+    sorted_anns = sorted(annotations, key=lambda a: a[0], reverse=True)
+    result = text
+    for ann in sorted_anns:
+        if len(ann) < 3:
+            continue
+        start, end, canonical = ann[0], ann[1], ann[2]
+        result = result[:end] + f" [= {canonical}]" + result[end:]
 
-    if catalog.get("object"):
-        entries = []
-        for obj in catalog["object"]:
-            parts = [obj["name"]]
-            if obj.get("category"):
-                parts.append(f"category: {obj['category']}")
-            entries.append(f"  - {', '.join(parts)}")
-        lines.append("Objects:\n" + "\n".join(entries))
-
-    if catalog.get("arc"):
-        entries = []
-        for arc in catalog["arc"]:
-            parts = [arc["title"]]
-            if arc.get("domain"):
-                parts.append(f"domain: {arc['domain']}")
-            entries.append(f"  - {', '.join(parts)}")
-        lines.append("Narrative arcs:\n" + "\n".join(entries))
-
-    return "\n\n".join(lines)
+    return result
 
 
 # =============================================================================
@@ -225,79 +169,33 @@ def _format_catalog_section(catalog: dict[str, list[dict]]) -> str:
 RESOLVER_SYSTEM_PROMPT = """\
 You are an entity resolution engine for a French-language interactive narrative RPG.
 
-Your task: identify all entity mentions in the RECENT SCENE and map them to known \
-entities from the database, or flag them as genuinely new.
+Your task: identify all entity mentions in MESSAGE 2 (the new narrator response) \
+and map them to canonical entity names.
+
+MESSAGE 1 contains the PREVIOUS narrator response with inline annotations like \
+[= Canonical Name] that show you the resolved entity names. Use these as your \
+reference for coreference resolution.
 
 ## Rules
 
-1. **Match types**: exact name, partial name, role/title reference, descriptive \
-reference, possessive reference.
-   - "le docteur" -> match "Dr. Elara Voss" if she has occupation "médecin"
-   - "Voss" -> match "Dr. Elara Voss" (partial name)
-   - "le bar principal" -> match "Le Nebula Lounge" if it's the main bar
-   - "l'enquête sur les disparitions" -> match arc "Mystères des couloirs E7" \
-if thematically related
+1. **Match mentions in MESSAGE 2** to canonical names seen in MESSAGE 1 annotations.
+2. **Coreference**: "le docteur", "Voss", "la médecin" may all refer to "Dr. Elara Voss".
+3. **EXISTING**: entity appeared in MESSAGE 1 annotations. Use the exact canonical name.
+4. **NEW**: genuinely new entity not in MESSAGE 1. Suggest a clean French name.
+5. **Skip**: pronouns, generic crowd, the protagonist.
+6. **Entity types**: character, location, organization, object, arc.
+7. **Output exact narrative text** from MESSAGE 2 in the `mentions` list.
 
-2. **Coreference**: group multiple mentions of the same entity together \
-in the same `mentions` list.
-   - If message 1 says "Dr. Voss" and message 3 says "la docteur", both go \
-under the same entry.
-
-3. **EXISTING vs NEW**:
-   - EXISTING: the entity is in the known entities list. Use the exact canonical name.
-   - NEW: genuinely new entity not in the known list. Suggest a clean French name.
-
-4. **Skip**: pronouns (il, elle, ils), generic crowd ("les passants", "des gens"), \
-and the protagonist (player character) should NOT appear in the output.
-
-5. **Entity types**: character, location, organization, object, arc.
-
-6. **Output exact narrative text** in the `mentions` list — copy the exact words \
-from the scene text, do not paraphrase.
-
-7. **Use the hints** (occupation, type, sector, category, domain) from the known \
-entities list to disambiguate. A "docteur" near a medical context likely refers \
-to the character with occupation "médecin".
-
-8. **Arc title drift**: narrative may refer to arcs with different wording. Match \
-if the thematic content clearly overlaps.
-
-Output valid JSON matching this schema:
+Output valid JSON:
 {
   "existing": [
-    {"mentions": ["text1", "text2"], "canonical": "Exact DB Name", "entity_type": "character"}
+    {"mentions": ["text1", "text2"], "canonical": "Exact Name", "entity_type": "type"}
   ],
   "new": [
-    {"mentions": ["text1"], "suggested_name": "Clean Name", "entity_type": "character"}
+    {"mentions": ["text1"], "suggested_name": "Clean Name", "entity_type": "type"}
   ]
 }
 """
-
-
-def _build_resolver_user_prompt(
-    catalog: dict[str, list[dict]],
-    recent_messages: list[dict],
-) -> str:
-    """Build the user prompt for the resolver LLM call."""
-    parts = []
-
-    # Known entities
-    catalog_text = _format_catalog_section(catalog)
-    if catalog_text:
-        parts.append(f"## KNOWN ENTITIES (from database)\n\n{catalog_text}")
-    else:
-        parts.append("## KNOWN ENTITIES\n\nNo entities in database yet.")
-
-    # Recent scene
-    scene_lines = []
-    for msg in recent_messages:
-        role = msg.get("role", "assistant")
-        content = msg.get("content", "")
-        if content:
-            scene_lines.append(f"[{role}] {content}")
-    parts.append("## RECENT SCENE\n\n" + "\n\n".join(scene_lines))
-
-    return "\n\n".join(parts)
 
 
 # =============================================================================
@@ -334,33 +232,33 @@ def _parse_resolution(raw: dict) -> ResolutionMap:
 async def resolve_entities(
     pool: Pool,
     game_id: UUID,
-    recent_messages: list[dict],
+    previous_response: str,
+    previous_annotations: list[list] | None,
+    current_response: str,
     provider_name: str = "anthropic",
     api_key: str | None = None,
 ) -> tuple[ResolutionMap | None, dict | None]:
-    """Phase 1: resolve entity mentions in the recent scene to canonical names.
+    """Resolve entity mentions in the current narrator response.
+
+    Uses two-message coreference:
+      msg 1: previous response with inline entity annotations
+      msg 2: current response (needs resolution)
 
     Returns (ResolutionMap, cost_dict) or (None, None) on failure.
     """
     settings = get_settings()
 
-    # Build entity catalog from DB
-    catalog = await _build_entity_catalog(pool, game_id)
+    # Build annotated previous response (msg 1)
+    annotated_prev = _rebuild_annotated_text(
+        previous_response, previous_annotations or []
+    )
 
-    # Check if there are any known entities to resolve against
-    total_entities = sum(len(v) for v in catalog.values())
-    if total_entities == 0:
-        logger.info("[RESOLVER] No known entities — skipping resolution")
-        return None, None
-
-    # Build prompt
-    user_prompt = _build_resolver_user_prompt(catalog, recent_messages)
-
-    # Call LLM (Haiku — cheap and fast)
+    # Call LLM with 2 messages
     llm = get_llm_service()
     raw = await llm.extract_text(
         system_prompt=RESOLVER_SYSTEM_PROMPT,
-        user_message=user_prompt,
+        user_message=f"MESSAGE 1 (previous, annotated):\n{annotated_prev}\n\n"
+                     f"MESSAGE 2 (current, to resolve):\n{current_response}",
         provider_name=provider_name,
         api_key=api_key,
         model=settings.resolution_model,
@@ -371,7 +269,6 @@ async def resolve_entities(
         logger.warning("[RESOLVER] LLM returned empty response")
         return None, cost
 
-    # Parse into ResolutionMap
     try:
         resolution_map = _parse_resolution(raw)
         logger.info(

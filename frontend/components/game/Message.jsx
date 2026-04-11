@@ -3,8 +3,7 @@
 import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import DiceRollDisplay from './DiceRollDisplay';
-// import EntityTooltip from './EntityTooltip';
-// import { formatTooltip, fuzzyMatchEntity } from '../../lib/js/kg/knowledgeService';
+import EntityTooltip from './EntityTooltip';
 
 /**
  * Composant Message unique
@@ -129,32 +128,68 @@ export default function Message({
 }
 
 /**
+ * Inject bold markers around known entity names in raw text.
+ * This lets ReactMarkdown's strong override catch them for tooltip rendering.
+ */
+function injectEntityMarkers(text, tooltipMap) {
+	if (!text || !tooltipMap || Object.keys(tooltipMap).length === 0) return text;
+
+	// Sort entity names by length (longest first) to avoid partial matches
+	const names = Object.keys(tooltipMap)
+		.map(key => tooltipMap[key].name || key)
+		.filter(n => n && n.length >= 3)
+		.sort((a, b) => b.length - a.length);
+
+	if (names.length === 0) return text;
+
+	// Build regex matching all entity names (case-insensitive, word boundaries)
+	const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+	const regex = new RegExp(`(?<!\\*\\*)(${escaped.join('|')})(?!\\*\\*)`, 'gi');
+
+	// Replace first occurrence of each entity with bold markers
+	const seen = new Set();
+	return text.replace(regex, (match) => {
+		const lower = match.toLowerCase();
+		if (seen.has(lower)) return `**${match}**`; // Bold all occurrences
+		seen.add(lower);
+		return `**${match}**`;
+	});
+}
+
+/**
  * Rendu Markdown personnalisé avec tooltips
  */
 function MarkdownContent({ content, isUser, tooltipMap }) {
+	// Pre-process: inject bold markers around entity names for tooltip matching
+	const processedContent = useMemo(() => {
+		if (isUser || !tooltipMap || Object.keys(tooltipMap).length === 0) return content;
+		return injectEntityMarkers(content, tooltipMap);
+	}, [content, isUser, tooltipMap]);
+
 	const components = useMemo(() => ({
 		p: ({ children }) => (
 			<p className="mb-2 last:mb-0">{children}</p>
 		),
-		// strong: ({ children }) => {
-		// 	const text = extractText(children);
-		// 	const entityData = tooltipMap ? fuzzyMatchEntity(text, tooltipMap, 70) : null;
-		// 	const tooltipData = entityData ? formatTooltip(entityData) : null;
-		//
-		// 	if (tooltipData && !isUser) {
-		// 		return (
-		// 			<EntityTooltip data={tooltipData}>
-		// 				<strong className="text-blue-400">{children}</strong>
-		// 			</EntityTooltip>
-		// 		);
-		// 	}
-		//
-		// 	return (
-		// 		<strong className={isUser ? 'text-white' : 'text-blue-400'}>
-		// 			{children}
-		// 		</strong>
-		// 	);
-		// },
+		strong: ({ children }) => {
+			const text = extractText(children);
+			const tooltip = tooltipMap ? findEntityTooltip(text, tooltipMap) : null;
+
+			if (tooltip && !isUser) {
+				return (
+					<EntityTooltip data={tooltip}>
+						<span className="text-blue-400 cursor-help border-b border-dotted border-blue-400/50">
+							{children}
+						</span>
+					</EntityTooltip>
+				);
+			}
+
+			return (
+				<strong className={isUser ? 'text-white' : 'text-blue-400'}>
+					{children}
+				</strong>
+			);
+		},
 		em: ({ children }) => (
 			<em className={isUser ? 'text-blue-100' : 'text-purple-300'}>
 				{children}
@@ -187,7 +222,7 @@ function MarkdownContent({ content, isUser, tooltipMap }) {
 
 	return (
 		<ReactMarkdown components={components}>
-			{content}
+			{processedContent}
 		</ReactMarkdown>
 	);
 }
@@ -204,6 +239,27 @@ function extractText(children) {
 		return extractText(children.props.children);
 	}
 	return '';
+}
+
+/**
+ * Find tooltip data for an entity name in the tooltipMap.
+ * tooltipMap is { canonical_name: { icon, name, type, infos, relation } }
+ * Matches case-insensitively and also checks partial names.
+ */
+function findEntityTooltip(text, tooltipMap) {
+	if (!text || !tooltipMap) return null;
+	const lower = text.toLowerCase().trim();
+
+	// Exact match
+	if (tooltipMap[lower]) return tooltipMap[lower];
+
+	// Check if text contains a known entity name
+	for (const [name, data] of Object.entries(tooltipMap)) {
+		if (lower.includes(name) || name.includes(lower)) {
+			return data;
+		}
+	}
+	return null;
 }
 
 /**

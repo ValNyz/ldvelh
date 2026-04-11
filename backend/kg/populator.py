@@ -181,16 +181,6 @@ class KnowledgeGraphPopulator:
             f"UPDATE games SET {', '.join(sets)} WHERE id = $1", *params
         )
 
-    async def update_extracted_cycle(
-        self, conn: Connection, cycle: int
-    ) -> None:
-        """Update extracted_up_to_cycle tracking column."""
-        await conn.execute(
-            "UPDATE games SET extracted_up_to_cycle = $1, updated_at = NOW()"
-            " WHERE id = $2",
-            cycle, self.game_id,
-        )
-
     async def update_detail_requests(
         self, conn: Connection, requests: list[str]
     ) -> None:
@@ -1102,6 +1092,7 @@ class KnowledgeGraphPopulator:
         location_ref: str | None = None,
         narrator_deltas: dict | None = None,
         engine_snapshot: dict | None = None,
+        narrator_context: list | None = None,
     ) -> UUID:
         """Save a message in a conversation."""
         location_id = await self._resolve_location_id(conn, location_ref)
@@ -1109,8 +1100,8 @@ class KnowledgeGraphPopulator:
             """INSERT INTO messages (
                 game_id, conversation_id, role, content,
                 cycle, game_date, time, location_id, sequence,
-                narrator_deltas, engine_snapshot
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id""",
+                narrator_deltas, engine_snapshot, narrator_context
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id""",
             self.game_id,
             conversation_id,
             role,
@@ -1122,6 +1113,7 @@ class KnowledgeGraphPopulator:
             sequence,
             narrator_deltas,
             engine_snapshot,
+            narrator_context,
         )
 
     # =========================================================================
@@ -1202,18 +1194,6 @@ class KnowledgeGraphPopulator:
             stats.get("facts_created", 0),
             stats.get("entities_created", 0) + stats.get("entities_updated", 0),
             stats.get("errors"),
-        )
-
-    async def set_extraction_checkpoint(
-        self, conn: Connection, extraction_type: str, cycle: int
-    ) -> None:
-        """Update the per-type extraction checkpoint in games.extraction_checkpoints."""
-        await conn.execute(
-            """UPDATE games
-               SET extraction_checkpoints = COALESCE(extraction_checkpoints, '{}'::jsonb)
-                   || jsonb_build_object($2::text, $3::int)
-               WHERE id = $1""",
-            self.game_id, extraction_type, cycle,
         )
 
     # =========================================================================

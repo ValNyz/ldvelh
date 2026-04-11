@@ -24,7 +24,7 @@ class ProgressionExtractor(BaseExtractor):
     tool_name = "extract_progression"
     tool_description = "Extract character progression from narrative text"
 
-    async def run(self, trigger_cycle: int, resolution_map=None) -> dict:
+    async def run(self, message_content: str, narrator_deltas: dict, trigger_cycle: int, resolution_map=None) -> dict:
         """Override run() to short-circuit for engines without progression."""
         async with self.pool.acquire() as conn:
             engine_type = await self.reader.get_engine_type(conn)
@@ -36,11 +36,6 @@ class ProgressionExtractor(BaseExtractor):
             logger.info(
                 f"[PROGRESSION] Skipped: engine '{engine_type}' has no progression"
             )
-            # Still advance the checkpoint
-            async with self.pool.acquire() as conn:
-                await self.populator.set_extraction_checkpoint(
-                    conn, self.extraction_type, trigger_cycle
-                )
             return {"type": self.extraction_type, "skipped": True}
 
         # Store engine for use by template methods
@@ -48,38 +43,28 @@ class ProgressionExtractor(BaseExtractor):
         self._engine_type = engine_type
 
         # Delegate to BaseExtractor template
-        return await super().run(trigger_cycle)
+        return await super().run(message_content, narrator_deltas, trigger_cycle)
 
     async def _build_context(
-        self, conn: Connection, messages: list[dict]
+        self, conn: Connection, narrator_deltas: dict
     ) -> dict:
         stats = await self._engine.get_stats(conn, self.game_id)
         rolls = await self.reader.get_mechanic_rolls(conn, limit=10)
 
-        # Build narrative summary from recent messages
-        narrative_parts = []
-        for m in messages:
-            content = m.get("content", "")
-            if content:
-                # Take first 500 chars of each message
-                narrative_parts.append(content[:500])
-        narrative_summary = "\n---\n".join(narrative_parts) if narrative_parts else ""
-
         return {
             "stats": stats,
             "rolls": rolls,
-            "narrative_summary": narrative_summary,
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int,
+        self, context: dict, narrative_text: str, cycle: int,
         resolution_map=None,
     ) -> tuple[str, str]:
         system_prompt = self._engine.get_progression_system_prompt()
         user_prompt = self._engine.build_progression_user_prompt(
             stats=context["stats"],
             rolls=context["rolls"],
-            narrative_summary=context["narrative_summary"],
+            narrative_summary=narrative_text,
         )
         return system_prompt, user_prompt
 

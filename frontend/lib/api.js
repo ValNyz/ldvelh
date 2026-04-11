@@ -152,5 +152,6 @@ export const preferencesApi = {
 // ============================================================================
 
 export const tooltipsApi = {
-	get: (gameId) => api.get('/tooltips', { gameId })
+	getAnnotations: (gameId) => api.get('/tooltips/annotations', { gameId }),
+	getEntity: (gameId, name, entityType) => api.get('/tooltips/entity', { gameId, name, entityType }),
 };

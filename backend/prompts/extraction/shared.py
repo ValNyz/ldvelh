@@ -35,13 +35,13 @@ CORE_RULES = """## CORE RULES
 5. Deduplicate: an entity/fact should appear only once
 6. known_by_protagonist=true if Valentin SAW/HEARD the name"""
 
-RESOLUTION_SECTION_HEADER = """## ENTITY RESOLUTION MAP
+RESOLUTION_SECTION_HEADER = """## ENTITY RESOLUTION MAP (MANDATORY)
 
-The following narrative mentions have been pre-resolved to canonical entity names.
-When extracting data about these entities, you MUST use the CANONICAL name (right side),
-NOT the narrative mention (left side). This tells you WHO is being referred to in the text.
+The following entities have been identified in this scene by the resolver.
+You MUST include ALL of them in your extraction output — do NOT skip any.
+Use the CANONICAL name (right side), NOT the narrative mention (left side).
 
-For EXISTING entities: use the exact canonical name from the database.
-For NEW entities: use the suggested canonical name.
+For EXISTING entities: update their data if the narrative adds new information.
+For NEW entities: create them with the suggested canonical name.
 
 """

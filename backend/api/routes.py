@@ -38,7 +38,7 @@ from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from prompts.world_generation_prompt import get_full_generation_prompt
 from services.context_builder import ContextBuilder
-from services.extraction import run_triggered_extraction
+from services.extraction import run_resolve_and_extract
 from services.game_service import GameService
 from services.llm_service import get_llm_service
 
@@ -833,23 +833,25 @@ async def _handle_chat(
                     )
                     await sse_writer.send_saved()
 
-                    # 8. Trigger specialized extraction (narrator-driven)
+                    # 8. Background: resolver (always) + extractors (if triggered)
                     extraction_triggers = getattr(narration, "extraction_triggers", [])
                     if extraction_triggers:
                         logger.info(
                             f"[CHAT] Extraction triggers: {extraction_triggers}"
                         )
-                        asyncio.create_task(
-                            run_triggered_extraction(
-                                pool=pool,
-                                game_id=game_id,
-                                trigger_cycle=current_cycle,
-                                triggers=extraction_triggers,
-                                provider_name=provider_name,
-                                api_key=user_api_key,
-                                assistant_message_id=assistant_msg_id,
-                            )
+                    asyncio.create_task(
+                        run_resolve_and_extract(
+                            pool=pool,
+                            game_id=game_id,
+                            trigger_cycle=current_cycle,
+                            triggers=extraction_triggers or None,
+                            provider_name=provider_name,
+                            api_key=user_api_key,
+                            assistant_message_id=assistant_msg_id,
+                            message_content=display_text,
+                            narrator_deltas=deltas_typed.model_dump(exclude_none=True),
                         )
+                    )
 
                     logger.debug(
                         f"[TIMING] TOTAL on_light_complete: {(time.perf_counter() - t0) * 1000:.0f}ms"

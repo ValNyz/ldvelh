@@ -44,7 +44,7 @@ class CharactersExtractor(BaseExtractor):
     tool_name = "extract_characters"
     tool_description = "Extract character changes from narrative text"
 
-    async def _build_context(self, conn: Connection, messages: list[dict]) -> dict:
+    async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         characters = await self.reader.get_all_characters(conn)
         active_arcs = await self.reader.get_active_arcs(conn)
 
@@ -65,7 +65,7 @@ class CharactersExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_texts: list[str], cycle: int,
+        self, context: dict, narrative_text: str, cycle: int,
         resolution_map=None,
     ) -> tuple[str, str]:
         known_chars = [
@@ -79,7 +79,7 @@ class CharactersExtractor(BaseExtractor):
             for c in context["characters"]
         ]
         user_prompt = characters_prompt.build_user_prompt(
-            narrative_texts=narrative_texts,
+            narrative_text=narrative_text,
             cycle=cycle,
             known_characters=known_chars,
             active_arcs_with_characters=context.get("arcs_with_characters"),

@@ -655,6 +655,7 @@ class GameService:
         location_ref: str | None = None,
         narrator_deltas: dict | None = None,
         engine_snapshot: dict | None = None,
+        narrator_context: list | None = None,
     ) -> tuple[UUID, UUID]:
         """Save a user + assistant message pair."""
         populator = self._get_populator(game_id)
@@ -697,6 +698,7 @@ class GameService:
                 location_ref=location_ref,
                 narrator_deltas=narrator_deltas,
                 engine_snapshot=engine_snapshot,
+                narrator_context=narrator_context,
             )
 
             return user_id, assistant_id

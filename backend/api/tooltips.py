@@ -1,16 +1,16 @@
 """
 LDVELH - Tooltips API Routes
-Expose les données du KG pour les tooltips frontend
+Entity annotations for inline tooltips + entity detail lookup.
 """
 
 from uuid import UUID
 from typing import Optional
+
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
-
 
 router = APIRouter(tags=["tooltips"])
 
@@ -21,148 +21,86 @@ router = APIRouter(tags=["tooltips"])
 
 
 class TooltipInfo(BaseModel):
-    """Info tooltip formatée pour le frontend"""
+    """Formatted tooltip for frontend display"""
 
     icon: str
-    nom: str
+    name: str
     type: str
     infos: list[str]
     relation: Optional[str] = None
 
 
-class TooltipEntry(BaseModel):
-    """Entrée tooltip complète"""
+class AnnotationEntry(BaseModel):
+    """A single entity span in a message"""
 
-    entite_id: UUID
-    entite_type: str
-    entite_nom: str
-    alias: list[str]
-    connaissances: dict
-    relation_valentin: Optional[dict] = None
-    formatted: TooltipInfo
+    start: int
+    end: int
+    canonical_name: str
+    entity_type: str
+
+
+class MessageAnnotations(BaseModel):
+    """Annotations for one assistant message"""
+
+    message_id: UUID
+    sequence: int
+    annotations: list[AnnotationEntry]
 
 
 # =============================================================================
-# HELPER FUNCTIONS
+# HELPERS
 # =============================================================================
 
-# Labels pour le formatage
 TYPE_ICONS = {
-    "personnage": "👤",
-    "lieu": "📍",
-    "organisation": "🏢",
-    "objet": "📦",
-    "arc_narratif": "📖",
-    "ia": "🤖",
+    "character": "👤",
+    "location": "📍",
+    "organization": "🏢",
+    "object": "📦",
+    "arc": "📖",
 }
 
-TYPE_LABELS = {
-    "personnage": "Personnage",
-    "lieu": "Lieu",
-    "organisation": "Organisation",
-    "objet": "Objet",
-    "ia": "IA",
-}
 
-CONNAISSANCE_LABELS = {
-    "metier": "Métier",
-    "physique": "Apparence",
-    "espece": "Espèce",
-    "age": "Âge",
-    "domicile": "Domicile",
-    "hobby": "Hobby",
-    "traits": "Traits",
-    "type_lieu": "Type",
-    "ambiance": "Ambiance",
-    "horaires": "Horaires",
-    "domaine": "Domaine",
-    "type_org": "Type",
-    "voix": "Voix",
-    "occupation": "Occupation",
-}
-
-RELATION_LABELS = {
-    "connait": "Connaissance",
-    "ami_de": "Ami",
-    "collegue_de": "Collègue",
-    "superieur_de": "Supérieur",
-    "employe_de": "Employeur",
-    "travaille_a": "Lieu de travail",
-    "habite": "Domicile",
-    "frequente": "Lieu fréquenté",
-    "possede": "Possédé",
-}
-
-# Ordre de priorité pour l'affichage des connaissances
-PRIORITY_ORDER = [
-    "metier",
-    "physique",
-    "espece",
-    "age",
-    "domicile",
-    "hobby",
-    "traits",
-    "type_lieu",
-    "ambiance",
-    "horaires",
-    "domaine",
-    "type_org",
-]
-
-
-def truncate(text: str, max_len: int = 50) -> str:
-    """Tronque un texte si nécessaire"""
-    if not text or len(text) <= max_len:
-        return text
-    return text[: max_len - 1] + "…"
-
-
-def format_connaissance(key: str, value) -> str:
-    """Formate une connaissance pour affichage"""
-    label = CONNAISSANCE_LABELS.get(key, key.replace("_", " ").title())
-
-    if isinstance(value, list):
-        val = ", ".join(str(v) for v in value)
-    else:
-        val = str(value)
-
-    return f"{label}: {truncate(val)}"
-
-
-def format_tooltip(entity_data: dict) -> TooltipInfo:
-    """
-    Formate les données d'une entité pour affichage tooltip.
-    Equivalent de formatTooltip() dans knowledgeService.js
-    """
-    entite_type = entity_data.get("entite_type", "")
-    entite_nom = entity_data.get("entite_nom", "")
-    connaissances = entity_data.get("connaissances") or {}
-    relation_valentin = entity_data.get("relation_valentin")
-
-    # Icône selon type
-    icon = TYPE_ICONS.get(entite_type, "❓")
-
-    # Relation avec Valentin
-    relation_txt = None
-    if relation_valentin and relation_valentin.get("type"):
-        rel_type = relation_valentin["type"]
-        relation_txt = RELATION_LABELS.get(rel_type, rel_type)
-
-    # Formater les connaissances
+def _build_tooltip_info(
+    name: str, entity_type: str, details: dict
+) -> TooltipInfo:
+    """Build tooltip display info from entity details."""
+    icon = TYPE_ICONS.get(entity_type, "❓")
     infos = []
 
-    # D'abord les clés prioritaires
-    for key in PRIORITY_ORDER:
-        if key in connaissances and connaissances[key]:
-            infos.append(format_connaissance(key, connaissances[key]))
+    if entity_type == "character":
+        if details.get("occupation"):
+            infos.append(f"Métier: {details['occupation']}")
+        if details.get("species") and details["species"] != "human":
+            infos.append(f"Espèce: {details['species']}")
+        if details.get("mood"):
+            infos.append(f"Humeur: {details['mood']}")
+        if details.get("ambient"):
+            infos.append(details["ambient"][:80])
+    elif entity_type == "location":
+        if details.get("location_type"):
+            infos.append(f"Type: {details['location_type']}")
+        if details.get("sector"):
+            infos.append(f"Secteur: {details['sector']}")
+        if details.get("atmosphere"):
+            infos.append(f"Ambiance: {details['atmosphere']}")
+    elif entity_type == "organization":
+        if details.get("org_type"):
+            infos.append(f"Type: {details['org_type']}")
+        if details.get("domain"):
+            infos.append(f"Domaine: {details['domain']}")
+    elif entity_type == "object":
+        if details.get("category"):
+            infos.append(f"Catégorie: {details['category']}")
+        if details.get("description"):
+            infos.append(details["description"][:80])
 
-    # Puis le reste (sauf 'nom')
-    for key, val in connaissances.items():
-        if key not in PRIORITY_ORDER and key != "nom" and val:
-            infos.append(format_connaissance(key, val))
+    # Add relation with protagonist if available
+    relation = None
+    if details.get("relation_type"):
+        relation = details["relation_type"]
 
     return TooltipInfo(
-        icon=icon, nom=entite_nom, type=entite_type, infos=infos, relation=relation_txt
+        icon=icon, name=name, type=entity_type, infos=infos, relation=relation
     )
 
 
@@ -171,126 +109,142 @@ def format_tooltip(entity_data: dict) -> TooltipInfo:
 # =============================================================================
 
 
-@router.get("/tooltips")
-async def get_tooltips(
-    partie_id: UUID = Query(..., alias="partieId"),
+@router.get("/tooltips/annotations")
+async def get_annotations(
+    game_id: UUID = Query(..., alias="gameId"),
+    limit: int = Query(default=10, le=50),
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
-    """
-    GET /api/tooltips?partieId=xxx
-    Retourne les données tooltip pour toutes les entités connues.
+    """Return entity span annotations for recent assistant messages.
 
-    Équivalent de la route Next.js /api/tooltips
+    The frontend polls this after each turn to get resolver results.
+    Returns annotations for messages that have narrator_context set.
     """
     async with pool.acquire() as conn:
-        # Utiliser la vue kg_v_tooltip si elle existe, sinon construire la query
         rows = await conn.fetch(
-            """
-            SELECT 
-                e.id as entite_id,
-                e.type as entite_type,
-                e.name as entite_nom,
-                e.aliases as alias,
-                COALESCE(
-                    jsonb_object_agg(
-                        f.attribute, f.value
-                    ) FILTER (WHERE f.attribute IS NOT NULL),
-                    '{}'::jsonb
-                ) as connaissances,
-                (
-                    SELECT jsonb_build_object('type', r.type, 'props', r.properties)
-                    FROM relations r
-                    JOIN entities valentin ON valentin.id = r.target_id 
-                        AND valentin.name = 'Valentin Dumont'
-                    WHERE r.source_id = e.id
-                    LIMIT 1
-                ) as relation_valentin
-            FROM entities e
-            LEFT JOIN facts f ON f.entity_id = e.id AND f.game_id = e.game_id
-            WHERE e.game_id = $1
-              AND e.removed_cycle IS NULL
-            GROUP BY e.id, e.type, e.name, e.aliases
-        """,
-            partie_id,
+            """SELECT id, sequence, narrator_context
+               FROM messages
+               WHERE game_id = $1
+                 AND role = 'assistant'
+                 AND narrator_context IS NOT NULL
+               ORDER BY sequence DESC
+               LIMIT $2""",
+            game_id, limit,
         )
 
-    # Construire l'objet tooltips indexé par nom/alias
-    tooltips = {}
-
+    messages = []
     for row in rows:
-        entity_data = {
-            "entite_id": row["entite_id"],
-            "entite_type": row["entite_type"],
-            "entite_nom": row["entite_nom"],
-            "alias": row["alias"] or [],
-            "connaissances": dict(row["connaissances"]) if row["connaissances"] else {},
-            "relation_valentin": dict(row["relation_valentin"])
-            if row["relation_valentin"]
-            else None,
-        }
+        raw = row["narrator_context"]
+        if isinstance(raw, str):
+            import json
+            try:
+                raw = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        if not isinstance(raw, list):
+            continue
 
-        # Formater pour le tooltip
-        formatted = format_tooltip(entity_data)
+        annotations = []
+        for ann in raw:
+            if isinstance(ann, list) and len(ann) >= 4:
+                annotations.append(AnnotationEntry(
+                    start=ann[0], end=ann[1],
+                    canonical_name=ann[2], entity_type=ann[3],
+                ))
+        if annotations:
+            messages.append(MessageAnnotations(
+                message_id=row["id"],
+                sequence=row["sequence"],
+                annotations=annotations,
+            ))
 
-        entry = {**entity_data, "formatted": formatted.model_dump()}
-
-        # Stocker avec nom comme clé
-        key = row["entite_nom"].lower()
-        tooltips[key] = entry
-
-        # Ajouter les alias comme clés alternatives
-        for alias in row["alias"] or []:
-            tooltips[alias.lower()] = entry
-
-    return {"tooltips": tooltips}
+    return {"messages": [m.model_dump() for m in messages]}
 
 
-@router.get("/tooltips/{entity_id}")
+@router.get("/tooltips/entity")
 async def get_entity_tooltip(
-    entity_id: UUID,
+    game_id: UUID = Query(..., alias="gameId"),
+    name: str = Query(...),
+    entity_type: str = Query(..., alias="entityType"),
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
-    """
-    GET /api/tooltips/{entity_id}
-    Retourne les données détaillées d'une entité spécifique.
+    """Return tooltip details for a specific entity by name and type.
+
+    Queries the current DB schema (characters, locations, etc.)
     """
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT 
-                e.id as entite_id,
-                e.type as entite_type,
-                e.name as entite_nom,
-                e.aliases as alias,
-                e.properties,
-                COALESCE(
-                    jsonb_object_agg(
-                        f.attribute, f.value
-                    ) FILTER (WHERE f.attribute IS NOT NULL),
-                    '{}'::jsonb
-                ) as connaissances
-            FROM entities e
-            LEFT JOIN facts f ON f.entity_id = e.id AND f.game_id = e.game_id
-            WHERE e.id = $1
-            GROUP BY e.id, e.type, e.name, e.aliases, e.properties
-        """,
-            entity_id,
-        )
+        details = {}
 
-    if not row:
-        return {"error": "Entity not found"}
+        if entity_type == "character":
+            row = await conn.fetchrow(
+                """SELECT name, occupation, species, mood, ambient,
+                          known_by_protagonist, description
+                   FROM characters
+                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                     AND removed_cycle IS NULL
+                   LIMIT 1""",
+                game_id, name,
+            )
+            if row:
+                details = dict(row)
+                # Check relation with protagonist
+                rel = await conn.fetchrow(
+                    """SELECT r.type::text as relation_type
+                       FROM relations r
+                       JOIN entity_registry e ON r.source_id = e.id
+                       WHERE r.game_id = $1
+                         AND LOWER(e.name) = LOWER($2)
+                         AND r.end_cycle IS NULL
+                       LIMIT 1""",
+                    game_id, name,
+                )
+                if rel:
+                    details["relation_type"] = rel["relation_type"]
 
-    entity_data = {
-        "entite_id": row["entite_id"],
-        "entite_type": row["entite_type"],
-        "entite_nom": row["entite_nom"],
-        "alias": row["alias"] or [],
-        "properties": dict(row["properties"]) if row["properties"] else {},
-        "connaissances": dict(row["connaissances"]) if row["connaissances"] else {},
+        elif entity_type == "location":
+            row = await conn.fetchrow(
+                """SELECT name, location_type, sector, atmosphere, ambient,
+                          description
+                   FROM locations
+                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                     AND removed_cycle IS NULL
+                   LIMIT 1""",
+                game_id, name,
+            )
+            if row:
+                details = dict(row)
+
+        elif entity_type == "organization":
+            row = await conn.fetchrow(
+                """SELECT name, org_type, domain, description, ambient
+                   FROM organizations
+                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                     AND removed_cycle IS NULL
+                   LIMIT 1""",
+                game_id, name,
+            )
+            if row:
+                details = dict(row)
+
+        elif entity_type == "object":
+            row = await conn.fetchrow(
+                """SELECT name, category, description
+                   FROM objects
+                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                     AND removed_cycle IS NULL
+                   LIMIT 1""",
+                game_id, name,
+            )
+            if row:
+                details = dict(row)
+
+    if not details:
+        return {"found": False, "name": name, "type": entity_type}
+
+    tooltip = _build_tooltip_info(name, entity_type, details)
+    return {
+        "found": True,
+        "tooltip": tooltip.model_dump(),
     }
-
-    formatted = format_tooltip(entity_data)
-
-    return {**entity_data, "formatted": formatted.model_dump()}
