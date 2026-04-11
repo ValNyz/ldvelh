@@ -62,7 +62,6 @@ class KnowledgeGraphReader:
                       current_location_id,
                       world_name, world_description, world_atmosphere,
                       world_seed_words, world_founding_cycle,
-                      extracted_up_to_cycle, last_extraction_time,
                       detail_requests,
                       engine, engine_locked, world_config
                FROM games WHERE id = $1""",
@@ -623,7 +622,7 @@ class KnowledgeGraphReader:
         """Get messages, optionally scoped to a conversation."""
         query = """
             SELECT m.id, m.role, m.content, m.cycle, m.game_date, m.time,
-                   m.location_id, m.extracted, m.sequence, m.created_at,
+                   m.location_id, m.sequence, m.created_at,
                    m.narrator_deltas,
                    l.name as location_name,
                    mr.roll_details
@@ -786,29 +785,6 @@ class KnowledgeGraphReader:
         return [dict(r) for r in rows]
 
     # =========================================================================
-    # EXTRACTION CHECKPOINTS
-    # =========================================================================
-
-    async def get_extraction_checkpoint(
-        self, conn: Connection, extraction_type: str
-    ) -> int:
-        """Get the last extracted cycle for a specific extraction type.
-
-        Falls back to extracted_up_to_cycle if no per-type checkpoint exists.
-        """
-        row = await conn.fetchrow(
-            "SELECT extraction_checkpoints, extracted_up_to_cycle"
-            " FROM games WHERE id = $1",
-            self.game_id,
-        )
-        if not row:
-            return 0
-        checkpoints = row["extraction_checkpoints"] or {}
-        if extraction_type in checkpoints:
-            return checkpoints[extraction_type]
-        return row["extracted_up_to_cycle"] or 0
-
-    # =========================================================================
     # BATCH EXTRACTION SUPPORT
     # =========================================================================
 
@@ -826,25 +802,6 @@ class KnowledgeGraphReader:
                LEFT JOIN locations l ON m.location_id = l.id
                WHERE m.game_id = $1
                  AND m.cycle >= $2
-                 AND m.cycle <= $3
-               ORDER BY m.sequence ASC""",
-            self.game_id, from_cycle, to_cycle,
-        )
-        return [dict(r) for r in rows]
-
-    async def get_unextracted_messages(
-        self, conn: Connection, from_cycle: int, to_cycle: int
-    ) -> list[dict]:
-        """Get assistant messages not yet extracted, within cycle range."""
-        rows = await conn.fetch(
-            """SELECT m.id, m.content, m.cycle, m.time, m.narrator_deltas,
-                      l.name as location_name
-               FROM messages m
-               LEFT JOIN locations l ON m.location_id = l.id
-               WHERE m.game_id = $1
-                 AND m.role = 'assistant'
-                 AND m.extracted = false
-                 AND m.cycle > $2
                  AND m.cycle <= $3
                ORDER BY m.sequence ASC""",
             self.game_id, from_cycle, to_cycle,

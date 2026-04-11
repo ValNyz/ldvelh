@@ -20,15 +20,34 @@ from services.extraction.resolver import MentionMapping, ResolutionMap
 
 
 SAMPLE_GAME_ID = uuid4()
+SAMPLE_MSG_ID = uuid4()
+PREV_MSG_ID = uuid4()
 
 
-def _mock_pool():
-    """Build a mock asyncpg pool with a working acquire() context manager."""
+def _mock_pool(with_messages=False):
+    """Build a mock asyncpg pool with a working acquire() context manager.
+
+    If with_messages=True, fetchrow returns mock current + previous messages
+    for the resolver flow.
+    """
     mock_conn = AsyncMock()
     mock_conn.execute = AsyncMock()
     mock_conn.fetch = AsyncMock(return_value=[])
     mock_conn.fetchval = AsyncMock(return_value=None)
-    mock_conn.fetchrow = AsyncMock(return_value=None)
+
+    if with_messages:
+        async def _fetchrow(query, *args):
+            # Previous assistant message with annotations (only DB query left)
+            if "narrator_context" in query:
+                return {
+                    "content": "Le docteur vous accueille.",
+                    "narrator_context": [[3, 10, "Dr. Voss", "character"]],
+                }
+            return None
+
+        mock_conn.fetchrow = AsyncMock(side_effect=_fetchrow)
+    else:
+        mock_conn.fetchrow = AsyncMock(return_value=None)
 
     pool = MagicMock()
 
@@ -162,7 +181,8 @@ class TestOrchestrator:
             triggers=[], provider_name="anthropic", api_key="test",
         )
 
-        assert result["skipped"] is True
+        # No extractors run, but resolver may run (returns result dict)
+        assert result.get("extractors") == {} or result.get("skipped") is True
 
     @pytest.mark.asyncio
     async def test_invalid_trigger_ignored(self):
@@ -208,20 +228,13 @@ class TestOrchestrator:
 
         call_order = []
 
-        pool, mock_conn = _mock_pool()
-        mock_conn.fetch.return_value = [
-            {"id": "m1", "role": "assistant", "content": "Hello",
-             "cycle": 1, "game_date": None, "time": None,
-             "location_id": None, "extracted": False, "sequence": 1,
-             "created_at": None, "narrator_deltas": None,
-             "location_name": None, "roll_details": None},
-        ]
+        pool, mock_conn = _mock_pool(with_messages=True)
 
         async def mock_resolve(*args, **kwargs):
             call_order.append("resolver")
             return None, None
 
-        async def mock_extractor_run(trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
             call_order.append("extractor")
             return {"type": "characters", "skipped": True}
 
@@ -237,6 +250,9 @@ class TestOrchestrator:
             await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters"], provider_name="anthropic", api_key="test",
+                assistant_message_id=SAMPLE_MSG_ID,
+                message_content="Le docteur vous examine.",
+                narrator_deltas={},
             )
 
         assert call_order == ["resolver", "extractor"]
@@ -250,18 +266,11 @@ class TestOrchestrator:
             MentionMapping("le docteur", "Dr. Voss", "character", False),
         ])
 
-        pool, mock_conn = _mock_pool()
-        mock_conn.fetch.return_value = [
-            {"id": "m1", "role": "assistant", "content": "Text",
-             "cycle": 1, "game_date": None, "time": None,
-             "location_id": None, "extracted": False, "sequence": 1,
-             "created_at": None, "narrator_deltas": None,
-             "location_name": None, "roll_details": None},
-        ]
+        pool, mock_conn = _mock_pool(with_messages=True)
 
         received_maps = []
 
-        async def mock_extractor_run(trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
             received_maps.append(resolution_map)
             return {"type": "test", "success": True, "stats": {}}
 
@@ -286,6 +295,9 @@ class TestOrchestrator:
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters", "locations"],
                 provider_name="anthropic", api_key="test",
+                assistant_message_id=SAMPLE_MSG_ID,
+                message_content="Le docteur vous examine.",
+                narrator_deltas={},
             )
 
         # Both extractors should have received the same resolution map
@@ -297,18 +309,11 @@ class TestOrchestrator:
         """If Phase 1 fails, Phase 2 extractors still run normally."""
         from services.extraction.orchestrator import EXTRACTOR_MAP, run_triggered_extraction
 
-        pool, mock_conn = _mock_pool()
-        mock_conn.fetch.return_value = [
-            {"id": "m1", "role": "assistant", "content": "Text",
-             "cycle": 1, "game_date": None, "time": None,
-             "location_id": None, "extracted": False, "sequence": 1,
-             "created_at": None, "narrator_deltas": None,
-             "location_name": None, "roll_details": None},
-        ]
+        pool, mock_conn = _mock_pool(with_messages=True)
 
         extractor_called = []
 
-        async def mock_extractor_run(trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
             extractor_called.append(resolution_map)
             return {"type": "characters", "success": True, "stats": {}}
 
@@ -327,6 +332,9 @@ class TestOrchestrator:
             result = await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters"], provider_name="anthropic", api_key="test",
+                assistant_message_id=SAMPLE_MSG_ID,
+                message_content="Le docteur vous examine.",
+                narrator_deltas={},
             )
 
         # Extractor was called with resolution_map=None (graceful degradation)
@@ -339,19 +347,12 @@ class TestOrchestrator:
         """Resolver cost is included in total cost aggregation."""
         from services.extraction.orchestrator import EXTRACTOR_MAP, run_triggered_extraction
 
-        pool, mock_conn = _mock_pool()
-        mock_conn.fetch.return_value = [
-            {"id": "m1", "role": "assistant", "content": "Text",
-             "cycle": 1, "game_date": None, "time": None,
-             "location_id": None, "extracted": False, "sequence": 1,
-             "created_at": None, "narrator_deltas": None,
-             "location_name": None, "roll_details": None},
-        ]
+        pool, mock_conn = _mock_pool(with_messages=True)
 
         async def mock_resolve(*args, **kwargs):
             return ResolutionMap(), {"cost_usd": 0.002}
 
-        async def mock_extractor_run(trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
             return {
                 "type": "characters", "success": True, "stats": {},
                 "cost": {"cost_usd": 0.01},
@@ -369,10 +370,13 @@ class TestOrchestrator:
             result = await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters"], provider_name="anthropic", api_key="test",
+                assistant_message_id=SAMPLE_MSG_ID,
+                message_content="Le docteur vous examine.",
+                narrator_deltas={},
             )
 
-        assert "resolver_cost" in result
-        assert result["resolver_cost"]["cost_usd"] == 0.002
+        assert result["resolver"] is not None
+        assert result["resolver"]["cost_usd"] == 0.002
 
 
 # =============================================================================
