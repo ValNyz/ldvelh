@@ -684,10 +684,6 @@ async def _handle_chat(
                         f"[TIMING] validation: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
 
-                    # Clamp suggested_actions to 5 max
-                    if len(narration.suggested_actions) > 5:
-                        narration.suggested_actions = narration.suggested_actions[:5]
-
                     # 1. Update game state (cycle, time, location)
                     t1 = time.perf_counter()
                     process_result = await game_service.process_light(
