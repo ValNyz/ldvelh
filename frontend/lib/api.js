@@ -4,8 +4,9 @@
  * Centralise les appels au backend Python FastAPI
  */
 
-// URL du backend Python
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// In production (same-origin via Traefik): NEXT_PUBLIC_API_URL is empty/unset.
+// In dev: NEXT_PUBLIC_API_URL=http://localhost:8000
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 /**
  * Build full API URL from a path
