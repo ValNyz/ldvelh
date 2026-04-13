@@ -646,7 +646,7 @@ async def _handle_chat(
             context_prompt = build_narrator_context_prompt(
                 context, engine_type, mechanical_result
             )
-            logger.info(f"[CHAT] prompt: \n{context_prompt}")
+            logger.debug(f"[CHAT] context prompt: {len(context_prompt)} chars")
 
             # Build multi-turn messages array (history + context prompt)
             # Wrap assistant history in JSON for providers that need it
