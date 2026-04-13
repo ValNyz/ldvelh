@@ -250,17 +250,8 @@ def extract_narrative_from_partial(partial_json: str) -> str | None:
 def build_display_text(parsed: dict) -> str:
     """
     Construit le texte d'affichage depuis une réponse parsée.
-    Ajoute les choix suggérés.
     """
     text = parsed.get("narrative_text") or ""
-
-    # Ajouter les choix/suggestions
-    choices = parsed.get("suggested_actions") or []
-    if choices:
-        text += "\n\n---\n\n"
-        for i, choice in enumerate(choices, 1):
-            text += f"{i}. {choice}\n"
-
     return text.strip()
 
 

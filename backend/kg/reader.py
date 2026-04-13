@@ -515,14 +515,18 @@ class KnowledgeGraphReader:
     # =========================================================================
 
     async def get_active_arcs(self, conn: Connection) -> list[dict]:
-        """Get active narrative arcs with participants."""
+        """Get active narrative arcs with participants and owner info."""
         rows = await conn.fetch(
-            """SELECT id, title, domain, description,
-                      intensity, progress, situation, desire, obstacle,
-                      stakes, deadline_cycle, participants
-               FROM v_active_arcs
-               WHERE game_id = $1
-               ORDER BY intensity DESC, deadline_cycle ASC NULLS LAST""",
+            """SELECT v.id, v.title, v.domain, v.description,
+                      v.intensity, v.progress, v.situation, v.desire, v.obstacle,
+                      v.stakes, v.deadline_cycle, v.participants,
+                      na.owner_id, na.objective, na.steps,
+                      er.name as owner_name, er.entity_type as owner_type
+               FROM v_active_arcs v
+               JOIN narrative_arcs na ON na.id = v.id
+               LEFT JOIN entity_registry er ON na.owner_id = er.id
+               WHERE v.game_id = $1
+               ORDER BY v.intensity DESC, v.deadline_cycle ASC NULLS LAST""",
             self.game_id,
         )
         return [dict(r) for r in rows]
@@ -665,6 +669,26 @@ class KnowledgeGraphReader:
         return await conn.fetchval(
             "SELECT COUNT(*) FROM messages WHERE game_id = $1", self.game_id
         )
+
+    # =========================================================================
+    # NARRATIVE SEEDS
+    # =========================================================================
+
+    async def get_active_seeds(
+        self, conn: Connection, limit: int = 15
+    ) -> list[dict]:
+        """Get active narrative seeds, most recent first."""
+        rows = await conn.fetch(
+            """SELECT s.id, s.cycle, s.text, s.created_at,
+                      l.name as location_name
+               FROM narrative_seeds s
+               LEFT JOIN locations l ON s.location_id = l.id
+               WHERE s.game_id = $1 AND s.status = 'active'
+               ORDER BY s.cycle DESC
+               LIMIT $2""",
+            self.game_id, limit,
+        )
+        return [dict(r) for r in rows]
 
     # =========================================================================
     # CHRONOLOGY (via view v_chronology)

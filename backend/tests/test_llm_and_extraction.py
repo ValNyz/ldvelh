@@ -458,7 +458,6 @@ class TestLLMServiceStreamNarration:
         """Stream narration assembles JSON, sends chunks, calls on_complete."""
         json_output = json.dumps({
             "narrative_text": "Hello world. A narrative story about space. This is a long enough text for testing.",
-            "suggested_actions": ["Look around"],
         })
 
         # Mock provider that yields chunks + final usage
@@ -565,7 +564,6 @@ class TestLLMServiceStreamNarration:
         # Build JSON that has narrative_text followed by a closing comma/brace
         json_output = json.dumps({
             "narrative_text": "Complete narrative text that is well-formed and finalized in the JSON output stream.",
-            "suggested_actions": ["Do something"],
         })
 
         async def mock_stream(**kwargs):

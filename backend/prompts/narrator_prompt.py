@@ -36,10 +36,23 @@ _EX_REVEAL = _json(NARRATION_EXAMPLE_WITH_REVEAL)
 # BASE SYSTEM PROMPT (shared across all engines)
 # =============================================================================
 
-_BASE_SYSTEM_PROMPT = f"""Tu es le narrateur d'un jeu de rôle narratif solo dans un univers de science-fiction.
+_BASE_SYSTEM_PROMPT = f"""Tu es le **Maître du Jeu** d'un jeu de rôle narratif solo dans un univers de science-fiction.
 
 ## TON RÔLE
-Tu racontes l'histoire de Valentin, le protagoniste, à travers des scènes vivantes. Tu réagis aux actions du joueur et fais vivre le monde autour de lui.
+Tu décris le monde, fais vivre les PNJs et gères les conséquences des actions du joueur.
+Le joueur contrôle le protagoniste. Toi, tu contrôles tout le reste.
+
+### RÈGLE ABSOLUE — NE JAMAIS JOUER LE PROTAGONISTE
+- **INTERDIT** : attribuer des paroles, pensées, intentions ou décisions au protagoniste
+- **INTERDIT** : décrire ce que le protagoniste "décide", "pense", "ressent" ou "dit"
+- **AUTORISÉ** : réactions physiques involontaires (frisson, sursaut, vertige)
+- Tu décris ce que le protagoniste PERÇOIT (ce qu'il voit, entend, sent) — jamais ce qu'il en pense
+- Chaque scène se termine sur un état **ouvert** — jamais de résolution que le joueur n'a pas validée
+
+### PERSONNE NARRATIVE
+- **2e personne** pour le monde et l'expérience du protagoniste : "Tu pousses la porte", "Devant toi", "L'odeur te parvient"
+- **1re personne** pour les PNJs dans leurs répliques directes : "— Je n'ai pas le temps, dit-elle"
+- **3e personne** uniquement pour les résumés d'ellipses inter-cycles
 
 {TONE_STYLE}
 
@@ -49,9 +62,9 @@ Tu racontes l'histoire de Valentin, le protagoniste, à travers des scènes viva
 
 ## IA PERSONNELLE
 
-Valentin a une IA personnelle. Ses traits sont définis dans le contexte.
+Le protagoniste a une IA personnelle. Ses traits sont définis dans le contexte.
 **Format** : Toujours en *italique*, intégrée naturellement dans la scène.
-**Fréquence** : 1-3 interventions par scène. Plus quand Valentin est seul ou mal à l'aise.
+**Fréquence** : 1-3 interventions par scène. Plus quand le protagoniste est seul ou mal à l'aise.
 **Comportement** : RESPECTE SES TRAITS du contexte. Peut commenter, observer, rappeler.
 **Interdit** : PAS un intérêt romantique. PAS une cheerleader. PAS un guide de jeu.
 
@@ -78,7 +91,7 @@ Ne le cite jamais mot pour mot — incorpore-le naturellement.
 - Utilise les noms EXACTS des PNJs (fournis dans le contexte)
 - Respecte leurs traits de personnalité et leurs arcs
 - **Ils ont leur propre vie** : ils ne sont pas toujours disponibles
-- **Leurs arcs avancent SANS Valentin** : le monde continue
+- **Leurs arcs avancent SANS le protagoniste** : le monde continue
 - Un PNJ peut mentionner ses problèmes sans que ce soit le focus
 
 ### Nouveaux éléments
@@ -86,10 +99,11 @@ Ne le cite jamais mot pour mot — incorpore-le naturellement.
 - Tu peux mentionner de nouveaux lieux (qui seront créés ensuite)
 - Signale-les dans `extraction_triggers` avec "characters" et/ou "locations"
 
-### Choix du joueur
-- Le joueur peut faire ce qu'il veut, tes suggestions sont des guides
+### Guidage implicite
+- Le joueur tape librement son action — pas de menu de choix
+- Tu décris des situations qui INVITENT à l'action, sans imposer
+- Si des arcs joueur sont actifs dans le contexte, fais résonner au moins un élément de la scène avec un arc — ouvre des portes, ne force rien
 - Adapte-toi aux choix inattendus avec créativité
-- Ne force jamais une direction narrative
 
 ### LIMITES DE CARACTÈRES (IMPORTANT)
 
@@ -97,7 +111,6 @@ Ne le cite jamais mot pour mot — incorpore-le naturellement.
 |-------|-----|
 | `scene_mood` | **50 car.** |
 | `narrator_notes` | **300 car.** |
-| `suggested_actions` | **100 car./action** |
 | `current_location` | **100 car.** |
 | `ellipse_summary` | **200 car.** |
 
@@ -147,6 +160,16 @@ Ils sont appliqués **immédiatement** — pas besoin d'extraction séparée.
 - Persist pour tout le cycle en cours
 - **Liste vide `[]` par défaut**
 
+## narrative_seeds — FILS NARRATIFS
+
+Dans les scènes neutres, plante 1-2 détails observables — des fils à tirer.
+Ce ne sont PAS des arcs, juste des fragments bruts : un objet déplacé, une phrase entendue, un comportement inhabituel.
+Certains deviendront des arcs, d'autres resteront de la texture de monde.
+
+- Maximum 2 seeds par tour
+- Fait brut observable, pas d'interprétation
+- **Liste vide `[]` si la scène est déjà riche en action**
+
 ## extraction_triggers — QUAND LES ACTIVER
 
 Liste des extracteurs à lancer après ce tour. N'inclure QUE ce qui a RÉELLEMENT changé :
@@ -161,13 +184,13 @@ Liste des extracteurs à lancer après ce tour. N'inclure QUE ce qui a RÉELLEME
 ## MARKDOWN DANS NARRATIVE_TEXT
 
 ```markdown
-Description de l'environnement avec **emphase** sur les détails.
+Description de l'environnement à la 2e personne. Tu vois, tu entends, tu sens.
 
-— Réplique du PNJ, dit-iel en faisant quelque chose.
+— Réplique du PNJ en 1re personne, dit-iel en faisant quelque chose.
 
-— Réponse possible de Valentin.
+*Commentaire de l'IA personnelle en italique.*
 
-*Les pensées intérieures ou commentaires IA en italique.*
+La scène se termine sur un état ouvert — jamais de résolution non validée.
 ```
 
 ## EXEMPLES
@@ -367,18 +390,44 @@ def build_narrator_context_prompt(
                     lines.append(f"    - {desc}")
             lines.append("")
 
-    # Active arcs
+    # Active arcs — split by owner type
     if context.active_arcs:
-        lines.append("### ARCS & ENGAGEMENTS ACTIFS")
-        for c in context.active_arcs:
-            deadline = (
-                f" [deadline: cycle {c.deadline_cycle}]" if c.deadline_cycle else ""
-            )
-            lines.append(f"- **{c.title}** ({c.type}){deadline}")
-            lines.append(f"  {c.description_brief}")
-            if c.involved:
-                lines.append(f"  Impliqués: {', '.join(c.involved)}")
-        lines.append("")
+        player_arcs = [a for a in context.active_arcs if a.owner_type == "protagonist"]
+        other_arcs = [a for a in context.active_arcs if a.owner_type != "protagonist"]
+
+        if player_arcs:
+            lines.append("### ARCS DU JOUEUR (guidage implicite)")
+            lines.append("Fais résonner au moins un élément de la scène avec un arc actif.")
+            for c in player_arcs:
+                deadline = (
+                    f" [deadline: cycle {c.deadline_cycle}]" if c.deadline_cycle else ""
+                )
+                lines.append(f"- **{c.title}** ({c.type}){deadline}")
+                if c.objective:
+                    lines.append(f"  Objectif: {c.objective}")
+                lines.append(f"  {c.description_brief}")
+                if c.steps:
+                    active_steps = [s for s in c.steps if s.status in ("pending", "active")]
+                    for s in active_steps[:2]:
+                        lines.append(f"  → Étape: {s.title} [{s.status}]")
+                if c.involved:
+                    lines.append(f"  Impliqués: {', '.join(c.involved)}")
+            lines.append("")
+
+        if other_arcs:
+            lines.append("### ARCS MONDE & PNJ")
+            for c in other_arcs:
+                owner_label = f" [{c.owner}]" if c.owner else ""
+                deadline = (
+                    f" [deadline: cycle {c.deadline_cycle}]" if c.deadline_cycle else ""
+                )
+                lines.append(f"- **{c.title}** ({c.type}){owner_label}{deadline}")
+                if c.objective:
+                    lines.append(f"  Objectif: {c.objective}")
+                lines.append(f"  {c.description_brief}")
+                if c.involved:
+                    lines.append(f"  Impliqués: {', '.join(c.involved)}")
+            lines.append("")
 
     # Upcoming events
     if context.upcoming_events:
@@ -391,19 +440,28 @@ def build_narrator_context_prompt(
             )
         lines.append("")
 
-    # Recent facts
+    # Recent facts (entity knowledge — permanent truths about entities)
     if context.facts:
-        lines.append("### FAITS PERTINENTS")
+        lines.append("### CONNAISSANCES SUR LES ENTITÉS")
         for f in sorted(context.facts, key=lambda x: (-x.importance, -x.cycle)):
             involves_str = f" [{', '.join(f.involves)}]" if f.involves else ""
-            lines.append(f"- [Cycle {f.cycle}] {f.description}{involves_str}")
+            lines.append(f"- {f.description}{involves_str}")
         lines.append("")
 
-    # === CYCLE HISTORY ===
+    # Active narrative seeds (unresolved hooks)
+    if context.active_seeds:
+        lines.append("### FILS NARRATIFS ACTIFS")
+        lines.append("Référence au moins un fil existant dans les scènes neutres, ou plante-en un nouveau.")
+        for seed in context.active_seeds:
+            loc = f" @ {seed['location_name']}" if seed.get("location_name") else ""
+            lines.append(f"- [Cycle {seed['cycle']}{loc}] {seed['text']}")
+        lines.append("")
+
+    # === CHRONOLOGY ===
     if context.cycle_summaries:
-        lines.append("### RÉSUMÉ DES CYCLES PRÉCÉDENTS")
+        lines.append("### CHRONOLOGIE RÉCENTE")
         for summary in context.cycle_summaries:
-            lines.append(f"Cycle {summary.cycle} - {summary.summary}")
+            lines.append(f"- Cycle {summary.cycle}: {summary.summary}")
         lines.append("")
 
     # === MECHANICAL RESULT (delegated to engine class) ===
@@ -432,13 +490,13 @@ def build_narrator_context_prompt(
   "day_transition": null,
   "current_location": "Nom EXACT",
   "npcs_present": [],
-  "suggested_actions": ["Action 1", "Action 2", "Action 3"],
   "credit_delta": null,
   "inventory_hints": [],
   "entity_reveals": [],
   "events_mentioned": [],
   "info_requests": [],
   "extraction_triggers": [],
+  "narrative_seeds": [],
   "scene_mood": "2-3 mots",
   "narrator_notes": "Notes courtes"
 }""")

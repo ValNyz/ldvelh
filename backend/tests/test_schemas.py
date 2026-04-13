@@ -223,7 +223,6 @@ class TestNarrationExamples:
         assert output.time.ellipse is False
         assert output.current_location == "Le Quart de Cycle"
         assert output.npcs_present == ["Ossek"]
-        assert len(output.suggested_actions) == 3
         assert output.scene_mood == "banal et indifférent"
         assert output.extraction_triggers == []
 
@@ -231,7 +230,6 @@ class TestNarrationExamples:
         """Exemple 2: PNJ indisponible avec arc_advanced"""
         output = NarrationOutput(**narration_examples["pnj_unavailable"])
         assert output.time.new_time == "10h20"
-        assert len(output.suggested_actions) == 4
         assert "narrative_arcs" in output.extraction_triggers
         assert output.narrator_notes == "Ossek: mauvaise journée (mal du banc)"
 

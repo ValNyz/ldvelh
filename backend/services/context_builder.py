@@ -105,6 +105,9 @@ class ContextBuilder:
         # Facts
         facts = await self._build_facts(conn, current_cycle)
 
+        # Active narrative seeds
+        active_seeds = await self.reader.get_active_seeds(conn)
+
         # Requested entity details (from narrator info_requests at previous turn)
         requested_entity_details = await self._build_requested_details(conn)
 
@@ -132,6 +135,7 @@ class ContextBuilder:
             active_arcs=active_arcs_list,
             upcoming_events=events,
             facts=facts,
+            active_seeds=active_seeds,
             requested_entity_details=requested_entity_details,
             cycle_summaries=cycle_summaries,
             player_input=player_input,
@@ -383,9 +387,23 @@ class ContextBuilder:
 
     def _build_active_arcs(self, arcs_rows: list[dict]) -> list[ActiveArcSummary]:
         """Build active arcs from narrative_arcs table"""
+        from schema.narration import ArcStep
+
         result = []
         for arc in arcs_rows:
             involved = self._extract_participant_names(arc.get("participants") or [])
+
+            # Parse steps from JSONB
+            raw_steps = arc.get("steps") or []
+            steps = []
+            for s in raw_steps:
+                if isinstance(s, dict):
+                    steps.append(ArcStep(
+                        title=s.get("title", ""),
+                        status=s.get("status", "pending"),
+                        description=s.get("description", ""),
+                        risks=s.get("risks", []),
+                    ))
 
             result.append(
                 ActiveArcSummary(
@@ -393,6 +411,10 @@ class ContextBuilder:
                     title=arc.get("title", ""),
                     description_brief=(arc.get("situation") or arc.get("description") or "")[:150],
                     involved=involved,
+                    owner=arc.get("owner_name"),
+                    owner_type=arc.get("owner_type"),
+                    objective=arc.get("objective"),
+                    steps=steps,
                     deadline_cycle=arc.get("deadline_cycle"),
                 )
             )
