@@ -56,6 +56,9 @@ class ContextBuilder:
         # Game state (date, world metadata)
         game = await self.reader.get_game(conn) or {}
 
+        # Genre info
+        genre = await self.reader.get_genre(conn, game.get("genre_id"))
+
         # Engine info
         engine_type = game.get("engine", "none")
         engine = get_engine(engine_type)
@@ -144,6 +147,7 @@ class ContextBuilder:
             tone_notes=tone_notes,
             engine_type=engine_type,
             engine_stats=engine_stats,
+            genre=genre,
         )
 
     # =========================================================================

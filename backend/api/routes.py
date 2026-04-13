@@ -641,8 +641,8 @@ async def _handle_chat(
                         mechanical_result.roll.model_dump()
                     )
 
-            # Build engine-aware prompts
-            system_prompt = build_narrator_system_prompt(engine_type)
+            # Build engine + genre-aware prompts
+            system_prompt = build_narrator_system_prompt(engine_type, genre=context.genre)
             context_prompt = build_narrator_context_prompt(
                 context, engine_type, mechanical_result
             )
