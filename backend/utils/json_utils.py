@@ -132,6 +132,11 @@ def _fix_unescaped_quotes(content: str) -> str:
                 # End of content — treat as closing quote
                 in_string = False
                 result.append(char)
+            elif content[j] == '"':
+                # Next char is another quote — likely unescaped quote in content
+                # e.g. ..."text"", or ..."word""next"
+                # Escape this one, let the next iteration handle the next quote
+                result.append('\\"')
             elif content[j] in ',}]:':
                 # Structural JSON follows — this is a real closing quote
                 in_string = False
