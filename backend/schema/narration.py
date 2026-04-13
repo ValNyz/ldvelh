@@ -95,6 +95,15 @@ class OrganizationSummary(BaseModel):
     ambient: str | None = None
 
 
+class ArcStep(BaseModel):
+    """A milestone step within an arc"""
+
+    title: str
+    status: str = "pending"  # pending, active, completed, failed, skipped
+    description: str = ""
+    risks: list[str] = Field(default_factory=list)
+
+
 class ActiveArcSummary(BaseModel):
     """Summary of an active narrative arc"""
 
@@ -102,6 +111,10 @@ class ActiveArcSummary(BaseModel):
     title: str
     description_brief: str
     involved: list[str]  # Entity names involved
+    owner: str | None = None  # Entity name of the arc owner
+    owner_type: str | None = None  # "protagonist", "character", "location"
+    objective: str | None = None  # Goal formulated as intention
+    steps: list[ArcStep] = Field(default_factory=list)
     deadline_cycle: Optional[int] = None
     urgency: str = "normal"  # low, normal, high, critical
 
@@ -198,6 +211,11 @@ class NarrationContext(BaseModel):
     # === FACTS ===
     facts: list[Fact] = Field(
         default_factory=list, description="Recent important facts (importance >= 4)"
+    )
+
+    # === NARRATIVE SEEDS ===
+    active_seeds: list[dict] = Field(
+        default_factory=list, description="Active narrative seeds (unresolved hooks)"
     )
 
     # === HISTORY ===
@@ -310,12 +328,6 @@ class NarrationOutput(BaseModel):
         default_factory=list, description="EXACT names of NPCs present in the scene"
     )
 
-    # === CHOICES ===
-    suggested_actions: list[Phrase] = Field(
-        default_factory=list,
-        description="Suggested possible actions (2-5 ideally)",
-    )
-
     # === LIVE STATE DELTAS ===
     credit_delta: Optional[CreditDelta] = Field(
         default=None, description="Credit change to apply immediately"
@@ -343,6 +355,12 @@ class NarrationOutput(BaseModel):
     extraction_triggers: list[str] = Field(
         default_factory=list,
         description="Extractors to run: characters, locations, organizations, inventory, narrative_arcs",
+    )
+
+    # === NARRATIVE SEEDS ===
+    narrative_seeds: list[str] = Field(
+        default_factory=list,
+        description="0-2 raw observable details planted in this scene (unresolved hooks)",
     )
 
     # === META ===

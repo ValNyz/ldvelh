@@ -17,14 +17,20 @@ ENTITY_MATCHING_RULE = """## ENTITY NAME MATCHING
 - Case-insensitive matching, but prefer the canonical casing from the list
 - For new entities, use the name as it appears in the narrative text"""
 
-FACT_RULES = """## FACTS
+FACT_RULES = """## FACTS (Entity Knowledge Only)
 
-- semantic_key: lowercase ASCII format subject:verb:object (e.g. "marie:reveals:sick_mother")
-- importance: 5=game-changer, 4=significant, 3=notable, 2=minor, 1=ambient
-- participants[]: entity_ref (string), role (actor|witness|target|mentioned)
-- fact_type values: revelation, statement, promise, request, refusal, action, npc_action,
-  observation, state_change, encounter, interaction, conflict, acquisition, loss,
-  decision, realization"""
+Facts are PERMANENT TRUTHS about entities — not narrative events (those go in chronology).
+Only extract facts that will still be true next cycle.
+
+- semantic_key: lowercase ASCII format subject:verb:object (e.g. "ossek:deals_in:codes")
+- importance: minimum 3 (no ambient noise). 5=game-changer, 4=significant, 3=notable
+- participants[]: REQUIRED — each fact MUST have at least one participant (the entity it's about)
+- fact_type values: revelation, trait, secret, ability
+  - revelation: something discovered about an entity
+  - trait: permanent characteristic
+  - secret: hidden knowledge
+  - ability: what an entity can do
+- Do NOT extract: observations, actions, state changes, encounters, atmosphere — those are transient"""
 
 CORE_RULES = """## CORE RULES
 
@@ -33,7 +39,7 @@ CORE_RULES = """## CORE RULES
 3. Credits are handled by the narrator — do NOT extract them
 4. Inventory hints are already applied — only create detailed object records for new acquisitions
 5. Deduplicate: an entity/fact should appear only once
-6. known_by_protagonist=true if Valentin SAW/HEARD the name"""
+6. known_by_protagonist=true if the protagonist SAW/HEARD the name"""
 
 RESOLUTION_SECTION_HEADER = """## ENTITY RESOLUTION MAP (MANDATORY)
 
