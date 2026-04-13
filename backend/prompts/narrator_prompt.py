@@ -151,9 +151,10 @@ Ils sont appliqués **immédiatement** — pas besoin d'extraction séparée.
 
 Dans les scènes neutres, plante 1-2 détails observables — des fils à tirer.
 Ce ne sont PAS des arcs, juste des fragments bruts : un objet déplacé, une phrase entendue, un comportement inhabituel.
-Certains deviendront des arcs, d'autres resteront de la texture de monde.
 
 - Maximum 2 seeds par tour
+- **Format : liste de STRINGS simples** (pas d'objets)
+- Exemple : `["Kael sent l'alcool et regarde trop longtemps", "Le scanner refuse les annotations manuscrites"]`
 - Fait brut observable, pas d'interprétation
 - **Liste vide `[]` si la scène est déjà riche en action**
 
