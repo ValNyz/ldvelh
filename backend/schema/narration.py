@@ -239,6 +239,11 @@ class NarrationContext(BaseModel):
         default=None, description="Engine-specific stats (Fate stress, D6 wounds, etc.)"
     )
 
+    # === GENRE ===
+    genre: Optional[dict] = Field(
+        default=None, description="Genre config from DB (tone, friction, atmosphere)"
+    )
+
     # === META ===
     world_name: str
     world_atmosphere: str
