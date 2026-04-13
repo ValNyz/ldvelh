@@ -43,7 +43,7 @@ jobs:
         run: pip install -r requirements.txt pytest-cov
 
       - name: Apply DB schema
-        run: psql -f ../schema.sql
+        run: psql -f ../db/schema.sql
         env:
           PGHOST: localhost
           PGPORT: 5432
