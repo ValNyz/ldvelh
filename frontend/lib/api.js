@@ -105,7 +105,8 @@ async function request(method, path, body = null) {
  */
 export const api = {
 	async get(path, params = {}) {
-		const url = new URL(apiUrl(path));
+		const base = apiUrl(path);
+		const url = new URL(base, window.location.origin);
 		Object.entries(params).forEach(([k, v]) => {
 			if (v !== undefined && v !== null) {
 				url.searchParams.append(k, v);
