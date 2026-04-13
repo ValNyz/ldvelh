@@ -565,9 +565,8 @@ class TestNarratorSystemPrompt:
         assert "TON RÔLE" in NARRATOR_SYSTEM_PROMPT
 
     def test_contains_tone_style(self):
-        """Contains the shared TONE_STYLE content."""
+        """Contains a tone section (default or genre-specific)."""
         assert "TON ET STYLE" in NARRATOR_SYSTEM_PROMPT
-        assert "Becky Chambers" in NARRATOR_SYSTEM_PROMPT
 
     def test_contains_friction_rules(self):
         """Contains the FRICTION_RULES."""
@@ -601,19 +600,10 @@ class TestNarratorSystemPrompt:
                         "inventory", "narrative_arcs"]:
             assert trigger in NARRATOR_SYSTEM_PROMPT, f"Missing trigger doc: {trigger}"
 
-    def test_contains_json_template(self):
-        """Contains the output JSON template."""
-        assert "narrative_text" in NARRATOR_SYSTEM_PROMPT
-        assert "narrative_text" in NARRATOR_SYSTEM_PROMPT
+    def test_contains_json_references(self):
+        """References JSON output format."""
+        assert "JSON" in NARRATOR_SYSTEM_PROMPT
         assert "scene_mood" in NARRATOR_SYSTEM_PROMPT
-
-    def test_contains_examples(self):
-        """Contains all five example sections."""
-        assert "Exemple 1" in NARRATOR_SYSTEM_PROMPT
-        assert "Exemple 2" in NARRATOR_SYSTEM_PROMPT
-        assert "Exemple 3" in NARRATOR_SYSTEM_PROMPT
-        assert "Exemple 4" in NARRATOR_SYSTEM_PROMPT
-        assert "Exemple 5" in NARRATOR_SYSTEM_PROMPT
 
     def test_contains_critical_reminders(self):
         """Contains the critical reminders section."""
@@ -631,11 +621,11 @@ class TestNarratorSystemPrompt:
         """Contains markdown formatting examples for narrative_text."""
         assert "MARKDOWN DANS NARRATIVE_TEXT" in NARRATOR_SYSTEM_PROMPT
 
-    def test_no_raw_python_repr(self):
-        """Examples are serialized as JSON, not Python repr (no True/False/None)."""
-        # The prompt should contain true/false/null (JSON) not True/False/None (Python)
-        # Check a known boolean from the examples
-        assert '"ellipse": false' in NARRATOR_SYSTEM_PROMPT or '"ellipse":false' in NARRATOR_SYSTEM_PROMPT
+    def test_no_python_keywords_in_prompt(self):
+        """Prompt shouldn't contain Python True/False/None (should be JSON true/false/null)."""
+        # This is a sanity check — genre content from DB won't have Python keywords
+        assert "True," not in NARRATOR_SYSTEM_PROMPT
+        assert "False," not in NARRATOR_SYSTEM_PROMPT
 
 
 # =============================================================================

@@ -7,36 +7,25 @@ Engine-aware: adapts for none/narrative/fate_core/d6.
 import json
 from typing import TYPE_CHECKING
 
-from prompts.shared import TONE_STYLE, FRICTION_RULES, COHERENCE_RULES
-from prompts.examples import (
-    NARRATION_OUTPUT_TEMPLATE,
-    NARRATION_EXAMPLE_DAY_TRANSITION,
-    NARRATION_EXAMPLE_NEUTRAL,
-    NARRATION_EXAMPLE_PNJ_UNAVAILABLE,
-    NARRATION_EXAMPLE_WITH_DELTAS,
-    NARRATION_EXAMPLE_WITH_REVEAL,
-)
+from prompts.shared import COHERENCE_RULES
+from prompts.examples import NARRATION_OUTPUT_TEMPLATE, NARRATION_EXAMPLE_NEUTRAL
 from services.engine import get_engine
 
 if TYPE_CHECKING:
     from schema.engine import MechanicalResult
     from schema.narration import NarrationContext
 
-# Serialize examples as proper JSON (not Python repr with single quotes/True/False)
+# Serialize examples as proper JSON
 _json = lambda d: json.dumps(d, indent=2, ensure_ascii=False)
 _TEMPLATE = _json(NARRATION_OUTPUT_TEMPLATE)
 _EX_NEUTRAL = _json(NARRATION_EXAMPLE_NEUTRAL)
-_EX_PNJ = _json(NARRATION_EXAMPLE_PNJ_UNAVAILABLE)
-_EX_DELTAS = _json(NARRATION_EXAMPLE_WITH_DELTAS)
-_EX_DAY = _json(NARRATION_EXAMPLE_DAY_TRANSITION)
-_EX_REVEAL = _json(NARRATION_EXAMPLE_WITH_REVEAL)
 
 
 # =============================================================================
 # BASE SYSTEM PROMPT (shared across all engines)
 # =============================================================================
 
-_BASE_SYSTEM_PROMPT = f"""Tu es le **Maître du Jeu** d'un jeu de rôle narratif solo dans un univers de science-fiction.
+_BASE_SYSTEM_PROMPT = """Tu es le **Maître du Jeu** d'un jeu de rôle narratif solo.
 
 ## TON RÔLE
 Tu décris le monde, fais vivre les PNJs et gères les conséquences des actions du joueur.
@@ -54,11 +43,11 @@ Le joueur contrôle le protagoniste. Toi, tu contrôles tout le reste.
 - **1re personne** pour les PNJs dans leurs répliques directes : "— Je n'ai pas le temps, dit-elle"
 - **3e personne** uniquement pour les résumés d'ellipses inter-cycles
 
-{TONE_STYLE}
+{genre_tone_style}
 
-{FRICTION_RULES}
+{genre_friction_flavor}
 
-{COHERENCE_RULES}
+{coherence_rules}
 
 ## IA PERSONNELLE
 
@@ -116,9 +105,7 @@ Ne le cite jamais mot pour mot — incorpore-le naturellement.
 
 ## STRUCTURE DE TA RÉPONSE
 
-```json
-{_TEMPLATE}
-```
+Le format JSON attendu est documenté dans le rappel en fin de contexte.
 
 ## DELTAS LIVE — CHANGEMENTS D'ÉTAT IMMÉDIATS
 
@@ -195,30 +182,7 @@ La scène se termine sur un état ouvert — jamais de résolution non validée.
 
 ## EXEMPLES
 
-### Exemple 1 : Scène neutre (FRÉQUENT)
-```json
-{_EX_NEUTRAL}
-```
-
-### Exemple 2 : PNJ indisponible (FRÉQUENT)
-```json
-{_EX_PNJ}
-```
-
-### Exemple 3 : Achat
-```json
-{_EX_DELTAS}
-```
-
-### Exemple 4 : Transition de jour
-```json
-{_EX_DAY}
-```
-
-### Exemple 5 : Révélation d'identité PNJ
-```json
-{_EX_REVEAL}
-```
+Un exemple de scène neutre est fourni dans les exemples du contexte.
 
 ## RAPPELS CRITIQUES
 
@@ -236,20 +200,51 @@ La scène se termine sur un état ouvert — jamais de résolution non validée.
 # FACTORY: build_narrator_system_prompt(engine_type)
 # =============================================================================
 
-# Keep backward compat: NARRATOR_SYSTEM_PROMPT is the default (none engine)
-NARRATOR_SYSTEM_PROMPT = _BASE_SYSTEM_PROMPT
+# Default fallback tone (used when no genre is set)
+_DEFAULT_TONE = """## TON ET STYLE
+Monde indifférent, quotidien banal, personnages occupés par leurs propres problèmes.
+Le protagoniste n'est la priorité de personne."""
+
+_DEFAULT_FRICTION = """## FRICTION NARRATIVE (CRITIQUE)
+**Ratio obligatoire** : Sur 5 scènes, 2-3 neutres/frustrantes, 1-2 positives, 0-1 tendue.
+Le monde est indifférent. Les actions peuvent échouer. Les relations sont lentes."""
 
 
-def build_narrator_system_prompt(engine_type: str = "none") -> str:
-    """Build the appropriate narrator system prompt for the engine type.
+def build_narrator_system_prompt(
+    engine_type: str = "none", genre: dict | None = None
+) -> str:
+    """Build the narrator system prompt with genre and engine sections.
 
-    Delegates to engine.get_system_prompt_addon() for engine-specific sections.
+    Args:
+        engine_type: Game engine type
+        genre: Genre config dict from DB (or None for defaults)
     """
+    # Fill genre placeholders
+    tone = genre.get("tone_style", _DEFAULT_TONE) if genre else _DEFAULT_TONE
+    friction = genre.get("friction_flavor", _DEFAULT_FRICTION) if genre else _DEFAULT_FRICTION
+    atmosphere = genre.get("atmosphere_guidelines", "") if genre else ""
+
+    prompt = _BASE_SYSTEM_PROMPT.format(
+        genre_tone_style=f"## TON ET STYLE\n{tone}",
+        genre_friction_flavor=f"## FRICTION NARRATIVE (CRITIQUE)\n{friction}",
+        coherence_rules=COHERENCE_RULES,
+    )
+
+    # Add atmosphere guidelines if genre provides them
+    if atmosphere:
+        prompt += f"\n\n## ATMOSPHÈRE\n{atmosphere}\n"
+
+    # Add engine-specific section
     engine = get_engine(engine_type)
     addon = engine.get_system_prompt_addon()
     if addon:
-        return _BASE_SYSTEM_PROMPT + addon
-    return _BASE_SYSTEM_PROMPT
+        prompt += addon
+
+    return prompt
+
+
+# Backward compat: default prompt without genre
+NARRATOR_SYSTEM_PROMPT = build_narrator_system_prompt()
 
 
 # =============================================================================
