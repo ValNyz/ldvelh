@@ -36,11 +36,6 @@ def _make_narration_output(location: str) -> dict:
         "time": {"new_time": "09h15", "ellipse": False},
         "current_location": location,
         "npcs_present": [],
-        "suggested_actions": [
-            "Explorer le terminal",
-            "Chercher un café",
-            "Consulter le panneau d'information",
-        ],
         "credit_delta": {"amount": -15, "description": "café au terminal"},
         "inventory_hints": [],
         "entity_reveals": [],

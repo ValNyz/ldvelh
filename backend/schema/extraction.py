@@ -198,12 +198,24 @@ class InventoryChange(BaseModel):
 # =============================================================================
 
 
+class ArcStepExtraction(BaseModel):
+    """A milestone step within an arc"""
+
+    title: str
+    status: str = "pending"  # pending, active, completed, failed, skipped
+    description: str = ""
+    risks: list[str] = Field(default_factory=list)
+
+
 class ArcCreation(BaseModel):
     """A new narrative arc created during extraction"""
 
     title: Name  # 100 chars
     domain: str  # ArcDomain value
     description: Text  # 300 chars
+    owner_ref: EntityRef | None = None  # Entity name of arc owner
+    objective: str | None = None  # Goal formulated as intention
+    steps: list[ArcStepExtraction] = Field(default_factory=list)  # 2-4 skeleton steps
     involved_entities: list[EntityRef] = Field(default_factory=list)
     potential_triggers: list[str] = Field(default_factory=list, max_length=4)
     stakes: ShortText | None = None  # 200 chars
@@ -218,6 +230,7 @@ class ArcUpdate(BaseModel):
     intensity: int | None = Field(default=None, ge=1, le=5)
     progress: int | None = Field(default=None, ge=0, le=100)
     situation: Text | None = None  # Updated current state, 300 chars
+    step_updates: list[ArcStepExtraction] | None = None  # Updated step statuses
 
 
 class ArcResolutionExtraction(BaseModel):

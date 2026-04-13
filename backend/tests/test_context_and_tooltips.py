@@ -291,7 +291,6 @@ async def test_build_context_after_messages(
         "time": {"new_time": "09h30", "ellipse": False},
         "current_location": arrival_loc,
         "npcs_present": [],
-        "suggested_actions": ["Explorer", "S'asseoir"],
         "credit_delta": None,
         "inventory_hints": [],
         "entity_reveals": [],

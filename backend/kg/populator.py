@@ -930,12 +930,25 @@ class KnowledgeGraphPopulator:
             )
             arc_id = existing_id
         else:
+            # Resolve owner_id from owner_ref name
+            owner_id = None
+            if hasattr(arc, "owner_ref") and arc.owner_ref:
+                owner_id = self.registry.resolve(arc.owner_ref)
+
+            # Serialize steps to JSON
+            import json as _json
+            steps_json = _json.dumps(
+                [s.model_dump() if hasattr(s, "model_dump") else s
+                 for s in (getattr(arc, "steps", None) or [])]
+            )
+
             arc_id = await conn.fetchval(
                 """INSERT INTO narrative_arcs (
                     game_id, title, domain, description,
                     intensity, progress, situation, desire, obstacle,
-                    potential_triggers, stakes, deadline_cycle
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                    potential_triggers, stakes, deadline_cycle,
+                    owner_id, objective, steps
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
                 RETURNING id""",
                 self.game_id,
                 arc.title,
@@ -949,6 +962,9 @@ class KnowledgeGraphPopulator:
                 arc.potential_triggers,
                 arc.stakes,
                 arc.deadline_cycle,
+                owner_id,
+                getattr(arc, "objective", None),
+                steps_json,
             )
 
         for entity_name in arc.involved_entities:
@@ -1177,6 +1193,37 @@ class KnowledgeGraphPopulator:
         self.registry.clear()
         await self.load_registry(conn)
         return stats
+
+    # =========================================================================
+    # NARRATIVE SEEDS
+    # =========================================================================
+
+    async def save_seed(
+        self, conn: Connection, cycle: int, text: str, location_id=None
+    ):
+        """Store a narrative seed."""
+        await conn.execute(
+            """INSERT INTO narrative_seeds (game_id, cycle, text, location_id)
+               VALUES ($1, $2, $3, $4)""",
+            self.game_id, cycle, text, location_id,
+        )
+
+    async def archive_stale_seeds(self, conn: Connection, current_cycle: int, max_age: int = 10):
+        """Archive seeds older than max_age cycles."""
+        await conn.execute(
+            """UPDATE narrative_seeds SET status = 'archived'
+               WHERE game_id = $1 AND status = 'active'
+                 AND cycle < $2""",
+            self.game_id, current_cycle - max_age,
+        )
+
+    async def crystallize_seed(self, conn: Connection, seed_id, arc_id):
+        """Mark a seed as crystallized into an arc."""
+        await conn.execute(
+            """UPDATE narrative_seeds SET status = 'crystallized', crystallized_arc_id = $1
+               WHERE id = $2""",
+            arc_id, seed_id,
+        )
 
     # =========================================================================
     # EXTRACTION LOGS

@@ -425,42 +425,12 @@ class TestBuildDisplayText:
         assert build_display_text({"narrative_text": None}) == ""
         assert build_display_text({"narrative_text": ""}) == ""
 
-    def test_with_suggested_actions(self):
-        """Actions are appended as a numbered list after a separator."""
-        parsed = {
-            "narrative_text": "You arrive.",
-            "suggested_actions": ["Look around", "Talk to someone"],
-        }
-        result = build_display_text(parsed)
-        assert "You arrive." in result
-        assert "---" in result
-        assert "1. Look around" in result
-        assert "2. Talk to someone" in result
-
-    def test_empty_actions_no_separator(self):
-        """Empty actions list produces no separator."""
-        parsed = {"narrative_text": "Text.", "suggested_actions": []}
+    def test_no_suggested_actions_field(self):
+        """Without suggested_actions, only narrative_text is returned."""
+        parsed = {"narrative_text": "Text."}
         result = build_display_text(parsed)
         assert "---" not in result
         assert result == "Text."
-
-    def test_no_narrative_with_actions(self):
-        """Actions without narrative text still produce numbered list."""
-        parsed = {"narrative_text": None, "suggested_actions": ["Do X"]}
-        result = build_display_text(parsed)
-        assert "1. Do X" in result
-        assert "---" in result
-
-    def test_three_actions_numbered(self):
-        """Three actions are numbered 1-3."""
-        parsed = {
-            "narrative_text": "Scene.",
-            "suggested_actions": ["A", "B", "C"],
-        }
-        result = build_display_text(parsed)
-        assert "1. A" in result
-        assert "2. B" in result
-        assert "3. C" in result
 
 
 # =============================================================================
@@ -634,7 +604,7 @@ class TestNarratorSystemPrompt:
     def test_contains_json_template(self):
         """Contains the output JSON template."""
         assert "narrative_text" in NARRATOR_SYSTEM_PROMPT
-        assert "suggested_actions" in NARRATOR_SYSTEM_PROMPT
+        assert "narrative_text" in NARRATOR_SYSTEM_PROMPT
         assert "scene_mood" in NARRATOR_SYSTEM_PROMPT
 
     def test_contains_examples(self):
@@ -1244,7 +1214,7 @@ class TestNarratorContextPromptBranches:
             ]
         )
         prompt = build_narrator_context_prompt(ctx)
-        assert "### ARCS & ENGAGEMENTS ACTIFS" in prompt
+        assert "### ARCS MONDE & PNJ" in prompt
         assert "**Installation au poste** (professional)" in prompt
         assert "[deadline: cycle 5]" in prompt
         assert "Impliqués: Chef Morin, Valentin" in prompt
@@ -1257,7 +1227,8 @@ class TestNarratorContextPromptBranches:
         """No ARCS section when list is empty."""
         ctx = _make_context(active_arcs=[])
         prompt = build_narrator_context_prompt(ctx)
-        assert "### ARCS & ENGAGEMENTS ACTIFS" not in prompt
+        assert "### ARCS MONDE & PNJ" not in prompt
+        assert "### ARCS DU JOUEUR" not in prompt
 
     # ---- Upcoming events ----
 
@@ -1302,10 +1273,10 @@ class TestNarratorContextPromptBranches:
             ]
         )
         prompt = build_narrator_context_prompt(ctx)
-        assert "### FAITS PERTINENTS" in prompt
+        assert "### CONNAISSANCES SUR LES ENTITÉS" in prompt
         # Higher importance first, then higher cycle
-        facts_section = prompt.split("### FAITS PERTINENTS")[1].split("###")[0]
-        lines = [l for l in facts_section.strip().split("\n") if l.startswith("- [Cycle")]
+        facts_section = prompt.split("### CONNAISSANCES SUR LES ENTITÉS")[1].split("###")[0]
+        lines = [l for l in facts_section.strip().split("\n") if l.startswith("- ")]
         assert len(lines) == 3
         # First line should be importance=5, cycle=2
         assert "Major discovery" in lines[0]
@@ -1316,10 +1287,10 @@ class TestNarratorContextPromptBranches:
         assert "Minor event" in lines[2]
 
     def test_no_facts_section_when_empty(self):
-        """No FAITS section when list is empty."""
+        """No facts section when list is empty."""
         ctx = _make_context(facts=[])
         prompt = build_narrator_context_prompt(ctx)
-        assert "### FAITS PERTINENTS" not in prompt
+        assert "### CONNAISSANCES SUR LES ENTITÉS" not in prompt
 
     def test_facts_without_involves(self):
         """Fact without involves list has no bracket suffix."""
@@ -1341,15 +1312,15 @@ class TestNarratorContextPromptBranches:
             ]
         )
         prompt = build_narrator_context_prompt(ctx)
-        assert "### RÉSUMÉ DES CYCLES PRÉCÉDENTS" in prompt
-        assert "Cycle 1 - Arrived at the station." in prompt
-        assert "Cycle 2 - First day at work." in prompt
+        assert "### CHRONOLOGIE RÉCENTE" in prompt
+        assert "- Cycle 1: Arrived at the station." in prompt
+        assert "- Cycle 2: First day at work." in prompt
 
     def test_no_cycle_summaries_when_empty(self):
         """No RÉSUMÉ section when list is empty."""
         ctx = _make_context(cycle_summaries=[])
         prompt = build_narrator_context_prompt(ctx)
-        assert "### RÉSUMÉ DES CYCLES PRÉCÉDENTS" not in prompt
+        assert "### CHRONOLOGIE RÉCENTE" not in prompt
 
     # ---- Player input and JSON skeleton ----
 
@@ -1470,10 +1441,10 @@ class TestNarratorContextPromptBranches:
             "### IA PERSONNELLE",
             "### ORGANISATIONS CONNUES",
             "### PNJs",
-            "### ARCS & ENGAGEMENTS ACTIFS",
+            "### ARCS MONDE & PNJ",
             "### ÉVÉNEMENTS À VENIR",
-            "### FAITS PERTINENTS",
-            "### RÉSUMÉ DES CYCLES PRÉCÉDENTS",
+            "### CONNAISSANCES SUR LES ENTITÉS",
+            "### CHRONOLOGIE RÉCENTE",
             "## ACTION DU JOUEUR",
             "## FORMAT DE RÉPONSE ATTENDU",
         ]
