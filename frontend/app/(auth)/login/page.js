@@ -11,7 +11,7 @@ export default function LoginPage() {
 
 	// Redirect if already authenticated
 	if (isAuthenticated) {
-		if (typeof window !== 'undefined') window.location.href = '/';
+		if (typeof window !== 'undefined') window.location.href = '/game';
 		return null;
 	}
 
@@ -21,7 +21,7 @@ export default function LoginPage() {
 		setLoading(true);
 		try {
 			await login(identifier, password);
-			window.location.href = '/';
+			window.location.href = '/game';
 		} catch {
 			// Error handled by useAuth
 		} finally {

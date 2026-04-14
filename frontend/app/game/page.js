@@ -3,29 +3,29 @@
 import { useState, useCallback, useEffect, Suspense } from 'react';
 
 // Hooks
-import { useGameState, useGames } from '../hooks/useGameState';
-import { useGamePhase } from '../hooks/useGamePhase';
-import { useGameOrchestrator } from '../hooks/useGameOrchestrator';
-import { usePreferences } from '../hooks/usePreferences';
-import { useTooltips } from '../hooks/useTooltips';
-import { useWorldData } from '../hooks/useWorldData';
+import { useGameState, useGames } from '../../hooks/useGameState';
+import { useGamePhase } from '../../hooks/useGamePhase';
+import { useGameOrchestrator } from '../../hooks/useGameOrchestrator';
+import { usePreferences } from '../../hooks/usePreferences';
+import { useTooltips } from '../../hooks/useTooltips';
+import { useWorldData } from '../../hooks/useWorldData';
 
 // Auth
-import { useAuthContext } from '../lib/AuthContext';
+import { useAuthContext } from '../../lib/AuthContext';
 
 // Components
-import GamesList from '../components/game/GamesList';
-import GameHeader from '../components/game/GameHeader';
-import StatsBar from '../components/game/StatsBar';
-import MessageList from '../components/game/MessageList';
-import InputArea from '../components/game/InputArea';
-import { DebugStatePanel } from '../components/game/SettingsPanel';
-import SettingsPage from '../components/game/SettingsPage';
-import WorldGenerationScreen from '../components/game/WorldGenerationScreen';
-import WizardContainer from '../components/game/wizard/WizardContainer';
-import { InventorySidebar, WorldSidebar } from '../components/game/Sidebars';
-import CharacterSheet from '../components/game/CharacterSheet';
-import AspectInvocationModal from '../components/game/AspectInvocationModal';
+import GamesList from '../../components/game/GamesList';
+import GameHeader from '../../components/game/GameHeader';
+import StatsBar from '../../components/game/StatsBar';
+import MessageList from '../../components/game/MessageList';
+import InputArea from '../../components/game/InputArea';
+import { DebugStatePanel } from '../../components/game/SettingsPanel';
+import SettingsPage from '../../components/game/SettingsPage';
+import WorldGenerationScreen from '../../components/game/WorldGenerationScreen';
+import WizardContainer from '../../components/game/wizard/WizardContainer';
+import { InventorySidebar, WorldSidebar } from '../../components/game/Sidebars';
+import CharacterSheet from '../../components/game/CharacterSheet';
+import AspectInvocationModal from '../../components/game/AspectInvocationModal';
 
 export default function Home() {
 	// =========================================================================
@@ -282,7 +282,7 @@ function EmailVerificationBanner() {
 	const handleResend = async () => {
 		setSending(true);
 		try {
-			const { api } = await import('../lib/api');
+			const { api } = await import('../../lib/api');
 			await api.post('/auth/resend-verification');
 			setSent(true);
 		} catch {

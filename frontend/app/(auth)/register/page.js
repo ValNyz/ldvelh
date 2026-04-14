@@ -14,7 +14,7 @@ export default function RegisterPage() {
 
 	// Redirect if already authenticated
 	if (isAuthenticated) {
-		if (typeof window !== 'undefined') window.location.href = '/';
+		if (typeof window !== 'undefined') window.location.href = '/game';
 		return null;
 	}
 
@@ -31,7 +31,7 @@ export default function RegisterPage() {
 		setLoading(true);
 		try {
 			await register(email, password, passwordConfirm, displayName || null);
-			window.location.href = '/';
+			window.location.href = '/game';
 		} catch {
 			// Error handled by useAuth
 		} finally {
