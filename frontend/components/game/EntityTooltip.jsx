@@ -7,7 +7,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 // ============================================================================
 
 const ENTITY_COLORS = {
-	character: { bg: 'bg-purple-500/20', border: 'border-purple-500/50', text: 'text-purple-300' },
+	character: { bg: 'bg-primary/15', border: 'border-primary/40', text: 'text-primary' },
 	location: { bg: 'bg-blue-500/20', border: 'border-blue-500/50', text: 'text-blue-300' },
 	organization: { bg: 'bg-amber-500/20', border: 'border-amber-500/50', text: 'text-amber-300' },
 	object: { bg: 'bg-emerald-500/20', border: 'border-emerald-500/50', text: 'text-emerald-300' },
@@ -209,7 +209,7 @@ export default function EntityTooltip({ children, data, className = '' }) {
 						left: position.left,
 					}}
 				>
-					<div className={`bg-gray-900/98 backdrop-blur-sm border ${colors.border} rounded-xl shadow-2xl min-w-[200px] max-w-[320px] overflow-hidden`}>
+					<div className={`bg-surface/98 backdrop-blur-sm border ${colors.border} rounded-xl shadow-2xl min-w-[200px] max-w-[320px] overflow-hidden`}>
 
 						{/* Header avec couleur selon type */}
 						<div className={`${colors.bg} px-3 py-2 border-b ${colors.border}`}>
@@ -254,13 +254,13 @@ export default function EntityTooltip({ children, data, className = '' }) {
 					{/* Flèche (seulement si placement haut/bas) */}
 					{position.placement === 'bottom' && (
 						<div
-							className={`absolute -top-[5px] w-2.5 h-2.5 bg-gray-900/98 border-l border-t ${colors.border} rotate-45`}
+							className={`absolute -top-[5px] w-2.5 h-2.5 bg-surface/98 border-l border-t ${colors.border} rotate-45`}
 							style={{ left: 'calc(50% - 5px)' }}
 						/>
 					)}
 					{position.placement === 'top' && (
 						<div
-							className={`absolute -bottom-[5px] w-2.5 h-2.5 bg-gray-900/98 border-r border-b ${colors.border} rotate-45`}
+							className={`absolute -bottom-[5px] w-2.5 h-2.5 bg-surface/98 border-r border-b ${colors.border} rotate-45`}
 							style={{ left: 'calc(50% - 5px)' }}
 						/>
 					)}

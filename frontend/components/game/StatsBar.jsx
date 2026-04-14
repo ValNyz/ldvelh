@@ -13,7 +13,7 @@ export default function StatsBar({ gameState }) {
 	if (!game && !player) return null;
 
 	return (
-		<div className="bg-gray-900/50 border-b border-gray-800/30 px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs font-mono">
+		<div className="bg-surface/50 border-b border-gray-800/30 px-4 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs font-mono">
 			{/* Date & Time */}
 			<span className="text-emerald-400 flex items-center gap-1">
 				📅 {game?.game_date || '-'}
@@ -37,7 +37,7 @@ export default function StatsBar({ gameState }) {
 
 			{/* NPCs present */}
 			{game?.npcs_present?.length > 0 && (
-				<span className="text-purple-400 flex items-center gap-1 hidden md:flex">
+				<span className="text-primary flex items-center gap-1 hidden md:flex">
 					👥 {game.npcs_present.join(', ')}
 				</span>
 			)}

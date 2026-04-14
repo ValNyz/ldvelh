@@ -147,7 +147,7 @@ function FateCoreCharacter({ data, onChange, genre }) {
 						value={aspects.high_concept}
 						onChange={(e) => updateAspect('high_concept', e.target.value)}
 						placeholder="Ex: Pilote intrépide de cargos spatiaux"
-						className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+						className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary/50"
 					/>
 				</div>
 				<div>
@@ -156,7 +156,7 @@ function FateCoreCharacter({ data, onChange, genre }) {
 						value={aspects.trouble}
 						onChange={(e) => updateAspect('trouble', e.target.value)}
 						placeholder="Ex: Recherché par la guilde des marchands"
-						className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+						className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary/50"
 					/>
 				</div>
 				{aspects.other.map((a, i) => (
@@ -166,7 +166,7 @@ function FateCoreCharacter({ data, onChange, genre }) {
 							value={a}
 							onChange={(e) => updateOtherAspect(i, e.target.value)}
 							placeholder="Aspect libre..."
-							className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+							className="w-full px-3 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary/50"
 						/>
 					</div>
 				))}
@@ -210,7 +210,7 @@ function FateCoreCharacter({ data, onChange, genre }) {
 								}}
 								className={`px-2 py-1 rounded text-xs transition-colors ${
 									level > 0
-										? 'bg-purple-700/60 text-purple-200 border border-purple-600'
+										? 'bg-primary/25 border border-primary text-primary-fixed'
 										: 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'
 								}`}
 								title={level > 0 ? `+${level} ${FATE_LADDER[level]}` : 'Non assignée'}
@@ -318,7 +318,7 @@ export default function CharacterCreationStep({ engine, genre, data, onChange })
 					value={data.name || ''}
 					onChange={(e) => onChange({ ...data, name: e.target.value })}
 					placeholder="Valentin"
-					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50"
 				/>
 				<p className="text-xs text-gray-500 mt-1">Laisse vide pour "Valentin" par défaut</p>
 			</div>

@@ -191,7 +191,7 @@ function MarkdownContent({ content, isUser, tooltipMap }) {
 			);
 		},
 		em: ({ children }) => (
-			<em className={isUser ? 'text-blue-100' : 'text-purple-300'}>
+			<em className={isUser ? 'text-blue-100' : 'text-primary'}>
 				{children}
 			</em>
 		),

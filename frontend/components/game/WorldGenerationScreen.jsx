@@ -35,7 +35,7 @@ export default function WorldGenerationScreen({
 	const isComplete = isStreamComplete && worldData != null;
 
 	return (
-		<div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-4 md:p-8">
+		<div className="min-h-screen bg-surface flex flex-col items-center justify-center p-4 md:p-8">
 			<div className="max-w-xl w-full space-y-6">
 				{/* Title */}
 				<div className="text-center">
@@ -43,7 +43,7 @@ export default function WorldGenerationScreen({
 						{isComplete ? '✨ Monde créé' : 'Création du monde...'}
 					</h1>
 					{(worldData?.world?.name || worldName) && (
-						<p className="text-2xl text-purple-400 font-semibold">
+						<p className="text-2xl text-primary font-semibold">
 							{worldData?.world?.name || worldName}
 						</p>
 					)}
@@ -57,7 +57,7 @@ export default function WorldGenerationScreen({
 					<div className="space-y-3">
 						<div className="h-3 bg-gray-700 rounded-full overflow-hidden">
 							<div
-								className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all duration-500 ease-out"
+								className="h-full bg-primary transition-all duration-500 ease-out"
 								style={{ width: `${progress}%` }}
 							/>
 						</div>
@@ -80,7 +80,7 @@ export default function WorldGenerationScreen({
 									<div
 										key={step.key}
 										className={`w-2 h-2 rounded-full transition-colors ${step.key === currentStep.key
-											? 'bg-purple-400 animate-pulse'
+											? 'bg-primary animate-pulse'
 											: stepDone
 												? 'bg-green-500'
 												: 'bg-gray-600'
@@ -98,7 +98,7 @@ export default function WorldGenerationScreen({
 					<div className="space-y-4">
 						<div className="grid grid-cols-4 gap-3">
 							<div className="bg-gray-800 rounded-lg p-3 text-center">
-								<p className="text-2xl font-bold text-purple-400">
+								<p className="text-2xl font-bold text-primary">
 									{worldData.npc_count || 0}
 								</p>
 								<p className="text-xs text-gray-400">PNJs</p>
@@ -124,7 +124,7 @@ export default function WorldGenerationScreen({
 						</div>
 
 						{worldData.world?.atmosphere && (
-							<div className="bg-gradient-to-r from-purple-900/30 to-pink-900/30 rounded-lg p-4 border border-purple-700/50">
+							<div className="bg-primary/10 rounded-lg p-4 border border-primary/30">
 								<p className="text-gray-300 italic">"{worldData.world.atmosphere}"</p>
 								{worldData.world?.population && (
 									<p className="text-gray-500 text-sm mt-2">
@@ -156,7 +156,7 @@ export default function WorldGenerationScreen({
 						)}
 
 						{worldData.arrival && (
-							<div className="bg-gray-800 rounded-lg p-4 border-l-4 border-purple-500">
+							<div className="bg-gray-800 rounded-lg p-4 border-l-4 border-primary">
 								<p className="text-gray-400 text-sm mb-1">Votre aventure commence...</p>
 								<p className="text-white">📍 {worldData.arrival.location}</p>
 								<p className="text-gray-400 text-sm">{worldData.arrival.date}</p>
@@ -179,7 +179,7 @@ export default function WorldGenerationScreen({
 					<div className="flex justify-center">
 						<div className="relative">
 							<div className="w-16 h-16 border-4 border-gray-700 rounded-full" />
-							<div className="absolute top-0 left-0 w-16 h-16 border-4 border-purple-500 rounded-full border-t-transparent animate-spin" />
+							<div className="absolute top-0 left-0 w-16 h-16 border-4 border-primary rounded-full border-t-transparent animate-spin" />
 						</div>
 					</div>
 				)}
@@ -193,12 +193,11 @@ export default function WorldGenerationScreen({
 				{isComplete && (
 					<button
 						onClick={onStartAdventure}
-						className="w-full py-4 px-6 bg-gradient-to-r from-purple-600 to-pink-600
-                     hover:from-purple-500 hover:to-pink-500
+						className="w-full py-4 px-6 bg-primary hover:brightness-110
                      text-white font-semibold text-lg rounded-lg
                      transform transition-all duration-200
                      hover:scale-[1.02] active:scale-[0.98]
-                     shadow-lg shadow-purple-500/25"
+                     shadow-lg shadow-primary/25"
 					>
 						🚀 Commencer l'aventure
 					</button>
