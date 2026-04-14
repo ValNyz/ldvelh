@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, Suspense } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 // Hooks
 import { useGameState, useGames } from '../../hooks/useGameState';
