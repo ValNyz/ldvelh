@@ -62,7 +62,7 @@ function VerifyContent() {
 					<h2 className="text-xl font-semibold text-white">Déjà vérifié</h2>
 					<p className="text-gray-400">Votre email est déjà vérifié.</p>
 					<a
-						href="/"
+						href="/game"
 						className="inline-block mt-4 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-medium transition-colors"
 					>
 						Continuer
