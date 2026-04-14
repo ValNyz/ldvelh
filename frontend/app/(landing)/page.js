@@ -139,27 +139,35 @@ export default function LandingPage() {
 				<div className="flex items-center gap-4">
 					<img
 						alt="InkRealm Logo"
-						className="h-8 md:h-10 w-auto object-contain"
+						className="h-10 md:h-14 w-auto object-contain"
 						src="/images/inkrealm.png"
 					/>
 				</div>
 				<div className="hidden md:flex gap-8 items-center">
 					<a className="text-primary border-b-2 border-primary pb-1 font-label uppercase tracking-widest text-sm" href="#">
-						HOME
+						ACCUEIL
 					</a>
 					<a className="text-on-surface-variant font-label hover:text-white uppercase tracking-widest text-sm transition-all duration-300" href="#">
-						WORLD ENGINE
+						MOTEUR DE MONDE
 					</a>
 					<a className="text-on-surface-variant font-label hover:text-white uppercase tracking-widest text-sm transition-all duration-300" href="#">
-						MECHANICS
+						MÉCANIQUE
 					</a>
 				</div>
-				<Link
-					href="/register/"
-					className="bg-primary text-on-primary px-4 md:px-6 py-2 font-label font-bold uppercase tracking-widest text-xs md:text-sm transition-all duration-300 hover:brightness-110 active:scale-95"
-				>
-					START ADVENTURE
-				</Link>
+				<div className="flex gap-3 items-center">
+					<Link
+						href="/login/"
+						className="text-on-surface-variant font-label uppercase tracking-widest text-xs md:text-sm hover:text-white transition-all duration-300"
+					>
+						CONNEXION
+					</Link>
+					<Link
+						href="/register/"
+						className="bg-primary text-on-primary px-4 md:px-6 py-2 font-label font-bold uppercase tracking-widest text-xs md:text-sm transition-all duration-300 hover:brightness-110 active:scale-95"
+					>
+						COMMENCER
+					</Link>
+				</div>
 			</nav>
 
 			{/* Hero Section */}
@@ -173,37 +181,37 @@ export default function LandingPage() {
 					{/* Cinematic Logo */}
 					<img
 						alt="InkRealm Logo"
-						className="w-64 md:w-96 h-auto object-contain mb-8 animate-pulse"
+						className="w-72 md:w-[28rem] lg:w-[32rem] h-auto object-contain mb-8 amber-glow"
 						style={{ animationDuration: '3000ms' }}
 						src="/images/inkrealm.png"
 					/>
 					<span className="text-primary font-label uppercase tracking-[0.3em] text-xs md:text-sm mb-6 block drop-shadow-lg">
-						THE NEXT EVOLUTION OF NARRATIVE
+						LA PROCHAINE ÉVOLUTION DU NARRATIF
 					</span>
 					<h1 className="text-5xl md:text-8xl font-headline font-extrabold mb-8 leading-tight tracking-tight drop-shadow-2xl">
-						Failure is Real. <br />
-						<span className="text-primary italic">The Story Remembers.</span>
+						L'échec est réel. <br />
+						<span className="text-primary italic">L'histoire s'en souvient.</span>
 					</h1>
 					<p className="text-on-surface-variant text-lg md:text-2xl max-w-2xl mx-auto mb-12 font-body font-light leading-relaxed drop-shadow-lg">
-						An AI role-playing game where the engine enforces the rules and the world never forgets. Experience true consequences in a shifting obsidian landscape.
+						Un jeu de rôle IA où le moteur impose les règles et le monde n'oublie jamais. Vivez de vraies conséquences dans un paysage d'obsidienne mouvant.
 					</p>
 					<div className="flex flex-col md:flex-row gap-6 justify-center items-center w-full">
 						<Link
 							href="/register/"
 							className="w-full md:w-auto bg-primary text-on-primary px-10 py-5 text-lg font-bold uppercase tracking-widest hover:brightness-110 transition-all active:scale-95 shadow-[0_0_20px_rgba(242,161,27,0.2)] text-center"
 						>
-							Start your adventure
+							Commencer l'aventure
 						</Link>
 						<a
 							href="#how-it-works"
 							className="w-full md:w-auto border border-outline-variant text-on-surface px-10 py-5 text-lg font-bold uppercase tracking-widest hover:bg-surface-container-high transition-all active:scale-95 backdrop-blur-sm text-center"
 						>
-							See how it works
+							Découvrir comment ça marche
 						</a>
 					</div>
 				</div>
 				<div className="mt-20 flex flex-col items-center opacity-40">
-					<span className="text-[10px] tracking-[0.5em] uppercase mb-4">Descend into the Archive</span>
+					<span className="text-[10px] tracking-[0.5em] uppercase mb-4">Descendre dans les Archives</span>
 					<div className="w-px h-16 bg-gradient-to-b from-primary to-transparent" />
 				</div>
 			</header>
@@ -213,19 +221,19 @@ export default function LandingPage() {
 				<div className="max-w-7xl mx-auto px-8 flex flex-col md:flex-row justify-around items-center gap-8 text-center">
 					<div className="flex flex-col">
 						<span className="text-3xl font-headline font-bold text-on-surface">1.2M+</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Persistent Realms</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Royaumes persistants</span>
 					</div>
 					<div className="flex flex-col">
 						<span className="text-3xl font-headline font-bold text-on-surface">0%</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Memory Leakage</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Perte de mémoire</span>
 					</div>
 					<div className="flex flex-col">
 						<span className="text-3xl font-headline font-bold text-on-surface">47</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Logic Engines Supported</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Moteurs logiques supportés</span>
 					</div>
 					<div className="flex flex-col">
-						<span className="text-3xl font-headline font-bold text-on-surface">TRUE</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Narrative Hardcore</span>
+						<span className="text-3xl font-headline font-bold text-on-surface">VRAI</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Narratif Hardcore</span>
 					</div>
 				</div>
 			</section>
@@ -233,32 +241,32 @@ export default function LandingPage() {
 			{/* The Problem: Anti-Competitor Cards */}
 			<section className="py-32 px-8 max-w-7xl mx-auto">
 				<div className="mb-20">
-					<h2 className="text-4xl font-headline font-bold mb-4">The &ldquo;AI Illusion&rdquo; is Broken.</h2>
+					<h2 className="text-4xl font-headline font-bold mb-4">L&rsquo;illusion de l&rsquo;IA est brisée.</h2>
 					<div className="w-24 h-1 bg-primary" />
 				</div>
 				<div className="grid md:grid-cols-3 gap-8">
 					{/* Card 1 */}
 					<div className="bg-surface-container-high p-10 border-l-4 border-error/50">
 						<IconBlock className="text-error mb-6 text-4xl w-9 h-9" />
-						<h3 className="text-2xl font-headline font-bold mb-4">The &ldquo;Yes-Man&rdquo; AI</h3>
+						<h3 className="text-2xl font-headline font-bold mb-4">L&rsquo;IA béni-oui-oui</h3>
 						<p className="text-on-surface-variant leading-relaxed">
-							Other AIs let you do anything. You want to slay a dragon with a spoon? They say yes. In InkRealm, if the engine says you fail, <span className="text-on-surface font-bold">you fail.</span>
+							Les autres IA vous laissent tout faire. Vous voulez tuer un dragon avec une cuillère ? Elles disent oui. Dans InkRealm, si le moteur dit que vous échouez, <span className="text-on-surface font-bold">vous échouez.</span>
 						</p>
 					</div>
 					{/* Card 2 */}
 					<div className="bg-surface-container-high p-10 border-l-4 border-outline-variant">
 						<IconMemory className="text-outline mb-6 text-4xl w-9 h-9" />
-						<h3 className="text-2xl font-headline font-bold mb-4">Goldfish Memory</h3>
+						<h3 className="text-2xl font-headline font-bold mb-4">Mémoire de poisson rouge</h3>
 						<p className="text-on-surface-variant leading-relaxed">
-							Forgot the innkeeper you betrayed 10 chapters ago? They didn&apos;t. InkRealm uses a Knowledge Graph to ensure every action leaves a permanent scar on the world.
+							Vous avez oublié l&apos;aubergiste que vous avez trahi il y a 10 chapitres ? Pas lui. InkRealm utilise un graphe de connaissances pour que chaque action laisse une cicatrice permanente sur le monde.
 						</p>
 					</div>
 					{/* Card 3 */}
 					<div className="bg-surface-container-high p-10 border-l-4 border-primary/50">
 						<IconSkull className="text-primary mb-6 text-4xl w-9 h-9" />
-						<h3 className="text-2xl font-headline font-bold mb-4">Fake Stakes</h3>
+						<h3 className="text-2xl font-headline font-bold mb-4">Enjeux factices</h3>
 						<p className="text-on-surface-variant leading-relaxed">
-							If there is no risk of death or lasting ruin, it isn&apos;t a game. It&apos;s a hallucinated bedtime story. InkRealm restores the weight of your choices.
+							S&apos;il n&apos;y a pas de risque de mort ou de ruine durable, ce n&apos;est pas un jeu. C&apos;est une histoire pour s&apos;endormir hallucinée. InkRealm restaure le poids de vos choix.
 						</p>
 					</div>
 				</div>
@@ -268,29 +276,29 @@ export default function LandingPage() {
 			<section id="how-it-works" className="py-32 bg-surface-container-lowest">
 				<div className="max-w-7xl mx-auto px-8">
 					<div className="text-center mb-24">
-						<h2 className="text-5xl font-headline font-bold mb-6 italic">Infinite Realities, One Engine</h2>
+						<h2 className="text-5xl font-headline font-bold mb-6 italic">Réalités infinies, un seul moteur</h2>
 						<p className="text-on-surface-variant max-w-xl mx-auto">
-							From neon-drenched dystopias to gothic nightmares, InkRealm adapts its logic to the soul of your setting.
+							Des dystopies baignées de néon aux cauchemars gothiques, InkRealm adapte sa logique à l'âme de votre univers.
 						</p>
 					</div>
 					<div className="grid md:grid-cols-2 gap-12 items-center">
 						<div className="group relative overflow-hidden border border-outline-variant/20 aspect-[4/3] bg-surface-container-high">
 							<div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
 							<div className="absolute bottom-0 left-0 p-8">
-								<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Module: Cyber Noir</span>
-								<h3 className="text-3xl font-headline font-bold text-white">Logic of Steel</h3>
+								<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Module : Cyber Noir</span>
+								<h3 className="text-3xl font-headline font-bold text-white">Logique d'acier</h3>
 								<p className="text-on-surface-variant text-sm mt-2 max-w-sm">
-									Rulesets for high-tech surveillance, mechanical failure, and corporate influence.
+									Règles pour la surveillance high-tech, les défaillances mécaniques et l'influence corporatiste.
 								</p>
 							</div>
 						</div>
 						<div className="group relative overflow-hidden border border-outline-variant/20 aspect-[4/3] bg-surface-container-high">
 							<div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
 							<div className="absolute bottom-0 left-0 p-8">
-								<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Module: Gothic Horror</span>
-								<h3 className="text-3xl font-headline font-bold text-white">Sovereignty of Dread</h3>
+								<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Module : Horreur Gothique</span>
+								<h3 className="text-3xl font-headline font-bold text-white">Souveraineté de l'effroi</h3>
 								<p className="text-on-surface-variant text-sm mt-2 max-w-sm">
-									Sanity mechanics and environmental storytelling that reacts to your fear levels.
+									Mécaniques de sanité mentale et narration environnementale qui réagit à vos niveaux de peur.
 								</p>
 							</div>
 						</div>
@@ -298,30 +306,30 @@ export default function LandingPage() {
 					<div className="grid md:grid-cols-4 gap-12 mt-24 relative opacity-80">
 						<div className="relative">
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">01</div>
-							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">World Creation</h4>
+							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Création du monde</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								Seed your reality. Define physics, pantheons, and socio-political systems. The AI builds a consistent ontological foundation.
+								Semez votre réalité. Définissez la physique, les panthéons et les systèmes socio-politiques. L'IA construit une fondation ontologique cohérente.
 							</p>
 						</div>
 						<div className="relative">
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">02</div>
-							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Engine Choice</h4>
+							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Choix du moteur</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								Select your logic: Hardcore RPG, Eldritch Horror, or Narrative Freedom. Each engine enforces its own strict mechanical bounds.
+								Choisissez votre logique : RPG Hardcore, Horreur Lovecraftienne ou Liberté Narrative. Chaque moteur impose ses propres limites mécaniques strictes.
 							</p>
 						</div>
 						<div className="relative">
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">03</div>
-							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">True Narrative</h4>
+							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Narration authentique</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								Engage with NPCs who have actual motivations. They don&apos;t just wait for you; they live their lives in the background simulation.
+								Interagissez avec des PNJ qui ont de vraies motivations. Ils ne vous attendent pas ; ils vivent leur vie dans la simulation en arrière-plan.
 							</p>
 						</div>
 						<div className="relative">
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">04</div>
-							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Persistent Evolution</h4>
+							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Évolution persistante</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								The Archive never resets. Your legacy stays in the database, influencing the world even if your hero falls.
+								Les Archives ne se réinitialisent jamais. Votre héritage reste en base de données, influençant le monde même si votre héros tombe.
 							</p>
 						</div>
 					</div>
@@ -335,23 +343,23 @@ export default function LandingPage() {
 						<div className="absolute top-0 right-0 p-8 opacity-20 group-hover:opacity-40 transition-opacity">
 							<IconGavel className="text-primary w-24 h-24" />
 						</div>
-						<h3 className="text-4xl font-headline font-bold mb-4">Unbreakable Rules</h3>
+						<h3 className="text-4xl font-headline font-bold mb-4">Règles incassables</h3>
 						<p className="text-on-surface-variant text-lg max-w-md">
-							The engine acts as the ultimate Dungeon Master. It checks your inventory, your stats, and the environment before validating any action. No more &ldquo;I win&rdquo; buttons.
+							Le moteur agit comme le Maître du Jeu ultime. Il vérifie votre inventaire, vos stats et l'environnement avant de valider toute action. Fini les boutons &ldquo;je gagne&rdquo;.
 						</p>
 					</div>
 					<div className="md:col-span-4 bg-primary p-8 flex flex-col justify-center text-on-primary">
 						<IconPsychology className="w-9 h-9 mb-6" />
-						<h3 className="text-2xl font-headline font-bold mb-4">Knowledge Graph Memory</h3>
+						<h3 className="text-2xl font-headline font-bold mb-4">Mémoire par graphe de connaissances</h3>
 						<p className="font-body text-sm opacity-90">
-							Every NPC interaction is indexed and referenced. Betrayal has a long tail across your entire narrative campaign.
+							Chaque interaction avec un PNJ est indexée et référencée. La trahison a de longues conséquences sur toute votre campagne narrative.
 						</p>
 					</div>
 					<div className="md:col-span-3 bg-surface-container-highest p-8 flex flex-col gap-4 border border-outline-variant/10">
 						<IconSettings className="text-primary w-7 h-7" />
-						<h4 className="text-xl font-headline font-bold">Multi-Engine Support</h4>
+						<h4 className="text-xl font-headline font-bold">Multi-moteur</h4>
 						<p className="text-on-surface-variant text-xs">
-							Switch between D20, PbtA, or custom logic systems on the fly. Each world maintains its own mechanical integrity.
+							Basculez entre D20, PbtA ou des systèmes logiques personnalisés à la volée. Chaque monde maintient sa propre intégrité mécanique.
 						</p>
 					</div>
 					<div className="md:col-span-6 bg-surface-container-low p-8 flex items-center gap-8 border border-outline-variant/20">
@@ -359,14 +367,14 @@ export default function LandingPage() {
 							<IconTrending className="text-primary w-12 h-12" />
 						</div>
 						<div>
-							<h4 className="text-xl font-headline font-bold mb-2">Auto-Progression</h4>
+							<h4 className="text-xl font-headline font-bold mb-2">Progression automatique</h4>
 							<p className="text-on-surface-variant text-sm">
-								Your character evolves based on deeds, not just numbers. Traumatic events leave mental traits; heroic feats forge legends automatically.
+								Votre personnage évolue selon ses actes, pas juste des chiffres. Les événements traumatiques laissent des traits mentaux ; les exploits héroïques forgent des légendes automatiquement.
 							</p>
 						</div>
 					</div>
 					<div className="md:col-span-3 bg-[#2a292f] p-8 flex flex-col justify-between border-t-2 border-primary">
-						<h4 className="text-xl font-headline font-bold">Character Wizard</h4>
+						<h4 className="text-xl font-headline font-bold">Assistant de création</h4>
 						<IconMagic className="self-end w-9 h-9 text-primary/30" />
 					</div>
 				</div>
@@ -375,21 +383,21 @@ export default function LandingPage() {
 			{/* Comparison Table */}
 			<section className="py-32 bg-surface">
 				<div className="max-w-7xl mx-auto px-8 overflow-x-auto">
-					<h2 className="text-4xl font-headline font-bold mb-16 text-center">The Narrative Battlefield</h2>
+					<h2 className="text-4xl font-headline font-bold mb-16 text-center">Le champ de bataille narratif</h2>
 					<table className="w-full text-left border-collapse">
 						<thead>
 							<tr className="border-b border-outline-variant">
-								<th className="py-6 px-4 font-label uppercase tracking-widest text-xs text-on-surface-variant">Feature</th>
+								<th className="py-6 px-4 font-label uppercase tracking-widest text-xs text-on-surface-variant">Fonctionnalité</th>
 								<th className="py-6 px-4 font-headline font-bold text-primary text-xl">InkRealm</th>
-								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">Competitor A</th>
-								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">Competitor B</th>
+								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">Concurrent A</th>
+								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">Concurrent B</th>
 							</tr>
 						</thead>
 						<tbody className="text-sm">
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									True Narrative Stakes<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Mechanical failure is final</span>
+									Vrais enjeux narratifs<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">L'échec mécanique est définitif</span>
 								</td>
 								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
 								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
@@ -397,17 +405,17 @@ export default function LandingPage() {
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Long-term Knowledge Graph<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">NPCs remembered across months</span>
+									Graphe de connaissances long terme<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">PNJ mémorisés sur des mois</span>
 								</td>
 								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Limited</td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Context-only</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Limité</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Contexte seul</td>
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Systemic World Logic<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Physics &amp; social rules are consistent</span>
+									Logique systémique du monde<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Physique et règles sociales cohérentes</span>
 								</td>
 								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
 								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
@@ -415,17 +423,17 @@ export default function LandingPage() {
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Automated Progression<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Growth based on deeds, not entries</span>
+									Progression automatisée<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Évolution basée sur les actes, pas les saisies</span>
 								</td>
 								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Manual</td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Scripted</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Manuel</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Scripté</td>
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Engine Flexibility<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Fate Core, D6, or Narrative Resistance</span>
+									Flexibilité du moteur<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Fate Core, D6, ou Résistance Narrative</span>
 								</td>
 								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
 								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
@@ -440,8 +448,8 @@ export default function LandingPage() {
 			<section className="py-32 px-8 bg-[#0e0e13] border-y border-primary/10">
 				<div className="max-w-7xl mx-auto">
 					<div className="text-center mb-20">
-						<h2 className="text-5xl font-headline font-bold mb-4">Forge Your Legend</h2>
-						<p className="text-on-surface-variant font-body">Craft your identity. The Archive is ready to record your ascent -- or your ruin.</p>
+						<h2 className="text-5xl font-headline font-bold mb-4">Forge ta légende</h2>
+						<p className="text-on-surface-variant font-body">Forge ton identité. Les Archives sont prêtes à enregistrer ton ascension -- ou ta ruine.</p>
 					</div>
 					<div className="grid lg:grid-cols-2 gap-12 items-start">
 						{/* Left: Character Portrait */}
@@ -451,8 +459,8 @@ export default function LandingPage() {
 								<div className="w-full h-full bg-gradient-to-br from-surface-container-high to-surface-container-lowest" />
 								<div className="absolute inset-0 bg-gradient-to-t from-[#0e0e13] via-transparent to-transparent" />
 								<div className="absolute bottom-8 left-8 right-8">
-									<span className="text-primary font-label uppercase tracking-widest text-xs mb-2 block">Identity Verified</span>
-									<h3 className="text-3xl font-headline font-bold text-white italic">The Obsidian Drifter</h3>
+									<span className="text-primary font-label uppercase tracking-widest text-xs mb-2 block">Identité vérifiée</span>
+									<h3 className="text-3xl font-headline font-bold text-white italic">Le Vagabond d'Obsidienne</h3>
 								</div>
 							</div>
 							<div className="absolute -top-4 -right-4 w-24 h-24 border-t border-r border-primary/40 pointer-events-none" />
@@ -466,12 +474,12 @@ export default function LandingPage() {
 									<IconDocument className="w-16 h-16" />
 								</div>
 								<h4 className="text-xs font-label uppercase tracking-[0.4em] text-primary mb-8 border-b border-outline-variant/20 pb-4">
-									Codex: Attributes
+									Codex : Attributs
 								</h4>
 								<div className="space-y-8">
 									<div>
 										<div className="flex justify-between mb-2">
-											<span className="font-headline font-bold text-lg italic">Strength</span>
+											<span className="font-headline font-bold text-lg italic">Force</span>
 											<span className="font-label text-primary font-bold">14/20</span>
 										</div>
 										<div className="h-1 w-full bg-surface-container-lowest relative">
@@ -489,7 +497,7 @@ export default function LandingPage() {
 									</div>
 									<div>
 										<div className="flex justify-between mb-2">
-											<span className="font-headline font-bold text-lg italic">Willpower</span>
+											<span className="font-headline font-bold text-lg italic">Volonté</span>
 											<span className="font-label text-primary font-bold">09/20</span>
 										</div>
 										<div className="h-1 w-full bg-surface-container-lowest relative">
@@ -500,19 +508,19 @@ export default function LandingPage() {
 							</div>
 							{/* Persistent Traits */}
 							<div className="bg-surface-container-high border border-outline-variant/20 p-8">
-								<h4 className="text-xs font-label uppercase tracking-[0.4em] text-primary mb-6">Persistent Narrative Scars</h4>
+								<h4 className="text-xs font-label uppercase tracking-[0.4em] text-primary mb-6">Cicatrices narratives persistantes</h4>
 								<div className="flex flex-wrap gap-4">
 									<div className="flex items-center gap-3 bg-surface-container-lowest border border-primary/10 px-4 py-3 group hover:border-primary/50 transition-colors">
 										<IconVignette className="text-primary w-4 h-4" />
-										<span className="font-headline italic text-sm">Scarred by the Void</span>
+										<span className="font-headline italic text-sm">Marqué par le Vide</span>
 									</div>
 									<div className="flex items-center gap-3 bg-surface-container-lowest border border-error/10 px-4 py-3 group hover:border-error/50 transition-colors">
 										<IconHeartBroken className="text-error w-4 h-4" />
-										<span className="font-headline italic text-sm">Oathbreaker</span>
+										<span className="font-headline italic text-sm">Parjure</span>
 									</div>
 									<div className="flex items-center gap-3 bg-surface-container-lowest border border-outline-variant/10 px-4 py-3 group hover:border-white/50 transition-colors">
 										<IconMagic className="text-on-surface-variant w-4 h-4" />
-										<span className="font-headline italic text-sm">Star-Touched</span>
+										<span className="font-headline italic text-sm">Touché par les étoiles</span>
 									</div>
 								</div>
 							</div>
@@ -527,17 +535,17 @@ export default function LandingPage() {
 				<div className="max-w-4xl mx-auto border border-primary/20 p-12 md:p-20 bg-surface-container relative">
 					<div className="absolute -top-4 -left-4 w-12 h-12 border-t-2 border-l-2 border-primary" />
 					<div className="absolute -bottom-4 -right-4 w-12 h-12 border-b-2 border-r-2 border-primary" />
-					<h2 className="text-4xl md:text-5xl font-headline font-bold mb-8">Ready to write your legacy?</h2>
-					<p className="text-on-surface-variant mb-12 text-lg">The void is waiting. The engine is ready. The Archive awaits its next entry.</p>
+					<h2 className="text-4xl md:text-5xl font-headline font-bold mb-8">Prêt à écrire votre héritage ?</h2>
+					<p className="text-on-surface-variant mb-12 text-lg">Le vide attend. Le moteur est prêt. Les Archives attendent leur prochaine entrée.</p>
 					<div className="flex flex-col gap-6 items-center">
 						<Link
 							href="/register/"
 							className="bg-primary text-on-primary px-12 py-5 font-bold uppercase tracking-[0.2em] hover:scale-105 transition-all shadow-[0_0_40px_rgba(242,161,27,0.15)] inline-block"
 						>
-							Start your adventure
+							Commencer l'aventure
 						</Link>
 						<p className="text-on-surface-variant/60 font-label text-[10px] uppercase tracking-widest">
-							Free to start. No credit card required.
+							Gratuit pour commencer. Pas de carte bancaire requise.
 						</p>
 					</div>
 				</div>
@@ -555,14 +563,14 @@ export default function LandingPage() {
 							/>
 						</div>
 						<p className="font-label uppercase text-[10px] tracking-widest text-on-surface-variant/40 text-center md:text-left">
-							&copy; 2025 THE OBSIDIAN ARCHIVE. FORGED IN THE VOID.
+							&copy; 2025 LES ARCHIVES D'OBSIDIENNE. FORGÉ DANS LE VIDE.
 						</p>
 					</div>
 					<div className="flex flex-wrap justify-center gap-8">
-						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">CHRONICLES</a>
-						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">THE MECHANIC</a>
-						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">COMMUNITY</a>
-						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">PRIVACY</a>
+						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">CHRONIQUES</a>
+						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">LA MÉCANIQUE</a>
+						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">COMMUNAUTÉ</a>
+						<a className="text-on-surface-variant/60 hover:text-primary font-label uppercase text-xs tracking-tighter hover:tracking-widest transition-all duration-500" href="#">CONFIDENTIALITÉ</a>
 					</div>
 					<div className="flex gap-6">
 						<IconTerminal className="w-6 h-6 text-on-surface-variant/20 cursor-pointer hover:text-primary transition-colors" />
