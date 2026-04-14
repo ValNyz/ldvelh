@@ -1,7 +1,7 @@
 export const metadata = {
-	title: 'InkRealm | The AI Narrator That Remembers',
+	title: 'InkRealm | Le Maître du Jeu IA qui se souvient',
 	description:
-		'An AI role-playing game where the engine enforces the rules and the world never forgets. Experience true consequences in a shifting obsidian landscape.',
+		'Un jeu de rôle IA où le moteur impose les règles et le monde n\'oublie jamais. Vivez de vraies conséquences dans un paysage d\'obsidienne mouvant.',
 };
 
 export default function LandingLayout({ children }) {
