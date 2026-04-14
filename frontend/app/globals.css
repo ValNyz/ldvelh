@@ -91,21 +91,22 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #111827;
+  background: #131318;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: #524434;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: #a08e7a;
 }
 
 /* Sélection */
 ::selection {
-  background: rgba(37, 99, 235, 0.5);
+  background: rgba(242, 161, 27, 0.3);
+  color: #131318;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
@@ -121,3 +122,6 @@
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
