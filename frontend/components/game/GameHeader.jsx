@@ -28,7 +28,7 @@ export default function GameHeader({
 	};
 
 	return (
-		<header className="bg-gray-900/80 border-b border-gray-800/50 px-4 py-3 flex items-center justify-between backdrop-blur-sm">
+		<header className="bg-surface/80 border-b border-gray-800/50 px-4 py-3 flex items-center justify-between backdrop-blur-sm">
 			{/* Left: Back + Title */}
 			<div className="flex items-center gap-3">
 				<button
@@ -51,7 +51,7 @@ export default function GameHeader({
 								onKeyDown={(e) => e.key === 'Enter' && handleRename()}
 								placeholder={partieName}
 								autoFocus
-								className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 w-48"
+								className="px-2 py-1 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 w-48"
 							/>
 							<IconButton onClick={handleRename} title="Valider">
 								<CheckIcon className="w-4 h-4 text-green-400" />
@@ -86,7 +86,7 @@ export default function GameHeader({
 				<button
 					onClick={onToggleCharacterSheet}
 					className={`p-2 rounded-lg transition-colors ${activeSidebar === 'character'
-							? 'bg-purple-600 text-white'
+							? 'bg-primary text-white'
 							: 'text-gray-400 hover:text-white hover:bg-gray-800'
 						}`}
 					title="Fiche personnage"
@@ -96,7 +96,7 @@ export default function GameHeader({
 				<button
 					onClick={onToggleInventory}
 					className={`p-2 rounded-lg transition-colors ${activeSidebar === 'inventory'
-							? 'bg-purple-600 text-white'
+							? 'bg-primary text-white'
 							: 'text-gray-400 hover:text-white hover:bg-gray-800'
 						}`}
 					title="Inventaire"
@@ -106,7 +106,7 @@ export default function GameHeader({
 				<button
 					onClick={onToggleWorld}
 					className={`p-2 rounded-lg transition-colors ${activeSidebar === 'world'
-							? 'bg-purple-600 text-white'
+							? 'bg-primary text-white'
 							: 'text-gray-400 hover:text-white hover:bg-gray-800'
 						}`}
 					title="Monde"

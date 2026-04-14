@@ -32,13 +32,13 @@ export default function GamesList({
 	};
 
 	return (
-		<div className="min-h-screen bg-gray-950 text-white flex flex-col">
+		<div className="min-h-screen bg-surface-container-lowest text-white flex flex-col">
 			{/* Header */}
-			<header className="bg-gray-900/80 border-b border-gray-800/50 px-6 py-4 flex items-center justify-between">
+			<header className="bg-surface/80 border-b border-gray-800/50 px-6 py-4 flex items-center justify-between">
 				<div className="flex items-center gap-3">
 					<span className="text-2xl">🚀</span>
 					<div>
-						<h1 className="text-lg font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent">
+						<h1 className="text-lg font-bold text-primary">
 							LDVELH
 						</h1>
 						<p className="text-xs text-gray-500">Chroniques de l'Exil Stellaire</p>
@@ -72,7 +72,7 @@ export default function GamesList({
 						<button
 							onClick={() => onNew()}
 							disabled={loading}
-							className="w-full px-6 py-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 rounded-xl text-white font-medium transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-purple-500/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+							className="w-full px-6 py-4 bg-primary hover:brightness-110 rounded-xl text-white font-medium transition-all hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/25 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
 						>
 							{loading ? (
 								<>
@@ -112,11 +112,11 @@ export default function GamesList({
 								<div
 									key={game.id}
 									onClick={() => onSelect(game.id)}
-									className="group bg-gray-900/80 border border-gray-800 rounded-xl p-4 hover:border-purple-500/50 hover:bg-gray-900 transition-all cursor-pointer"
+									className="group bg-surface/80 border border-gray-800 rounded-xl p-4 hover:border-primary/50 hover:bg-surface transition-all cursor-pointer"
 								>
 									<div className="flex justify-between items-start">
 										<div>
-											<h3 className="text-white font-medium group-hover:text-purple-400 transition-colors">
+											<h3 className="text-white font-medium group-hover:text-primary transition-colors">
 												{game.name}
 											</h3>
 											<div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
@@ -166,11 +166,11 @@ export default function GamesList({
 			</div>
 
 			{/* Footer */}
-			<footer className="bg-gray-900/80 border-t border-gray-800/50 px-6 py-3 flex items-center justify-between text-xs text-gray-500">
+			<footer className="bg-surface/80 border-t border-gray-800/50 px-6 py-3 flex items-center justify-between text-xs text-gray-500">
 				<span>v0.1.0 • Made with 💜</span>
 				<div className="flex items-center gap-4">
-					<a href="#" className="hover:text-purple-400 transition-colors">À propos</a>
-					<a href="https://github.com/ValNyz/ldvelh" target="_blank" rel="noopener noreferrer" className="hover:text-purple-400 transition-colors">GitHub</a>
+					<a href="#" className="hover:text-primary transition-colors">À propos</a>
+					<a href="https://github.com/ValNyz/ldvelh" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">GitHub</a>
 				</div>
 			</footer>
 		</div>

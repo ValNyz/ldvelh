@@ -36,8 +36,8 @@ export default function Home() {
 
 	if (authLoading) {
 		return (
-			<div className="min-h-screen bg-gray-950 flex items-center justify-center">
-				<div className="w-10 h-10 border-4 border-gray-700 rounded-full border-t-purple-500 animate-spin" />
+			<div className="min-h-screen bg-surface-container-lowest flex items-center justify-center">
+				<div className="w-10 h-10 border-4 border-gray-700 rounded-full border-t-primary animate-spin" />
 			</div>
 		);
 	}
@@ -174,11 +174,11 @@ export default function Home() {
 	// Adventure starting screen
 	if (phaseHook.isStarting && gs.messages.length === 0) {
 		return (
-			<div className="min-h-screen bg-gray-950 flex items-center justify-center">
+			<div className="min-h-screen bg-surface-container-lowest flex items-center justify-center">
 				<div className="text-center space-y-4">
 					<div className="relative">
 						<div className="w-16 h-16 border-4 border-gray-700 rounded-full mx-auto" />
-						<div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-16 border-4 border-purple-500 rounded-full border-t-transparent animate-spin" />
+						<div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-16 border-4 border-primary rounded-full border-t-transparent animate-spin" />
 					</div>
 					<p className="text-gray-400">Début de l'aventure...</p>
 				</div>
@@ -190,7 +190,7 @@ export default function Home() {
 	// MAIN GAME SCREEN
 	// =========================================================================
 	return (
-		<div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
+		<div className="h-screen flex flex-col bg-surface-container-lowest text-white overflow-hidden">
 			<div className="flex-1 flex overflow-hidden">
 
 				{/* Character Sheet Sidebar (left) */}
