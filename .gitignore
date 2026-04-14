@@ -8,3 +8,8 @@ __pycache__/
 frontend/out/
 backend/.coverage
 *.egg-info/
+.superpowers/
+frontend/images/
+TOFIX
+landing_page.md
+futures-plan.md

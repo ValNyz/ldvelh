@@ -18,6 +18,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      network: host
     restart: unless-stopped
     depends_on:
       db:
@@ -38,6 +39,7 @@ services:
     build:
       context: frontend
       dockerfile: Dockerfile
+      network: host
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     restart: unless-stopped
