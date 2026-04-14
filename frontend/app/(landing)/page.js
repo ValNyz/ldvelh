@@ -146,11 +146,11 @@ export default function LandingPage() {
 					<a className="text-primary border-b-2 border-primary pb-1 font-label uppercase tracking-widest text-sm" href="#">
 						ACCUEIL
 					</a>
-					<a className="text-on-surface-variant font-label hover:text-white uppercase tracking-widest text-sm transition-all duration-300" href="#">
-						MOTEUR DE MONDE
+					<a className="text-on-surface-variant font-label hover:text-white uppercase tracking-widest text-sm transition-all duration-300" href="#how-it-works">
+						UNIVERS
 					</a>
-					<a className="text-on-surface-variant font-label hover:text-white uppercase tracking-widest text-sm transition-all duration-300" href="#">
-						MÉCANIQUE
+					<a className="text-on-surface-variant font-label hover:text-white uppercase tracking-widest text-sm transition-all duration-300" href="#features">
+						FONCTIONNALITÉS
 					</a>
 				</div>
 				<div className="flex gap-3 items-center">
@@ -185,14 +185,14 @@ export default function LandingPage() {
 						src="/images/inkrealm.png"
 					/>
 					<span className="text-primary font-label uppercase tracking-[0.3em] text-xs md:text-sm mb-6 block drop-shadow-lg">
-						LA PROCHAINE ÉVOLUTION DU NARRATIF
+						LA NOUVELLE ÉVOLUTION DE L'IA NARRATIVE
 					</span>
 					<h1 className="text-5xl md:text-8xl font-headline font-extrabold mb-8 leading-tight tracking-tight drop-shadow-2xl">
 						L'échec est réel. <br />
 						<span className="text-primary italic">L'histoire s'en souvient.</span>
 					</h1>
 					<p className="text-on-surface-variant text-lg md:text-2xl max-w-2xl mx-auto mb-12 font-body font-light leading-relaxed drop-shadow-lg">
-						Un jeu de rôle IA où le moteur impose les règles et le monde n'oublie jamais. Vivez de vraies conséquences dans un paysage d'obsidienne mouvant.
+						Un maître du jeu IA avec un moteur de jeu de rôle qui impose ses règles, et un graphe de connaissances qui constitue une mémoire parfaite.
 					</p>
 					<div className="flex flex-col md:flex-row gap-6 justify-center items-center w-full">
 						<Link
@@ -210,7 +210,7 @@ export default function LandingPage() {
 					</div>
 				</div>
 				<div className="mt-20 flex flex-col items-center opacity-40">
-					<span className="text-[10px] tracking-[0.5em] uppercase mb-4">Descendre dans les Archives</span>
+					<span className="text-[10px] tracking-[0.5em] uppercase mb-4">Découvrir</span>
 					<div className="w-px h-16 bg-gradient-to-b from-primary to-transparent" />
 				</div>
 			</header>
@@ -249,7 +249,7 @@ export default function LandingPage() {
 						<IconBlock className="text-error mb-6 text-4xl w-9 h-9" />
 						<h3 className="text-2xl font-headline font-bold mb-4">L&rsquo;IA béni-oui-oui</h3>
 						<p className="text-on-surface-variant leading-relaxed">
-							Les autres IA vous laissent tout faire. Vous voulez tuer un dragon avec une cuillère ? Elles disent oui. Dans InkRealm, si le moteur dit que vous échouez, <span className="text-on-surface font-bold">vous échouez.</span>
+							Les autres IA te laissent tout faire. Tu veux tuer un dragon avec une cuillère ? Elles disent oui. Dans InkRealm, si le moteur dit que tu échoues, <span className="text-on-surface font-bold">tu échoues.</span>
 						</p>
 					</div>
 					{/* Card 2 */}
@@ -257,7 +257,7 @@ export default function LandingPage() {
 						<IconMemory className="text-outline mb-6 text-4xl w-9 h-9" />
 						<h3 className="text-2xl font-headline font-bold mb-4">Mémoire de poisson rouge</h3>
 						<p className="text-on-surface-variant leading-relaxed">
-							Vous avez oublié l&apos;aubergiste que vous avez trahi il y a 10 chapitres ? Pas lui. InkRealm utilise un graphe de connaissances pour que chaque action laisse une cicatrice permanente sur le monde.
+							Tu as oublié l&apos;aubergiste que tu as trahi il y a 10 chapitres ? Pas lui. InkRealm utilise un graphe de connaissances pour que chaque action laisse une cicatrice permanente sur le monde.
 						</p>
 					</div>
 					{/* Card 3 */}
@@ -265,7 +265,7 @@ export default function LandingPage() {
 						<IconSkull className="text-primary mb-6 text-4xl w-9 h-9" />
 						<h3 className="text-2xl font-headline font-bold mb-4">Enjeux factices</h3>
 						<p className="text-on-surface-variant leading-relaxed">
-							S&apos;il n&apos;y a pas de risque de mort ou de ruine durable, ce n&apos;est pas un jeu. C&apos;est une histoire pour s&apos;endormir hallucinée. InkRealm restaure le poids de vos choix.
+							S&apos;il n&apos;y a pas de risque de mort ou de ruine durable, ce n&apos;est pas un jeu. C&apos;est une histoire pour s&apos;endormir hallucinée. InkRealm restaure le poids de tes choix.
 						</p>
 					</div>
 				</div>
@@ -275,9 +275,9 @@ export default function LandingPage() {
 			<section id="how-it-works" className="py-32 bg-surface-container-lowest">
 				<div className="max-w-7xl mx-auto px-8">
 					<div className="text-center mb-24">
-						<h2 className="text-5xl font-headline font-bold mb-6 italic">Réalités infinies, un seul moteur</h2>
+						<h2 className="text-5xl font-headline font-bold mb-6 italic">Crée ton monde à ton image. Le moteur fait le reste.</h2>
 						<p className="text-on-surface-variant max-w-xl mx-auto">
-							Des dystopies baignées de néon aux cauchemars gothiques, InkRealm adapte sa logique à l'âme de votre univers.
+							Science-fiction, fantasy ou horreur — choisis ton genre, le moteur adapte ses règles.
 						</p>
 					</div>
 					{/* Genre showcase: B+ staggered layout */}
@@ -348,28 +348,28 @@ export default function LandingPage() {
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">01</div>
 							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Création du monde</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								Semez votre réalité. Définissez la physique, les panthéons et les systèmes socio-politiques. L'IA construit une fondation ontologique cohérente.
+								Définis la géographie, les factions et les lois de ton monde. L&apos;IA construit un univers cohérent à partir de tes choix.
 							</p>
 						</div>
 						<div className="relative">
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">02</div>
 							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Choix du moteur</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								Choisissez votre logique : RPG Hardcore, Horreur Lovecraftienne ou Liberté Narrative. Chaque moteur impose ses propres limites mécaniques strictes.
+								Fate Core, D6, narratif pur ou sans règles — chaque moteur impose ses propres limites selon tes envies.
 							</p>
 						</div>
 						<div className="relative">
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">03</div>
 							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Narration authentique</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								Interagissez avec des PNJ qui ont de vraies motivations. Ils ne vous attendent pas ; ils vivent leur vie dans la simulation en arrière-plan.
+								Interagis avec des PNJ qui ont de vraies motivations. Ils ne t&apos;attendent pas — ils vivent leur vie dans le monde en arrière-plan.
 							</p>
 						</div>
 						<div className="relative">
 							<div className="text-8xl font-headline font-black text-white/5 absolute -top-12 -left-4">04</div>
 							<h4 className="text-xl font-bold mb-4 text-primary font-label tracking-widest uppercase">Évolution persistante</h4>
 							<p className="text-on-surface-variant text-sm leading-relaxed">
-								Les Archives ne se réinitialisent jamais. Votre héritage reste en base de données, influençant le monde même si votre héros tombe.
+								Le graphe de connaissances ne se réinitialise jamais. Ton héritage persiste et influence le monde, même si ton héros tombe.
 							</p>
 						</div>
 					</div>
@@ -377,7 +377,7 @@ export default function LandingPage() {
 			</section>
 
 			{/* Feature Grid: Bento Style */}
-			<section className="py-32 px-8 max-w-7xl mx-auto">
+			<section id="features" className="py-32 px-8 max-w-7xl mx-auto">
 				<div className="grid grid-cols-1 md:grid-cols-12 md:grid-rows-2 gap-6 min-h-[800px]">
 					<div className="md:col-span-8 bg-surface-container-high p-12 flex flex-col justify-end relative overflow-hidden group border border-outline-variant/10">
 						<div className="absolute top-0 right-0 p-8 opacity-20 group-hover:opacity-40 transition-opacity">
@@ -385,21 +385,21 @@ export default function LandingPage() {
 						</div>
 						<h3 className="text-4xl font-headline font-bold mb-4">Règles incassables</h3>
 						<p className="text-on-surface-variant text-lg max-w-md">
-							Le moteur agit comme le Maître du Jeu ultime. Il vérifie votre inventaire, vos stats et l'environnement avant de valider toute action. Fini les boutons &ldquo;je gagne&rdquo;.
+							Le moteur agit comme le Maître du Jeu ultime. Il vérifie ton inventaire, tes stats et l&apos;environnement avant de valider toute action. Fini les boutons &ldquo;je gagne&rdquo;.
 						</p>
 					</div>
 					<div className="md:col-span-4 bg-primary p-8 flex flex-col justify-center text-on-primary">
 						<IconPsychology className="w-9 h-9 mb-6" />
 						<h3 className="text-2xl font-headline font-bold mb-4">Mémoire par graphe de connaissances</h3>
 						<p className="font-body text-sm opacity-90">
-							Chaque interaction avec un PNJ est indexée et référencée. La trahison a de longues conséquences sur toute votre campagne narrative.
+							Chaque interaction avec un PNJ est indexée et référencée. La trahison a de longues conséquences sur toute ta campagne narrative.
 						</p>
 					</div>
 					<div className="md:col-span-3 bg-surface-container-highest p-8 flex flex-col gap-4 border border-outline-variant/10">
 						<IconSettings className="text-primary w-7 h-7" />
 						<h4 className="text-xl font-headline font-bold">Multi-moteur</h4>
 						<p className="text-on-surface-variant text-xs">
-							Basculez entre D20, PbtA ou des systèmes logiques personnalisés à la volée. Chaque monde maintient sa propre intégrité mécanique.
+							Fate Core, D6 ou narratif pur. Chaque monde possède sa propre intégrité mécanique.
 						</p>
 					</div>
 					<div className="md:col-span-6 bg-surface-container-low p-8 flex items-center gap-8 border border-outline-variant/20">
@@ -409,7 +409,7 @@ export default function LandingPage() {
 						<div>
 							<h4 className="text-xl font-headline font-bold mb-2">Progression automatique</h4>
 							<p className="text-on-surface-variant text-sm">
-								Votre personnage évolue selon ses actes, pas juste des chiffres. Les événements traumatiques laissent des traits mentaux ; les exploits héroïques forgent des légendes automatiquement.
+								Ton personnage évolue selon ses actes, pas juste des chiffres. Les événements traumatiques laissent des traits mentaux ; les exploits héroïques forgent des légendes automatiquement.
 							</p>
 						</div>
 					</div>
@@ -423,61 +423,77 @@ export default function LandingPage() {
 			{/* Comparison Table */}
 			<section className="py-32 bg-surface">
 				<div className="max-w-7xl mx-auto px-8 overflow-x-auto">
-					<h2 className="text-4xl font-headline font-bold mb-16 text-center">Le champ de bataille narratif</h2>
+					<h2 className="text-4xl font-headline font-bold mb-16 text-center">Le comparatif</h2>
 					<table className="w-full text-left border-collapse">
 						<thead>
 							<tr className="border-b border-outline-variant">
 								<th className="py-6 px-4 font-label uppercase tracking-widest text-xs text-on-surface-variant">Fonctionnalité</th>
 								<th className="py-6 px-4 font-headline font-bold text-primary text-xl">InkRealm</th>
-								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">Concurrent A</th>
-								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">Concurrent B</th>
+								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">AI Dungeon</th>
+								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">Fables.gg</th>
+								<th className="py-6 px-4 font-body font-semibold text-on-surface-variant">NovelAI</th>
 							</tr>
 						</thead>
 						<tbody className="text-sm">
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Vrais enjeux narratifs<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">L'échec mécanique est définitif</span>
+									Moteur de règles réel<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Le résultat s&apos;impose au LLM</span>
 								</td>
-								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
+								<td className="py-6 px-4 text-primary">Fate Core, D6, Narratif</td>
+								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-5 h-5 inline" /> Aucun</td>
+								<td className="py-6 px-4 text-on-surface-variant">D&D 5e uniquement</td>
+								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-5 h-5 inline" /> Aucun</td>
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Graphe de connaissances long terme<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">PNJ mémorisés sur des mois</span>
+									Mémoire persistante<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">PNJ, lieux, relations mémorisés</span>
 								</td>
-								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Limité</td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Contexte seul</td>
+								<td className="py-6 px-4 text-primary">Graphe de connaissances</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Résumés auto (premium)</td>
+								<td className="py-6 px-4 text-on-surface-variant">Base de données TTRPG</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Lorebook (manuel)</td>
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Logique systémique du monde<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Physique et règles sociales cohérentes</span>
+									Vrais jets de dés<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Résultat mécanique, pas simulé</span>
 								</td>
-								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
+								<td className="py-6 px-4 text-primary"><IconCheck className="w-5 h-5 inline" /> Imposé au LLM</td>
+								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-5 h-5 inline" /> Simulé par l&apos;IA</td>
+								<td className="py-6 px-4 text-primary"><IconCheck className="w-5 h-5 inline" /> D&D 5e</td>
+								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-5 h-5 inline" /> Non</td>
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Progression automatisée<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Évolution basée sur les actes, pas les saisies</span>
+									Progression automatique<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Détectée par IA selon les actes</span>
 								</td>
-								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Manuel</td>
-								<td className="py-6 px-4 text-on-surface-variant/40">Scripté</td>
+								<td className="py-6 px-4 text-primary"><IconCheck className="w-5 h-5 inline" /> Automatique</td>
+								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-5 h-5 inline" /> Non</td>
+								<td className="py-6 px-4 text-on-surface-variant">Manuelle (XP/level)</td>
+								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-5 h-5 inline" /> Non</td>
 							</tr>
 							<tr className="border-b border-outline-variant/10">
 								<td className="py-6 px-4 font-bold">
-									Flexibilité du moteur<br />
-									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Fate Core, D6, ou Résistance Narrative</span>
+									Création de monde assistée<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Wizard de création guidé</span>
 								</td>
-								<td className="py-6 px-4 text-primary"><IconCheck className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
-								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-6 h-6" /></td>
+								<td className="py-6 px-4 text-primary"><IconCheck className="w-5 h-5 inline" /> Wizard complet</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Prompts texte</td>
+								<td className="py-6 px-4 text-on-surface-variant">Générateurs + éditeur</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Templates manuels</td>
+							</tr>
+							<tr className="border-b border-outline-variant/10">
+								<td className="py-6 px-4 font-bold">
+									Multijoueur<br />
+									<span className="text-[10px] font-normal text-on-surface-variant/60 uppercase tracking-wider">Jouer à plusieurs</span>
+								</td>
+								<td className="py-6 px-4 text-on-surface-variant/40">Pas encore</td>
+								<td className="py-6 px-4 text-on-surface-variant"><IconCheck className="w-5 h-5 inline" /> Oui</td>
+								<td className="py-6 px-4 text-primary"><IconCheck className="w-5 h-5 inline" /> Jusqu&apos;à 6</td>
+								<td className="py-6 px-4 text-on-surface-variant/40"><IconCancel className="w-5 h-5 inline" /> Non</td>
 							</tr>
 						</tbody>
 					</table>
@@ -489,7 +505,7 @@ export default function LandingPage() {
 				<div className="max-w-7xl mx-auto">
 					<div className="text-center mb-20">
 						<h2 className="text-5xl font-headline font-bold mb-4">Forge ta légende</h2>
-						<p className="text-on-surface-variant font-body">Forge ton identité. Les Archives sont prêtes à enregistrer ton ascension -- ou ta ruine.</p>
+						<p className="text-on-surface-variant font-body">Forge ton identité. Le graphe de connaissances enregistre ton ascension — ou ta ruine.</p>
 					</div>
 					<div className="grid lg:grid-cols-2 gap-12 items-start">
 						{/* Left: Character Portrait */}
@@ -499,8 +515,8 @@ export default function LandingPage() {
 								<div className="w-full h-full bg-gradient-to-br from-surface-container-high to-surface-container-lowest" />
 								<div className="absolute inset-0 bg-gradient-to-t from-[#0e0e13] via-transparent to-transparent" />
 								<div className="absolute bottom-8 left-8 right-8">
-									<span className="text-primary font-label uppercase tracking-widest text-xs mb-2 block">Identité vérifiée</span>
-									<h3 className="text-3xl font-headline font-bold text-white italic">Le Vagabond d'Obsidienne</h3>
+									<span className="text-primary font-label uppercase tracking-widest text-xs mb-2 block">Personnage actif</span>
+									<h3 className="text-3xl font-headline font-bold text-white italic">Kael, le Vagabond</h3>
 								</div>
 							</div>
 							<div className="absolute -top-4 -right-4 w-24 h-24 border-t border-r border-primary/40 pointer-events-none" />
@@ -514,34 +530,36 @@ export default function LandingPage() {
 									<IconDocument className="w-16 h-16" />
 								</div>
 								<h4 className="text-xs font-label uppercase tracking-[0.4em] text-primary mb-8 border-b border-outline-variant/20 pb-4">
-									Codex : Attributs
+									Fiche Fate Core : Aspects
 								</h4>
-								<div className="space-y-8">
+								<div className="space-y-6">
 									<div>
-										<div className="flex justify-between mb-2">
-											<span className="font-headline font-bold text-lg italic">Force</span>
-											<span className="font-label text-primary font-bold">14/20</span>
-										</div>
-										<div className="h-1 w-full bg-surface-container-lowest relative">
-											<div className="absolute top-0 left-0 h-full bg-primary amber-glow" style={{ width: '70%' }} />
-										</div>
+										<span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant/60">Concept</span>
+										<p className="font-headline font-bold text-lg italic mt-1">Vagabond brisé par la guerre des guildes</p>
 									</div>
 									<div>
-										<div className="flex justify-between mb-2">
-											<span className="font-headline font-bold text-lg italic">Intellect</span>
-											<span className="font-label text-primary font-bold">18/20</span>
-										</div>
-										<div className="h-1 w-full bg-surface-container-lowest relative">
-											<div className="absolute top-0 left-0 h-full bg-primary amber-glow" style={{ width: '90%' }} />
-										</div>
+										<span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant/60">Problème</span>
+										<p className="font-headline font-bold text-lg italic mt-1 text-error/80">Recherché par la Guilde des Marchands</p>
 									</div>
-									<div>
-										<div className="flex justify-between mb-2">
-											<span className="font-headline font-bold text-lg italic">Volonté</span>
-											<span className="font-label text-primary font-bold">09/20</span>
-										</div>
-										<div className="h-1 w-full bg-surface-container-lowest relative">
-											<div className="absolute top-0 left-0 h-full bg-primary amber-glow" style={{ width: '45%' }} />
+									<div className="border-t border-outline-variant/20 pt-6">
+										<span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant/60 mb-3 block">Compétences</span>
+										<div className="grid grid-cols-2 gap-3">
+											<div className="flex justify-between">
+												<span className="font-body text-sm">Furtivité</span>
+												<span className="font-label text-primary font-bold">+4</span>
+											</div>
+											<div className="flex justify-between">
+												<span className="font-body text-sm">Investigation</span>
+												<span className="font-label text-primary font-bold">+3</span>
+											</div>
+											<div className="flex justify-between">
+												<span className="font-body text-sm">Combat</span>
+												<span className="font-label text-on-surface-variant font-bold">+2</span>
+											</div>
+											<div className="flex justify-between">
+												<span className="font-body text-sm">Volonté</span>
+												<span className="font-label text-on-surface-variant font-bold">+1</span>
+											</div>
 										</div>
 									</div>
 								</div>
@@ -575,8 +593,8 @@ export default function LandingPage() {
 				<div className="max-w-4xl mx-auto border border-primary/20 p-12 md:p-20 bg-surface-container relative">
 					<div className="absolute -top-4 -left-4 w-12 h-12 border-t-2 border-l-2 border-primary" />
 					<div className="absolute -bottom-4 -right-4 w-12 h-12 border-b-2 border-r-2 border-primary" />
-					<h2 className="text-4xl md:text-5xl font-headline font-bold mb-8">Prêt à écrire votre héritage ?</h2>
-					<p className="text-on-surface-variant mb-12 text-lg">Le vide attend. Le moteur est prêt. Les Archives attendent leur prochaine entrée.</p>
+					<h2 className="text-4xl md:text-5xl font-headline font-bold mb-8">Prêt à jouer pour de vrai ?</h2>
+					<p className="text-on-surface-variant mb-12 text-lg">Crée ton monde, choisis ton moteur, et vis les conséquences de tes choix.</p>
 					<div className="flex flex-col gap-6 items-center">
 						<Link
 							href="/register/"
@@ -603,7 +621,7 @@ export default function LandingPage() {
 							/>
 						</div>
 						<p className="font-label uppercase text-[10px] tracking-widest text-on-surface-variant/40 text-center md:text-left">
-							&copy; 2025 LES ARCHIVES D'OBSIDIENNE. FORGÉ DANS LE VIDE.
+							&copy; 2025 InkRealm. Le MJ IA avec de vraies règles.
 						</p>
 					</div>
 					<div className="flex flex-wrap justify-center gap-8">
