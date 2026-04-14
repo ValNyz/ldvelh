@@ -281,25 +281,66 @@ export default function LandingPage() {
 							Des dystopies baignées de néon aux cauchemars gothiques, InkRealm adapte sa logique à l'âme de votre univers.
 						</p>
 					</div>
-					<div className="grid md:grid-cols-2 gap-12 items-center">
-						<div className="group relative overflow-hidden border border-outline-variant/20 aspect-[4/3] bg-surface-container-high">
-							<div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
-							<div className="absolute bottom-0 left-0 p-8">
-								<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Module : Cyber Noir</span>
-								<h3 className="text-3xl font-headline font-bold text-white">Logique d'acier</h3>
-								<p className="text-on-surface-variant text-sm mt-2 max-w-sm">
-									Règles pour la surveillance high-tech, les défaillances mécaniques et l'influence corporatiste.
-								</p>
+					{/* Genre showcase: B+ staggered layout */}
+					<div className="relative">
+						{/* Desktop layout */}
+						<div className="hidden md:grid md:grid-cols-3 gap-8 items-end max-w-5xl mx-auto">
+							<div className="group relative overflow-hidden border border-outline-variant/20 aspect-[3/4] cursor-pointer transition-all duration-500 ease-out hover:scale-[1.03] hover:brightness-110 hover:border-primary/30">
+								<img src="/images/genres/sf.webp" alt="Science-Fiction" className="absolute inset-0 w-full h-full object-cover" />
+								<div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent group-hover:from-black/60 transition-all duration-500" />
+								<div className="absolute bottom-0 left-0 right-0 p-8">
+									<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Science-Fiction</span>
+									<h3 className="text-2xl font-headline font-bold text-white">Néons &amp; Chrome</h3>
+									<p className="text-on-surface-variant text-sm mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-500">Dystopies cyberpunk, voyages spatiaux et intrigues corporatistes.</p>
+								</div>
+							</div>
+							<div className="group relative overflow-hidden border border-primary/20 aspect-[3/4] cursor-pointer transition-all duration-500 ease-out hover:scale-[1.03] hover:brightness-110 shadow-[0_0_30px_rgba(242,161,27,0.08)] -mt-8">
+								<img src="/images/genres/fantasy.webp" alt="Fantasy" className="absolute inset-0 w-full h-full object-cover" />
+								<div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent group-hover:from-black/60 transition-all duration-500" />
+								<div className="absolute bottom-0 left-0 right-0 p-8">
+									<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Fantasy</span>
+									<h3 className="text-2xl font-headline font-bold text-white">Royaumes Oubliés</h3>
+									<p className="text-on-surface-variant text-sm mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-500">Magie ancienne, quêtes épiques et royaumes en guerre.</p>
+								</div>
+							</div>
+							<div className="group relative overflow-hidden border border-outline-variant/20 aspect-[3/4] cursor-pointer transition-all duration-500 ease-out hover:scale-[1.03] hover:brightness-110 hover:border-primary/30">
+								<img src="/images/genres/horror.webp" alt="Horreur" className="absolute inset-0 w-full h-full object-cover" />
+								<div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent group-hover:from-black/60 transition-all duration-500" />
+								<div className="absolute bottom-0 left-0 right-0 p-8">
+									<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Horreur</span>
+									<h3 className="text-2xl font-headline font-bold text-white">Terreur Indicible</h3>
+									<p className="text-on-surface-variant text-sm mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-500">Santé mentale fragile, horreur cosmique et cauchemars vivants.</p>
+								</div>
 							</div>
 						</div>
-						<div className="group relative overflow-hidden border border-outline-variant/20 aspect-[4/3] bg-surface-container-high">
-							<div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
-							<div className="absolute bottom-0 left-0 p-8">
-								<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Module : Horreur Gothique</span>
-								<h3 className="text-3xl font-headline font-bold text-white">Souveraineté de l'effroi</h3>
-								<p className="text-on-surface-variant text-sm mt-2 max-w-sm">
-									Mécaniques de sanité mentale et narration environnementale qui réagit à vos niveaux de peur.
-								</p>
+						{/* Mobile: horizontal scroll carousel */}
+						<div className="md:hidden flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 -mx-4 px-4 scrollbar-hide">
+							<div className="group relative overflow-hidden border border-outline-variant/20 snap-center shrink-0 w-[75vw] aspect-[3/4]">
+								<img src="/images/genres/sf.webp" alt="Science-Fiction" className="absolute inset-0 w-full h-full object-cover" />
+								<div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+								<div className="absolute bottom-0 left-0 right-0 p-6">
+									<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Science-Fiction</span>
+									<h3 className="text-xl font-headline font-bold text-white">Néons &amp; Chrome</h3>
+									<p className="text-on-surface-variant text-xs mt-1">Dystopies cyberpunk, voyages spatiaux et intrigues corporatistes.</p>
+								</div>
+							</div>
+							<div className="group relative overflow-hidden border border-primary/20 snap-center shrink-0 w-[75vw] aspect-[3/4]">
+								<img src="/images/genres/fantasy.webp" alt="Fantasy" className="absolute inset-0 w-full h-full object-cover" />
+								<div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+								<div className="absolute bottom-0 left-0 right-0 p-6">
+									<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Fantasy</span>
+									<h3 className="text-xl font-headline font-bold text-white">Royaumes Oubliés</h3>
+									<p className="text-on-surface-variant text-xs mt-1">Magie ancienne, quêtes épiques et royaumes en guerre.</p>
+								</div>
+							</div>
+							<div className="group relative overflow-hidden border border-outline-variant/20 snap-center shrink-0 w-[75vw] aspect-[3/4]">
+								<img src="/images/genres/horror.webp" alt="Horreur" className="absolute inset-0 w-full h-full object-cover" />
+								<div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+								<div className="absolute bottom-0 left-0 right-0 p-6">
+									<span className="text-primary text-xs font-label tracking-[0.3em] uppercase mb-2 block">Horreur</span>
+									<h3 className="text-xl font-headline font-bold text-white">Terreur Indicible</h3>
+									<p className="text-on-surface-variant text-xs mt-1">Santé mentale fragile, horreur cosmique et cauchemars vivants.</p>
+								</div>
 							</div>
 						</div>
 					</div>
