@@ -33,11 +33,11 @@ function VerifyContent() {
 	}, [token]);
 
 	return (
-		<div className="bg-gray-900 rounded-xl p-6 space-y-4 border border-gray-800 text-center">
+		<div className="bg-surface border border-outline-variant/20 rounded-xl p-8 space-y-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] text-center">
 			{status === 'loading' && (
 				<>
-					<div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
-					<p className="text-gray-400">Vérification en cours...</p>
+					<div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+					<p className="text-on-surface-variant">Vérification en cours...</p>
 				</>
 			)}
 
@@ -46,11 +46,11 @@ function VerifyContent() {
 					<div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto">
 						<CheckIcon className="w-6 h-6 text-green-400" />
 					</div>
-					<h2 className="text-xl font-semibold text-white">Email vérifié !</h2>
-					<p className="text-gray-400">Votre adresse email a été confirmée avec succès.</p>
+					<h2 className="text-xl font-headline font-semibold text-on-surface">Email vérifié !</h2>
+					<p className="text-on-surface-variant">Votre adresse email a été confirmée avec succès.</p>
 					<a
 						href="/login/"
-						className="inline-block mt-4 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-medium transition-colors"
+						className="inline-block mt-4 px-6 py-3 bg-primary text-on-primary font-bold uppercase tracking-widest text-sm rounded-lg hover:brightness-110 transition-all active:scale-[0.98]"
 					>
 						Se connecter
 					</a>
@@ -59,11 +59,11 @@ function VerifyContent() {
 
 			{status === 'already' && (
 				<>
-					<h2 className="text-xl font-semibold text-white">Déjà vérifié</h2>
-					<p className="text-gray-400">Votre email est déjà vérifié.</p>
+					<h2 className="text-xl font-headline font-semibold text-on-surface">Déjà vérifié</h2>
+					<p className="text-on-surface-variant">Votre email est déjà vérifié.</p>
 					<a
 						href="/game"
-						className="inline-block mt-4 px-6 py-2.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-medium transition-colors"
+						className="inline-block mt-4 px-6 py-3 bg-primary text-on-primary font-bold uppercase tracking-widest text-sm rounded-lg hover:brightness-110 transition-all active:scale-[0.98]"
 					>
 						Continuer
 					</a>
@@ -75,11 +75,11 @@ function VerifyContent() {
 					<div className="w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center mx-auto">
 						<XIcon className="w-6 h-6 text-red-400" />
 					</div>
-					<h2 className="text-xl font-semibold text-white">Erreur de vérification</h2>
-					<p className="text-red-400 text-sm">{errorMsg}</p>
+					<h2 className="text-xl font-headline font-semibold text-on-surface">Erreur de vérification</h2>
+					<p className="text-error text-sm">{errorMsg}</p>
 					<a
 						href="/login/"
-						className="inline-block mt-4 px-6 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-lg text-white font-medium transition-colors"
+						className="inline-block mt-4 px-6 py-3 bg-surface-container border border-outline-variant/20 text-on-surface-variant font-bold uppercase tracking-widest text-sm rounded-lg hover:brightness-110 transition-all active:scale-[0.98]"
 					>
 						Retour à la connexion
 					</a>
@@ -92,9 +92,9 @@ function VerifyContent() {
 export default function VerifyPage() {
 	return (
 		<Suspense fallback={
-			<div className="bg-gray-900 rounded-xl p-6 space-y-4 border border-gray-800 text-center">
-				<div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto" />
-				<p className="text-gray-400">Chargement...</p>
+			<div className="bg-surface border border-outline-variant/20 rounded-xl p-8 space-y-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)] text-center">
+				<div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+				<p className="text-on-surface-variant">Chargement...</p>
 			</div>
 		}>
 			<VerifyContent />

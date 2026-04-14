@@ -40,61 +40,63 @@ export default function RegisterPage() {
 	};
 
 	return (
-		<form onSubmit={handleSubmit} className="bg-gray-900 rounded-xl p-6 space-y-4 border border-gray-800">
-			<h2 className="text-xl font-semibold text-white">Creer un compte</h2>
+		<form onSubmit={handleSubmit} className="bg-surface border border-outline-variant/20 rounded-xl p-8 space-y-5 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+			<h2 className="text-xl font-headline font-semibold text-on-surface">Créer un compte</h2>
 
 			{displayError && (
-				<div className="bg-red-900/30 border border-red-700 rounded-lg px-4 py-2 text-red-400 text-sm">
+				<div className="bg-error/8 border-l-[3px] border-error rounded-r-lg px-4 py-3 text-error text-sm">
 					{displayError}
 				</div>
 			)}
 
 			<div>
-				<label className="block text-gray-400 text-sm mb-1">Email</label>
+				<label className="block text-on-surface-variant text-xs font-label mb-1.5 tracking-wide">Email</label>
 				<input
 					type="email"
 					value={email}
 					onChange={(e) => setEmail(e.target.value)}
 					required
 					autoFocus
-					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+					className="w-full px-4 py-3 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
 					placeholder="you@example.com"
 				/>
 			</div>
 
 			<div>
-				<label className="block text-gray-400 text-sm mb-1">Nom d'affichage <span className="text-gray-600">(optionnel)</span></label>
+				<label className="block text-on-surface-variant text-xs font-label mb-1.5 tracking-wide">
+					Nom d&apos;affichage <span className="text-on-surface-variant/40">(optionnel)</span>
+				</label>
 				<input
 					type="text"
 					value={displayName}
 					onChange={(e) => setDisplayName(e.target.value)}
-					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+					className="w-full px-4 py-3 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
 					placeholder="Votre pseudo"
 				/>
 			</div>
 
 			<div>
-				<label className="block text-gray-400 text-sm mb-1">Mot de passe</label>
+				<label className="block text-on-surface-variant text-xs font-label mb-1.5 tracking-wide">Mot de passe</label>
 				<input
 					type="password"
 					value={password}
 					onChange={(e) => setPassword(e.target.value)}
 					required
 					minLength={6}
-					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-					placeholder="Min. 6 caracteres"
+					className="w-full px-4 py-3 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
+					placeholder="Min. 6 caractères"
 				/>
 			</div>
 
 			<div>
-				<label className="block text-gray-400 text-sm mb-1">Confirmer le mot de passe</label>
+				<label className="block text-on-surface-variant text-xs font-label mb-1.5 tracking-wide">Confirmer le mot de passe</label>
 				<input
 					type="password"
 					value={passwordConfirm}
 					onChange={(e) => setPasswordConfirm(e.target.value)}
 					required
 					minLength={6}
-					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+					className="w-full px-4 py-3 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all"
 					placeholder="Retapez le mot de passe"
 				/>
 			</div>
@@ -102,14 +104,14 @@ export default function RegisterPage() {
 			<button
 				type="submit"
 				disabled={loading}
-				className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-colors"
+				className="w-full py-3 bg-primary text-on-primary font-bold uppercase tracking-widest text-sm rounded-lg hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-[0.98]"
 			>
-				{loading ? 'Creation...' : 'Creer le compte'}
+				{loading ? 'Création...' : 'Créer le compte'}
 			</button>
 
-			<p className="text-center text-gray-500 text-sm">
-				Deja un compte ?{' '}
-				<a href="/login/" className="text-purple-400 hover:text-purple-300 transition-colors">
+			<p className="text-center text-on-surface-variant/60 text-sm">
+				Déjà un compte ?{' '}
+				<a href="/login/" className="text-primary hover:brightness-125 transition-all">
 					Se connecter
 				</a>
 			</p>
