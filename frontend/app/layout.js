@@ -28,7 +28,7 @@ export default function RootLayout({ children }) {
 					rel="stylesheet"
 				/>
 			</head>
-			<body className="min-h-screen bg-gray-900 text-white antialiased">
+			<body className="min-h-screen bg-surface text-white antialiased">
 				<AuthProvider>
 					{children}
 				</AuthProvider>
