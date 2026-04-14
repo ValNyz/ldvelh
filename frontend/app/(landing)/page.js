@@ -220,20 +220,20 @@ export default function LandingPage() {
 			<section className="bg-surface-container-lowest border-y border-outline-variant/10 py-8">
 				<div className="max-w-7xl mx-auto px-8 flex flex-col md:flex-row justify-around items-center gap-8 text-center">
 					<div className="flex flex-col">
-						<span className="text-3xl font-headline font-bold text-on-surface">1.2M+</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Royaumes persistants</span>
+						<span className="text-3xl font-headline font-bold text-primary">4</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Moteurs de jeu</span>
 					</div>
 					<div className="flex flex-col">
-						<span className="text-3xl font-headline font-bold text-on-surface">0%</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Perte de mémoire</span>
+						<span className="text-3xl font-headline font-bold text-on-surface">∞</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Mémoire persistante</span>
 					</div>
 					<div className="flex flex-col">
-						<span className="text-3xl font-headline font-bold text-on-surface">47</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Moteurs logiques supportés</span>
+						<span className="text-3xl font-headline font-bold text-on-surface">100%</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Vrais jets de dés</span>
 					</div>
 					<div className="flex flex-col">
-						<span className="text-3xl font-headline font-bold text-on-surface">VRAI</span>
-						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Narratif Hardcore</span>
+						<span className="text-3xl font-headline font-bold text-on-surface">0€</span>
+						<span className="text-xs uppercase tracking-widest text-on-surface-variant">Pour commencer</span>
 					</div>
 				</div>
 			</section>
