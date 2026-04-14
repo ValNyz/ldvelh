@@ -327,7 +327,7 @@ class TestInventoryPromptEngineAddon:
     def test_build_user_prompt_without_addon(self):
         from prompts.extraction.inventory_prompt import build_user_prompt
         prompt = build_user_prompt(
-            narrative_texts=["Some text"],
+            narrative_text="Some text",
             cycle=1,
             existing_canonical_names=["item_a"],
         )
@@ -336,7 +336,7 @@ class TestInventoryPromptEngineAddon:
     def test_build_user_prompt_with_addon(self):
         from prompts.extraction.inventory_prompt import build_user_prompt
         prompt = build_user_prompt(
-            narrative_texts=["Some text"],
+            narrative_text="Some text",
             cycle=1,
             existing_canonical_names=["item_a"],
             engine_object_addon='Add "engine_data": {"damage": "4D"} for weapons',
