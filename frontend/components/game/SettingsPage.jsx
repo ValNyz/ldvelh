@@ -83,9 +83,9 @@ export default function SettingsPage({
 	const [confirmDelete, setConfirmDelete] = useState(false);
 
 	return (
-		<div className="min-h-screen bg-gray-950 text-white flex flex-col">
+		<div className="min-h-screen bg-surface-container-lowest text-white flex flex-col">
 			{/* Header */}
-			<header className="bg-gray-900/80 border-b border-gray-800/50 px-6 py-4 flex items-center gap-4">
+			<header className="bg-surface/80 border-b border-gray-800/50 px-6 py-4 flex items-center gap-4">
 				<button
 					onClick={onBack}
 					className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
@@ -114,7 +114,7 @@ export default function SettingsPage({
 							<select
 								value={preferences.activeProvider || ''}
 								onChange={(e) => preferences.setActiveProvider(e.target.value || null)}
-								className="w-full px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+								className="w-full px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 							>
 								<option value="">Aucun (clé serveur)</option>
 								{providers.map(p => (
@@ -136,7 +136,7 @@ export default function SettingsPage({
 									<select
 										value={preferences.activeModel || models[0]?.id || ''}
 										onChange={(e) => preferences.setActiveModel(e.target.value || null)}
-										className="w-full px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+										className="w-full px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 									>
 										{models.map(m => (
 											<option key={m.id} value={m.id}>{m.label}</option>
@@ -203,7 +203,7 @@ export default function SettingsPage({
 									value={keyInputs[activeTab] || ''}
 									onChange={(e) => setKeyInputs(prev => ({ ...prev, [activeTab]: e.target.value }))}
 									placeholder={hasKey(activeTab) ? 'Remplacer la clé...' : 'Entrer la clé API...'}
-									className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+									className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 								/>
 								<button
 									onClick={() => setShowKey(prev => ({ ...prev, [activeTab]: !prev[activeTab] }))}
@@ -214,7 +214,7 @@ export default function SettingsPage({
 								<button
 									onClick={() => handleSaveKey(activeTab)}
 									disabled={!keyInputs[activeTab] || saving[activeTab]}
-									className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+									className="px-4 py-2 bg-primary hover:brightness-110 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 								>
 									{saving[activeTab] ? '...' : saveSuccess[activeTab] ? '✓' : 'Sauver'}
 								</button>
@@ -263,7 +263,7 @@ export default function SettingsPage({
 										onChange={(e) => preferences.updatePreference('showDebug', e.target.checked)}
 										className="sr-only peer"
 									/>
-									<div className="w-9 h-5 bg-gray-700 peer-focus:ring-2 peer-focus:ring-purple-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-gray-400 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600 peer-checked:after:bg-white" />
+									<div className="w-9 h-5 bg-gray-700 peer-focus:ring-2 peer-focus:ring-primary/50 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-gray-400 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary peer-checked:after:bg-white" />
 								</label>
 							</div>
 						</div>
@@ -399,13 +399,13 @@ function AccountSection({ user }) {
 							value={displayName}
 							onChange={(e) => setDisplayName(e.target.value)}
 							maxLength={100}
-							className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+							className="flex-1 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 							placeholder="Votre pseudo"
 						/>
 						<button
 							onClick={handleSaveName}
 							disabled={!nameChanged || nameStatus === 'saving'}
-							className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+							className="px-4 py-2 bg-primary hover:brightness-110 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 						>
 							{nameStatus === 'saving' ? '...' : nameStatus === 'saved' ? '✓' : 'Sauver'}
 						</button>
@@ -434,7 +434,7 @@ function AccountSection({ user }) {
 							onChange={(e) => setCurrentPassword(e.target.value)}
 							placeholder="Mot de passe actuel"
 							required
-							className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+							className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 						/>
 						<input
 							type="password"
@@ -443,7 +443,7 @@ function AccountSection({ user }) {
 							placeholder="Nouveau mot de passe (min. 6)"
 							required
 							minLength={6}
-							className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+							className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 						/>
 						<input
 							type="password"
@@ -452,12 +452,12 @@ function AccountSection({ user }) {
 							placeholder="Confirmer le nouveau mot de passe"
 							required
 							minLength={6}
-							className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+							className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 						/>
 						<button
 							type="submit"
 							disabled={!currentPassword || !newPassword || !newPasswordConfirm || pwStatus === 'saving'}
-							className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+							className="px-4 py-2 bg-primary hover:brightness-110 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
 						>
 							{pwStatus === 'saving' ? '...' : 'Changer le mot de passe'}
 						</button>

@@ -5,14 +5,14 @@ import { ENGINES } from '../../../lib/game/engineConfig';
 const COLOR_MAP = {
 	gray: 'border-gray-600 hover:border-gray-400 bg-gray-800/50',
 	emerald: 'border-emerald-700 hover:border-emerald-500 bg-emerald-900/20',
-	purple: 'border-purple-700 hover:border-purple-500 bg-purple-900/20',
+	amber: 'border-primary/50 hover:border-primary bg-primary/10',
 	blue: 'border-blue-700 hover:border-blue-500 bg-blue-900/20',
 };
 
 const SELECTED_MAP = {
 	gray: 'border-gray-400 bg-gray-800 ring-2 ring-gray-400/30',
 	emerald: 'border-emerald-500 bg-emerald-900/40 ring-2 ring-emerald-500/30',
-	purple: 'border-purple-500 bg-purple-900/40 ring-2 ring-purple-500/30',
+	amber: 'border-primary bg-primary/20 ring-2 ring-primary/30',
 	blue: 'border-blue-500 bg-blue-900/40 ring-2 ring-blue-500/30',
 };
 

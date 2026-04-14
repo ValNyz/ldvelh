@@ -14,7 +14,7 @@ export default function CharacterSheet({ isOpen, onClose, gameState }) {
 	const stats = player?.engine_stats;
 
 	return (
-		<div className="w-80 bg-gray-900 border-l border-gray-800 flex flex-col overflow-hidden">
+		<div className="w-80 bg-surface border-l border-gray-800 flex flex-col overflow-hidden">
 			{/* Header */}
 			<div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
 				<h2 className="text-white font-medium">Fiche personnage</h2>
@@ -138,7 +138,7 @@ function FateCoreSheet({ stats }) {
 			{/* Fate Points */}
 			<Section title="Points de Destin">
 				<div className="flex items-center gap-2">
-					<span className="text-purple-400 font-mono text-lg">
+					<span className="text-primary font-mono text-lg">
 						{stats.fate_points ?? 0}
 					</span>
 					<span className="text-gray-500 text-sm">/ {stats.refresh ?? 3} refresh</span>
@@ -150,8 +150,8 @@ function FateCoreSheet({ stats }) {
 				<Section title="Aspects">
 					<div className="space-y-1.5">
 						{aspects.map((a, i) => (
-							<div key={i} className="p-2 bg-purple-900/20 border border-purple-700/50 rounded">
-								<span className="text-xs text-purple-400 uppercase">{a.type || 'aspect'}</span>
+							<div key={i} className="p-2 bg-primary/10 border border-primary/30 rounded">
+								<span className="text-xs text-primary uppercase">{a.type || 'aspect'}</span>
 								<p className="text-gray-200 text-sm">{a.name}</p>
 							</div>
 						))}
@@ -188,7 +188,7 @@ function FateCoreSheet({ stats }) {
 						{[...skills].sort((a, b) => (b.level || 0) - (a.level || 0)).map((s, i) => (
 							<div key={i} className="flex justify-between text-sm">
 								<span className="text-gray-300">{s.name}</span>
-								<span className="text-purple-400 font-mono">
+								<span className="text-primary font-mono">
 									+{s.level} {FATE_LADDER[s.level] || ''}
 								</span>
 							</div>

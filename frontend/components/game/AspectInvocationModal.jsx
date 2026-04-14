@@ -59,7 +59,7 @@ export default function AspectInvocationModal({
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-			<div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 space-y-5">
+			<div className="bg-surface border border-gray-700 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 space-y-5">
 				{/* Header */}
 				<div className="text-center">
 					<h3 className="text-lg font-semibold text-white">Invoquer un aspect ?</h3>
@@ -94,7 +94,7 @@ export default function AspectInvocationModal({
 				<div className="space-y-2">
 					<div className="flex items-center justify-between text-sm">
 						<span className="text-gray-300">Aspects disponibles</span>
-						<span className="text-purple-400">
+						<span className="text-primary">
 							{fatePoints - selected.length} PD restant{fatePoints - selected.length !== 1 ? 's' : ''}
 						</span>
 					</div>
@@ -112,7 +112,7 @@ export default function AspectInvocationModal({
 									disabled={!canSelect}
 									className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
 										isSelected
-											? 'bg-purple-600/30 border border-purple-500 text-white'
+											? 'bg-primary/15 border border-primary text-white'
 											: canSelect
 												? 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700'
 												: 'bg-gray-800/50 border border-gray-700/50 text-gray-600 cursor-not-allowed'
@@ -123,7 +123,7 @@ export default function AspectInvocationModal({
 										<span className="ml-2 text-xs text-gray-500">({type})</span>
 									)}
 									{isSelected && (
-										<span className="float-right text-purple-400">+2</span>
+										<span className="float-right text-primary">+2</span>
 									)}
 								</button>
 							);
@@ -137,7 +137,7 @@ export default function AspectInvocationModal({
 						<div className="text-xs text-gray-400 mb-1">Apres invocation :</div>
 						<div className="flex items-center gap-2 text-sm">
 							<span className="text-white">{roll.skill_total}</span>
-							<span className="text-purple-400">+{previewBonus}</span>
+							<span className="text-primary">+{previewBonus}</span>
 							<span className="text-gray-500">=</span>
 							<span className="text-white font-medium">{previewTotal}</span>
 							<span className="text-gray-500">vs</span>
@@ -162,7 +162,7 @@ export default function AspectInvocationModal({
 					<button
 						onClick={() => onInvoke(selected)}
 						disabled={selected.length === 0}
-						className="flex-1 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
+						className="flex-1 px-4 py-2.5 bg-primary hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors"
 					>
 						{selected.length > 0
 							? `Invoquer (${selected.length} PD)`

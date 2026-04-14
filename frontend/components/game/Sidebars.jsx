@@ -101,7 +101,7 @@ export function InventorySidebar({ isOpen, onClose, inventory }) {
 											<div className="flex justify-between items-center">
 												<span className="text-gray-200 text-sm">{item.name}</span>
 												{item.quantity > 1 && (
-													<span className="text-purple-400 text-xs">x{item.quantity}</span>
+													<span className="text-primary text-xs">x{item.quantity}</span>
 												)}
 											</div>
 											<span className="text-xs text-gray-500">{item.category}</span>
@@ -134,7 +134,7 @@ export function WorldSidebar({ isOpen, onClose, worldData, loading }) {
 		>
 			{loading ? (
 				<div className="flex items-center justify-center py-8">
-					<div className="w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+					<div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
 				</div>
 			) : (
 				<div className="space-y-5">
@@ -176,14 +176,14 @@ export function WorldSidebar({ isOpen, onClose, worldData, loading }) {
 									<div key={q.id} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
 										<div className="flex justify-between items-center">
 											<span className="text-gray-200 text-sm">{q.name}</span>
-											<span className={`text-xs px-1.5 py-0.5 rounded ${q.priority === 'high' ? 'bg-orange-900/50 text-orange-400' : 'bg-purple-900/50 text-purple-400'
+											<span className={`text-xs px-1.5 py-0.5 rounded ${q.priority === 'high' ? 'bg-orange-900/50 text-orange-400' : 'bg-primary/20 text-primary'
 												}`}>
 												{q.status}
 											</span>
 										</div>
 										{q.progress > 0 && (
 											<div className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden">
-												<div className="h-full bg-purple-500 rounded-full" style={{ width: `${q.progress}%` }} />
+												<div className="h-full bg-primary rounded-full" style={{ width: `${q.progress}%` }} />
 											</div>
 										)}
 									</div>

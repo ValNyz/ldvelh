@@ -37,7 +37,7 @@ function FudgeDie({ value }) {
 
 function D6Die({ value, isWild, isComplication }) {
 	const base = isWild
-		? (isComplication ? 'bg-red-800 text-red-200 ring-1 ring-red-500' : 'bg-purple-800 text-purple-200 ring-1 ring-purple-500')
+		? (isComplication ? 'bg-red-800 text-red-200 ring-1 ring-red-500' : 'bg-primary/20 text-primary ring-1 ring-primary')
 		: 'bg-gray-700 text-gray-200';
 	return (
 		<span className={`inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold ${base}`}>

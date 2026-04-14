@@ -38,7 +38,7 @@ function FateCoreStats({ stats }) {
 				</span>
 			)}
 
-			<span className="text-purple-400 flex items-center gap-1 text-xs">
+			<span className="text-primary flex items-center gap-1 text-xs">
 				✦ {stats.fate_points ?? 0}/{stats.refresh ?? 3} PD
 			</span>
 		</>

@@ -43,7 +43,7 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 							onClick={() => update('genre', g.slug)}
 							className={`px-3 py-2 rounded-lg text-sm transition-colors ${
 								config.genre === g.slug
-									? 'bg-purple-600 text-white'
+									? 'bg-primary text-white'
 									: 'bg-gray-800 text-gray-300 hover:bg-gray-700'
 							}`}
 						>
@@ -63,7 +63,7 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 							onClick={() => update('difficulty', d.id)}
 							className={`p-3 rounded-lg text-left transition-colors ${
 								config.difficulty === d.id
-									? 'bg-purple-600/30 border border-purple-500 text-white'
+									? 'bg-primary/15 border border-primary text-white'
 									: 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700'
 							}`}
 						>
@@ -83,7 +83,7 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 					value={config.lore || ''}
 					onChange={(e) => update('lore', e.target.value)}
 					placeholder="Décris l'ambiance, le contexte historique, des détails particuliers..."
-					className="w-full h-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-y"
+					className="w-full h-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
 				/>
 			</div>
 
@@ -109,7 +109,7 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 			<div>
 				<button
 					onClick={() => setShowEntities(!showEntities)}
-					className="text-sm text-purple-400 hover:text-purple-300 transition-colors flex items-center gap-1"
+					className="text-sm text-primary hover:brightness-110 transition-colors flex items-center gap-1"
 				>
 					<span className={`transition-transform ${showEntities ? 'rotate-90' : ''}`}>&#9654;</span>
 					Personnaliser les entités du monde
@@ -166,7 +166,7 @@ function EntityList({ label, placeholder, descPlaceholder, items, onChange }) {
 				<span className="text-xs text-gray-400 uppercase tracking-wider">{label}</span>
 				<button
 					onClick={addItem}
-					className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+					className="text-xs text-primary hover:brightness-110 transition-colors"
 				>
 					+ Ajouter
 				</button>
@@ -182,13 +182,13 @@ function EntityList({ label, placeholder, descPlaceholder, items, onChange }) {
 									value={item.name}
 									onChange={(e) => updateItem(i, 'name', e.target.value)}
 									placeholder={placeholder}
-									className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+									className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary/50"
 								/>
 								<input
 									value={item.description}
 									onChange={(e) => updateItem(i, 'description', e.target.value)}
 									placeholder={descPlaceholder}
-									className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded text-gray-300 text-xs placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+									className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded text-gray-300 text-xs placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary/50"
 								/>
 							</div>
 							<button

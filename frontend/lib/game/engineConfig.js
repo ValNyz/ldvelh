@@ -28,7 +28,7 @@ export const ENGINES = [
 		name: 'Fate Core',
 		description: 'Dés Fudge, aspects, points de destin. Système narratif avec mécanique légère.',
 		icon: '🎲',
-		color: 'purple',
+		color: 'amber',
 	},
 	{
 		id: 'd6',
