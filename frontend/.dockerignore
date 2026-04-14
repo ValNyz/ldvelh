@@ -1,1 +1,5 @@
 .env.local
+node_modules
+images/
+scripts/
+.next/
