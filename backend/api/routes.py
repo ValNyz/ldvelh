@@ -407,7 +407,38 @@ async def _handle_chat(
             if init_manual_entities and "npcs" in init_manual_entities:
                 mandatory_npcs = init_manual_entities["npcs"]
 
+            # Load genre from DB (from game or world_config)
+            genre = None
+            genre_id = game_session.get("genre_id")
+            if not genre_id and init_world_config:
+                # Genre slug might be in world_config from wizard
+                genre_slug = init_world_config.get("genre")
+                if genre_slug:
+                    async with pool.acquire() as conn:
+                        genre_row = await conn.fetchrow(
+                            "SELECT * FROM genres WHERE slug = $1 LIMIT 1",
+                            genre_slug,
+                        )
+                        if genre_row:
+                            genre = dict(genre_row)
+                            # Store genre_id on game for future use
+                            await conn.execute(
+                                "UPDATE games SET genre_id = $1 WHERE id = $2",
+                                genre_row["id"], game_id,
+                            )
+            elif genre_id:
+                from kg.reader import KnowledgeGraphReader
+                reader = KnowledgeGraphReader(pool, game_id)
+                async with pool.acquire() as conn:
+                    genre = await reader.get_genre(conn, genre_id)
+
+            # Protagonist name from character_data or default
+            protagonist_name = "Valentin"
+            if init_character_data and init_character_data.get("name"):
+                protagonist_name = init_character_data["name"]
+
             prompt = get_full_generation_prompt(
+                protagonist_name=protagonist_name,
                 mandatory_npcs=mandatory_npcs,
                 theme_preferences=message
                 if message and not message.startswith("__")
@@ -417,6 +448,7 @@ async def _handle_chat(
                 world_config=init_world_config,
                 character_data=init_character_data,
                 manual_entities=init_manual_entities,
+                genre=genre,
             )
 
             async def on_init_complete(parsed, display_text, raw_json):
@@ -512,12 +544,23 @@ async def _handle_chat(
             logger.info(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
 
             # Si first_light, utiliser l'événement d'arrivée comme contexte initial
-            if is_first_light:
-                message = (
-                    message
-                    if not message.startswith("__")
-                    else "Je viens d'arriver sur la station. IA (remplacer par personnal_ai.name) commente."
-                )
+            if is_first_light and message.startswith("__"):
+                # Genre-aware arrival prompt
+                genre_arrival = None
+                genre_id = game_session.get("genre_id")
+                if genre_id:
+                    from kg.reader import KnowledgeGraphReader
+                    reader = KnowledgeGraphReader(pool, game_id)
+                    async with pool.acquire() as conn:
+                        g = await reader.get_genre(conn, genre_id)
+                        if g and g.get("arrival_prompt"):
+                            world_name = game_session.get("world_name", "")
+                            genre_arrival = g["arrival_prompt"].replace(
+                                "{world_name}", world_name
+                            ).replace(
+                                "{protagonist_name}", game_session.get("protagonist_name", "")
+                            )
+                message = genre_arrival or "Je viens d'arriver. Mon IA personnelle commente."
 
             async with pool.acquire() as conn:
                 builder = ContextBuilder(pool, game_id)
