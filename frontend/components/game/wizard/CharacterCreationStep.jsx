@@ -310,6 +310,19 @@ export default function CharacterCreationStep({ engine, genre, data, onChange })
 	return (
 		<div className="space-y-4">
 			<h2 className="text-xl font-semibold text-white">Création du personnage</h2>
+
+			{/* Protagonist name */}
+			<div>
+				<label className="block text-sm text-gray-300 mb-1">Nom du protagoniste</label>
+				<input
+					value={data.name || ''}
+					onChange={(e) => onChange({ ...data, name: e.target.value })}
+					placeholder="Valentin"
+					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+				/>
+				<p className="text-xs text-gray-500 mt-1">Laisse vide pour "Valentin" par défaut</p>
+			</div>
+
 			{engine === 'none' && <NoneCharacter />}
 			{engine === 'narrative' && <NarrativeCharacter data={data} onChange={onChange} />}
 			{engine === 'fate_core' && <FateCoreCharacter data={data} onChange={onChange} genre={genre} />}

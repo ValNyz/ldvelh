@@ -1,13 +1,33 @@
 'use client';
 
-import { useState } from 'react';
-import { GENRES, DIFFICULTIES } from '../../../lib/game/engineConfig';
+import { useState, useEffect } from 'react';
+import { api } from '../../../lib/api';
+import { DIFFICULTIES } from '../../../lib/game/engineConfig';
+
+const GENRE_ICONS = {
+	sci_fi: '🚀',
+	dark_fantasy: '🗡️',
+	cosmic_horror: '🐙',
+	cyberpunk: '💾',
+};
 
 export default function WorldConfigStep({ config, onChange, manualEntities, onManualEntitiesChange }) {
 	const update = (key, val) => onChange({ ...config, [key]: val });
 	const [showEntities, setShowEntities] = useState(
 		() => !!(manualEntities?.npcs?.length || manualEntities?.locations?.length || manualEntities?.organizations?.length)
 	);
+	const [genres, setGenres] = useState([]);
+
+	// Load genres from API
+	useEffect(() => {
+		api.get('/genres').then(data => {
+			setGenres(data?.genres || []);
+			// Auto-select first genre if none selected
+			if (!config.genre && data?.genres?.length > 0) {
+				update('genre', data.genres[0].slug);
+			}
+		}).catch(() => {});
+	}, []);
 
 	return (
 		<div className="space-y-6">
@@ -17,17 +37,17 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 			<div>
 				<label className="block text-sm text-gray-300 mb-2">Genre</label>
 				<div className="flex flex-wrap gap-2">
-					{GENRES.map((g) => (
+					{genres.map((g) => (
 						<button
-							key={g.id}
-							onClick={() => update('genre', g.id)}
+							key={g.slug}
+							onClick={() => update('genre', g.slug)}
 							className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-								config.genre === g.id
+								config.genre === g.slug
 									? 'bg-purple-600 text-white'
 									: 'bg-gray-800 text-gray-300 hover:bg-gray-700'
 							}`}
 						>
-							{g.icon} {g.name}
+							{GENRE_ICONS[g.slug] || '🎮'} {g.label}
 						</button>
 					))}
 				</div>
