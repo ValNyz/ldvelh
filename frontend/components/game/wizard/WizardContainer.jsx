@@ -12,7 +12,7 @@ export default function WizardContainer({ onComplete, onCancel, loading }) {
 	const [step, setStep] = useState(0);
 	const [engine, setEngine] = useState('none');
 	const [worldConfig, setWorldConfig] = useState({
-		genre: 'sci-fi',
+		genre: 'sci_fi',
 		difficulty: 'moderate',
 		hardcore: false,
 		lore: '',
