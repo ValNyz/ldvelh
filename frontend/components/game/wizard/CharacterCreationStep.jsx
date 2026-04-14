@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { getFateSkills, FATE_LADDER, D6_ATTRIBUTES, D6_STARTING_ATTRIBUTE_DICE } from '../../../lib/game/engineConfig';
 
 // ============================================================================
