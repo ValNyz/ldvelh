@@ -9,7 +9,7 @@ from prompts.narrator_prompt import (
 )
 from prompts.world_generation_prompt import (
     get_full_generation_prompt,
-    WORLD_GENERATION_SYSTEM_PROMPT,
+    build_world_generation_system_prompt,
 )
 
 # Specialized extraction prompts (replaces old extractor_prompts)
@@ -20,7 +20,7 @@ __all__ = [
     "NARRATOR_SYSTEM_PROMPT",
     "build_narrator_context_prompt",
     # World Generation
-    "WORLD_GENERATION_SYSTEM_PROMPT",
+    "build_world_generation_system_prompt",
     "get_full_generation_prompt",
     # Extraction
     "EXTRACTOR_MODULES",
