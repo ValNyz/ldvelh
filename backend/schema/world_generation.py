@@ -143,7 +143,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     narrative_arcs: list[NarrativeArcData] = Field(..., min_length=1, max_length=10)
 
     # Relations
-    initial_relations: list[RelationData] = Field(..., min_length=5)
+    initial_relations: list[RelationData] = Field(..., min_length=1)
 
     # First moment
     arrival_event: ArrivalEventData
@@ -178,6 +178,8 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             "narrative_arcs", "initial_relations", "protagonist",
             "personal_assistant", "personal_ai", "arrival_event",
             "generation_seed_words", "irritants",
+            # Common LLM variants
+            "global_narrative_arcs", "arcs", "relations",
         }
         world = data.get("world")
         if isinstance(world, dict):
@@ -191,6 +193,17 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     f"[Validation] Hoisted {len(hoisted)} fields from 'world': "
                     f"{', '.join(hoisted)}"
                 )
+
+        # --- Handle field name variants from weaker LLMs ---
+        RENAMES = {
+            "global_narrative_arcs": "narrative_arcs",
+            "arcs": "narrative_arcs",
+            "relations": "initial_relations",
+        }
+        for old_key, new_key in RENAMES.items():
+            if old_key in data and new_key not in data:
+                data[new_key] = data.pop(old_key)
+                logger.info(f"[Validation] Renamed '{old_key}' -> '{new_key}'")
 
         # --- Extract protagonist from characters list if missing ---
         if "protagonist" not in data and "characters" in data:
