@@ -1483,3 +1483,55 @@ class TestNarratorContextPromptBranches:
         # The arrow line should not be present for empty situation_brief
         arc_section = prompt.split("Arc [health] Recovery")[1].split("\n")[0:2]
         assert all("→" not in line for line in arc_section)
+
+
+# =============================================================================
+# TESTS — Protagonist identity fields and world_description in narrator prompt
+# =============================================================================
+
+
+class TestNarratorProtagonistIdentity:
+    """Validate that protagonist identity fields and world_description appear in the prompt."""
+
+    def test_protagonist_with_full_identity(self):
+        """All four identity fields (gender, description, backstory, origin) appear in the prompt."""
+        ctx = _make_context(
+            protagonist=ProtagonistState(
+                name="Valentin",
+                credits=1000,
+                hobbies=[],
+                gender="male",
+                description="Tall, dark hair",
+                backstory="Burned out developer",
+                origin="Mars Colony",
+            )
+        )
+        prompt = build_narrator_context_prompt(ctx)
+        assert "male" in prompt
+        assert "Tall, dark hair" in prompt
+        assert "Burned out developer" in prompt
+        assert "Mars Colony" in prompt
+
+    def test_protagonist_without_identity(self):
+        """When identity fields are None (default), the word 'None' does not appear in the protagonist section."""
+        ctx = _make_context(
+            protagonist=ProtagonistState(
+                name="Valentin",
+                credits=500,
+                hobbies=[],
+                # gender, description, backstory, origin all default to None
+            )
+        )
+        prompt = build_narrator_context_prompt(ctx)
+        # Find the protagonist section boundaries
+        proto_start = prompt.find("### PROTAGONISTE")
+        assert proto_start != -1
+        # Get a reasonable slice of the protagonist section (up to 500 chars)
+        protagonist_section = prompt[proto_start : proto_start + 500]
+        assert "None" not in protagonist_section
+
+    def test_world_description_in_prompt(self):
+        """world_description appears in the prompt when set."""
+        ctx = _make_context(world_description="A bleak orbital station")
+        prompt = build_narrator_context_prompt(ctx)
+        assert "A bleak orbital station" in prompt
