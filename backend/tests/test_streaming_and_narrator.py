@@ -1428,7 +1428,7 @@ class TestNarratorContextPromptBranches:
             "Lieux accessibles:",
             "### PROTAGONISTE",
             "Inventaire:",
-            "### IA PERSONNELLE",
+            "### COMPAGNON",
             "### ORGANISATIONS CONNUES",
             "### PNJs",
             "### ARCS MONDE & PNJ",
