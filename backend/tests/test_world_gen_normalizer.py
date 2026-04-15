@@ -3,10 +3,6 @@ Tests for WorldGeneration.normalize_and_ensure_defaults model validator.
 Pure unit tests — no DB needed.
 """
 
-import copy
-import pytest
-from pydantic import ValidationError
-
 from schema.world_generation import WorldGeneration
 
 
