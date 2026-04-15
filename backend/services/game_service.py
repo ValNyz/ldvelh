@@ -113,7 +113,7 @@ class GameService:
 
             stats = await self._load_protagonist_stats(reader, conn)
             inventory = await self._load_inventory(reader, conn)
-            ai_data = await self._load_personal_assistant(reader, conn)
+            ai_data = await self._load_companion(reader, conn)
 
             # Engine stats
             engine_type = game.get("engine", "none")
@@ -171,10 +171,10 @@ class GameService:
             for r in rows
         ]
 
-    async def _load_personal_assistant(
+    async def _load_companion(
         self, reader: KnowledgeGraphReader, conn
     ) -> dict | None:
-        row = await reader.get_personal_assistant(conn)
+        row = await reader.get_companion(conn)
         if not row:
             return None
 
@@ -196,7 +196,7 @@ class GameService:
 
             game = await reader.get_game(conn)
             counts = await reader.get_entity_counts_by_type(conn)
-            ia_row = await reader.get_personal_assistant(conn)
+            ia_row = await reader.get_companion(conn)
             protag_row = await reader.get_protagonist(conn)
             arrival = await reader.get_arrival_event(conn)
 
@@ -384,9 +384,9 @@ class GameService:
                 "credits": world_gen.protagonist.credits,
             },
             "ai": {
-                "name": world_gen.personal_assistant.name,
-                "personality": world_gen.personal_assistant.traits,
-                "quirk": world_gen.personal_assistant.quirk or "",
+                "name": world_gen.companion.name,
+                "personality": world_gen.companion.traits,
+                "quirk": world_gen.companion.quirk or "",
             },
             "npc_count": len(world_gen.characters),
             "location_count": len(world_gen.locations),

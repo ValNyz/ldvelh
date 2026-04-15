@@ -87,12 +87,12 @@ class ProtagonistData(BaseModel):
 
 
 # =============================================================================
-# PERSONAL ASSISTANT
+# COMPANION
 # =============================================================================
 
 
-class PersonalAssistantData(BaseModel):
-    """The protagonist's AI companion"""
+class CompanionData(BaseModel):
+    """The protagonist's companion (AI, animal, spirit, object, etc.)"""
 
     name: Label
     voice: ShortText | None = None

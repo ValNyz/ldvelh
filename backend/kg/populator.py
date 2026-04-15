@@ -13,13 +13,13 @@ from uuid import UUID
 
 from schema import (
     CharacterData,
+    CompanionData,
     EntityType,
     FactData,
     LocationData,
     NarrativeArcData,
     ObjectData,
     OrganizationData,
-    PersonalAssistantData,
     ProtagonistData,
     RelationData,
     RelationType,
@@ -349,12 +349,12 @@ class KnowledgeGraphPopulator:
             await self._insert_skill(conn, skill, protagonist_id=row_id)
         return row_id
 
-    async def create_personal_assistant(
-        self, conn: Connection, data: PersonalAssistantData
+    async def create_companion(
+        self, conn: Connection, data: CompanionData
     ) -> UUID:
-        """Insert personal assistant into dedicated table."""
+        """Insert companion into dedicated table."""
         return await conn.fetchval(
-            """INSERT INTO personal_assistants (
+            """INSERT INTO companions (
                 game_id, name, voice, traits, quirk, substrate, details
             ) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id""",
             self.game_id,

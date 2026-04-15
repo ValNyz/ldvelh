@@ -19,10 +19,10 @@ from .core import (
 )
 from .entities import (
     CharacterData,
+    CompanionData,
     LocationData,
     ObjectData,
     OrganizationData,
-    PersonalAssistantData,
     ProtagonistData,
     WorldData,
 )
@@ -131,7 +131,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
     # Core elements
     world: WorldData
     protagonist: ProtagonistData
-    personal_assistant: PersonalAssistantData
+    companion: CompanionData
 
     # Entities
     characters: list[CharacterData] = Field(..., max_length=8)
@@ -176,7 +176,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         HOISTABLE = {
             "characters", "locations", "organizations", "inventory",
             "narrative_arcs", "initial_relations", "protagonist",
-            "personal_assistant", "personal_ai", "arrival_event",
+            "companion", "personal_assistant", "personal_ai", "arrival_event",
             "generation_seed_words", "irritants",
             # Common LLM variants
             "global_narrative_arcs", "arcs", "relations",
@@ -217,14 +217,18 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                         )
                         break
 
-        # --- Handle personal_ai -> personal_assistant rename ---
-        if "personal_ai" in data and "personal_assistant" not in data:
-            data["personal_assistant"] = data.pop("personal_ai")
+        # --- Handle personal_ai / personal_assistant -> companion rename ---
+        if "companion" not in data or data["companion"] is None:
+            for old_key in ("personal_assistant", "personal_ai"):
+                if old_key in data and data[old_key] is not None:
+                    data["companion"] = data.pop(old_key)
+                    logger.info(f"[Validation] Renamed '{old_key}' -> 'companion'")
+                    break
 
-        # --- Create default personal_assistant if missing ---
-        if "personal_assistant" not in data or data["personal_assistant"] is None:
-            logger.warning("[Validation] personal_assistant missing — creating default")
-            data["personal_assistant"] = {
+        # --- Create default companion if missing ---
+        if "companion" not in data or data["companion"] is None:
+            logger.warning("[Validation] companion missing — creating default")
+            data["companion"] = {
                 "name": "Assistant",
                 "voice": "neutre, efficace",
                 "traits": ["pragmatique", "discret"],
@@ -599,7 +603,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     def _build_name_registry(self) -> set[str]:
         """Build a set of all known entity names (lowercase)"""
-        known = {self.protagonist.name.lower(), self.personal_assistant.name.lower()}
+        known = {self.protagonist.name.lower(), self.companion.name.lower()}
         known.add(self.world.name.lower())
         known.update(c.name.lower() for c in self.characters)
         known.update(loc.name.lower() for loc in self.locations)

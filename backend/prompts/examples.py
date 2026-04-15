@@ -103,7 +103,7 @@ WORLD_GENERATION_EXAMPLE = """{
             {"name": "programmation_ia", "level": 4}
         ]
     },
-    "personal_assistant": {
+    "companion": {
         "name": "Célimène",
         "voice": "voix rauque, débit lent",
         "traits": ["sarcastique", "observatrice", "peu impressionnable"],

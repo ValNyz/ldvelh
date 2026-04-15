@@ -16,10 +16,10 @@ from schema.narration import (
     NPCSummary,
     ArcSummary,
     ActiveArcSummary,
+    CompanionSummary,
     EventSummary,
     Fact,
     CycleSummary,
-    PersonalAssistantSummary,
     NPCLightSummary,
     OrganizationSummary,
 )
@@ -72,8 +72,8 @@ class ContextBuilder:
         # Inventory
         inventory = await self._build_inventory(conn)
 
-        # AI companion
-        personal_ai = await self._build_personal_ai(conn)
+        # Companion
+        companion = await self._build_companion(conn)
 
         # Locations
         current_location = await self._build_current_location(
@@ -130,7 +130,7 @@ class ContextBuilder:
             connected_locations=connected_locations,
             protagonist=protagonist,
             inventory=inventory,
-            personal_ai=personal_ai,
+            companion=companion,
             npcs_present=npcs_present,
             npcs_relevant=npcs_relevant,
             all_npcs=all_npcs,
@@ -187,16 +187,16 @@ class ContextBuilder:
             for r in rows
         ]
 
-    async def _build_personal_ai(
+    async def _build_companion(
         self, conn: Connection
-    ) -> PersonalAssistantSummary | None:
-        """Build AI companion from personal_assistants table"""
-        row = await self.reader.get_personal_assistant(conn)
+    ) -> CompanionSummary | None:
+        """Build companion from companions table"""
+        row = await self.reader.get_companion(conn)
         if not row:
             return None
 
         traits = row.get("traits") or []
-        return PersonalAssistantSummary(
+        return CompanionSummary(
             name=row["name"],
             voice_description=row.get("voice"),
             personality_traits=traits,

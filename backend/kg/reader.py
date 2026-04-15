@@ -202,16 +202,20 @@ class KnowledgeGraphReader:
         return dict(row) if row else None
 
     # =========================================================================
-    # PERSONAL ASSISTANT
+    # COMPANION
     # =========================================================================
 
-    async def get_personal_assistant(self, conn: Connection) -> dict | None:
+    async def get_companion(self, conn: Connection) -> dict | None:
         row = await conn.fetchrow(
             "SELECT id, name, voice, traits, quirk, substrate, details"
-            " FROM personal_assistants WHERE game_id = $1",
+            " FROM companions WHERE game_id = $1",
             self.game_id,
         )
         return dict(row) if row else None
+
+    # Keep old name as alias for backward compatibility during migration
+    async def get_personal_assistant(self, conn: Connection) -> dict | None:
+        return await self.get_companion(conn)
 
     # =========================================================================
     # CHARACTERS
