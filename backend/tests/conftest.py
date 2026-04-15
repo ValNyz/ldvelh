@@ -196,13 +196,34 @@ _TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres
 def _ensure_test_db_exists():
     """Create and migrate ldvelh_test using dbmate.
 
-    Works both locally and in CI. Uses the migrations in db/migrations/.
-    Idempotent: dbmate skips already-applied migrations.
+    Works both locally and in CI:
+    - CI: workflow pre-migrates the DB → schema check passes, dbmate not needed
+    - Local: dbmate creates + migrates the test DB from scratch
     """
     import subprocess
+    import urllib.parse
 
-    migrations_dir = str(Path(__file__).parent.parent.parent / "db" / "migrations")
+    # Check if schema already exists using psql (synchronous, no async issues)
+    parsed = urllib.parse.urlparse(TEST_DB_URL)
     env = os.environ.copy()
+    env["PGPASSWORD"] = parsed.password or ""
+
+    check = subprocess.run(
+        [
+            "psql", "-h", parsed.hostname or "localhost",
+            "-p", str(parsed.port or 5432),
+            "-U", parsed.username or "ldvelh",
+            "-d", parsed.path.lstrip("/"),
+            "-tAc", "SELECT EXISTS(SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema='public' AND table_name='games')",
+        ],
+        capture_output=True, text=True, env=env,
+    )
+    if check.returncode == 0 and check.stdout.strip() == "t":
+        return  # DB ready (CI or previously migrated)
+
+    # Schema not present — run dbmate to create + migrate
+    migrations_dir = str(Path(__file__).parent.parent.parent / "db" / "migrations")
     env["DATABASE_URL"] = TEST_DB_URL
 
     result = subprocess.run(
