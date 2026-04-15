@@ -189,29 +189,130 @@ TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"
 )
 
-_TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE;"
+_TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres CASCADE;"
+
+# Parsed DSN components for admin connection (postgres maintenance DB)
+_MAIN_DB_URL = os.getenv("DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh")
+_TEST_DB_NAME = "ldvelh_test"
+
+
+async def _ensure_test_db_exists():
+    """Create ldvelh_test if it doesn't exist, copying schema from the main DB."""
+    import asyncpg
+    import asyncio
+    import subprocess
+
+    # Connect to the postgres maintenance database to check / create ldvelh_test
+    admin_url = _MAIN_DB_URL.rsplit("/", 1)[0] + "/postgres"
+    try:
+        conn = await asyncpg.connect(admin_url)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cannot connect to postgres admin DB at {admin_url!r}: {exc}"
+        ) from exc
+
+    try:
+        exists = await conn.fetchval(
+            "SELECT 1 FROM pg_database WHERE datname = $1", _TEST_DB_NAME
+        )
+        if not exists:
+            # CREATE DATABASE cannot run inside a transaction block
+            await conn.execute(f'CREATE DATABASE "{_TEST_DB_NAME}"')
+
+            # Dump schema from main DB and apply to test DB
+            # Build pg_dump / psql connection args from the main DB URL
+            # URL format: postgresql://user:password@host:port/dbname
+            import urllib.parse
+            parsed = urllib.parse.urlparse(_MAIN_DB_URL)
+            env = os.environ.copy()
+            env["PGPASSWORD"] = parsed.password or ""
+
+            pg_dump_cmd = [
+                "pg_dump",
+                "--schema-only",
+                f"--host={parsed.hostname}",
+                f"--port={parsed.port or 5432}",
+                f"--username={parsed.username}",
+                parsed.path.lstrip("/"),
+            ]
+            parsed_test = urllib.parse.urlparse(TEST_DB_URL)
+            psql_cmd = [
+                "psql",
+                f"--host={parsed_test.hostname}",
+                f"--port={parsed_test.port or 5432}",
+                f"--username={parsed_test.username}",
+                _TEST_DB_NAME,
+            ]
+
+            dump = subprocess.run(pg_dump_cmd, capture_output=True, env=env)
+            if dump.returncode != 0:
+                raise RuntimeError(
+                    f"pg_dump failed: {dump.stderr.decode()}"
+                )
+            restore = subprocess.run(
+                psql_cmd, input=dump.stdout, capture_output=True, env=env
+            )
+            if restore.returncode != 0:
+                raise RuntimeError(
+                    f"psql schema restore failed: {restore.stderr.decode()}"
+                )
+    finally:
+        await conn.close()
 
 
 @pytest_asyncio.fixture
 async def test_pool():
     """Function-scoped asyncpg pool to the test database.
 
+    Auto-creates ldvelh_test and copies schema from the main DB if needed.
     Uses min_size=1 to minimize connection creation overhead.
     Only TRUNCATEs at setup (not teardown) — next test will TRUNCATE anyway.
+    Skips gracefully (pytest.skip) if the DB is unreachable.
     """
     import asyncpg
     import json
+    import pytest
+
+    try:
+        await _ensure_test_db_exists()
+    except Exception as exc:
+        pytest.skip(f"Test DB not available: {exc}")
+        return
 
     async def _init_conn(conn):
         await conn.set_type_codec(
             "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
         )
 
-    pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5, init=_init_conn)
+    try:
+        pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5, init=_init_conn)
+    except Exception as exc:
+        pytest.skip(f"Cannot create test DB pool: {exc}")
+        return
+
     async with pool.acquire() as conn:
         await conn.execute(_TRUNCATE_SQL)
     yield pool
     await pool.close()
+
+
+@pytest_asyncio.fixture
+async def seeded_genres(test_pool):
+    """Seed the 4 default genres into the test DB."""
+    async with test_pool.acquire() as conn:
+        count = await conn.fetchval("SELECT COUNT(*) FROM genres")
+        if count == 0:
+            for slug, label in [
+                ("sci_fi", "Science-Fiction"),
+                ("dark_fantasy", "Dark Fantasy"),
+                ("cosmic_horror", "Horreur Cosmique"),
+                ("cyberpunk", "Cyberpunk"),
+            ]:
+                await conn.execute(
+                    "INSERT INTO genres (slug, label, is_preset) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",
+                    slug,
+                    label,
+                )
 
 
 @pytest_asyncio.fixture
