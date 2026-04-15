@@ -42,14 +42,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest-cov
 
-      - name: Apply DB schema
-        run: psql -f ../db/schema.sql
+      - name: Install dbmate
+        run: |
+          curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+          chmod +x /usr/local/bin/dbmate
+
+      - name: Apply DB migrations
+        run: dbmate --migrations-dir ../db/migrations --no-dump-schema up
         env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGUSER: test
-          PGPASSWORD: test
-          PGDATABASE: ldvelh_test
+          DATABASE_URL: postgresql://test:test@localhost:5432/ldvelh_test
 
       - name: Run all tests with coverage
         run: |
