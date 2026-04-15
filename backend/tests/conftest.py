@@ -262,7 +262,9 @@ async def seeded_genres(test_pool):
                 ("cyberpunk", "Cyberpunk"),
             ]:
                 await conn.execute(
-                    "INSERT INTO genres (slug, label, is_preset) VALUES ($1, $2, true) ON CONFLICT DO NOTHING",
+                    """INSERT INTO genres (slug, label, is_preset, tone_style, friction_flavor)
+                       VALUES ($1, $2, true, 'neutral', 'standard')
+                       ON CONFLICT DO NOTHING""",
                     slug,
                     label,
                 )

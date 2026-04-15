@@ -115,3 +115,52 @@ async def test_me_no_token(client):
 async def test_me_invalid_token(client):
     resp = await client.get("/api/auth/me", headers=auth_headers("invalid.jwt.token"))
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_change_password(client, test_user):
+    # Change password
+    resp = await client.post(
+        "/api/auth/change-password",
+        json={
+            "current_password": "testpassword",
+            "new_password": "newpassword123",
+            "new_password_confirm": "newpassword123",
+        },
+        headers=auth_headers(test_user["token"]),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    # Verify login with new password works
+    login_resp = await client.post("/api/auth/login", json={
+        "identifier": "test@example.com",
+        "password": "newpassword123",
+    })
+    assert login_resp.status_code == 200
+    assert "token" in login_resp.json()
+
+
+@pytest.mark.asyncio
+async def test_update_display_name(client, test_user):
+    resp = await client.patch(
+        "/api/auth/profile",
+        json={"display_name": "Updated Name"},
+        headers=auth_headers(test_user["token"]),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["user"]["display_name"] == "Updated Name"
+
+
+@pytest.mark.asyncio
+async def test_refresh_token(client, test_user):
+    resp = await client.post(
+        "/api/auth/refresh",
+        headers=auth_headers(test_user["token"]),
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "token" in data
+    assert isinstance(data["token"], str)
+    assert len(data["token"]) > 0
