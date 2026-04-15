@@ -281,6 +281,8 @@ def build_narrator_context_prompt(
     if context.world_name:
         lines.append("### MONDE")
         lines.append(f"**{context.world_name}**")
+        if context.world_description:
+            lines.append(context.world_description)
         if context.world_atmosphere:
             lines.append(f"Atmosphère: {context.world_atmosphere}")
         if context.tone_notes:
@@ -306,7 +308,17 @@ def build_narrator_context_prompt(
     # Protagonist
     lines.append("### PROTAGONISTE")
     p = context.protagonist
-    lines.append(f"**{p.name}** - {p.current_occupation or 'sans emploi'}")
+    identity = f"**{p.name}**"
+    if p.gender:
+        identity += f" ({p.gender})"
+    identity += f" - {p.current_occupation or 'sans emploi'}"
+    lines.append(identity)
+    if p.origin:
+        lines.append(f"Origine: {p.origin}")
+    if p.description:
+        lines.append(f"Description: {p.description}")
+    if p.backstory:
+        lines.append(f"Passé: {p.backstory}")
     if p.employer:
         lines.append(f"Employeur: {p.employer}")
     lines.append(f"Crédits: {p.credits}")

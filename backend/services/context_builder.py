@@ -143,6 +143,7 @@ class ContextBuilder:
             cycle_summaries=cycle_summaries,
             player_input=player_input,
             world_name=game.get("world_name") or world_info.get("name", "Station"),
+            world_description=game.get("world_description") or "",
             world_atmosphere=game.get("world_atmosphere") or world_info.get("atmosphere", ""),
             tone_notes=tone_notes,
             engine_type=engine_type,
@@ -168,6 +169,10 @@ class ContextBuilder:
             hobbies=hobbies,
             current_occupation=row.get("occupation"),
             employer=row.get("employer_name"),
+            gender=row.get("gender"),
+            description=row.get("description"),
+            backstory=row.get("backstory"),
+            origin=row.get("origin"),
         )
 
     async def _build_inventory(self, conn: Connection) -> list[InventoryItem]:

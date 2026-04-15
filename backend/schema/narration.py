@@ -30,6 +30,10 @@ class ProtagonistState(BaseModel):
     hobbies: list[str]
     current_occupation: Optional[str] = None
     employer: Optional[str] = None
+    gender: Optional[str] = None
+    description: Optional[str] = None
+    backstory: Optional[str] = None
+    origin: Optional[str] = None
 
 
 class InventoryItem(BaseModel):
@@ -246,6 +250,7 @@ class NarrationContext(BaseModel):
 
     # === META ===
     world_name: str
+    world_description: str = ""
     world_atmosphere: str
     tone_notes: str = ""
 

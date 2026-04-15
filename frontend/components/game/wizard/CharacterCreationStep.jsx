@@ -307,21 +307,61 @@ function D6Character({ data, onChange }) {
 
 export default function CharacterCreationStep({ engine, genre, data, onChange }) {
 	return (
-		<div className="space-y-4">
+		<div className="space-y-6">
 			<h2 className="text-xl font-semibold text-white">Création du personnage</h2>
 
-			{/* Protagonist name */}
-			<div>
-				<label className="block text-sm text-gray-300 mb-1">Nom du protagoniste</label>
-				<input
-					value={data.name || ''}
-					onChange={(e) => onChange({ ...data, name: e.target.value })}
-					placeholder="Valentin"
-					className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50"
-				/>
-				<p className="text-xs text-gray-500 mt-1">Laisse vide pour "Valentin" par défaut</p>
+			{/* Common character identity — all engines */}
+			<div className="space-y-4">
+				<div>
+					<label className="block text-sm text-on-surface-variant mb-1">Nom du protagoniste</label>
+					<input
+						value={data.name || ''}
+						onChange={(e) => onChange({ ...data, name: e.target.value })}
+						placeholder="Valentin"
+						className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+					/>
+				</div>
+
+				<div className="grid grid-cols-2 gap-4">
+					<div>
+						<label className="block text-sm text-on-surface-variant mb-1">Genre</label>
+						<select
+							value={data.gender || ''}
+							onChange={(e) => onChange({ ...data, gender: e.target.value })}
+							className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+						>
+							<option value="">Non précisé</option>
+							<option value="male">Homme</option>
+							<option value="female">Femme</option>
+							<option value="non-binary">Non-binaire</option>
+							<option value="other">Autre</option>
+						</select>
+					</div>
+					<div>
+						<label className="block text-sm text-on-surface-variant mb-1">Occupation</label>
+						<input
+							value={data.occupation || ''}
+							onChange={(e) => onChange({ ...data, occupation: e.target.value })}
+							placeholder="Ex: mécanicien, archiviste, mercenaire..."
+							className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+						/>
+					</div>
+				</div>
+
+				<div>
+					<label className="block text-sm text-on-surface-variant mb-1">Description</label>
+					<textarea
+						value={data.description || ''}
+						onChange={(e) => onChange({ ...data, description: e.target.value })}
+						placeholder="Apparence, personnalité, passé... Décris ton personnage en quelques lignes."
+						rows={3}
+						className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+					/>
+					<p className="text-xs text-on-surface-variant/40 mt-1">Optionnel — le MJ inventera ce que tu ne précises pas</p>
+				</div>
 			</div>
 
+			{/* Engine-specific mechanics */}
 			{engine === 'none' && <NoneCharacter />}
 			{engine === 'narrative' && <NarrativeCharacter data={data} onChange={onChange} />}
 			{engine === 'fate_core' && <FateCoreCharacter data={data} onChange={onChange} genre={genre} />}

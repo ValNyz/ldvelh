@@ -329,13 +329,14 @@ class KnowledgeGraphPopulator:
         row_id = await conn.fetchval(
             """INSERT INTO protagonists (
                 game_id, name, credits,
-                occupation, origin, departure_reason, backstory,
+                gender, occupation, origin, departure_reason, backstory,
                 hobbies, description, details
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             RETURNING id""",
             self.game_id,
             data.name,
             data.credits,
+            data.gender,
             data.occupation,
             data.origin,
             reason,
