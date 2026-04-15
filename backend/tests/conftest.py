@@ -193,65 +193,39 @@ _TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres
 
 
 
-def _ensure_test_db_exists():
-    """Create and migrate ldvelh_test using dbmate.
+def _try_dbmate_setup():
+    """Try to create and migrate test DB using dbmate (local dev only).
 
-    Works both locally and in CI:
-    - CI: workflow pre-migrates the DB → schema check passes, dbmate not needed
-    - Local: dbmate creates + migrates the test DB from scratch
+    In CI, the workflow already migrates the DB — this is a no-op fallback.
     """
     import subprocess
-    import urllib.parse
+    import shutil
 
-    # Check if schema already exists using psql (synchronous, no async issues)
-    parsed = urllib.parse.urlparse(TEST_DB_URL)
-    env = os.environ.copy()
-    env["PGPASSWORD"] = parsed.password or ""
+    if not shutil.which("dbmate"):
+        return  # dbmate not installed, assume DB is pre-migrated (CI)
 
-    check = subprocess.run(
-        [
-            "psql", "-h", parsed.hostname or "localhost",
-            "-p", str(parsed.port or 5432),
-            "-U", parsed.username or "ldvelh",
-            "-d", parsed.path.lstrip("/"),
-            "-tAc", "SELECT EXISTS(SELECT 1 FROM information_schema.tables "
-                    "WHERE table_schema='public' AND table_name='games')",
-        ],
-        capture_output=True, text=True, env=env,
-    )
-    if check.returncode == 0 and check.stdout.strip() == "t":
-        return  # DB ready (CI or previously migrated)
-
-    # Schema not present — run dbmate to create + migrate
     migrations_dir = str(Path(__file__).parent.parent.parent / "db" / "migrations")
+    env = os.environ.copy()
     env["DATABASE_URL"] = TEST_DB_URL
 
-    result = subprocess.run(
+    subprocess.run(
         ["dbmate", "--migrations-dir", migrations_dir, "--no-dump-schema", "up"],
         capture_output=True, text=True, env=env,
     )
-    if result.returncode != 0:
-        raise RuntimeError(f"dbmate migration failed: {result.stderr}")
+    # Don't raise on failure — the DB might already be ready
 
 
 @pytest_asyncio.fixture
 async def test_pool():
     """Function-scoped asyncpg pool to the test database.
 
-    Auto-creates ldvelh_test and copies schema from the main DB if needed.
-    Uses min_size=1 to minimize connection creation overhead.
-    Only TRUNCATEs at setup (not teardown) — next test will TRUNCATE anyway.
-    Skips gracefully (pytest.skip) if the DB is unreachable.
+    Tries dbmate setup locally, then connects. Skips if DB unreachable.
     """
     import asyncpg
     import json
     import pytest
 
-    try:
-        _ensure_test_db_exists()
-    except Exception as exc:
-        pytest.skip(f"Test DB not available: {exc}")
-        return
+    _try_dbmate_setup()
 
     async def _init_conn(conn):
         await conn.set_type_codec(
