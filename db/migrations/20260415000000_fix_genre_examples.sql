@@ -1,7 +1,7 @@
+-- migrate:up
 -- Fix genre world_gen_example: add missing fields (protagonist, personal_assistant, inventory, initial_relations)
 -- These fields were missing, causing weaker LLMs (Mistral) to skip them entirely.
 
--- SCI-FI
 UPDATE genres SET world_gen_example = '{
   "generation_seed_words": ["rouille", "reconversion", "isolement"],
   "world": {
@@ -96,7 +96,6 @@ UPDATE genres SET world_gen_example = '{
   ]
 }' WHERE slug = 'sci_fi';
 
--- DARK FANTASY
 UPDATE genres SET world_gen_example = '{
   "generation_seed_words": ["famine", "trahison", "murailles"],
   "world": {
@@ -190,7 +189,6 @@ UPDATE genres SET world_gen_example = '{
   ]
 }' WHERE slug = 'dark_fantasy';
 
--- COSMIC HORROR
 UPDATE genres SET world_gen_example = '{
   "generation_seed_words": ["brouillard", "archives", "disparitions"],
   "world": {
@@ -284,7 +282,6 @@ UPDATE genres SET world_gen_example = '{
   ]
 }' WHERE slug = 'cosmic_horror';
 
--- CYBERPUNK
 UPDATE genres SET world_gen_example = '{
   "generation_seed_words": ["dette", "implants", "blackout"],
   "world": {
@@ -377,3 +374,7 @@ UPDATE genres SET world_gen_example = '{
     {"source_ref": "Nexion Corp", "target_ref": "Le Byte Bar", "relation_type": "located_in", "known_by_protagonist": false}
   ]
 }' WHERE slug = 'cyberpunk';
+
+-- migrate:down
+-- Revert to old shorter examples (without protagonist/assistant/inventory/relations)
+-- Not worth maintaining rollback data for this — the old examples were simply incomplete.
