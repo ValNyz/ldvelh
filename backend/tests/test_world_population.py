@@ -47,7 +47,7 @@ async def test_full_world_population_pipeline(test_pool, test_user):
     """Populate from canonical example and verify DB state for all entity types."""
     from kg.reader import KnowledgeGraphReader
 
-    game_id, service, world_gen = await _populate_world(test_pool, test_user)
+    game_id, _, _ = await _populate_world(test_pool, test_user)
     reader = KnowledgeGraphReader(test_pool, game_id)
 
     async with test_pool.acquire() as conn:
@@ -98,7 +98,7 @@ async def test_world_population_then_context(test_pool, test_user):
     """Populate world, then build NarrationContext and verify all fields present."""
     from services.context_builder import ContextBuilder
 
-    game_id, service, world_gen = await _populate_world(test_pool, test_user)
+    game_id, _, world_gen = await _populate_world(test_pool, test_user)
     arrival_loc = world_gen.arrival_event.arrival_location_ref
 
     builder = ContextBuilder(test_pool, game_id)
@@ -150,9 +150,7 @@ async def test_world_population_then_context(test_pool, test_user):
 @pytest.mark.asyncio
 async def test_delete_populated_game(test_pool, test_user):
     """Populate world, then delete game — no FK errors and game is gone."""
-    from services.game_service import GameService
-
-    game_id, service, _world_gen = await _populate_world(test_pool, test_user)
+    game_id, service, _ = await _populate_world(test_pool, test_user)
     user_id = test_user["id"]
 
     # Confirm game exists before deletion
