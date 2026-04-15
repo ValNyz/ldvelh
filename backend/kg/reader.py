@@ -168,7 +168,7 @@ class KnowledgeGraphReader:
         """Get protagonist with all fields."""
         row = await conn.fetchrow(
             """SELECT p.id, p.name,
-                      p.credits,
+                      p.credits, p.gender,
                       p.occupation, p.origin, p.departure_reason,
                       p.backstory, p.hobbies, p.description,
                       p.employer_id, p.residence_id, p.details,

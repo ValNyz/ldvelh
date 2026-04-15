@@ -271,11 +271,16 @@ def build_world_generation_user_prompt(
     if manual_entities:
         parts.extend(_build_manual_entities_section(manual_entities))
 
-    parts.extend([
-        "## PERSONNAGE PRINCIPAL",
-        f"Nom : {protagonist_name}",
-        "",
-    ])
+    parts.append("## PERSONNAGE PRINCIPAL")
+    parts.append(f"Nom : {protagonist_name}")
+    if character_data:
+        if character_data.get("gender"):
+            parts.append(f"Genre : {character_data['gender']}")
+        if character_data.get("occupation"):
+            parts.append(f"Occupation : {character_data['occupation']}")
+        if character_data.get("description"):
+            parts.append(f"Description : {character_data['description']}")
+    parts.append("")
 
     # Employment preference
     if employer_preference == "unemployed":

@@ -53,6 +53,7 @@ class ProtagonistData(BaseModel):
     name: Tag = "Valentin"
     credits: int = Field(default=1400, ge=0)
     # Profile
+    gender: str | None = None
     occupation: Name | None = None
     origin: Name | None = None
     departure_reason: DepartureReason = DepartureReason.FRESH_START
