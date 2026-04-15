@@ -1,7 +1,10 @@
 """
 Tests unitaires pour game_service.py
 Focus sur les helpers statiques (logique pure)
++ Integration tests for CRUD operations
 """
+
+import uuid
 
 import pytest
 from services.game_service import GameService
@@ -68,3 +71,84 @@ class TestRelationLabelBoundaries:
     def test_all_levels(self, level, expected):
         """Test paramétré de tous les niveaux"""
         assert GameService._get_relation_label(level) == expected
+
+
+# =============================================================================
+# INTEGRATION TESTS — require the ldvelh_test database
+# =============================================================================
+
+
+pytestmark_integration = pytest.mark.integration
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_create_and_list_games(test_pool, test_user):
+    """Create 2 games for the same user, verify list returns 2."""
+    service = GameService(test_pool)
+    user_id = test_user["id"]
+
+    game_id_1 = await service.create_game(user_id)
+    game_id_2 = await service.create_game(user_id)
+
+    assert game_id_1 != game_id_2
+
+    games = await service.list_games(user_id)
+    assert len(games) == 2
+    ids = {g["id"] for g in games}
+    assert str(game_id_1) in ids
+    assert str(game_id_2) in ids
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_delete_game(test_pool, test_user):
+    """Create a game, delete it, verify list returns 0."""
+    service = GameService(test_pool)
+    user_id = test_user["id"]
+
+    game_id = await service.create_game(user_id)
+    games_before = await service.list_games(user_id)
+    assert len(games_before) == 1
+
+    await service.delete_game(game_id)
+
+    games_after = await service.list_games(user_id)
+    assert len(games_after) == 0
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_rename_game(test_pool, test_user):
+    """Create a game, rename it, verify the name changed."""
+    service = GameService(test_pool)
+    user_id = test_user["id"]
+
+    game_id = await service.create_game(user_id)
+
+    await service.rename_game(game_id, "Mon aventure épique")
+
+    games = await service.list_games(user_id)
+    assert len(games) == 1
+    assert games[0]["name"] == "Mon aventure épique"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_verify_ownership(test_pool, test_user):
+    """Owner can access their game; a random UUID cannot."""
+    from fastapi import HTTPException
+
+    service = GameService(test_pool)
+    user_id = test_user["id"]
+
+    game_id = await service.create_game(user_id)
+
+    # Owner access should succeed (no exception)
+    await service.verify_ownership(game_id, user_id)
+
+    # A random user should get a 403
+    stranger_id = uuid.uuid4()
+    with pytest.raises(HTTPException) as exc_info:
+        await service.verify_ownership(game_id, stranger_id)
+    assert exc_info.value.status_code == 403
