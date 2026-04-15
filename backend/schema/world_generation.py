@@ -165,20 +165,152 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     @model_validator(mode="before")
     @classmethod
-    def ensure_arrival_event(cls, data: dict) -> dict:
-        """Create default arrival_event if missing (truncated JSON from LLM)"""
+    def normalize_and_ensure_defaults(cls, data: dict) -> dict:
+        """Normalize LLM output structure and create defaults for missing fields."""
         if not isinstance(data, dict):
             return data
 
-        # Handle personal_ai -> personal_assistant rename
+        # --- Flatten world-nested structure (weaker models like Mistral) ---
+        # Some LLMs nest characters/locations/etc. inside "world" instead of
+        # top-level. Detect and hoist them up.
+        HOISTABLE = {
+            "characters", "locations", "organizations", "inventory",
+            "narrative_arcs", "initial_relations", "protagonist",
+            "personal_assistant", "personal_ai", "arrival_event",
+            "generation_seed_words", "irritants",
+        }
+        world = data.get("world")
+        if isinstance(world, dict):
+            hoisted = []
+            for key in list(world.keys()):
+                if key in HOISTABLE and key not in data:
+                    data[key] = world.pop(key)
+                    hoisted.append(key)
+            if hoisted:
+                logger.info(
+                    f"[Validation] Hoisted {len(hoisted)} fields from 'world': "
+                    f"{', '.join(hoisted)}"
+                )
+
+        # --- Extract protagonist from characters list if missing ---
+        if "protagonist" not in data and "characters" in data:
+            characters = data.get("characters", [])
+            if isinstance(characters, list):
+                for i, char in enumerate(characters):
+                    if isinstance(char, dict) and char.get("station_arrival_cycle") == 0:
+                        data["protagonist"] = characters.pop(i)
+                        logger.info(
+                            "[Validation] Extracted protagonist from characters list"
+                        )
+                        break
+
+        # --- Handle personal_ai -> personal_assistant rename ---
         if "personal_ai" in data and "personal_assistant" not in data:
             data["personal_assistant"] = data.pop("personal_ai")
 
+        # --- Create default personal_assistant if missing ---
+        if "personal_assistant" not in data or data["personal_assistant"] is None:
+            logger.warning("[Validation] personal_assistant missing — creating default")
+            data["personal_assistant"] = {
+                "name": "Assistant",
+                "voice": "neutre, efficace",
+                "traits": ["pragmatique", "discret"],
+                "substrate": "terminal personnel",
+            }
+
+        # --- Create default inventory if missing ---
+        if "inventory" not in data or not data["inventory"]:
+            logger.warning("[Validation] inventory missing — creating default")
+            data["inventory"] = [
+                {
+                    "name": "Terminal personnel",
+                    "category": "tech",
+                    "description": "Appareil standard",
+                    "transportable": True,
+                    "stackable": False,
+                    "base_value": 200,
+                    "quantity": 1,
+                }
+            ]
+
+        # --- Create default initial_relations if missing ---
+        if "initial_relations" not in data or not data["initial_relations"]:
+            logger.warning("[Validation] initial_relations missing — creating default")
+            data["initial_relations"] = cls._build_default_relations(data)
+
+        # --- Create default arrival_event if missing ---
         if "arrival_event" not in data or data["arrival_event"] is None:
             logger.warning("[Validation] arrival_event missing — creating default")
             data["arrival_event"] = cls._create_default_arrival_event(data)
 
         return data
+
+    @staticmethod
+    def _build_default_relations(data: dict) -> list[dict]:
+        """Build minimal relations from protagonist refs and character refs."""
+        relations = []
+        proto = data.get("protagonist", {})
+        proto_name = proto.get("name", "Protagoniste") if isinstance(proto, dict) else "Protagoniste"
+
+        # Protagonist -> residence
+        if isinstance(proto, dict) and proto.get("residence_ref"):
+            relations.append({
+                "source_ref": proto_name,
+                "target_ref": proto["residence_ref"],
+                "relation_type": "lives_at",
+                "known_by_protagonist": True,
+            })
+
+        # Protagonist -> employer
+        if isinstance(proto, dict) and proto.get("employer_ref"):
+            relations.append({
+                "source_ref": proto_name,
+                "target_ref": proto["employer_ref"],
+                "relation_type": "employed_by",
+                "known_by_protagonist": True,
+            })
+
+        # Characters -> workplaces and residences
+        for char in data.get("characters", []):
+            if not isinstance(char, dict):
+                continue
+            name = char.get("name", "")
+            if char.get("workplace_ref"):
+                relations.append({
+                    "source_ref": name,
+                    "target_ref": char["workplace_ref"],
+                    "relation_type": "works_at",
+                    "known_by_protagonist": False,
+                })
+            if char.get("residence_ref"):
+                relations.append({
+                    "source_ref": name,
+                    "target_ref": char["residence_ref"],
+                    "relation_type": "lives_at",
+                    "known_by_protagonist": False,
+                })
+
+        # Location parent refs
+        for loc in data.get("locations", []):
+            if isinstance(loc, dict) and loc.get("parent_location_ref"):
+                relations.append({
+                    "source_ref": loc["name"],
+                    "target_ref": loc["parent_location_ref"],
+                    "relation_type": "located_in",
+                    "known_by_protagonist": False,
+                })
+
+        # Organization headquarters
+        for org in data.get("organizations", []):
+            if isinstance(org, dict) and org.get("headquarters_ref"):
+                relations.append({
+                    "source_ref": org["name"],
+                    "target_ref": org["headquarters_ref"],
+                    "relation_type": "located_in",
+                    "known_by_protagonist": False,
+                })
+
+        return relations
 
     @staticmethod
     def _create_default_arrival_event(data: dict) -> dict:
