@@ -180,3 +180,10 @@ async def test_create_game_engine_in_list(client, test_user):
     games = list_resp.json()["games"]
     assert len(games) == 1
     assert games[0]["engine"] == "d6"
+
+
+@pytest.mark.asyncio
+async def test_delete_game_not_found(client, test_user):
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    resp = await client.delete(f"/api/games/{fake_id}", headers=auth_headers(test_user["token"]))
+    assert resp.status_code == 404
