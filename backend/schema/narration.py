@@ -152,8 +152,8 @@ class CycleSummary(BaseModel):
     events: list[Phrase] = Field(default_factory=list)
 
 
-class PersonalAssistantSummary(BaseModel):
-    """Summary of Valentin's personal AI assistant"""
+class CompanionSummary(BaseModel):
+    """Summary of the protagonist's companion (AI, animal, spirit, object, etc.)"""
 
     name: str
     voice_description: Optional[str] = None
@@ -185,10 +185,10 @@ class NarrationContext(BaseModel):
     protagonist: ProtagonistState
     inventory: list[InventoryItem] = Field(default_factory=list)
 
-    # === PERSONAL ASSISTANT ===
-    personal_ai: Optional[PersonalAssistantSummary] = Field(
+    # === COMPANION ===
+    companion: Optional[CompanionSummary] = Field(
         default=None,
-        description="Valentin's personal AI assistant (name, traits, quirk)",
+        description="The protagonist's companion (name, traits, quirk)",
     )
 
     # === ORGANIZATIONS ===

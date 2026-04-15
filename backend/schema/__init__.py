@@ -52,10 +52,10 @@ from .core import (
 # =============================================================================
 from .entities import (
     CharacterData,
+    CompanionData,
     LocationData,
     ObjectData,
     OrganizationData,
-    PersonalAssistantData,
     ProtagonistData,
     WorldData,
 )
@@ -91,6 +91,7 @@ from .narration import (
     # Context summary models
     ArcSummary,
     ActiveArcSummary,
+    CompanionSummary,
     CycleSummary,
     DayTransition,
     EventSummary,
@@ -100,7 +101,6 @@ from .narration import (
     NPCLightSummary,
     NPCSummary,
     OrganizationSummary,
-    PersonalAssistantSummary,
     ProtagonistState,
     TimeProgression,
 )
@@ -250,10 +250,10 @@ __all__ = [
     # ENTITIES
     # =========================================================================
     "CharacterData",
+    "CompanionData",
     "LocationData",
     "ObjectData",
     "OrganizationData",
-    "PersonalAssistantData",
     "ProtagonistData",
     "WorldData",
     # =========================================================================
@@ -278,6 +278,7 @@ __all__ = [
     "InventoryHint",
     "ArcSummary",
     "ActiveArcSummary",
+    "CompanionSummary",
     "CycleSummary",
     "DayTransition",
     "EventSummary",
@@ -287,7 +288,6 @@ __all__ = [
     "NPCLightSummary",
     "NPCSummary",
     "OrganizationSummary",
-    "PersonalAssistantSummary",
     "ProtagonistState",
     "TimeProgression",
     # =========================================================================

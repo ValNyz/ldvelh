@@ -49,10 +49,10 @@ Le joueur contrôle le protagoniste. Toi, tu contrôles tout le reste.
 
 {coherence_rules}
 
-## IA PERSONNELLE
+## COMPAGNON
 
-Le protagoniste a une IA personnelle. Ses traits sont définis dans le contexte.
-**Format** : Toujours en *italique*, intégrée naturellement dans la scène.
+Le protagoniste a un compagnon. Ses traits sont définis dans le contexte.
+**Format** : Toujours en *italique*, intégré naturellement dans la scène.
 **Fréquence** : 1-3 interventions par scène. Plus quand le protagoniste est seul ou mal à l'aise.
 **Comportement** : RESPECTE SES TRAITS du contexte. Peut commenter, observer, rappeler.
 **Interdit** : PAS un intérêt romantique. PAS une cheerleader. PAS un guide de jeu.
@@ -340,10 +340,10 @@ def build_narrator_context_prompt(
         lines.append(f"Inventaire: {', '.join(items)}")
         lines.append("")
 
-    # Personal AI
-    if context.personal_ai:
-        lines.append("### IA PERSONNELLE")
-        ai = context.personal_ai
+    # Companion
+    if context.companion:
+        lines.append("### COMPAGNON")
+        ai = context.companion
         lines.append(f"**Nom: {ai.name}**")
         if ai.voice_description:
             lines.append(f"Voix: {ai.voice_description}")

@@ -75,9 +75,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 # 4. Create protagonist
                 await self.create_protagonist(conn, world_gen.protagonist)
 
-                # 5. Create personal assistant
-                await self.create_personal_assistant(
-                    conn, world_gen.personal_assistant
+                # 5. Create companion
+                await self.create_companion(
+                    conn, world_gen.companion
                 )
 
                 # 6. Create organizations (HQ refs resolved later)

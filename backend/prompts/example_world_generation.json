@@ -47,7 +47,7 @@
     "initial_health": 4.0
   },
 
-  "personal_ai": {
+  "companion": {
     "name": "Célimène",
     "voice_description": "voix chaude et légèrement rauque, comme quelqu'un qui vient de se réveiller",
     "personality_traits": [

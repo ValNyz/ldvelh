@@ -657,6 +657,7 @@ ENTITY_TYPE_SYNONYMS = {
     "companion": "ai",
     "companion_ai": "ai",
     "personal_ai": "ai",
+    "personal_assistant": "ai",
     "digital_assistant": "ai",
     "virtual_assistant": "ai",
     "bot": "ai",
