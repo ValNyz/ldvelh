@@ -106,10 +106,10 @@ async def test_build_context_fresh_game(client, test_user, test_pool, world_gen_
     org_names = [o.name for o in ctx.organizations]
     assert "Symbiose Tech" in org_names
 
-    # Personal AI should exist
-    assert ctx.personal_ai is not None
-    assert ctx.personal_ai.name == "Célimène"
-    assert "sarcastique" in ctx.personal_ai.personality_traits
+    # Companion should exist
+    assert ctx.companion is not None
+    assert ctx.companion.name == "Célimène"
+    assert "sarcastique" in ctx.companion.personality_traits
 
     # On a fresh game at cycle 1, cycle summaries only include pre-history
     # (cycle 0 arrival chronology entry may exist from world population)
@@ -366,10 +366,10 @@ async def test_build_context_organizations_relation(
 
 
 @pytest.mark.asyncio
-async def test_build_context_personal_ai_details(
+async def test_build_context_companion_details(
     client, test_user, test_pool, world_gen_data
 ):
-    """Verify personal AI details from the populated world."""
+    """Verify companion details from the populated world."""
     from services.context_builder import ContextBuilder
 
     game_id, service, world_gen = await _create_and_populate(
@@ -387,13 +387,13 @@ async def test_build_context_personal_ai_details(
             current_location_name=arrival_loc,
         )
 
-    ai = ctx.personal_ai
-    assert ai is not None
-    assert ai.name == "C\u00e9lim\u00e8ne"
-    assert ai.voice_description == "voix rauque, d\u00e9bit lent"
-    assert "sarcastique" in ai.personality_traits
-    assert "observatrice" in ai.personality_traits
-    assert ai.quirk is not None
+    companion = ctx.companion
+    assert companion is not None
+    assert companion.name == "C\u00e9lim\u00e8ne"
+    assert companion.voice_description == "voix rauque, d\u00e9bit lent"
+    assert "sarcastique" in companion.personality_traits
+    assert "observatrice" in companion.personality_traits
+    assert companion.quirk is not None
 
 
 # =============================================================================
