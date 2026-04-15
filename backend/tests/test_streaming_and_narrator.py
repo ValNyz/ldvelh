@@ -36,7 +36,7 @@ from schema import (
     NPCLightSummary,
     NPCSummary,
     OrganizationSummary,
-    PersonalAssistantSummary,
+    CompanionSummary,
     ProtagonistState,
 )
 
@@ -577,9 +577,9 @@ class TestNarratorSystemPrompt:
         """Contains the COHERENCE_RULES."""
         assert "COHÉRENCE" in NARRATOR_SYSTEM_PROMPT
 
-    def test_contains_personal_ai_section(self):
-        """Contains IA PERSONNELLE rules."""
-        assert "IA PERSONNELLE" in NARRATOR_SYSTEM_PROMPT
+    def test_contains_companion_section(self):
+        """Contains COMPAGNON rules."""
+        assert "COMPAGNON" in NARRATOR_SYSTEM_PROMPT
         assert "italique" in NARRATOR_SYSTEM_PROMPT
 
     def test_contains_time_rules(self):
@@ -796,10 +796,10 @@ class TestNarratorContextPromptBranches:
 
     # ---- Personal AI ----
 
-    def test_personal_ai_full(self):
-        """Personal AI section with all fields."""
+    def test_companion_full(self):
+        """Companion section with all fields."""
         ctx = _make_context(
-            personal_ai=PersonalAssistantSummary(
+            companion=CompanionSummary(
                 name="Célimène",
                 voice_description="Voix grave et sensuelle",
                 personality_traits=["sarcastique", "pragmatique"],
@@ -807,29 +807,29 @@ class TestNarratorContextPromptBranches:
             )
         )
         prompt = build_narrator_context_prompt(ctx)
-        assert "### IA PERSONNELLE" in prompt
+        assert "### COMPAGNON" in prompt
         assert "**Nom: Célimène**" in prompt
         assert "Voix: Voix grave et sensuelle" in prompt
         assert "Traits: sarcastique, pragmatique" in prompt
         assert "Particularité: Fait des références" in prompt
 
-    def test_personal_ai_minimal(self):
-        """Personal AI with only name (optional fields missing)."""
+    def test_companion_minimal(self):
+        """Companion with only name (optional fields missing)."""
         ctx = _make_context(
-            personal_ai=PersonalAssistantSummary(name="Echo")
+            companion=CompanionSummary(name="Echo")
         )
         prompt = build_narrator_context_prompt(ctx)
-        assert "### IA PERSONNELLE" in prompt
+        assert "### COMPAGNON" in prompt
         assert "**Nom: Echo**" in prompt
         assert "Voix:" not in prompt
-        assert "Traits:" not in prompt.split("IA PERSONNELLE")[1].split("###")[0]
+        assert "Traits:" not in prompt.split("COMPAGNON")[1].split("###")[0]
         assert "Particularité:" not in prompt
 
-    def test_no_personal_ai_section(self):
-        """No IA PERSONNELLE section when personal_ai is None."""
-        ctx = _make_context(personal_ai=None)
+    def test_no_companion_section(self):
+        """No COMPAGNON section when companion is None."""
+        ctx = _make_context(companion=None)
         prompt = build_narrator_context_prompt(ctx)
-        assert "### IA PERSONNELLE" not in prompt
+        assert "### COMPAGNON" not in prompt
 
     # ---- Organizations ----
 
@@ -1375,7 +1375,7 @@ class TestNarratorContextPromptBranches:
                 employer="SynTech",
             ),
             inventory=[InventoryItem(name="Pad", category="tech")],
-            personal_ai=PersonalAssistantSummary(name="Echo", personality_traits=["dry"]),
+            companion=CompanionSummary(name="Echo", personality_traits=["dry"]),
             organizations=[
                 OrganizationSummary(name="Corp", org_type="corp", domain="tech", protagonist_relation="employed_by"),
             ],

@@ -13,7 +13,7 @@ from schema import (
     CharacterData,
     OrganizationData,
     ProtagonistData,
-    PersonalAssistantData,
+    CompanionData,
     ObjectData,
     # Narration
     NarrationOutput,
@@ -118,9 +118,9 @@ class TestWorldGenerationExample:
         assert protag.employer_ref == "Symbiose Tech"
         assert protag.residence_ref == "Appartement 4-12"
 
-    def test_personal_assistant(self, world_generation_example):
-        """PersonalAssistantData parse correctement"""
-        ai = PersonalAssistantData(**world_generation_example["personal_assistant"])
+    def test_companion(self, world_generation_example):
+        """CompanionData parse correctement"""
+        ai = CompanionData(**world_generation_example["companion"])
         assert ai.name == "Célimène"
         assert ai.voice == "voix rauque, débit lent"
         assert len(ai.traits) == 3

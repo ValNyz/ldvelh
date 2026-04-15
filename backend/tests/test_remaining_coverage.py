@@ -70,11 +70,11 @@ class TestCoreTruncation:
 
     def test_label_truncation_at_30(self):
         """Label type truncates at 30 chars."""
-        from schema.entities import PersonalAssistantData
+        from schema.entities import CompanionData
 
         long_name = "A" * 100
-        pa = PersonalAssistantData(name=long_name)
-        assert len(pa.name) <= 30
+        companion = CompanionData(name=long_name)
+        assert len(companion.name) <= 30
 
     def test_tag_truncation_at_50(self):
         """Tag type truncates at 50 chars."""
@@ -231,19 +231,19 @@ class TestEntitiesValidators:
         c = CharacterData(name="Zara", traits="{not valid json}")
         assert c.traits == ["{not valid json}"]
 
-    def test_pa_traits_from_json_string(self):
-        """PersonalAssistantData._parse_traits handles JSON string."""
-        from schema.entities import PersonalAssistantData
+    def test_companion_traits_from_json_string(self):
+        """CompanionData._parse_traits handles JSON string."""
+        from schema.entities import CompanionData
 
-        pa = PersonalAssistantData(name="AI", traits='["sarcastic"]')
-        assert pa.traits == ["sarcastic"]
+        companion = CompanionData(name="AI", traits='["sarcastic"]')
+        assert companion.traits == ["sarcastic"]
 
-    def test_pa_traits_from_plain_string(self):
-        """PersonalAssistantData._parse_traits wraps plain string."""
-        from schema.entities import PersonalAssistantData
+    def test_companion_traits_from_plain_string(self):
+        """CompanionData._parse_traits wraps plain string."""
+        from schema.entities import CompanionData
 
-        pa = PersonalAssistantData(name="Bot", traits="helpful")
-        assert pa.traits == ["helpful"]
+        companion = CompanionData(name="Bot", traits="helpful")
+        assert companion.traits == ["helpful"]
 
     def test_location_features_from_json_string(self):
         """LocationData._parse_features handles JSON string."""
@@ -683,7 +683,7 @@ class TestWorldGeneration:
                 "departure_reason": "fresh_start",
                 "credits": 1400,
             },
-            "personal_assistant": {
+            "companion": {
                 "name": "Celimene",
                 "traits": ["sarcastic"],
             },
@@ -743,14 +743,14 @@ class TestWorldGeneration:
         assert len(wg.characters) == 3
         assert len(wg.locations) == 4
 
-    def test_personal_ai_rename(self):
-        """personal_ai field is renamed to personal_assistant."""
+    def test_companion_rename_from_personal_ai(self):
+        """companion field also accepts legacy personal_ai key."""
         from schema.world_generation import WorldGeneration
 
         data = self._minimal_world_gen_data()
-        data["personal_ai"] = data.pop("personal_assistant")
+        data["personal_ai"] = data.pop("companion")
         wg = WorldGeneration(**data)
-        assert wg.personal_assistant.name == "Celimene"
+        assert wg.companion.name == "Celimene"
 
     def test_missing_arrival_event_creates_default(self):
         """Missing arrival_event triggers default creation."""
