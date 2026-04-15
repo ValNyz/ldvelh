@@ -191,73 +191,26 @@ TEST_DB_URL = os.getenv(
 
 _TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres CASCADE;"
 
-# Parsed DSN components for admin connection (postgres maintenance DB)
-_MAIN_DB_URL = os.getenv("DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh")
-_TEST_DB_NAME = "ldvelh_test"
 
 
-async def _ensure_test_db_exists():
-    """Create ldvelh_test if it doesn't exist, copying schema from the main DB."""
-    import asyncpg
-    import asyncio
+def _ensure_test_db_exists():
+    """Create and migrate ldvelh_test using dbmate.
+
+    Works both locally and in CI. Uses the migrations in db/migrations/.
+    Idempotent: dbmate skips already-applied migrations.
+    """
     import subprocess
 
-    # Connect to the postgres maintenance database to check / create ldvelh_test
-    admin_url = _MAIN_DB_URL.rsplit("/", 1)[0] + "/postgres"
-    try:
-        conn = await asyncpg.connect(admin_url)
-    except Exception as exc:
-        raise RuntimeError(
-            f"Cannot connect to postgres admin DB at {admin_url!r}: {exc}"
-        ) from exc
+    migrations_dir = str(Path(__file__).parent.parent.parent / "db" / "migrations")
+    env = os.environ.copy()
+    env["DATABASE_URL"] = TEST_DB_URL
 
-    try:
-        exists = await conn.fetchval(
-            "SELECT 1 FROM pg_database WHERE datname = $1", _TEST_DB_NAME
-        )
-        if not exists:
-            # CREATE DATABASE cannot run inside a transaction block
-            await conn.execute(f'CREATE DATABASE "{_TEST_DB_NAME}"')
-
-            # Dump schema from main DB and apply to test DB
-            # Build pg_dump / psql connection args from the main DB URL
-            # URL format: postgresql://user:password@host:port/dbname
-            import urllib.parse
-            parsed = urllib.parse.urlparse(_MAIN_DB_URL)
-            env = os.environ.copy()
-            env["PGPASSWORD"] = parsed.password or ""
-
-            pg_dump_cmd = [
-                "pg_dump",
-                "--schema-only",
-                f"--host={parsed.hostname}",
-                f"--port={parsed.port or 5432}",
-                f"--username={parsed.username}",
-                parsed.path.lstrip("/"),
-            ]
-            parsed_test = urllib.parse.urlparse(TEST_DB_URL)
-            psql_cmd = [
-                "psql",
-                f"--host={parsed_test.hostname}",
-                f"--port={parsed_test.port or 5432}",
-                f"--username={parsed_test.username}",
-                _TEST_DB_NAME,
-            ]
-
-            dump = subprocess.run(pg_dump_cmd, capture_output=True, env=env)
-            if dump.returncode != 0:
-                raise RuntimeError(
-                    f"pg_dump failed: {dump.stderr.decode()}"
-                )
-            restore = subprocess.run(
-                psql_cmd, input=dump.stdout, capture_output=True, env=env
-            )
-            if restore.returncode != 0:
-                raise RuntimeError(
-                    f"psql schema restore failed: {restore.stderr.decode()}"
-                )
-    finally:
-        await conn.close()
+    result = subprocess.run(
+        ["dbmate", "--migrations-dir", migrations_dir, "--no-dump-schema", "up"],
+        capture_output=True, text=True, env=env,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"dbmate migration failed: {result.stderr}")
 
 
 @pytest_asyncio.fixture
@@ -274,7 +227,7 @@ async def test_pool():
     import pytest
 
     try:
-        await _ensure_test_db_exists()
+        _ensure_test_db_exists()
     except Exception as exc:
         pytest.skip(f"Test DB not available: {exc}")
         return
