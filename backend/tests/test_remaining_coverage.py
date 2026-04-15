@@ -1058,13 +1058,13 @@ class TestWorldGeneration:
         # Shouldn't crash
         wg._check_minimums_after_filtering()
 
-    def test_ensure_arrival_event_non_dict_data(self):
-        """ensure_arrival_event passes through non-dict data."""
+    def test_normalize_non_dict_data(self):
+        """normalize_and_ensure_defaults passes through non-dict data."""
         from schema.world_generation import WorldGeneration
 
         # When data is not a dict, it should be returned as-is
         # (handled by the mode="before" validator)
-        result = WorldGeneration.ensure_arrival_event("not_a_dict")
+        result = WorldGeneration.normalize_and_ensure_defaults("not_a_dict")
         assert result == "not_a_dict"
 
 
