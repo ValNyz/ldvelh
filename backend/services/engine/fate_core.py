@@ -123,17 +123,27 @@ class FateCoreEngine(BaseEngine):
             refresh,
         )
 
-        # Insert skills
-        for skill in data.get("skills", []):
+        # Insert skills — canonical format: {"Furtivité": 3, "Combat": 2}
+        raw_skills = data.get("skills", {})
+
+        skills_to_insert = []
+        if isinstance(raw_skills, dict):
+            for name, level in raw_skills.items():
+                if name and isinstance(level, (int, float)):
+                    skills_to_insert.append((name, int(level)))
+        elif isinstance(raw_skills, list):
+            # Fallback: list of {"name": ..., "level": ...} from world gen
+            for skill in raw_skills:
+                if isinstance(skill, dict):
+                    skills_to_insert.append((skill.get("name", "?"), skill.get("level", 0)))
+
+        for name, level in skills_to_insert:
             await conn.execute(
                 """
                 INSERT INTO skills_fate (game_id, name, level, custom)
                 VALUES ($1, $2, $3, $4)
                 """,
-                game_id,
-                skill["name"],
-                skill.get("level", 0),
-                skill.get("custom", False),
+                game_id, name, level, False,
             )
 
     async def get_npc_stats(self, conn, character_id: UUID) -> dict:

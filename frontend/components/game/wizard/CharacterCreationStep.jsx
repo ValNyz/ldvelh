@@ -90,7 +90,8 @@ function NarrativeCharacter({ data, onChange }) {
 function FateCoreCharacter({ data, onChange, genre }) {
 	const skills = getFateSkills(genre);
 	const aspects = data.aspects || { high_concept: '', trouble: '', other: ['', '', ''] };
-	const skillPicks = data.skills || {};
+	// skills stored as canonical {"Furtivité": 4, "Combat": 3}
+	const skillMap = data.skills || {};
 	// Pyramid: 1 at +4, 2 at +3, 3 at +2, 4 at +1
 	const pyramidSlots = { 4: 1, 3: 2, 2: 3, 1: 4 };
 
@@ -106,33 +107,23 @@ function FateCoreCharacter({ data, onChange, genre }) {
 	};
 
 	const setSkillLevel = (skill, level) => {
-		const next = { ...skillPicks };
-		// Remove from any current level
-		Object.keys(next).forEach(k => {
-			if (Array.isArray(next[k])) {
-				next[k] = next[k].filter(s => s !== skill);
-				if (next[k].length === 0) delete next[k];
-			}
-		});
-		// Add to new level
+		const next = { ...skillMap };
 		if (level > 0) {
-			const key = String(level);
-			if (!next[key]) next[key] = [];
-			next[key].push(skill);
+			next[skill] = level;
+		} else {
+			delete next[skill];
 		}
 		onChange({ ...data, skills: next });
 	};
 
 	const getSkillLevel = (skill) => {
-		for (const [level, arr] of Object.entries(skillPicks)) {
-			if (Array.isArray(arr) && arr.includes(skill)) return parseInt(level);
-		}
-		return 0;
+		return skillMap[skill] || 0;
 	};
 
 	const slotsUsed = {};
-	Object.entries(skillPicks).forEach(([level, arr]) => {
-		if (Array.isArray(arr)) slotsUsed[level] = arr.length;
+	Object.values(skillMap).forEach(level => {
+		const key = String(level);
+		slotsUsed[key] = (slotsUsed[key] || 0) + 1;
 	});
 
 	return (
