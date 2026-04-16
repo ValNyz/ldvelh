@@ -74,6 +74,32 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 				</div>
 			</div>
 
+			{/* Game duration */}
+			<div>
+				<label className="block text-sm text-on-surface-variant mb-2">Durée de partie</label>
+				<div className="grid grid-cols-3 gap-3">
+					{[
+						{ value: 'short', label: 'Courte', desc: '3-7 jours' },
+						{ value: 'medium', label: 'Moyenne', desc: '15-30 jours' },
+						{ value: 'long', label: 'Longue', desc: '50+ jours' },
+					].map(opt => (
+						<button
+							key={opt.value}
+							type="button"
+							onClick={() => update('duration', opt.value)}
+							className={`p-3 rounded-lg border text-left transition-colors ${
+								(config.duration || 'medium') === opt.value
+									? 'bg-primary/15 border-primary text-on-surface'
+									: 'bg-surface-container border-outline-variant/30 text-on-surface-variant hover:border-primary/50'
+							}`}
+						>
+							<div className="font-semibold text-sm">{opt.label}</div>
+							<div className="text-xs text-on-surface-variant/60">{opt.desc}</div>
+						</button>
+					))}
+				</div>
+			</div>
+
 			{/* Lore (optional) */}
 			<div>
 				<label className="block text-sm text-gray-300 mb-2">
