@@ -328,6 +328,7 @@ class D6Engine(BaseEngine):
             "pip_bonus": pip_bonus,
             "difficulty": difficulty,
             "difficulty_label": decision.difficulty_label,
+            "reason": decision.reason,
         }
         if decision.opposition:
             details["opposition"] = decision.opposition

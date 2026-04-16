@@ -325,6 +325,7 @@ class FateCoreEngine(BaseEngine):
             "difficulty_label": (
                 decision.difficulty_label or _ladder_label(difficulty)
             ),
+            "reason": decision.reason,
         }
         if decision.opposition:
             details["opposition"] = decision.opposition
