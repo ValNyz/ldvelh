@@ -254,6 +254,16 @@ class NarrationContext(BaseModel):
     world_atmosphere: str
     tone_notes: str = ""
 
+    # === DIRECTOR ===
+    director_guidance: str | None = Field(
+        default=None,
+        description="Latest Director plan guidance for the narrator (invisible to player)",
+    )
+    director_tension: int | None = Field(
+        default=None,
+        description="Director's tension level (1-5)",
+    )
+
 
 # =============================================================================
 # NARRATION OUTPUT
