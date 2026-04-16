@@ -543,7 +543,7 @@ async def _handle_chat(
                     logger.info("[CHAT] Initial Director run triggered after world gen")
 
                 except Exception as e:
-                    logger.error(f"[CHAT] Error process init: {e}")
+                    logger.error(f"[CHAT] Error process init: {e}", exc_info=True)
                     await sse_writer.send_error(str(e), recoverable=True)
 
             await llm_service.stream_narration(
