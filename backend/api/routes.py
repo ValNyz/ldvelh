@@ -758,9 +758,15 @@ async def _handle_chat(
                         f"[TIMING] process_light: {(time.perf_counter() - t1) * 1000:.0f}ms"
                     )
 
-                    # 2. Apply narrator deltas immediately (credits, entity reveals)
+                    # 2. Apply narrator deltas immediately (credits, entity reveals, seeds, compels)
                     t1 = time.perf_counter()
-                    if narration.credit_delta or narration.entity_reveals:
+                    has_deltas = (
+                        narration.credit_delta
+                        or narration.entity_reveals
+                        or narration.narrative_seeds
+                        or narration.compel_result
+                    )
+                    if has_deltas:
                         delta_result = await game_service.apply_narrator_deltas(
                             game_id, narration, process_result["cycle"]
                         )

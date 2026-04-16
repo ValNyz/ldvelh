@@ -567,6 +567,8 @@ def build_narrator_context_prompt(
   "info_requests": [],
   "extraction_triggers": [],
   "narrative_seeds": [],
+  "compel_aspect": null,
+  "compel_result": null,
   "scene_mood": "2-3 mots",
   "narrator_notes": "Notes courtes"
 }""")

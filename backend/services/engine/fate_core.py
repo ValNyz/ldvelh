@@ -404,6 +404,33 @@ Ce jeu utilise le système Fate Core avec des dés Fudge (4dF).
 - Le résultat mécanique sera fourni dans "## RÉSULTAT MÉCANIQUE" du contexte
 - Décris narrativement CE QUI SE PASSE en conséquence du résultat
 - Sois créatif dans la description mais fidèle au résultat
+
+### COMPELS — UTILISER LES ASPECTS CONTRE LE JOUEUR
+
+Un compel est une complication narrative basée sur un **aspect du protagoniste**.
+C'est une mécanique Fate Core centrale : le MJ propose une complication, le joueur choisit.
+
+**Quand proposer un compel :**
+- Quand un aspect du protagoniste crée naturellement un problème dans la situation
+- 1 compel tous les 3-5 tours environ — pas à chaque tour
+- Privilégier le "Trouble" (2ème aspect) mais tous les aspects sont compelables
+
+**Format OBLIGATOIRE dans narrative_text :**
+Inclure un encadré markdown après la narration de la complication :
+
+> **⚖️ Compel — [Nom exact de l'aspect]**
+> [Description de la complication en 1-2 phrases]
+> - **Accepter** : la complication se produit, tu gagnes 1 point de destin
+> - **Refuser** : tu dépenses 1 point de destin pour éviter cette complication
+
+**Quand le joueur a DÉJÀ répondu à un compel précédent :**
+- "J'accepte" / "OK" / "oui" → la complication se produit, remplir `compel_result: "accepted"`
+- "Je refuse" / "non" / "je dépense un FP" → la complication ne se produit pas, remplir `compel_result: "refused"`
+- Si le joueur n'avait pas assez de FP pour refuser → le compel est automatiquement accepté
+
+**Champ JSON :**
+- `compel_aspect`: nom exact de l'aspect compelé (string ou null)
+- `compel_result`: "proposed" (nouveau compel), "accepted" (joueur accepte), "refused" (joueur refuse), ou null (pas de compel)
 """
 
     def build_context_stats(self, engine_stats: dict) -> list[str]:

@@ -428,6 +428,14 @@ class NarrationOutput(BaseModel):
         description="0-2 raw observable details planted in this scene (unresolved hooks)",
     )
 
+    # === FATE CORE: COMPEL ===
+    compel_aspect: str | None = Field(
+        default=None, description="Aspect being compelled (exact name, or null)"
+    )
+    compel_result: Literal["proposed", "accepted", "refused"] | None = Field(
+        default=None, description="Compel state: proposed (new), accepted/refused (response to previous)"
+    )
+
     # === META ===
     scene_mood: Tag | None = None  # 50 chars - mood in 2-3 words
     narrator_notes: Text | None = None  # 300 chars - internal notes

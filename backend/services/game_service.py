@@ -527,6 +527,32 @@ class GameService:
             # Archive stale seeds
             await populator.archive_stale_seeds(conn, cycle)
 
+            # Fate Core: compel FP adjustment
+            if narration.compel_result in ("accepted", "refused"):
+                try:
+                    fate_row = await conn.fetchrow(
+                        "SELECT fate_points FROM character_fate WHERE game_id = $1",
+                        game_id,
+                    )
+                    if fate_row is not None:
+                        fp = fate_row["fate_points"]
+                        if narration.compel_result == "accepted":
+                            new_fp = fp + 1
+                        else:  # refused
+                            new_fp = max(0, fp - 1)
+                        await conn.execute(
+                            "UPDATE character_fate SET fate_points = $1 WHERE game_id = $2",
+                            new_fp, game_id,
+                        )
+                        results["compel"] = {
+                            "result": narration.compel_result,
+                            "aspect": narration.compel_aspect,
+                            "fp_change": 1 if narration.compel_result == "accepted" else -1,
+                            "new_fp": new_fp,
+                        }
+                except Exception as e:
+                    logger.warning(f"[COMPEL] FP adjustment failed: {e}")
+
         return results
 
     async def store_info_requests(
