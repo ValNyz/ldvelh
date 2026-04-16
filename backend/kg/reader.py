@@ -63,7 +63,8 @@ class KnowledgeGraphReader:
                       world_name, world_description, world_atmosphere,
                       world_seed_words, world_founding_cycle,
                       detail_requests,
-                      engine, engine_locked, world_config, genre_id
+                      engine, engine_locked, world_config, genre_id,
+                      game_duration, last_director_time
                FROM games WHERE id = $1""",
             target_id,
         )

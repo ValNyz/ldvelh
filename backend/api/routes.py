@@ -520,6 +520,28 @@ async def _handle_chat(
                     )
                     await sse_writer.send_saved()
 
+                    # Store game_duration from wizard config
+                    init_game_duration = (init_world_config or {}).get("duration", "medium")
+                    async with pool.acquire() as dir_conn:
+                        await dir_conn.execute(
+                            "UPDATE games SET game_duration = $2 WHERE id = $1",
+                            game_id, init_game_duration,
+                        )
+
+                    # Initial Director run (first session plan)
+                    from services.director_service import run_director as run_director_init
+                    asyncio.create_task(
+                        run_director_init(
+                            pool=pool,
+                            game_id=game_id,
+                            current_cycle=1,
+                            current_time="08h00",
+                            provider_name=provider_name,
+                            api_key=user_api_key,
+                        )
+                    )
+                    logger.info("[CHAT] Initial Director run triggered after world gen")
+
                 except Exception as e:
                     logger.error(f"[CHAT] Error process init: {e}")
                     await sse_writer.send_error(str(e), recoverable=True)
@@ -891,6 +913,33 @@ async def _handle_chat(
                             narrator_deltas=deltas_typed.model_dump(exclude_none=True),
                         )
                     )
+
+                    # 9. Background: Director (if enough IG time elapsed)
+                    try:
+                        from services.director_service import should_run_director, run_director
+
+                        game_for_dir = await game_service.load_game_state(game_id)
+                        g = game_for_dir.get("game", {})
+                        if should_run_director(
+                            process_result["time"],
+                            g.get("last_director_time"),
+                            g.get("game_duration", "medium"),
+                        ):
+                            asyncio.create_task(
+                                run_director(
+                                    pool=pool,
+                                    game_id=game_id,
+                                    current_cycle=process_result["cycle"],
+                                    current_time=process_result["time"],
+                                    provider_name=provider_name,
+                                    api_key=user_api_key,
+                                )
+                            )
+                            logger.info(
+                                f"[CHAT] Director triggered at {process_result['time']}"
+                            )
+                    except Exception as dir_err:
+                        logger.warning(f"[DIRECTOR] Trigger check failed: {dir_err}")
 
                     logger.debug(
                         f"[TIMING] TOTAL on_light_complete: {(time.perf_counter() - t0) * 1000:.0f}ms"
