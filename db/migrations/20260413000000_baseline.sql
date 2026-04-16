@@ -5,7 +5,7 @@
 -- Full schema: auth, KG, engine, extraction, resolver, genres, seeds
 -- ============================================================================
 
-COMMENT ON SCHEMA public IS '';
+-- COMMENT ON SCHEMA public IS ''; -- Requires superuser, skipped
 CREATE TYPE public.relation_type AS ENUM (
     'knows',
     'friend_of',
