@@ -122,6 +122,9 @@ class ContextBuilder:
         )
         tone_notes = ""
 
+        # Director plan (latest)
+        director_guidance, director_tension = await self._load_director_plan(conn)
+
         return NarrationContext(
             current_cycle=current_cycle,
             current_time=current_time,
@@ -146,10 +149,29 @@ class ContextBuilder:
             world_description=game.get("world_description") or "",
             world_atmosphere=game.get("world_atmosphere") or world_info.get("atmosphere", ""),
             tone_notes=tone_notes,
+            director_guidance=director_guidance,
+            director_tension=director_tension,
             engine_type=engine_type,
             engine_stats=engine_stats,
             genre=genre,
         )
+
+    # =========================================================================
+    # DIRECTOR
+    # =========================================================================
+
+    async def _load_director_plan(self, conn) -> tuple[str | None, int | None]:
+        """Load the most recent Director plan for this game."""
+        row = await conn.fetchrow(
+            """SELECT narrator_guidance, tension_level
+               FROM director_plans
+               WHERE game_id = $1
+               ORDER BY created_at DESC LIMIT 1""",
+            self.game_id,
+        )
+        if not row:
+            return None, None
+        return row["narrator_guidance"], row["tension_level"]
 
     # =========================================================================
     # PROTAGONIST

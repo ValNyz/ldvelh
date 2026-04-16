@@ -516,6 +516,14 @@ def build_narrator_context_prompt(
             lines.append(f"- Cycle {summary.cycle}: {summary.summary}")
         lines.append("")
 
+    # === DIRECTOR GUIDANCE ===
+    if context.director_guidance:
+        lines.append("### DIRECTION NARRATIVE (invisible au joueur)")
+        if context.director_tension:
+            lines.append(f"Tension: {context.director_tension}/5")
+        lines.append(context.director_guidance)
+        lines.append("")
+
     # === MECHANICAL RESULT (delegated to engine class) ===
     if mechanical_result and mechanical_result.roll:
         engine = get_engine(engine_type)
