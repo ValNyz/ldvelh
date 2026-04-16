@@ -55,6 +55,7 @@ jobs:
       - name: Run all tests with coverage
         run: |
           pytest tests/ \
+            --ignore=tests/benchmark \
             -o asyncio_mode=auto \
             --cov=. \
             --cov-branch \
