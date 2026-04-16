@@ -5,7 +5,7 @@ Input/Output models for the narrator LLM
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from .core import (
     ArcDomain,
@@ -315,11 +315,52 @@ class EventHint(BaseModel):
 class NarrationOutput(BaseModel):
     """Complete narrator LLM output"""
 
+    @model_validator(mode="before")
+    @classmethod
+    def truncate_long_strings(cls, data: dict) -> dict:
+        """Truncate LLM strings that exceed field limits instead of crashing.
+
+        The max_length constraints are guidelines for the LLM. If it exceeds
+        them slightly, we truncate rather than reject the entire response.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        # Truncate nested fields in lists of dicts
+        _LIMITS = {
+            "credit_delta": {"description": 100},
+            "inventory_hints": {"item_name": 100, "item_description": 200},
+            "events_mentioned": {"title": 100},
+        }
+        for field, limits in _LIMITS.items():
+            value = data.get(field)
+            if value is None:
+                continue
+            # Single dict (credit_delta)
+            if isinstance(value, dict):
+                for key, max_len in limits.items():
+                    if key in value and isinstance(value[key], str) and len(value[key]) > max_len:
+                        value[key] = value[key][:max_len - 3] + "..."
+            # List of dicts (inventory_hints, events_mentioned)
+            elif isinstance(value, list):
+                for item in value:
+                    if isinstance(item, dict):
+                        for key, max_len in limits.items():
+                            if key in item and isinstance(item[key], str) and len(item[key]) > max_len:
+                                item[key] = item[key][:max_len - 3] + "..."
+
+        # Truncate top-level string fields
+        for field, max_len in [("scene_mood", 50), ("narrator_notes", 300)]:
+            if field in data and isinstance(data[field], str) and len(data[field]) > max_len:
+                data[field] = data[field][:max_len - 3] + "..."
+
+        return data
+
     # === NARRATION ===
     narrative_text: str = Field(
         ...,
-        min_length=100,
-        description="Narrative text in Markdown. Becky Chambers tone.",
+        min_length=1,
+        description="Narrative text in Markdown.",
     )
 
     # === TIME ===
