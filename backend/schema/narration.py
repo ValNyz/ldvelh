@@ -257,11 +257,15 @@ class NarrationContext(BaseModel):
     # === DIRECTOR ===
     director_guidance: str | None = Field(
         default=None,
-        description="Latest Director plan guidance for the narrator (invisible to player)",
+        description="Latest Director plan guidance for the narrator",
     )
     director_tension: int | None = Field(
         default=None,
         description="Director's tension level (1-5)",
+    )
+    director_planned_events: list[dict] = Field(
+        default_factory=list,
+        description="Events planned by the Director for upcoming cycles",
     )
 
 

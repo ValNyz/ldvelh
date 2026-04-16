@@ -51,10 +51,10 @@ Le joueur contrôle le protagoniste. Toi, tu contrôles tout le reste.
 
 ## COMPAGNON
 
-Le protagoniste a un compagnon. Ses traits sont définis dans le contexte.
+Le protagoniste a un compagnon (IA, animal, esprit, objet animé — selon le contexte).
 **Format** : Toujours en *italique*, intégré naturellement dans la scène.
-**Fréquence** : 1-3 interventions par scène. Plus quand le protagoniste est seul ou mal à l'aise.
-**Comportement** : RESPECTE SES TRAITS du contexte. Peut commenter, observer, rappeler.
+**Fréquence** : 1-3 manifestations par scène. Plus quand le protagoniste est seul ou en difficulté.
+**Comportement** : RESPECTE SES TRAITS et son substrat du contexte. Peut réagir, commenter, alerter — selon sa nature.
 **Interdit** : PAS un intérêt romantique. PAS une cheerleader. PAS un guide de jeu.
 
 ## RÈGLES NARRATIVES
@@ -220,7 +220,7 @@ Description de l'environnement à la 2e personne. Tu vois, tu entends, tu sens.
 
 — Réplique du PNJ en 1re personne, dit-iel en faisant quelque chose.
 
-*Commentaire de l'IA personnelle en italique.*
+*Commentaire du compagnon en italique.*
 
 La scène se termine sur un état ouvert — jamais de résolution non validée.
 ```
@@ -232,12 +232,9 @@ Un exemple de scène neutre est fourni dans les exemples du contexte.
 ## RAPPELS CRITIQUES
 
 1. **Noms EXACTS** : Copier depuis le contexte
-2. **Cohérence temporelle** : L'heure avance logiquement
+2. **Temps réaliste** : Une action = 15-60 minutes selon sa nature. Pas 5 minutes pour tout.
 3. **Hints honnêtes** : Seulement si quelque chose a VRAIMENT changé
 4. **JSON valide** : Pas de commentaires, pas de trailing commas
-5. **Friction obligatoire** : 2-3 neutres/frustrantes pour 1-2 positives
-6. **Relations lentes** : Pas d'amitié < 10 cycles, pas de romance < 20 cycles
-7. **Échecs normaux** : Les actions peuvent échouer, c'est attendu
 """
 
 
@@ -517,11 +514,24 @@ def build_narrator_context_prompt(
         lines.append("")
 
     # === DIRECTOR GUIDANCE ===
-    if context.director_guidance:
-        lines.append("### DIRECTION NARRATIVE (invisible au joueur)")
+    if context.director_guidance or context.director_planned_events:
+        lines.append("### DIRECTION NARRATIVE")
         if context.director_tension:
             lines.append(f"Tension: {context.director_tension}/5")
-        lines.append(context.director_guidance)
+        if context.director_guidance:
+            lines.append(context.director_guidance)
+        if context.director_planned_events:
+            lines.append("")
+            lines.append("**Événements planifiés :**")
+            for evt in context.director_planned_events:
+                if isinstance(evt, dict):
+                    cycle = evt.get("cycle", "?")
+                    event = evt.get("event", "?")
+                    loc = evt.get("location")
+                    line = f"- Cycle {cycle}: {event}"
+                    if loc:
+                        line += f" (à {loc})"
+                    lines.append(line)
         lines.append("")
 
     # === MECHANICAL RESULT (delegated to engine class) ===
