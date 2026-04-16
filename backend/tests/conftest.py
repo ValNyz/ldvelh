@@ -234,12 +234,12 @@ async def test_pool():
 
     try:
         pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5, init=_init_conn)
+        async with pool.acquire() as conn:
+            await conn.execute(_TRUNCATE_SQL)
     except Exception as exc:
-        pytest.skip(f"Cannot create test DB pool: {exc}")
+        pytest.skip(f"Test DB not available: {exc}")
         return
 
-    async with pool.acquire() as conn:
-        await conn.execute(_TRUNCATE_SQL)
     yield pool
     await pool.close()
 
