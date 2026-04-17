@@ -1,18 +1,19 @@
 // progressUtils.js
 
 // Poids recalculés selon votre JSON d'exemple (~12000 caractères total)
+// Order matches genre world_gen_example in DB
 export const GENERATION_STEPS = [
 	{ key: 'generation_seed_words', label: 'Initialisation', weight: 2 },
-	{ key: 'world', label: 'Création du monde', weight: 4 },
-	{ key: 'locations', label: 'Lieux', weight: 18 },
-	{ key: 'organizations', label: 'Organisations', weight: 6 },
-	{ key: 'protagonist', label: 'Personnage', weight: 6 },
+	{ key: 'world', label: 'Monde', weight: 4 },
+	{ key: 'protagonist', label: 'Protagoniste', weight: 6 },
 	{ key: 'companion', label: 'Compagnon', weight: 2 },
+	{ key: 'locations', label: 'Lieux', weight: 18 },
 	{ key: 'characters', label: 'Personnages', weight: 28 },
+	{ key: 'organizations', label: 'Organisations', weight: 6 },
 	{ key: 'inventory', label: 'Inventaire', weight: 8 },
 	{ key: 'narrative_arcs', label: 'Arcs narratifs', weight: 8 },
 	{ key: 'initial_relations', label: 'Relations', weight: 12 },
-	{ key: 'arrival_event', label: 'Arrivée du Joueur', weight: 6 },
+	{ key: 'arrival_event', label: 'Arrivée', weight: 6 },
 ];
 
 /**
