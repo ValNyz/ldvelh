@@ -38,9 +38,11 @@ export default function WorldGenerationScreen({
 		[partialJson]
 	);
 
-	const stepStatuses = useMemo(
-		() => getStepStatuses(partialJson),
-		[partialJson]
+	const stepStatuses = useMemo(() => {
+		const statuses = getStepStatuses(partialJson);
+		console.log('[DOTS]', statuses.map(s => `${s.key}:${s.status}`).join(' '));
+		return statuses;
+	}, [partialJson]
 	);
 
 	const isComplete = isStreamComplete && worldData != null;
