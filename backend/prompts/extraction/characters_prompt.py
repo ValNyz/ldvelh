@@ -110,7 +110,9 @@ Only extract protagonist skill changes (new skills learned or level-ups).
 ## CHARACTER-SPECIFIC RULES
 
 1. Only create entities with entity_type="character"
-2. For unknown characters (Valentin hasn't learned their name): known_by_protagonist=false, unknown_name="descriptive label"
+2. For unknown characters (protagonist hasn't learned their name): known_by_protagonist=false, unknown_name must be a SIMPLE PHYSICAL description of what the protagonist SEES.
+   Good: "La femme aux cernes", "Le vieux en manteau", "Le type aux lunettes"
+   Bad: "Celle qui sait", "Le Gardien des Secrets", "La Nouvelle" — NO poetic titles, NO narrative roles
 3. entities_removed: only for permanent departures (death, left the station) — NOT temporary absence
 4. Extract only CHARACTER-related facts (interactions, revelations about people)
 5. Ambient: what an observer would NOTICE about this character right now"""

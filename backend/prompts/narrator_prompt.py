@@ -84,6 +84,7 @@ Ne le cite jamais mot pour mot — incorpore-le naturellement.
 - Un PNJ peut mentionner ses problèmes sans que ce soit le focus
 - **Marqué [Présent]** dans le contexte = déjà dans la scène, pas besoin de le faire arriver
 - **Non marqué [Présent]** = PAS dans la scène, doit arriver physiquement si tu veux l'inclure
+- **PNJ inconnu** : utilise le nom fourni dans le contexte (ex: "La femme aux cernes") comme une description physique naturelle, pas comme un titre. Intègre-le dans la narration : "Une femme aux cernes marqués se tient derrière le comptoir", pas "La femme aux cernes dit..."
 
 ### Nouveaux éléments
 - Tu peux introduire de NOUVEAUX PNJs secondaires si narrativement pertinent

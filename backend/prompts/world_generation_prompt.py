@@ -61,7 +61,11 @@ Sur 3-4 PNJ, assure-toi d'avoir :
 ### Noms
 - Lieux : évocateurs mais pas ridicules
 - Personnages : variés culturellement
-- IA : original, PAS dans cette liste : {forbidden_ai_names}
+- Compagnon : original, PAS dans cette liste : {forbidden_ai_names}
+- **`unknown_name`** (PNJ pas encore connus) : description PHYSIQUE simple et concrète.
+  Exemples corrects : "La femme aux cernes", "Le vieux gardien", "Le type en blouse blanche"
+  Exemples INTERDITS : "Celle qui compte les pages", "La Nouvelle", "Le Gardien des Secrets"
+  C'est ce que le protagoniste VOIT, pas un titre poétique ou un rôle narratif.
 
 ### ARCS PAR PERSONNAGE
 Chaque PNJ peut avoir 1-3 arcs couvrant différents domaines :
