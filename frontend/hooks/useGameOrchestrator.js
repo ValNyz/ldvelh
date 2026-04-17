@@ -64,6 +64,11 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		onProgress: (rawJson) => {
 			phase.setWorldGenProgress(rawJson);
 		},
+		onStatus: (data) => {
+			if (data?.step === 'director') {
+				phase.setDirectorStatus('running');
+			}
+		},
 		onExtracting: (displayText) => {
 			setIsExtracting(true);
 			gs.setMessages(prev => {

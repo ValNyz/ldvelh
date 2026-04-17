@@ -12,6 +12,7 @@ export default function WorldGenerationScreen({
 	isGenerating,
 	partialJson,
 	worldData,
+	directorStatus,
 	onStartAdventure,
 	error
 }) {
@@ -63,10 +64,10 @@ export default function WorldGenerationScreen({
 						</div>
 						<div className="flex justify-between text-sm">
 							<span className="text-gray-400">
-								{currentStep.label}
+								{directorStatus === 'running' ? 'Préparation du scénario' : currentStep.label}
 								<span className="animate-pulse">...</span>
 							</span>
-							<span className="text-gray-500">{progress}%</span>
+							<span className="text-gray-500">{directorStatus === 'running' ? '' : `${progress}%`}</span>
 						</div>
 
 						{/* Step indicators */}
@@ -89,6 +90,17 @@ export default function WorldGenerationScreen({
 									/>
 								);
 							})}
+							{/* Director step — separate from JSON-based dots */}
+							<div
+								className={`w-2 h-2 rounded-full transition-colors ${
+									directorStatus === 'running'
+										? 'bg-primary animate-pulse'
+										: directorStatus === 'done'
+											? 'bg-green-500'
+											: 'bg-gray-600'
+								}`}
+								title="Scénario"
+							/>
 						</div>
 					</div>
 				)}

@@ -24,11 +24,13 @@ export function useGamePhase() {
 	const [gamePhase, setGamePhase] = useState(GAME_PHASE.LIST);
 	const [worldGenProgress, setWorldGenProgress] = useState('');
 	const [worldData, setWorldData] = useState(null);
+	const [directorStatus, setDirectorStatus] = useState(null); // null | "running" | "done"
 
 	const resetPhase = useCallback(() => {
 		setGamePhase(GAME_PHASE.LIST);
 		setWorldGenProgress('');
 		setWorldData(null);
+		setDirectorStatus(null);
 	}, []);
 
 	const derived = useMemo(() => ({
@@ -47,6 +49,8 @@ export function useGamePhase() {
 		setWorldGenProgress,
 		worldData,
 		setWorldData,
+		directorStatus,
+		setDirectorStatus,
 		resetPhase,
 		...derived,
 		GAME_PHASE,

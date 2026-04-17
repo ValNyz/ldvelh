@@ -515,11 +515,6 @@ async def _handle_chat(
                         else None,
                     )
 
-                    await sse_writer.send_done(
-                        None, payload.model_dump(exclude_none=True)
-                    )
-                    await sse_writer.send_saved()
-
                     # Store game_duration from wizard config
                     init_game_duration = (init_world_config or {}).get("duration", "medium")
                     async with pool.acquire() as dir_conn:
@@ -528,19 +523,29 @@ async def _handle_chat(
                             game_id, init_game_duration,
                         )
 
-                    # Initial Director run (first session plan)
-                    from services.director_service import run_director as run_director_init
-                    asyncio.create_task(
-                        run_director_init(
-                            pool=pool,
-                            game_id=game_id,
-                            current_cycle=1,
-                            current_time="08h00",
-                            provider_name=provider_name,
-                            api_key=user_api_key,
+                    # Initial Director run (blocking, part of world gen flow)
+                    await sse_writer.send_status("director", "Préparation du scénario")
+                    try:
+                        from services.director_service import run_director as run_director_init
+                        await asyncio.wait_for(
+                            run_director_init(
+                                pool=pool,
+                                game_id=game_id,
+                                current_cycle=1,
+                                current_time="08h00",
+                                provider_name=provider_name,
+                                api_key=user_api_key,
+                            ),
+                            timeout=25.0,
                         )
+                        logger.info("[CHAT] Initial Director run completed")
+                    except (asyncio.TimeoutError, Exception) as dir_err:
+                        logger.warning(f"[DIRECTOR] Initial run failed/timeout: {dir_err}")
+
+                    await sse_writer.send_done(
+                        None, payload.model_dump(exclude_none=True)
                     )
-                    logger.info("[CHAT] Initial Director run triggered after world gen")
+                    await sse_writer.send_saved()
 
                 except Exception as e:
                     logger.error(f"[CHAT] Error process init: {e}", exc_info=True)

@@ -6,7 +6,7 @@ import { apiUrl, getAuthHeaders } from '../lib/api';
 /**
  * Hook pour gérer le streaming SSE
  */
-export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending }) {
+export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus }) {
 	const abortControllerRef = useRef(null);
 	const [rawJson, setRawJson] = useState('');
 
@@ -90,6 +90,10 @@ export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSave
 								onRollPending?.(data);
 								break;
 
+							case 'status':
+								onStatus?.(data);
+								break;
+
 							case 'warning':
 								console.warn('[Stream] Warning:', data.message);
 								break;
@@ -114,7 +118,7 @@ export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSave
 		} finally {
 			abortControllerRef.current = null;
 		}
-	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending]);
+	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus]);
 
 	const cancel = useCallback(() => {
 		if (abortControllerRef.current) {

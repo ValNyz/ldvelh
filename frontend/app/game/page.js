@@ -165,6 +165,7 @@ export default function Home() {
 				isGenerating={phaseHook.isGenerating}
 				partialJson={phaseHook.worldGenProgress}
 				worldData={phaseHook.worldData}
+				directorStatus={phaseHook.directorStatus}
 				onStartAdventure={orch.handleStartAdventure}
 				error={gs.error?.message}
 			/>

@@ -32,6 +32,7 @@ class SSEEvent(str, Enum):
     STATE = "state"
     ROLL_RESULT = "roll_result"
     ROLL_PENDING = "roll_pending"
+    STATUS = "status"
 
 
 @dataclass
@@ -124,6 +125,10 @@ class SSEWriter:
         with roll_id + invoked_aspects to resume.
         """
         await self.send(SSEEvent.ROLL_PENDING, pending_data)
+
+    async def send_status(self, step: str, label: str | None = None) -> None:
+        """Send a status update to the frontend (e.g., Director running)."""
+        await self.send(SSEEvent.STATUS, {"step": step, "label": label or step})
 
     async def send_debug(self, message: str, data: Any = None) -> None:
         """Envoie un message de debug (dev only)"""

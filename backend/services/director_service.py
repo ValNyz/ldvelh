@@ -15,7 +15,6 @@ from prompts.director_prompt import (
     DIRECTOR_INTERVAL,
     DIRECTOR_SYSTEM_PROMPT,
     build_director_user_prompt,
-    get_director_tool_schema,
 )
 from schema.director import DirectorOutput
 from services.llm_service import LLMService
@@ -171,14 +170,11 @@ async def run_director(
             current_time=current_time,
         )
 
-        # Call LLM
+        # Call LLM (text extraction, same pattern as other extractors)
         llm_service = LLMService()
-        raw_result = await llm_service.extract_structured(
+        raw_result = await llm_service.extract_text(
             system_prompt=DIRECTOR_SYSTEM_PROMPT,
             user_message=user_prompt,
-            tool_name="director_plan",
-            tool_description="Narrative direction plan for the next few in-game hours",
-            schema=get_director_tool_schema(),
             provider_name=provider_name,
             api_key=api_key,
         )
