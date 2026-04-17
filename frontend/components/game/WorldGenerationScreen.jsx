@@ -87,7 +87,7 @@ export default function WorldGenerationScreen({
 										className={`w-2 h-2 rounded-full transition-colors ${
 											stepDone
 												? 'bg-green-500'
-												: stepStarted
+												: step.key === currentStep.key
 													? 'bg-primary animate-pulse'
 													: 'bg-gray-600'
 										}`}
