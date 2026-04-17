@@ -65,9 +65,9 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			phase.setWorldGenProgress(rawJson);
 		},
 		onStatus: (data) => {
-			console.log('[SSE] Status event received:', data);
 			if (data?.step === 'director') {
 				phase.setDirectorStatus('running');
+				phase.setDirectorLabel(data.label || 'Scénario');
 			}
 		},
 		onExtracting: (displayText) => {

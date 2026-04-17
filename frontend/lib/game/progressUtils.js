@@ -3,16 +3,15 @@
 // Poids recalculés selon votre JSON d'exemple (~12000 caractères total)
 // Order based on observed LLM generation sequence
 export const GENERATION_STEPS = [
-	{ key: 'world', label: 'Monde', weight: 6 },
-	{ key: 'companion', label: 'Compagnon', weight: 2 },
+	{ key: 'companion', label: 'Compagnon', weight: 4 },
 	{ key: 'inventory', label: 'Inventaire', weight: 8 },
 	{ key: 'locations', label: 'Lieux', weight: 18 },
 	{ key: 'characters', label: 'Personnages', weight: 28 },
 	{ key: 'protagonist', label: 'Protagoniste', weight: 6 },
 	{ key: 'arrival_event', label: 'Arrivée', weight: 6 },
 	{ key: 'organizations', label: 'Organisations', weight: 6 },
-	{ key: 'narrative_arcs', label: 'Arcs narratifs', weight: 8 },
-	{ key: 'initial_relations', label: 'Relations', weight: 12 },
+	{ key: 'narrative_arcs', label: 'Arcs narratifs', weight: 10 },
+	{ key: 'initial_relations', label: 'Relations', weight: 14 },
 ];
 
 /**
@@ -77,10 +76,25 @@ function estimateSectionProgress(json, key) {
 	return 0.5;
 }
 
+// Director sub-step progress mapping (75-100% range)
+const DIRECTOR_PROGRESS = {
+	'Tension narrative': 78,
+	'Intentions PNJ': 85,
+	'Événements': 92,
+	'Vision globale': 97,
+};
+
 /**
- * Calcule la progression totale
+ * Calcule la progression totale (JSON stream 0-90% + Director 90-100%)
  */
-export function calculateProgress(partialJson, isStreamComplete = false) {
+export function calculateProgress(partialJson, isStreamComplete = false, directorStatus = null, directorLabel = null) {
+	// Director sub-steps (90-100%)
+	if (directorStatus === 'done') return 100;
+	if (directorStatus === 'running') {
+		return DIRECTOR_PROGRESS[directorLabel] || 76;
+	}
+
+	// JSON stream (0-90%)
 	if (!partialJson) return 0;
 
 	let progress = 0;
@@ -92,19 +106,19 @@ export function calculateProgress(partialJson, isStreamComplete = false) {
 			if (isSectionComplete(partialJson, step.key)) {
 				progress += step.weight;
 			} else {
-				// Section en cours : estimation partielle
 				const partial = estimateSectionProgress(partialJson, step.key);
 				progress += step.weight * partial;
 			}
 		}
 	}
 
-	// Plafonne à 95% tant que le stream n'est pas terminé
+	// Scale to 0-75% range, cap at 75% until Director takes over
+	const scaled = Math.round(progress * 0.75);
 	if (!isStreamComplete) {
-		progress = Math.min(progress, 95);
+		return Math.min(scaled, 74);
 	}
 
-	return Math.round(progress);
+	return Math.min(scaled, 75);
 }
 
 /**

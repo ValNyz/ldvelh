@@ -6,7 +6,6 @@ import {
 	getCurrentStep,
 	getStepStatuses,
 	extractWorldName,
-	GENERATION_STEPS
 } from '../../lib/game/progressUtils';
 
 export default function WorldGenerationScreen({
@@ -14,19 +13,16 @@ export default function WorldGenerationScreen({
 	partialJson,
 	worldData,
 	directorStatus,
+	directorLabel,
 	onStartAdventure,
 	error
 }) {
 	const isStreamComplete = !isGenerating;
 
-	const progress = useMemo(() => {
-		// JSON stream covers 0-90%, Director covers 90-100%
-		const jsonProgress = calculateProgress(partialJson, isStreamComplete);
-		const scaledJson = Math.round(jsonProgress * 0.9);
-		if (directorStatus === 'done') return 100;
-		if (directorStatus === 'running') return Math.max(scaledJson, 92);
-		return scaledJson;
-	}, [partialJson, isStreamComplete, directorStatus]);
+	const progress = useMemo(
+		() => calculateProgress(partialJson, isStreamComplete, directorStatus, directorLabel),
+		[partialJson, isStreamComplete, directorStatus, directorLabel]
+	);
 
 	const currentStep = useMemo(
 		() => getCurrentStep(partialJson),
@@ -38,11 +34,9 @@ export default function WorldGenerationScreen({
 		[partialJson]
 	);
 
-	const stepStatuses = useMemo(() => {
-		const statuses = getStepStatuses(partialJson);
-		console.log('[DOTS]', statuses.map(s => `${s.key}:${s.status}`).join(' '));
-		return statuses;
-	}, [partialJson]
+	const stepStatuses = useMemo(
+		() => getStepStatuses(partialJson),
+		[partialJson]
 	);
 
 	const isComplete = isStreamComplete && worldData != null;
@@ -76,7 +70,7 @@ export default function WorldGenerationScreen({
 						</div>
 						<div className="flex justify-between text-sm">
 							<span className="text-gray-400">
-								{directorStatus === 'running' ? 'Scénario' : currentStep.label}
+								{directorStatus === 'running' ? (directorLabel || 'Scénario') : currentStep.label}
 								<span className="animate-pulse">...</span>
 							</span>
 							<span className="text-gray-500">{progress}%</span>

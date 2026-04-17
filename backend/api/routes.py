@@ -523,9 +523,7 @@ async def _handle_chat(
                             game_id, init_game_duration,
                         )
 
-                    # Initial Director run (blocking, part of world gen flow)
-                    logger.info("[CHAT] Sending SSE status: director")
-                    await sse_writer.send_status("director", "Scénario")
+                    # Initial Director run (blocking, streamed to frontend)
                     try:
                         from services.director_service import run_director as run_director_init
                         await asyncio.wait_for(
@@ -536,8 +534,9 @@ async def _handle_chat(
                                 current_time="08h00",
                                 provider_name=provider_name,
                                 api_key=user_api_key,
+                                sse_writer=sse_writer,
                             ),
-                            timeout=25.0,
+                            timeout=30.0,
                         )
                         logger.info("[CHAT] Initial Director run completed")
                     except (asyncio.TimeoutError, Exception) as dir_err:

@@ -17,7 +17,8 @@ from prompts.director_prompt import (
     build_director_user_prompt,
 )
 from schema.director import DirectorOutput
-from services.llm_service import LLMService
+from services.llm_providers import get_provider
+from utils.json_utils import parse_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +63,13 @@ async def run_director(
     current_time: str,
     provider_name: str = "anthropic",
     api_key: str | None = None,
+    sse_writer=None,
 ) -> dict | None:
     """Run the Director LLM and store its plan.
 
-    Fire-and-forget — called via asyncio.create_task from routes.py.
-    Returns the stored plan dict or None on failure.
+    When sse_writer is provided (init flow), streams the call and sends
+    SSE status events as each JSON key is detected. Without sse_writer
+    (per-message trigger), uses a simple non-streaming complete() call.
     """
     logger.info(f"[DIRECTOR] Starting for game {game_id} at cycle {current_cycle} {current_time}")
 
@@ -170,20 +173,51 @@ async def run_director(
             current_time=current_time,
         )
 
-        # Call LLM (text extraction, same pattern as other extractors)
-        llm_service = LLMService()
-        raw_result = await llm_service.extract_text(
-            system_prompt=DIRECTOR_SYSTEM_PROMPT,
-            user_message=user_prompt,
-            provider_name=provider_name,
-            api_key=api_key,
-        )
+        # LLM call — streaming when sse_writer is provided, complete() otherwise
+        SUBSTEPS = [
+            ("tension_level", "Tension narrative"),
+            ("narrator_guidance", "Intentions PNJ"),
+            ("planned_events", "Événements"),
+            ("long_term_vision", "Vision globale"),
+        ]
+
+        provider = get_provider(provider_name, api_key=api_key)
+        messages = [{"role": "user", "content": user_prompt}]
+
+        if sse_writer:
+            # Streaming mode — send status events as keys appear
+            full_json = ""
+            detected_keys = set()
+
+            async for chunk_or_usage in provider.stream(
+                system_prompt=DIRECTOR_SYSTEM_PROMPT,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2000,
+            ):
+                if isinstance(chunk_or_usage, str):
+                    full_json += chunk_or_usage
+                    for key, label in SUBSTEPS:
+                        if key not in detected_keys and f'"{key}"' in full_json:
+                            detected_keys.add(key)
+                            await sse_writer.send_status("director", label)
+                            logger.info(f"[DIRECTOR] Sub-step: {label}")
+
+            raw_result = parse_json_response(full_json)
+        else:
+            # Non-streaming mode (fire-and-forget per-message trigger)
+            result = await provider.complete(
+                system_prompt=DIRECTOR_SYSTEM_PROMPT,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2000,
+            )
+            raw_result = parse_json_response(result.content) if result else None
 
         if not raw_result:
             logger.warning("[DIRECTOR] LLM returned empty result")
             return None
 
-        # Validate
         plan = DirectorOutput.model_validate(raw_result)
 
         # Store in DB
