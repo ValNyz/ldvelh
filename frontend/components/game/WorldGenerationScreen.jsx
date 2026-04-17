@@ -80,17 +80,15 @@ export default function WorldGenerationScreen({
 								const stepStarted = new RegExp(`"${step.key}"\\s*:`).test(partialJson || '');
 								const stepDone = stepStarted && partialJson &&
 									new RegExp(`"${step.key}"\\s*:\\s*[\\[{]`).test(partialJson);
-								// When Director is active, all JSON dots are done
-								const isCurrent = !directorStatus && step.key === currentStep.key;
 
 								return (
 									<div
 										key={step.key}
 										className={`w-2 h-2 rounded-full transition-colors ${
-											isCurrent
-												? 'bg-primary animate-pulse'
-												: stepDone
-													? 'bg-green-500'
+											stepDone
+												? 'bg-green-500'
+												: stepStarted
+													? 'bg-primary animate-pulse'
 													: 'bg-gray-600'
 										}`}
 										title={step.label}
