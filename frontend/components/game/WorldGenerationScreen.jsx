@@ -68,10 +68,10 @@ export default function WorldGenerationScreen({
 						</div>
 						<div className="flex justify-between text-sm">
 							<span className="text-gray-400">
-								{directorStatus === 'running' ? 'Préparation du scénario' : currentStep.label}
+								{directorStatus === 'running' ? 'Scénario' : currentStep.label}
 								<span className="animate-pulse">...</span>
 							</span>
-							<span className="text-gray-500">{directorStatus === 'running' ? '' : `${progress}%`}</span>
+							<span className="text-gray-500">{progress}%</span>
 						</div>
 
 						{/* Step indicators */}

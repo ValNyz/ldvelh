@@ -524,7 +524,8 @@ async def _handle_chat(
                         )
 
                     # Initial Director run (blocking, part of world gen flow)
-                    await sse_writer.send_status("director", "Préparation du scénario")
+                    logger.info("[CHAT] Sending SSE status: director")
+                    await sse_writer.send_status("director", "Scénario")
                     try:
                         from services.director_service import run_director as run_director_init
                         await asyncio.wait_for(
