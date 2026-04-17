@@ -63,6 +63,14 @@ class ArrivalEventData(BaseModel):
     immediate_need: ShortText  # 200 chars
     optional_incident: Text | None = None  # 300 chars
 
+    @field_validator("first_npc_encountered", mode="before")
+    @classmethod
+    def _normalize_npc(cls, v):
+        """LLMs sometimes generate a dict instead of a string for this field."""
+        if isinstance(v, dict):
+            return v.get("name") or v.get("current_name")
+        return v
+
     def build_arrival_summary(self) -> str:
         """Build a narrative summary of the arrival in French."""
         parts = []

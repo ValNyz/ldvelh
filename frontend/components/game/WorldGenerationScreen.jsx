@@ -72,25 +72,24 @@ export default function WorldGenerationScreen({
 
 						{/* Step indicators */}
 						<div className="flex gap-1 justify-center flex-wrap mt-2">
-							{GENERATION_STEPS.map((step) => {
-								const stepStarted = new RegExp(`"${step.key}"\\s*:`).test(partialJson || '');
-								const stepDone = stepStarted && partialJson &&
-									new RegExp(`"${step.key}"\\s*:\\s*[\\[{]`).test(partialJson);
-
-								return (
+							{(() => {
+								// Find the index of the current step to make dots sequential
+								const currentIdx = GENERATION_STEPS.findIndex(s => s.key === currentStep.key);
+								return GENERATION_STEPS.map((step, i) => (
 									<div
 										key={step.key}
-										className={`w-2 h-2 rounded-full transition-colors ${step.key === currentStep.key
-											? 'bg-primary animate-pulse'
-											: stepDone
-												? 'bg-green-500'
-												: 'bg-gray-600'
-											}`}
+										className={`w-2 h-2 rounded-full transition-colors ${
+											i === currentIdx && !directorStatus
+												? 'bg-primary animate-pulse'
+												: i < currentIdx || (i === currentIdx && directorStatus)
+													? 'bg-green-500'
+													: 'bg-gray-600'
+										}`}
 										title={step.label}
 									/>
-								);
-							})}
-							{/* Director step — separate from JSON-based dots */}
+								));
+							})()}
+							{/* Director step */}
 							<div
 								className={`w-2 h-2 rounded-full transition-colors ${
 									directorStatus === 'running'
