@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import {
 	calculateProgress,
 	getCurrentStep,
+	getStepStatuses,
 	extractWorldName,
 	GENERATION_STEPS
 } from '../../lib/game/progressUtils';
@@ -34,6 +35,11 @@ export default function WorldGenerationScreen({
 
 	const worldName = useMemo(
 		() => extractWorldName(partialJson),
+		[partialJson]
+	);
+
+	const stepStatuses = useMemo(
+		() => getStepStatuses(partialJson),
 		[partialJson]
 	);
 
@@ -76,25 +82,19 @@ export default function WorldGenerationScreen({
 
 						{/* Step indicators */}
 						<div className="flex gap-1 justify-center flex-wrap mt-2">
-							{GENERATION_STEPS.map((step) => {
-								const stepStarted = new RegExp(`"${step.key}"\\s*:`).test(partialJson || '');
-								const stepDone = stepStarted && partialJson &&
-									new RegExp(`"${step.key}"\\s*:\\s*[\\[{]`).test(partialJson);
-
-								return (
-									<div
-										key={step.key}
-										className={`w-2 h-2 rounded-full transition-colors ${
-											stepDone
-												? 'bg-green-500'
-												: step.key === currentStep.key
-													? 'bg-primary animate-pulse'
-													: 'bg-gray-600'
-										}`}
-										title={step.label}
-									/>
-								);
-							})}
+							{stepStatuses.map((step) => (
+								<div
+									key={step.key}
+									className={`w-2 h-2 rounded-full transition-colors ${
+										step.status === 'done'
+											? 'bg-green-500'
+											: step.status === 'active'
+												? 'bg-primary animate-pulse'
+												: 'bg-gray-600'
+									}`}
+									title={step.label}
+								/>
+							))}
 							{/* Director step */}
 							<div
 								className={`w-2 h-2 rounded-full transition-colors ${

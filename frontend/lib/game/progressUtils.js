@@ -129,6 +129,25 @@ export function getCurrentStep(partialJson) {
 }
 
 /**
+ * Retourne le statut de chaque step : 'done', 'active', ou 'pending'
+ * - done: la clé existe et la section est complète (brackets fermés)
+ * - active: la clé existe mais la section est encore ouverte (en cours de stream)
+ * - pending: la clé n'existe pas encore
+ */
+export function getStepStatuses(partialJson) {
+	if (!partialJson) {
+		return GENERATION_STEPS.map(step => ({ ...step, status: 'pending' }));
+	}
+
+	return GENERATION_STEPS.map(step => {
+		const keyExists = new RegExp(`"${step.key}"\\s*:`).test(partialJson);
+		if (!keyExists) return { ...step, status: 'pending' };
+		if (isSectionComplete(partialJson, step.key)) return { ...step, status: 'done' };
+		return { ...step, status: 'active' };
+	});
+}
+
+/**
  * Extrait le nom du monde
  */
 export function extractWorldName(partialJson) {
