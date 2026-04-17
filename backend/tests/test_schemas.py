@@ -488,13 +488,15 @@ class TestValidationErrors:
             )
 
     def test_skill_level_bounds(self):
-        """Skill.level entre 1 et 5"""
+        """Skill.level 1-6, values outside are clamped"""
         Skill(name="test", level=1)
-        Skill(name="test", level=5)
-        with pytest.raises(ValidationError):
-            Skill(name="test", level=0)
-        with pytest.raises(ValidationError):
-            Skill(name="test", level=6)
+        Skill(name="test", level=6)
+        # Above 6 clamped to 6
+        s = Skill(name="test", level=8)
+        assert s.level == 6
+        # Below 1 clamped to 1
+        s = Skill(name="test", level=0)
+        assert s.level == 1
 
     def test_world_founding_cycle_negative(self):
         """WorldData.founding_cycle <= -100"""
