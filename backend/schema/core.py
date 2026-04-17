@@ -12,6 +12,7 @@ from pydantic import (
     BeforeValidator,
     Field,
     StringConstraints,
+    field_validator,
     model_validator,
 )
 
@@ -326,10 +327,18 @@ EntityRef = Annotated[
 
 
 class Skill(BaseModel):
-    """Skill with level 1-5"""
+    """Skill with level 1-6"""
 
     name: Tag  # 50 chars
-    level: int = Field(..., ge=1, le=5)
+    level: int = Field(..., ge=1, le=6)
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def _clamp_level(cls, v):
+        """Clamp LLM-generated levels to valid range (cap at 6)."""
+        if isinstance(v, (int, float)):
+            return max(1, min(6, int(v)))
+        return v
 
 
 # =============================================================================
