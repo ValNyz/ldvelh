@@ -83,7 +83,7 @@ class TestSSEEvent:
 
     def test_enum_values(self):
         """All expected event types exist."""
-        expected = {"chunk", "progress", "extracting", "done", "saved", "error", "warning", "state", "roll_result", "roll_pending"}
+        expected = {"chunk", "progress", "extracting", "done", "saved", "error", "warning", "state", "roll_result", "roll_pending", "status"}
         actual = {e.value for e in SSEEvent}
         assert actual == expected
 

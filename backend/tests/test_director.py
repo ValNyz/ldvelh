@@ -149,10 +149,13 @@ async def test_director_stores_plan(test_pool, test_user):
         "long_term_vision": "Saboteur reveal at cycle 10.",
     }
 
-    with patch("services.director_service.LLMService") as MockLLM:
-        mock_instance = MockLLM.return_value
-        mock_instance.extract_structured = AsyncMock(return_value=mock_result)
+    mock_content = json.dumps(mock_result)
+    mock_completion = AsyncMock()
+    mock_completion.content = mock_content
+    mock_provider = AsyncMock()
+    mock_provider.complete = AsyncMock(return_value=mock_completion)
 
+    with patch("services.director_service.get_provider", return_value=mock_provider):
         from services.director_service import run_director
         result = await run_director(
             pool=test_pool,
@@ -197,10 +200,12 @@ async def test_director_handles_empty_llm_result(test_pool, test_user):
     world_gen = WorldGeneration.model_validate(world_gen_data)
     await service.process_init(game_id, world_gen)
 
-    with patch("services.director_service.LLMService") as MockLLM:
-        mock_instance = MockLLM.return_value
-        mock_instance.extract_structured = AsyncMock(return_value=None)
+    mock_completion = AsyncMock()
+    mock_completion.content = ""
+    mock_provider = AsyncMock()
+    mock_provider.complete = AsyncMock(return_value=mock_completion)
 
+    with patch("services.director_service.get_provider", return_value=mock_provider):
         from services.director_service import run_director
         result = await run_director(
             pool=test_pool,
