@@ -174,6 +174,8 @@ async def run_director(
         )
 
         # LLM call — streaming when sse_writer is provided, complete() otherwise
+        # Labels sent when the PREVIOUS key's value is complete (not when the key appears)
+        # This way the label shows what's being generated NOW
         SUBSTEPS = [
             ("tension_level", "Tension narrative"),
             ("narrator_guidance", "Intentions PNJ"),
@@ -185,9 +187,12 @@ async def run_director(
         messages = [{"role": "user", "content": user_prompt}]
 
         if sse_writer:
-            # Streaming mode — send status events as keys appear
             full_json = ""
-            detected_keys = set()
+            sent_labels = set()
+
+            # Send initial status
+            await sse_writer.send_status("director", "Tension narrative")
+            sent_labels.add("Tension narrative")
 
             async for chunk_or_usage in provider.stream(
                 system_prompt=DIRECTOR_SYSTEM_PROMPT,
@@ -197,9 +202,10 @@ async def run_director(
             ):
                 if isinstance(chunk_or_usage, str):
                     full_json += chunk_or_usage
+                    # When a key appears, send the label for THAT key (it's now being generated)
                     for key, label in SUBSTEPS:
-                        if key not in detected_keys and f'"{key}"' in full_json:
-                            detected_keys.add(key)
+                        if label not in sent_labels and f'"{key}"' in full_json:
+                            sent_labels.add(label)
                             await sse_writer.send_status("director", label)
                             logger.info(f"[DIRECTOR] Sub-step: {label}")
 
