@@ -53,6 +53,18 @@ Tu prépares les sessions du Maître du Jeu (narrateur). Tu lis l'état du monde
 ## FORMAT
 
 JSON valide uniquement. Pas de markdown, pas de commentaires.
+
+```json
+{
+  "tension_level": 3,
+  "narrator_guidance": "Elena prépare sa confrontation avec son chef. Raj est nerveux — il prépare quelque chose en secret. Planter des indices visuels de sabotage (câbles sectionnés, traces d'outils). Le joueur semble s'intéresser au mystère — ne pas révéler le coupable, laisser des pistes.",
+  "planned_events": [
+    {"cycle": 5, "event": "Panne électrique dans le secteur B", "location": "Raffinerie", "npcs_involved": ["Elena"]},
+    {"cycle": 7, "event": "Livraison de ravitaillement annulée"}
+  ],
+  "long_term_vision": "Le saboteur est un ancien employé licencié. Révélation prévue dans le dernier tiers. D'ici là, les indices pointent vers Raj (fausse piste)."
+}
+```
 """
 
 

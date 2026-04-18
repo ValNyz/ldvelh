@@ -62,6 +62,23 @@ class FactData(BaseModel):
         description="Format: {subject}:{verb}:{object} in snake_case",
     )
 
+    @field_validator("semantic_key", mode="before")
+    @classmethod
+    def _normalize_semantic_key(cls, v):
+        """Strip accents and special chars from semantic_key."""
+        if not isinstance(v, str):
+            return v
+        import unicodedata
+        # Decompose accented chars, keep only ASCII
+        nfkd = unicodedata.normalize("NFKD", v.lower())
+        ascii_key = "".join(c for c in nfkd if c.isascii())
+        # Replace non-alnum (except : and _) with _
+        cleaned = "".join(c if c.isalnum() or c in ":_" else "_" for c in ascii_key)
+        # Collapse multiple underscores
+        while "__" in cleaned:
+            cleaned = cleaned.replace("__", "_")
+        return cleaned.strip("_")
+
     @field_validator("fact_type", mode="before")
     @classmethod
     def _normalize_fact_type(cls, v):

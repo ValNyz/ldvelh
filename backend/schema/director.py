@@ -3,7 +3,7 @@ LDVELH - Director Schema
 Models for the Director LLM narrative planning system.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class PlannedEvent(BaseModel):
@@ -28,6 +28,20 @@ class DirectorOutput(BaseModel):
         max_length=10,
         description="Events planned for upcoming cycles",
     )
+
+    @field_validator("planned_events", mode="before")
+    @classmethod
+    def _normalize_events(cls, v):
+        """LLMs sometimes generate strings instead of event objects."""
+        if not isinstance(v, list):
+            return v
+        normalized = []
+        for item in v:
+            if isinstance(item, str):
+                normalized.append({"cycle": 0, "event": item[:300]})
+            elif isinstance(item, dict):
+                normalized.append(item)
+        return normalized
     long_term_vision: str = Field(
         default="",
         max_length=1000,
