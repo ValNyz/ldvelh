@@ -3,15 +3,15 @@
 -- Remove scenario fields (handled by Director's guidance/planned_events).
 -- Keep: title, description, domain (free text), intensity, owner, resolved, resolution.
 
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS situation;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS desire;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS obstacle;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS potential_triggers;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS stakes;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS deadline_cycle;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS objective;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS steps;
-ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS progress;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS situation CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS desire CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS obstacle CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS potential_triggers CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS stakes CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS deadline_cycle CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS objective CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS steps CASCADE;
+ALTER TABLE narrative_arcs DROP COLUMN IF EXISTS progress CASCADE;
 
 -- Drop the deadline index (column removed)
 DROP INDEX IF EXISTS idx_arcs_deadline;
