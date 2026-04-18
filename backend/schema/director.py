@@ -15,6 +15,18 @@ class PlannedEvent(BaseModel):
     npcs_involved: list[str] = Field(default_factory=list)
 
 
+class ArcUpdate(BaseModel):
+    """A Director instruction to create, update, or resolve a narrative arc."""
+
+    action: str  # "create", "update", "resolve"
+    title: str
+    description: str | None = None
+    domain: str | None = None
+    intensity: int | None = None
+    involved_entities: list[str] = Field(default_factory=list)
+    resolution: str | None = None  # only for "resolve"
+
+
 class DirectorOutput(BaseModel):
     """Raw output from the Director LLM call."""
 
@@ -27,6 +39,10 @@ class DirectorOutput(BaseModel):
         default_factory=list,
         max_length=10,
         description="Events planned for upcoming cycles",
+    )
+    arc_updates: list[ArcUpdate] = Field(
+        default_factory=list,
+        description="Arc lifecycle: create, update intensity/description, or resolve",
     )
 
     @field_validator("planned_events", mode="before")
@@ -42,6 +58,7 @@ class DirectorOutput(BaseModel):
             else:
                 normalized.append(item)
         return normalized
+
     long_term_vision: str = Field(
         default="",
         max_length=1000,

@@ -905,9 +905,7 @@ class KnowledgeGraphPopulator:
         self, conn: Connection, arc: NarrativeArcData
     ) -> UUID:
         """Create a narrative arc with participants (dedup by title)."""
-        domain = (
-            arc.domain.value if hasattr(arc.domain, "value") else str(arc.domain)
-        )
+        domain = arc.domain if isinstance(arc.domain, str) else str(arc.domain)
 
         # Dedup: check for existing arc with same title
         existing_id = await conn.fetchval(
@@ -931,41 +929,21 @@ class KnowledgeGraphPopulator:
             )
             arc_id = existing_id
         else:
-            # Resolve owner_id from owner_ref name
             owner_id = None
             if hasattr(arc, "owner_ref") and arc.owner_ref:
                 owner_id = self.registry.resolve(arc.owner_ref)
 
-            # Serialize steps to JSON
-            import json as _json
-            steps_json = _json.dumps(
-                [s.model_dump() if hasattr(s, "model_dump") else s
-                 for s in (getattr(arc, "steps", None) or [])]
-            )
-
             arc_id = await conn.fetchval(
                 """INSERT INTO narrative_arcs (
-                    game_id, title, domain, description,
-                    intensity, progress, situation, desire, obstacle,
-                    potential_triggers, stakes, deadline_cycle,
-                    owner_id, objective, steps
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                    game_id, title, domain, description, intensity, owner_id
+                ) VALUES ($1,$2,$3,$4,$5,$6)
                 RETURNING id""",
                 self.game_id,
                 arc.title,
                 domain,
                 arc.description,
                 arc.intensity,
-                arc.progress,
-                arc.situation,
-                arc.desire,
-                arc.obstacle,
-                arc.potential_triggers,
-                arc.stakes,
-                arc.deadline_cycle,
                 owner_id,
-                getattr(arc, "objective", None),
-                steps_json,
             )
 
         for entity_name in arc.involved_entities:
@@ -988,21 +966,17 @@ class KnowledgeGraphPopulator:
         conn: Connection,
         arc_title: str,
         intensity: int | None = None,
-        progress: int | None = None,
-        situation: str | None = None,
+        description: str | None = None,
     ) -> bool:
-        """Update progress/intensity/situation on an existing arc."""
+        """Update intensity/description on an existing arc."""
         sets = ["updated_at = NOW()"]
         params: list = [self.game_id, arc_title]
         if intensity is not None:
             params.append(intensity)
             sets.append(f"intensity = ${len(params)}")
-        if progress is not None:
-            params.append(progress)
-            sets.append(f"progress = ${len(params)}")
-        if situation is not None:
-            params.append(situation)
-            sets.append(f"situation = ${len(params)}")
+        if description is not None:
+            params.append(description)
+            sets.append(f"description = ${len(params)}")
 
         if len(params) == 2:
             return False

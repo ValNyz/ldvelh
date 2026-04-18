@@ -99,28 +99,21 @@ class FactData(BaseModel):
 
 
 class NarrativeArcData(BaseModel):
-    """A narrative arc (story thread) tracked across cycles"""
+    """A narrative arc (story thread) — simplified, managed by Director"""
 
     title: Name  # 100 chars
-    domain: ArcDomain = ArcDomain.PERSONAL
+    domain: str = "personal"  # free text, no enum constraint
     description: LongText  # 400 chars
-    # State
-    intensity: int = Field(default=3, ge=1, le=5, description="How pressing this arc is")
-    progress: int = Field(default=0, ge=0, le=100)
-    situation: Text | None = None  # 300 chars - current state
-    desire: Phrase | None = None  # 150 chars - goal / tension
-    obstacle: Phrase | None = None  # 150 chars - what blocks progress
-    # Triggers
-    potential_triggers: list[str] = Field(default_factory=list, max_length=4)
-    stakes: ShortText | None = None  # 200 chars
-    deadline_cycle: Cycle | None = Field(default=None, ge=1)
-    # Participants (entity refs, resolved to entity_registry by populator)
+    intensity: int = Field(default=3, ge=1, le=5)
     involved_entities: list[EntityRef] = Field(default_factory=list)
 
     @field_validator("domain", mode="before")
     @classmethod
     def _normalize_domain(cls, v):
-        return normalize_arc_domain(v)
+        """Best-effort normalization, no error on unknown domains."""
+        if not isinstance(v, str):
+            return "personal"
+        return v.lower().strip()
 
 
 class ArcResolution(BaseModel):

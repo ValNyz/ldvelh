@@ -56,6 +56,64 @@ def should_run_director(
     return elapsed >= interval
 
 
+async def _apply_arc_update(conn, game_id, arc_update, cycle):
+    """Apply a single arc update from the Director."""
+    action = arc_update.action.lower()
+    title = arc_update.title
+
+    if action == "create":
+        # Create new arc
+        arc_id = await conn.fetchval(
+            """INSERT INTO narrative_arcs (game_id, title, description, domain, intensity)
+               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+            game_id, title,
+            arc_update.description or "",
+            arc_update.domain or "personal",
+            arc_update.intensity or 3,
+        )
+        # Link involved entities via arc_participants
+        if arc_id and arc_update.involved_entities:
+            for entity_name in arc_update.involved_entities:
+                entity_id = await conn.fetchval(
+                    "SELECT id FROM entity_registry WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+                    game_id, entity_name,
+                )
+                if entity_id:
+                    await conn.execute(
+                        "INSERT INTO arc_participants (arc_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                        arc_id, entity_id,
+                    )
+        logger.info(f"[DIRECTOR] Arc created: '{title}'")
+
+    elif action == "update":
+        # Update existing arc
+        updates = []
+        params = [game_id, title]
+        idx = 3
+        if arc_update.description:
+            updates.append(f"description = ${idx}")
+            params.append(arc_update.description)
+            idx += 1
+        if arc_update.intensity:
+            updates.append(f"intensity = ${idx}")
+            params.append(arc_update.intensity)
+            idx += 1
+        if updates:
+            updates.append("updated_at = now()")
+            sql = f"UPDATE narrative_arcs SET {', '.join(updates)} WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false"
+            await conn.execute(sql, *params)
+            logger.info(f"[DIRECTOR] Arc updated: '{title}'")
+
+    elif action == "resolve":
+        await conn.execute(
+            """UPDATE narrative_arcs
+               SET resolved = true, resolved_cycle = $3, resolution = $4, updated_at = now()
+               WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false""",
+            game_id, title, cycle, arc_update.resolution or "",
+        )
+        logger.info(f"[DIRECTOR] Arc resolved: '{title}'")
+
+
 async def run_director(
     pool: asyncpg.Pool,
     game_id: UUID,
@@ -247,9 +305,17 @@ async def run_director(
                 game_id, current_time,
             )
 
+            # Apply arc updates
+            for arc_update in plan.arc_updates:
+                try:
+                    await _apply_arc_update(conn, game_id, arc_update, current_cycle)
+                except Exception as arc_err:
+                    logger.warning(f"[DIRECTOR] Arc update failed: {arc_err}")
+
         logger.info(
             f"[DIRECTOR] Plan stored for game {game_id}: "
-            f"tension={plan.tension_level}, events={len(plan.planned_events)}"
+            f"tension={plan.tension_level}, events={len(plan.planned_events)}, "
+            f"arc_updates={len(plan.arc_updates)}"
         )
         return plan.model_dump()
 

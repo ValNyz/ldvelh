@@ -488,14 +488,12 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     await self._create_arc_from_extraction(conn, arc, cycle)
                     stats["arcs_created"] += 1
 
-                # 12. Update arc progress
+                # 12. Update arc progress (simplified — Director manages arcs now)
                 for arc_update in extraction.arcs_updated:
                     updated = await self.update_arc(
                         conn,
                         arc_title=arc_update.arc_title,
                         intensity=arc_update.intensity,
-                        progress=arc_update.progress,
-                        situation=arc_update.situation,
                     )
                     if updated:
                         stats["arcs_updated"] = stats.get("arcs_updated", 0) + 1

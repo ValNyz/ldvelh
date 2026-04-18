@@ -110,55 +110,8 @@ class NarrativeArcsExtractor(BaseExtractor):
     async def _populate(
         self, conn: Connection, raw_result: dict, cycle: int
     ) -> dict:
-        stats = {"arcs_created": 0, "arcs_updated": 0, "arcs_resolved": 0,
-                 "relations_created": 0, "relations_updated": 0, "relations_ended": 0,
+        stats = {"relations_created": 0, "relations_updated": 0, "relations_ended": 0,
                  "events_scheduled": 0, "facts_created": 0, "errors": []}
-
-        # Arcs created
-        for arc_data in raw_result.get("arcs_created", []):
-            try:
-                arc = ArcCreation.model_validate(arc_data)
-                arc_db = NarrativeArcData(
-                    title=arc.title,
-                    domain=arc.domain,
-                    description=arc.description,
-                    involved_entities=arc.involved_entities,
-                    potential_triggers=arc.potential_triggers,
-                    stakes=arc.stakes,
-                    deadline_cycle=arc.deadline_cycle,
-                    intensity=arc.intensity,
-                )
-                await self.populator.create_narrative_arc(conn, arc_db)
-                stats["arcs_created"] += 1
-            except Exception as e:
-                stats["errors"].append(f"arc_create: {e}")
-
-        # Arcs updated
-        for au_data in raw_result.get("arcs_updated", []):
-            try:
-                au = ArcUpdate.model_validate(au_data)
-                updated = await self.populator.update_arc(
-                    conn,
-                    arc_title=au.arc_title,
-                    intensity=au.intensity,
-                    progress=au.progress,
-                    situation=au.situation,
-                )
-                if updated:
-                    stats["arcs_updated"] += 1
-            except Exception as e:
-                stats["errors"].append(f"arc_update: {e}")
-
-        # Arcs resolved
-        for ar_data in raw_result.get("arcs_resolved", []):
-            try:
-                ar = ArcResolutionExtraction.model_validate(ar_data)
-                await self.populator.resolve_arc(
-                    conn, ar.arc_title, ar.resolution, cycle
-                )
-                stats["arcs_resolved"] += 1
-            except Exception as e:
-                stats["errors"].append(f"arc_resolve: {e}")
 
         # Relations created (skip OWNS)
         for rc_data in raw_result.get("relations_created", []):
