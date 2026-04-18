@@ -39,7 +39,7 @@ class DirectorOutput(BaseModel):
         for item in v:
             if isinstance(item, str):
                 normalized.append({"cycle": 0, "event": item[:300]})
-            elif isinstance(item, dict):
+            else:
                 normalized.append(item)
         return normalized
     long_term_vision: str = Field(
