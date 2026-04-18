@@ -255,4 +255,5 @@ async def run_director(
 
     except Exception as e:
         logger.error(f"[DIRECTOR] Failed for game {game_id}: {e}", exc_info=True)
+        logger.debug(f"[DIRECTOR] Context prompt was:\n{user_prompt[:2000]}")
         return None
