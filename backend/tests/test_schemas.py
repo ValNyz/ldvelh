@@ -183,16 +183,14 @@ class TestWorldGenerationExample:
             assert arc.domain is not None
 
     def test_narrative_arc_fields(self, world_generation_example):
-        """NarrativeArcData avec tous les champs"""
+        """NarrativeArcData avec champs simplifiés"""
         pression = next(
             a
             for a in world_generation_example["narrative_arcs"]
             if a["title"] == "Pression sur Symbiose"
         )
         arc = NarrativeArcData(**pression)
-        assert arc.domain.value == "professional"
-        assert len(arc.potential_triggers) >= 1
-        assert arc.deadline_cycle == 180
+        assert arc.domain == "professional"
         assert "Symbiose Tech" in arc.involved_entities
 
     def test_all_relations(self, world_generation_example):

@@ -381,18 +381,18 @@ class TestNarrativeValidators:
             )
 
     def test_narrative_arc_domain_normalization(self):
-        """NarrativeArcData normalizes domain."""
+        """NarrativeArcData normalizes domain to lowercase string."""
         from schema.narrative import NarrativeArcData
 
         arc = NarrativeArcData(
             title="Test Arc",
-            domain="professional",
+            domain="Professional",
             description="A test arc for professional development in the station",
         )
-        assert arc.domain.value == "professional"
+        assert arc.domain == "professional"
 
-    def test_narrative_arc_domain_unknown_falls_back(self):
-        """NarrativeArcData domain falls back on unknown."""
+    def test_narrative_arc_domain_unknown_kept(self):
+        """NarrativeArcData keeps unknown domains (free text now)."""
         from schema.narrative import NarrativeArcData
 
         arc = NarrativeArcData(
@@ -400,7 +400,7 @@ class TestNarrativeValidators:
             domain="totally_unknown_domain_xyz",
             description="A test arc for unknown purposes",
         )
-        assert arc.domain.value == "professional"  # first enum value
+        assert arc.domain == "totally_unknown_domain_xyz"
 
     def test_event_scheduled_event_type_string(self):
         """EventScheduled normalizes event_type from string."""
