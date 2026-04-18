@@ -546,6 +546,7 @@ def build_narrator_context_prompt(
     lines.append("")
     lines.append("```json")
     lines.append("""{
+  "narrative_length": "short | medium | long",
   "narrative_text": "...",
   "time": {"new_time": "HHhMM", "ellipse": false},
   "day_transition": null,

@@ -371,6 +371,10 @@ class NarrationOutput(BaseModel):
         return data
 
     # === NARRATION ===
+    narrative_length: str = Field(
+        default="medium",
+        description="Self-declared length: short (2-4 phrases), medium (5-8), long (8-12). Generated BEFORE narrative_text to guide length.",
+    )
     narrative_text: str = Field(
         ...,
         min_length=1,
