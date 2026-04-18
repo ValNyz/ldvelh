@@ -519,14 +519,6 @@ class GameService:
                 elif reveal.entity_type == "location":
                     await populator.mark_location_accessible(conn, reveal.current_name)
 
-            # Store narrative seeds
-            for seed_text in (narration.narrative_seeds or [])[:2]:
-                if seed_text and seed_text.strip():
-                    await populator.save_seed(conn, cycle, seed_text.strip())
-
-            # Archive stale seeds
-            await populator.archive_stale_seeds(conn, cycle)
-
             # Fate Core: compel FP adjustment
             if narration.compel_result in ("accepted", "refused"):
                 try:

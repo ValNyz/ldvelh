@@ -422,12 +422,6 @@ class NarrationOutput(BaseModel):
         description="Extractors to run: characters, locations, organizations, inventory, narrative_arcs",
     )
 
-    # === NARRATIVE SEEDS ===
-    narrative_seeds: list[str] = Field(
-        default_factory=list,
-        description="0-2 raw observable details planted in this scene (unresolved hooks)",
-    )
-
     # === FATE CORE: COMPEL ===
     compel_aspect: str | None = Field(
         default=None, description="Aspect being compelled (exact name, or null)"
