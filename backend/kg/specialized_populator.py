@@ -823,9 +823,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             domain=arc.domain,
             description=arc.description,
             involved_entities=arc.involved_entities,
-            potential_triggers=arc.potential_triggers,
-            stakes=arc.stakes,
-            deadline_cycle=arc.deadline_cycle,
             intensity=arc.intensity,
         )
         return await self.create_narrative_arc(conn, arc_data)

@@ -99,17 +99,8 @@ class OrganizationSummary(BaseModel):
     ambient: str | None = None
 
 
-class ArcStep(BaseModel):
-    """A milestone step within an arc"""
-
-    title: str
-    status: str = "pending"  # pending, active, completed, failed, skipped
-    description: str = ""
-    risks: list[str] = Field(default_factory=list)
-
-
 class ActiveArcSummary(BaseModel):
-    """Summary of an active narrative arc"""
+    """Summary of an active narrative arc (Director manages lifecycle)"""
 
     type: str  # ArcDomain value
     title: str
@@ -117,10 +108,6 @@ class ActiveArcSummary(BaseModel):
     involved: list[str]  # Entity names involved
     owner: str | None = None  # Entity name of the arc owner
     owner_type: str | None = None  # "protagonist", "character", "location"
-    objective: str | None = None  # Goal formulated as intention
-    steps: list[ArcStep] = Field(default_factory=list)
-    deadline_cycle: Optional[int] = None
-    urgency: str = "normal"  # low, normal, high, critical
 
 
 class EventSummary(BaseModel):

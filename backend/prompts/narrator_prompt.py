@@ -439,17 +439,8 @@ def build_narrator_context_prompt(
             lines.append("### ARCS DU JOUEUR (guidage implicite)")
             lines.append("Fais résonner au moins un élément de la scène avec un arc actif.")
             for c in player_arcs:
-                deadline = (
-                    f" [deadline: cycle {c.deadline_cycle}]" if c.deadline_cycle else ""
-                )
-                lines.append(f"- **{c.title}** ({c.type}){deadline}")
-                if c.objective:
-                    lines.append(f"  Objectif: {c.objective}")
+                lines.append(f"- **{c.title}** ({c.type})")
                 lines.append(f"  {c.description_brief}")
-                if c.steps:
-                    active_steps = [s for s in c.steps if s.status in ("pending", "active")]
-                    for s in active_steps[:2]:
-                        lines.append(f"  → Étape: {s.title} [{s.status}]")
                 if c.involved:
                     lines.append(f"  Impliqués: {', '.join(c.involved)}")
             lines.append("")
@@ -458,12 +449,7 @@ def build_narrator_context_prompt(
             lines.append("### ARCS MONDE & PNJ")
             for c in other_arcs:
                 owner_label = f" [{c.owner}]" if c.owner else ""
-                deadline = (
-                    f" [deadline: cycle {c.deadline_cycle}]" if c.deadline_cycle else ""
-                )
-                lines.append(f"- **{c.title}** ({c.type}){owner_label}{deadline}")
-                if c.objective:
-                    lines.append(f"  Objectif: {c.objective}")
+                lines.append(f"- **{c.title}** ({c.type}){owner_label}")
                 lines.append(f"  {c.description_brief}")
                 if c.involved:
                     lines.append(f"  Impliqués: {', '.join(c.involved)}")

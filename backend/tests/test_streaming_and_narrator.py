@@ -1185,7 +1185,7 @@ class TestNarratorContextPromptBranches:
     # ---- Active arcs ----
 
     def test_active_arcs_rendered(self):
-        """Active arcs section with deadlines and participants."""
+        """Active arcs section with participants."""
         ctx = _make_context(
             active_arcs=[
                 ActiveArcSummary(
@@ -1193,7 +1193,6 @@ class TestNarratorContextPromptBranches:
                     title="Installation au poste",
                     description_brief="Valentin doit s'intégrer à DataCorp",
                     involved=["Chef Morin", "Valentin"],
-                    deadline_cycle=5,
                 ),
                 ActiveArcSummary(
                     type="mystery",
@@ -1206,12 +1205,8 @@ class TestNarratorContextPromptBranches:
         prompt = build_narrator_context_prompt(ctx)
         assert "### ARCS MONDE & PNJ" in prompt
         assert "**Installation au poste** (professional)" in prompt
-        assert "[deadline: cycle 5]" in prompt
         assert "Impliqués: Chef Morin, Valentin" in prompt
         assert "**Signal inconnu** (mystery)" in prompt
-        # No deadline for second arc
-        signal_line = [l for l in prompt.split("\n") if "Signal inconnu" in l][0]
-        assert "deadline" not in signal_line
 
     def test_no_arcs_section_when_empty(self):
         """No ARCS section when list is empty."""

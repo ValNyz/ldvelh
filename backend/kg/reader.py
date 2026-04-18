@@ -523,15 +523,14 @@ class KnowledgeGraphReader:
         """Get active narrative arcs with participants and owner info."""
         rows = await conn.fetch(
             """SELECT v.id, v.title, v.domain, v.description,
-                      v.intensity, v.progress, v.situation, v.desire, v.obstacle,
-                      v.stakes, v.deadline_cycle, v.participants,
-                      na.owner_id, na.objective, na.steps,
+                      v.intensity, v.participants,
+                      na.owner_id,
                       er.name as owner_name, er.entity_type as owner_type
                FROM v_active_arcs v
                JOIN narrative_arcs na ON na.id = v.id
                LEFT JOIN entity_registry er ON na.owner_id = er.id
                WHERE v.game_id = $1
-               ORDER BY v.intensity DESC, v.deadline_cycle ASC NULLS LAST""",
+               ORDER BY v.intensity DESC""",
             self.game_id,
         )
         return [dict(r) for r in rows]

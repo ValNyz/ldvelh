@@ -362,7 +362,7 @@ class ContextBuilder:
                 ArcSummary(
                     domain=ArcDomain(a.get("domain", "personal")),
                     title=a.get("title", ""),
-                    situation_brief=(a.get("situation") or "")[:100],
+                    situation_brief=(a.get("description") or "")[:100],
                     intensity=a.get("intensity", 3),
                 )
                 for a in arcs[:2]
@@ -419,36 +419,19 @@ class ContextBuilder:
         return names
 
     def _build_active_arcs(self, arcs_rows: list[dict]) -> list[ActiveArcSummary]:
-        """Build active arcs from narrative_arcs table"""
-        from schema.narration import ArcStep
-
+        """Build active arcs from narrative_arcs table (simplified — Director manages lifecycle)"""
         result = []
         for arc in arcs_rows:
             involved = self._extract_participant_names(arc.get("participants") or [])
-
-            # Parse steps from JSONB
-            raw_steps = arc.get("steps") or []
-            steps = []
-            for s in raw_steps:
-                if isinstance(s, dict):
-                    steps.append(ArcStep(
-                        title=s.get("title", ""),
-                        status=s.get("status", "pending"),
-                        description=s.get("description", ""),
-                        risks=s.get("risks", []),
-                    ))
 
             result.append(
                 ActiveArcSummary(
                     type=arc.get("domain") or "personal",
                     title=arc.get("title", ""),
-                    description_brief=(arc.get("situation") or arc.get("description") or "")[:150],
+                    description_brief=(arc.get("description") or "")[:150],
                     involved=involved,
                     owner=arc.get("owner_name"),
                     owner_type=arc.get("owner_type"),
-                    objective=arc.get("objective"),
-                    steps=steps,
-                    deadline_cycle=arc.get("deadline_cycle"),
                 )
             )
         return result
