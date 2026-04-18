@@ -48,6 +48,10 @@ class CharactersExtractor(BaseExtractor):
         characters = await self.reader.get_all_characters(conn)
         active_arcs = await self.reader.get_active_arcs(conn)
 
+        # Get companion name to exclude from character extraction
+        companion = await self.reader.get_companion(conn)
+        self._companion_name = companion["name"].lower() if companion else None
+
         # Filter arcs that involve characters
         arcs_with_chars = []
         for arc in active_arcs:
@@ -62,6 +66,7 @@ class CharactersExtractor(BaseExtractor):
         return {
             "characters": characters,
             "arcs_with_characters": arcs_with_chars,
+            "companion_name": self._companion_name,
         }
 
     def _build_prompts(
@@ -100,12 +105,16 @@ class CharactersExtractor(BaseExtractor):
         stats = {"entities_created": 0, "entities_updated": 0, "ambients_updated": 0,
                  "facts_created": 0, "errors": []}
 
-        # Entities created
+        # Entities created (skip companion name to avoid duplication)
+        companion_name = getattr(self, '_companion_name', None)
         for ec_data in raw_result.get("entities_created", []):
             try:
                 ec_data.setdefault("entity_type", "character")
                 ec = EntityCreation.model_validate(ec_data)
                 if ec.entity_type != EntityType.CHARACTER:
+                    continue
+                if companion_name and ec.name.lower() == companion_name:
+                    logger.info(f"[CHARACTERS] Skipping companion '{ec.name}' (already in companions table)")
                     continue
                 await self.populator._process_entity_creation(conn, ec, cycle)
                 stats["entities_created"] += 1

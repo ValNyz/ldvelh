@@ -445,13 +445,21 @@ Inclure un encadré markdown après la narration de la complication :
 
     def build_context_stats(self, engine_stats: dict) -> list[str]:
         lines = ["### STATS (Fate Core)"]
-        # Aspects
-        aspects = engine_stats.get("aspects", [])
-        if aspects:
+        # Aspects — stored as {"high_concept": "...", "trouble": "...", "other": ["...", "..."]}
+        aspects = engine_stats.get("aspects", {})
+        if isinstance(aspects, dict):
+            if aspects.get("high_concept"):
+                lines.append(f"- Concept: **{aspects['high_concept']}**")
+            if aspects.get("trouble"):
+                lines.append(f"- Problème: **{aspects['trouble']}**")
+            for other in (aspects.get("other") or []):
+                if other:
+                    lines.append(f"- Aspect: **{other}**")
+        elif isinstance(aspects, list):
             for a in aspects:
                 if isinstance(a, dict):
                     lines.append(f"- Aspect ({a.get('type', 'other')}): **{a.get('name', '?')}**")
-                else:
+                elif isinstance(a, str) and a:
                     lines.append(f"- Aspect: **{a}**")
         # Skills
         skills = engine_stats.get("skills", [])
