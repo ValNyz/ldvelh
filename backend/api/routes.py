@@ -751,6 +751,12 @@ async def _handle_chat(
                     return
 
                 try:
+                    # Fill missing required fields with current game state
+                    if "time" not in parsed:
+                        parsed["time"] = {"new_time": current_time, "ellipse": False}
+                    if "current_location" not in parsed:
+                        parsed["current_location"] = current_location
+
                     t1 = time.perf_counter()
                     narration = NarrationOutput.model_validate(parsed)
                     logger.debug(
