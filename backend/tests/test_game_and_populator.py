@@ -1948,8 +1948,6 @@ class TestExtractionPopulator:
                 {
                     "arc_title": "La mère malade",
                     "intensity": 4,
-                    "progress": 15,
-                    "situation": "Justine mentionne des frais médicaux en hausse",
                 }
             ],
         })
@@ -1961,14 +1959,13 @@ class TestExtractionPopulator:
 
         async with test_pool.acquire() as conn:
             arc = await conn.fetchrow(
-                "SELECT intensity, progress, situation FROM narrative_arcs"
+                "SELECT intensity FROM narrative_arcs"
                 " WHERE game_id = $1 AND LOWER(title) = LOWER('La mère malade')"
                 " AND resolved = false",
                 game_id,
             )
         assert arc is not None
         assert arc["intensity"] == 4
-        assert arc["progress"] == 15
 
     @pytest.mark.asyncio
     async def test_process_extraction_arc_resolved(
@@ -2217,10 +2214,18 @@ class TestGameServiceLoadSidebar:
     async def test_load_npcs_returns_list_of_dicts(
         self, client, test_user, test_pool
     ):
-        """load_npcs returns properly typed list after world population."""
+        """load_npcs returns properly typed list after making a character known."""
+        from kg.populator import KnowledgeGraphPopulator
+
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
         )
+
+        # World gen characters start as unknown — mark one known
+        first_char = world_gen.characters[0].name
+        populator = KnowledgeGraphPopulator(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            await populator.mark_character_known(conn, first_char, None)
 
         npcs = await service.load_npcs(game_id)
         assert isinstance(npcs, list)
@@ -2368,11 +2373,10 @@ class TestContextBuilderMethods:
         )
 
         # Create an event in the DB
-        populator = KnowledgeGraphPopulator(test_pool, game_id)
         async with test_pool.acquire() as conn:
             await conn.execute(
-                """INSERT INTO events (game_id, title, type, planned_cycle, created_cycle)
-                   VALUES ($1, 'Réunion urgente', 'appointment', 2, 1)""",
+                """INSERT INTO events (game_id, title, type, planned_cycle)
+                   VALUES ($1, 'Réunion urgente', 'appointment', 2)""",
                 game_id,
             )
 

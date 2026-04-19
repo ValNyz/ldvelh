@@ -785,9 +785,9 @@ class GameService:
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """UPDATE mechanic_rolls
-                SET roll_details = $1::jsonb, outcome = $2, message_id = $3
+                SET roll_details = $1, outcome = $2, message_id = $3
                 WHERE id = $4""",
-                json.dumps(roll_details),
+                roll_details,
                 outcome,
                 message_id,
                 roll_id,
