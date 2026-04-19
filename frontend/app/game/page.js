@@ -86,6 +86,13 @@ export default function Home() {
 		gamesHook.loadGames();
 	}, [gamesHook.loadGames]);
 
+	// Refresh tooltips when entering a game (gameId set + phase is PLAYING)
+	useEffect(() => {
+		if (gs.gameId && phaseHook.isPlaying) {
+			refreshTooltips();
+		}
+	}, [gs.gameId, phaseHook.isPlaying, refreshTooltips]);
+
 	// =========================================================================
 	// SETTINGS NAVIGATION
 	// =========================================================================
