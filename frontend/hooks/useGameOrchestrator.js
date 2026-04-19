@@ -353,15 +353,18 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const handleSubmitEdit = useCallback(async (content) => {
 		if (editingIndex === null) return;
 
+		let result;
 		try {
-			await stateApi.rollback(gs.gameId, editingIndex);
+			result = await stateApi.rollback(gs.gameId, editingIndex);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			gs.setError({ message: 'Rollback failed: ' + e.message });
 			return;
 		}
 
-		gs.setMessages(prev => prev.slice(0, editingIndex));
+		// Use backend's authoritative message list instead of local slice
+		gs.setMessages(result.messages || []);
+		if (result.state) gs.replaceGameState(result.state);
 		setEditingIndex(null);
 
 		await handleSendMessage(content);
@@ -371,15 +374,17 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		const msg = gs.messages[index];
 		if (!msg || msg.role !== 'user') return;
 
+		let result;
 		try {
-			await stateApi.rollback(gs.gameId, index);
+			result = await stateApi.rollback(gs.gameId, index);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			gs.setError({ message: 'Rollback failed: ' + e.message });
 			return;
 		}
 
-		gs.setMessages(prev => prev.slice(0, index));
+		gs.setMessages(result.messages || []);
+		if (result.state) gs.replaceGameState(result.state);
 		await handleSendMessage(msg.content);
 	}, [gs.messages, gs.gameId, gs, handleSendMessage]);
 
@@ -389,15 +394,17 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		const lastAssistantIndex = gs.messages.length - 1;
 		if (gs.messages[lastAssistantIndex]?.role !== 'assistant') return;
 
+		let result;
 		try {
-			await stateApi.rollback(gs.gameId, gs.messages.length - 2);
+			result = await stateApi.rollback(gs.gameId, gs.messages.length - 2);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			gs.setError({ message: 'Rollback failed: ' + e.message });
 			return;
 		}
 
-		gs.setMessages(prev => prev.slice(0, -2));
+		gs.setMessages(result.messages || []);
+		if (result.state) gs.replaceGameState(result.state);
 
 		await handleSendMessage(lastUserMessage);
 	}, [lastUserMessage, gs.messages, gs.gameId, gs, handleSendMessage]);
