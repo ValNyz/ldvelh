@@ -265,9 +265,12 @@ async def rollback_game(
     service = GameService(pool)
     await service.verify_ownership(game_id, user["id"])
 
-    result = await service.rollback_to_message(game_id, request.fromIndex)
-    new_state = await service.load_game_state(game_id)
-    new_messages = await service.load_chat_messages(game_id)
+    # Acquire game lock to prevent race with in-flight extraction
+    lock = _get_game_lock(game_id)
+    async with lock:
+        result = await service.rollback_to_message(game_id, request.fromIndex)
+        new_state = await service.load_game_state(game_id)
+        new_messages = await service.load_chat_messages(game_id)
 
     return {"success": True, **result, "state": new_state, "messages": new_messages}
 

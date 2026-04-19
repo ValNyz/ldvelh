@@ -819,6 +819,25 @@ class GameService:
                 messages[keep_until_index - 1]["cycle"] if keep_until_index > 0 else 0
             )
 
+            # Reverse credit deltas from messages being deleted
+            credit_reversal = 0
+            for m in messages_to_delete:
+                deltas = m.get("narrator_deltas")
+                if deltas:
+                    if isinstance(deltas, str):
+                        deltas = parse_json(deltas)
+                    if isinstance(deltas, dict):
+                        cd = deltas.get("credit_delta")
+                        if cd and isinstance(cd, dict):
+                            credit_reversal -= cd.get("amount", 0)
+
+            if credit_reversal != 0:
+                await conn.execute(
+                    "UPDATE protagonists SET credits = credits + $1"
+                    " WHERE game_id = $2",
+                    credit_reversal, game_id,
+                )
+
             # Delete messages
             ids_to_delete = [m["id"] for m in messages_to_delete]
             await conn.execute(

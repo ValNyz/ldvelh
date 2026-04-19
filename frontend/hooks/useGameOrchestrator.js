@@ -254,6 +254,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 			if (loadedMessages.length > 0) {
 				phase.setGamePhase(phase.GAME_PHASE.PLAYING);
+				tooltips.refresh();
 			} else if (data.state?.world_created) {
 				if (data.world_info) {
 					phase.setWorldData(data.world_info);
@@ -270,7 +271,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		} finally {
 			gs.setLoading(false);
 		}
-	}, [games, gs, phase, generateWorld]);
+	}, [games, gs, phase, generateWorld, tooltips]);
 
 	const handleDeleteGame = useCallback(async (id) => {
 		try {

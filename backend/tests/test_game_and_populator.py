@@ -983,6 +983,217 @@ class TestRollback:
         result = await service.rollback_to_message(game_id, keep_until_index=999)
         assert result["deleted"] == 0
 
+    @pytest.mark.asyncio
+    async def test_rollback_reverses_credits(self, client, test_user, test_pool):
+        """Rollback reverses credit changes from deleted messages."""
+        from schema import NarrationOutput
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+        # Get initial credit balance
+        reader = service._get_reader(game_id)
+        async with test_pool.acquire() as conn:
+            stats = await reader.get_protagonist_stats(conn)
+        initial_credits = stats["credits"]
+
+        # Round 1: spend 50 credits
+        narration1 = NarrationOutput.model_validate(_make_narration_output(
+            arrival_loc, credit_delta={"amount": -50, "description": "achat"},
+        ))
+        await service.process_light(game_id, narration1, current_cycle=1)
+        await service.apply_narrator_deltas(game_id, narration1, 1)
+        await service.save_messages(
+            game_id, "action1", "response1", cycle=1,
+            time="09h15", location_ref=arrival_loc,
+            narrator_deltas={"credit_delta": {"amount": -50, "description": "achat"}},
+        )
+
+        # Round 2: spend 30 credits
+        narration2 = NarrationOutput.model_validate(_make_narration_output(
+            arrival_loc, credit_delta={"amount": -30, "description": "repas"},
+        ))
+        await service.process_light(game_id, narration2, current_cycle=1)
+        await service.apply_narrator_deltas(game_id, narration2, 1)
+        await service.save_messages(
+            game_id, "action2", "response2", cycle=1,
+            time="10h00", location_ref=arrival_loc,
+            narrator_deltas={"credit_delta": {"amount": -30, "description": "repas"}},
+        )
+
+        # Verify credits went down by 80 total
+        async with test_pool.acquire() as conn:
+            stats = await reader.get_protagonist_stats(conn)
+        assert stats["credits"] == initial_credits - 80
+
+        # Rollback: keep only first round (index 2 = keep messages 0,1)
+        await service.rollback_to_message(game_id, 2)
+
+        # Credits from round 2 (-30) should be reversed
+        async with test_pool.acquire() as conn:
+            stats = await reader.get_protagonist_stats(conn)
+        assert stats["credits"] == initial_credits - 50
+
+    @pytest.mark.asyncio
+    async def test_rollback_cleans_inventory(self, client, test_user, test_pool):
+        """Rollback removes inventory items acquired after rollback point."""
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        # Create an object and add to inventory at cycle 2
+        async with test_pool.acquire() as conn:
+            obj_id = await conn.fetchval(
+                "INSERT INTO objects (game_id, name, created_cycle)"
+                " VALUES ($1, 'Épée rouillée', 2) RETURNING id",
+                game_id,
+            )
+            await conn.execute(
+                "INSERT INTO inventory (game_id, object_id, acquired_cycle)"
+                " VALUES ($1, $2, 2)",
+                game_id, obj_id,
+            )
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM inventory"
+                " WHERE game_id = $1 AND acquired_cycle = 2",
+                game_id,
+            )
+            assert count == 1
+
+        # Rollback to cycle 1
+        await service.rollback_to_message(game_id, 0)
+
+        async with test_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM inventory"
+                " WHERE game_id = $1 AND acquired_cycle > 1",
+                game_id,
+            )
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_rollback_preserves_message_order(self, client, test_user, test_pool):
+        """After rollback, remaining messages are in correct sequence order."""
+        from schema import NarrationOutput
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+        # Send 3 rounds with different cycles
+        for cycle in [1, 2, 3]:
+            narration = NarrationOutput.model_validate(_make_narration_output(
+                arrival_loc, time={"new_time": f"0{cycle + 8}h00", "ellipse": False},
+            ))
+            await service.process_light(game_id, narration, current_cycle=cycle)
+            await service.save_messages(
+                game_id, f"Action cycle {cycle}", f"Response cycle {cycle}",
+                cycle=cycle, time=f"0{cycle + 8}h00", location_ref=arrival_loc,
+            )
+
+        # Rollback to keep only first 2 rounds (4 messages)
+        await service.rollback_to_message(game_id, 4)
+
+        messages = await service.load_chat_messages(game_id)
+        assert len(messages) == 4
+
+        # Verify order: user1, assistant1, user2, assistant2
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "Action cycle 1"
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["content"] == "Response cycle 1"
+        assert messages[2]["role"] == "user"
+        assert messages[2]["content"] == "Action cycle 2"
+        assert messages[3]["role"] == "assistant"
+        assert messages[3]["content"] == "Response cycle 2"
+
+        # Verify cycles are monotonic
+        cycles = [m["cycle"] for m in messages if m.get("cycle")]
+        for i in range(1, len(cycles)):
+            assert cycles[i] >= cycles[i - 1], (
+                f"Messages not in cycle order: {cycles}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_rollback_then_new_messages_ordered(
+        self, client, test_user, test_pool
+    ):
+        """After rollback, new messages are correctly ordered after remaining ones."""
+        from schema import NarrationOutput
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+        # Send 2 rounds
+        for cycle in [1, 2]:
+            narration = NarrationOutput.model_validate(
+                _make_narration_output(arrival_loc)
+            )
+            await service.process_light(game_id, narration, current_cycle=cycle)
+            await service.save_messages(
+                game_id, f"Action {cycle}", f"Response {cycle}",
+                cycle=cycle, time="09h00", location_ref=arrival_loc,
+            )
+
+        # Rollback to keep first round only
+        await service.rollback_to_message(game_id, 2)
+
+        # Send a new message after rollback
+        narration = NarrationOutput.model_validate(
+            _make_narration_output(arrival_loc)
+        )
+        await service.process_light(game_id, narration, current_cycle=1)
+        await service.save_messages(
+            game_id, "New action after rollback", "New response after rollback",
+            cycle=1, time="09h30", location_ref=arrival_loc,
+        )
+
+        messages = await service.load_chat_messages(game_id)
+        assert len(messages) == 4
+
+        # Original round 1 + new round should be in sequence
+        assert messages[0]["content"] == "Action 1"
+        assert messages[1]["content"] == "Response 1"
+        assert messages[2]["content"] == "New action after rollback"
+        assert messages[3]["content"] == "New response after rollback"
+
+    @pytest.mark.asyncio
+    async def test_rollback_cleans_director_plans(self, client, test_user, test_pool):
+        """Rollback removes director plans from rolled-back cycles."""
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        # Insert a director plan at cycle 3
+        async with test_pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO director_plans
+                   (game_id, cycle, ig_time, tension_level, narrator_guidance)
+                   VALUES ($1, 3, '14h00', 4, 'test guidance')""",
+                game_id,
+            )
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM director_plans WHERE game_id = $1",
+                game_id,
+            )
+            assert count >= 1
+
+        # Rollback to cycle 1
+        await service.rollback_to_message(game_id, 0)
+
+        async with test_pool.acquire() as conn:
+            count = await conn.fetchval(
+                "SELECT COUNT(*) FROM director_plans"
+                " WHERE game_id = $1 AND cycle > 1",
+                game_id,
+            )
+        assert count == 0
+
 
 # =============================================================================
 # GAME SERVICE - load_game_state & load_world_info
