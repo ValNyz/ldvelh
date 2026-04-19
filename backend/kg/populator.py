@@ -375,6 +375,19 @@ class KnowledgeGraphPopulator:
         residence_id: UUID | None = None,
     ) -> UUID:
         """Insert character (NPC) into dedicated table."""
+        # Check if this name matches an existing character's unknown_name
+        existing = await conn.fetchval(
+            "SELECT id FROM characters"
+            " WHERE game_id = $1 AND LOWER(unknown_name) = LOWER($2)",
+            self.game_id,
+            data.name,
+        )
+        if existing:
+            logger.info(
+                f"[CHARACTER] '{data.name}' matches existing unknown_name, skipping creation"
+            )
+            return existing
+
         return await conn.fetchval(
             """INSERT INTO characters (
                 game_id, name, known_by_protagonist, unknown_name,
@@ -597,6 +610,27 @@ class KnowledgeGraphPopulator:
     ) -> bool:
         """Reveal a character's identity to the protagonist."""
         if real_name:
+            # Check if real_name already exists as another character
+            existing = await conn.fetchval(
+                "SELECT id FROM characters"
+                " WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+                self.game_id,
+                real_name,
+            )
+            if existing:
+                # Mark the real character as known, delete the duplicate
+                await conn.execute(
+                    "UPDATE characters SET known_by_protagonist = true,"
+                    " updated_at = NOW() WHERE id = $1",
+                    existing,
+                )
+                await conn.execute(
+                    "DELETE FROM characters"
+                    " WHERE game_id = $1 AND LOWER(name) = LOWER($2) AND id != $3",
+                    self.game_id, name, existing,
+                )
+                return True
+
             result = await conn.execute(
                 "UPDATE characters SET known_by_protagonist = true,"
                 " name = $1, updated_at = NOW()"
@@ -606,10 +640,12 @@ class KnowledgeGraphPopulator:
                 name,
             )
         else:
+            # Also try matching by unknown_name
             result = await conn.execute(
                 "UPDATE characters SET known_by_protagonist = true,"
                 " updated_at = NOW()"
-                " WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+                " WHERE game_id = $1 AND (LOWER(name) = LOWER($2)"
+                " OR LOWER(unknown_name) = LOWER($2))",
                 self.game_id,
                 name,
             )
