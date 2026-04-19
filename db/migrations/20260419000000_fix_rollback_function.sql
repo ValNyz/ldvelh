@@ -54,14 +54,14 @@ BEGIN
   DELETE FROM chronology WHERE game_id = p_game_id AND cycle > p_target_cycle;
   DELETE FROM extraction_logs WHERE game_id = p_game_id AND cycle > p_target_cycle;
 
+  -- Inventory before objects (FK constraint: inventory references objects)
+  DELETE FROM inventory WHERE game_id = p_game_id AND acquired_cycle > p_target_cycle;
+
   -- Entities created after target cycle
   DELETE FROM characters WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
   DELETE FROM locations WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
   DELETE FROM organizations WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
   DELETE FROM objects WHERE game_id = p_game_id AND created_cycle > p_target_cycle;
-
-  -- Inventory acquired after target cycle
-  DELETE FROM inventory WHERE game_id = p_game_id AND acquired_cycle > p_target_cycle;
 
   -- Narrative seeds from future cycles
   DELETE FROM narrative_seeds WHERE game_id = p_game_id AND cycle > p_target_cycle;

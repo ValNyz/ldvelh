@@ -864,8 +864,8 @@ class TestD6JSONBRoundTrip:
         data = {
             "attributes": {"Force": 3, "Agilité": 4, "Intelligence": 2},
             "skills": [
-                {"attribute": "Force", "name": "Combat", "dice_value": 4},
-                {"attribute": "Agilité", "name": "Esquive", "dice_value": 3},
+                {"attribute": "Force", "name": "Combat", "dice_value": "4D"},
+                {"attribute": "Agilité", "name": "Esquive", "dice_value": "3D"},
             ],
             "force_points": 5,
         }

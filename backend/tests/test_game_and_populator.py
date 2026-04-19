@@ -1046,13 +1046,16 @@ class TestRollback:
         )
         arrival_loc = world_gen.arrival_event.arrival_location_ref
 
-        # Save a message at cycle 1 so rollback has something to work with
-        narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
-        await service.process_light(game_id, narration, current_cycle=1)
-        await service.save_messages(
-            game_id, "action", "response", cycle=1,
-            time="09h00", location_ref=arrival_loc,
-        )
+        # Save messages at cycle 1 and cycle 2
+        for cycle in [1, 2]:
+            narration = NarrationOutput.model_validate(
+                _make_narration_output(arrival_loc)
+            )
+            await service.process_light(game_id, narration, current_cycle=cycle)
+            await service.save_messages(
+                game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
+                time="09h00", location_ref=arrival_loc,
+            )
 
         # Create an object and add to inventory at cycle 2
         async with test_pool.acquire() as conn:
@@ -1073,7 +1076,7 @@ class TestRollback:
             )
             assert count == 1
 
-        # Rollback to keep cycle 1 messages, remove cycle 2+ data
+        # Rollback to keep cycle 1 messages (2 msgs), remove cycle 2+ data
         await service.rollback_to_message(game_id, 2)
 
         async with test_pool.acquire() as conn:
@@ -1184,13 +1187,16 @@ class TestRollback:
         )
         arrival_loc = world_gen.arrival_event.arrival_location_ref
 
-        # Save a message at cycle 1 so rollback has something to work with
-        narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
-        await service.process_light(game_id, narration, current_cycle=1)
-        await service.save_messages(
-            game_id, "action", "response", cycle=1,
-            time="09h00", location_ref=arrival_loc,
-        )
+        # Save messages at cycle 1 and cycle 2
+        for cycle in [1, 2]:
+            narration = NarrationOutput.model_validate(
+                _make_narration_output(arrival_loc)
+            )
+            await service.process_light(game_id, narration, current_cycle=cycle)
+            await service.save_messages(
+                game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
+                time="09h00", location_ref=arrival_loc,
+            )
 
         # Insert a director plan at cycle 3
         async with test_pool.acquire() as conn:
@@ -1206,7 +1212,7 @@ class TestRollback:
             )
             assert count >= 1
 
-        # Rollback to keep cycle 1 messages, remove cycle 2+ data
+        # Rollback to keep cycle 1 messages (2 msgs), remove cycle 2+ data
         await service.rollback_to_message(game_id, 2)
 
         async with test_pool.acquire() as conn:
