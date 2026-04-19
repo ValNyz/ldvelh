@@ -177,12 +177,119 @@ async def test_director_stores_plan(test_pool, test_user):
     assert plan["ig_time"] == "08h00"
     assert "Elena" in plan["narrator_guidance"]
 
+    # Verify planned_events round-trips as a list, not a string
+    assert isinstance(plan["planned_events"], list), (
+        f"planned_events should be list, got {type(plan['planned_events'])}"
+    )
+    assert len(plan["planned_events"]) == 1
+    assert plan["planned_events"][0]["event"] == "Power outage in sector B"
+
     # Verify last_director_time updated
     async with test_pool.acquire() as conn:
         game = await conn.fetchrow(
             "SELECT last_director_time FROM games WHERE id = $1", game_id
         )
     assert game["last_director_time"] == "08h00"
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_director_plan_read_by_context_builder(test_pool, test_user):
+    """Context builder reads director plan correctly (planned_events as list)."""
+    from services.game_service import GameService
+    from services.context_builder import ContextBuilder
+    from schema import WorldGeneration
+    from prompts.examples import WORLD_GENERATION_EXAMPLE
+
+    service = GameService(test_pool)
+    game_id = await service.create_game(test_user["id"])
+
+    async with test_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE games SET game_duration = 'medium' WHERE id = $1", game_id
+        )
+
+    world_gen_data = json.loads(WORLD_GENERATION_EXAMPLE)
+    world_gen = WorldGeneration.model_validate(world_gen_data)
+    await service.process_init(game_id, world_gen)
+
+    # Mock the LLM call
+    mock_result = {
+        "tension_level": 4,
+        "narrator_guidance": "Raise the stakes.",
+        "planned_events": [
+            {"cycle": 3, "event": "Explosion in lab", "location": "Labo"},
+            {"cycle": 5, "event": "NPC betrayal", "npcs_involved": ["Raj"]},
+        ],
+        "long_term_vision": "Build toward confrontation.",
+    }
+
+    mock_content = json.dumps(mock_result)
+    mock_completion = AsyncMock()
+    mock_completion.content = mock_content
+    mock_provider = AsyncMock()
+    mock_provider.complete = AsyncMock(return_value=mock_completion)
+
+    with patch("services.director_service.get_provider", return_value=mock_provider):
+        from services.director_service import run_director
+        await run_director(
+            pool=test_pool,
+            game_id=game_id,
+            current_cycle=1,
+            current_time="08h00",
+        )
+
+    # Now read it back via context_builder's _load_director_plan
+    builder = ContextBuilder(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        guidance, tension, events = await builder._load_director_plan(conn)
+
+    assert tension == 4
+    assert "stakes" in guidance
+    assert isinstance(events, list)
+    assert len(events) == 2
+    assert events[0]["event"] == "Explosion in lab"
+    assert events[1]["npcs_involved"] == ["Raj"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_director_plan_string_fallback(test_pool, test_user):
+    """Context builder handles corrupted planned_events stored as JSON string."""
+    from services.game_service import GameService
+    from services.context_builder import ContextBuilder
+    from schema import WorldGeneration
+    from prompts.examples import WORLD_GENERATION_EXAMPLE
+
+    service = GameService(test_pool)
+    game_id = await service.create_game(test_user["id"])
+
+    world_gen_data = json.loads(WORLD_GENERATION_EXAMPLE)
+    world_gen = WorldGeneration.model_validate(world_gen_data)
+    await service.process_init(game_id, world_gen)
+
+    # Simulate corrupted data: insert planned_events as a double-encoded JSON string
+    # (this is what the old json.dumps() bug produced)
+    corrupted_events = json.dumps([{"cycle": 2, "event": "Corrupted event"}])
+    async with test_pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO director_plans
+               (game_id, cycle, ig_time, tension_level, narrator_guidance, planned_events)
+               VALUES ($1, 1, '08h00', 3, 'test', $2)""",
+            game_id,
+            corrupted_events,  # string, not list — simulates the bug
+        )
+
+    # Context builder should handle the string gracefully
+    builder = ContextBuilder(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        guidance, tension, events = await builder._load_director_plan(conn)
+
+    assert isinstance(events, list), (
+        f"Expected list after string fallback, got {type(events)}"
+    )
+    assert len(events) == 1
+    assert events[0]["event"] == "Corrupted event"
 
 
 @pytest.mark.asyncio

@@ -2203,3 +2203,589 @@ class TestExtractionPopulator:
 
         # OWNS should be skipped
         assert stats["relations_created"] == 0
+
+
+# =============================================================================
+# GAME SERVICE — load_npcs / load_locations / load_organizations / load_quests
+# =============================================================================
+
+
+class TestGameServiceLoadSidebar:
+    """Tests for sidebar data loading (load_npcs, load_locations, etc.)."""
+
+    @pytest.mark.asyncio
+    async def test_load_npcs_returns_list_of_dicts(
+        self, client, test_user, test_pool
+    ):
+        """load_npcs returns properly typed list after world population."""
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        npcs = await service.load_npcs(game_id)
+        assert isinstance(npcs, list)
+        assert len(npcs) > 0
+
+        for npc in npcs:
+            assert isinstance(npc, dict)
+            assert "id" in npc
+            assert "name" in npc
+            assert isinstance(npc["name"], str)
+            assert len(npc["name"]) > 0
+            # relationship should be a label string, not None
+            assert npc["relationship"] in (
+                "Inconnu", "Hostile", "Neutre", "Connaissance", "Ami", "Ami proche"
+            )
+
+    @pytest.mark.asyncio
+    async def test_load_locations_returns_list_of_dicts(
+        self, client, test_user, test_pool
+    ):
+        """load_locations returns properly typed list after world population."""
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        locations = await service.load_locations(game_id)
+        assert isinstance(locations, list)
+        assert len(locations) > 0
+
+        for loc in locations:
+            assert isinstance(loc, dict)
+            assert "id" in loc
+            assert "name" in loc
+            assert isinstance(loc["name"], str)
+            assert isinstance(loc.get("accessible", True), bool)
+
+    @pytest.mark.asyncio
+    async def test_load_organizations_returns_list_of_dicts(
+        self, client, test_user, test_pool
+    ):
+        """load_organizations returns properly typed list after world population."""
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        orgs = await service.load_organizations(game_id)
+        assert isinstance(orgs, list)
+        assert len(orgs) > 0
+
+        for org in orgs:
+            assert isinstance(org, dict)
+            assert "id" in org
+            assert "name" in org
+            assert isinstance(org["name"], str)
+
+    @pytest.mark.asyncio
+    async def test_load_quests_returns_list_of_dicts(
+        self, client, test_user, test_pool
+    ):
+        """load_quests returns properly typed list with correct fields."""
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        quests = await service.load_quests(game_id)
+        assert isinstance(quests, list)
+        # World gen example should have some arcs
+        assert len(quests) > 0
+
+        for quest in quests:
+            assert isinstance(quest, dict)
+            assert "id" in quest
+            assert "name" in quest
+            assert isinstance(quest["name"], str)
+            assert quest["type"] in (
+                "personal", "professional", "social", "mystery",
+                "health", "family", "financial", "community",
+            ) or isinstance(quest["type"], str)
+            assert quest["status"] == "En cours"
+
+    @pytest.mark.asyncio
+    async def test_load_npcs_empty_game(self, client, test_user, test_pool):
+        """load_npcs on a game with no world returns empty list."""
+        from services.game_service import GameService
+
+        resp = await client.post("/api/games", headers=auth_headers(test_user["token"]))
+        game_id = UUID(resp.json()["gameId"])
+
+        service = GameService(test_pool)
+        npcs = await service.load_npcs(game_id)
+        assert npcs == []
+
+
+# =============================================================================
+# CONTEXT BUILDER — _build_* methods
+# =============================================================================
+
+
+class TestContextBuilderMethods:
+    """Tests for ContextBuilder internal methods (DB round-trip)."""
+
+    @pytest.mark.asyncio
+    async def test_build_produces_valid_narration_context(
+        self, client, test_user, test_pool
+    ):
+        """Full build() produces a valid NarrationContext after world population."""
+        from services.context_builder import ContextBuilder
+        from schema.narration import NarrationContext
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            # Get initial location from world gen
+            location_name = world_gen.locations[0].name
+            ctx = await builder.build(
+                conn,
+                player_input="Je regarde autour de moi",
+                current_cycle=1,
+                current_time="08h00",
+                current_location_name=location_name,
+            )
+
+        assert isinstance(ctx, NarrationContext)
+        assert ctx.current_cycle == 1
+        assert ctx.protagonist.name == world_gen.protagonist.name
+        assert len(ctx.all_npcs) > 0
+        assert isinstance(ctx.organizations, list)
+        assert isinstance(ctx.active_arcs, list)
+        assert isinstance(ctx.facts, list)
+        assert isinstance(ctx.director_planned_events, list)
+
+    @pytest.mark.asyncio
+    async def test_build_events_returns_typed_list(
+        self, client, test_user, test_pool
+    ):
+        """_build_events returns list of EventSummary from DB."""
+        from services.context_builder import ContextBuilder
+        from kg.populator import KnowledgeGraphPopulator
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        # Create an event in the DB
+        populator = KnowledgeGraphPopulator(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO events (game_id, title, type, planned_cycle, created_cycle)
+                   VALUES ($1, 'Réunion urgente', 'appointment', 2, 1)""",
+                game_id,
+            )
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            events = await builder._build_events(conn, current_cycle=1)
+
+        assert isinstance(events, list)
+        # Should find our event (planned for cycle 2, we're at cycle 1)
+        titles = [e.title for e in events]
+        assert "Réunion urgente" in titles
+
+    @pytest.mark.asyncio
+    async def test_build_facts_returns_typed_list(
+        self, client, test_user, test_pool
+    ):
+        """_build_facts returns list of Fact from DB."""
+        from services.context_builder import ContextBuilder
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            facts = await builder._build_facts(conn, current_cycle=1)
+
+        assert isinstance(facts, list)
+        # World gen creates initial facts (arrival)
+        assert len(facts) > 0
+        for f in facts:
+            assert isinstance(f.cycle, int)
+            assert isinstance(f.description, str)
+            assert isinstance(f.importance, int)
+            assert isinstance(f.involves, list)
+
+    @pytest.mark.asyncio
+    async def test_build_cycle_summaries_returns_typed_list(
+        self, client, test_user, test_pool
+    ):
+        """_build_cycle_summaries returns list of CycleSummary."""
+        from services.context_builder import ContextBuilder
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            summaries = await builder._build_cycle_summaries(conn, current_cycle=10)
+
+        # At cycle 1, no summaries yet — just verify it returns a list
+        assert isinstance(summaries, list)
+
+    @pytest.mark.asyncio
+    async def test_build_companion_returns_correct_type(
+        self, client, test_user, test_pool
+    ):
+        """_build_companion returns CompanionSummary with correct fields."""
+        from services.context_builder import ContextBuilder
+        from schema.narration import CompanionSummary
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            companion = await builder._build_companion(conn)
+
+        assert companion is not None
+        assert isinstance(companion, CompanionSummary)
+        assert companion.name == world_gen.companion.name
+        assert isinstance(companion.personality_traits, list)
+
+    @pytest.mark.asyncio
+    async def test_build_connected_locations_returns_list(
+        self, client, test_user, test_pool
+    ):
+        """_build_connected_locations returns list of LocationSummary."""
+        from services.context_builder import ContextBuilder
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        location_name = world_gen.locations[0].name
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            connected = await builder._build_connected_locations(conn, location_name)
+
+        assert isinstance(connected, list)
+        # All entries should be LocationSummary-like
+        for loc in connected:
+            assert hasattr(loc, "name")
+            assert hasattr(loc, "type")
+
+    @pytest.mark.asyncio
+    async def test_build_requested_details_empty_default(
+        self, client, test_user, test_pool
+    ):
+        """_build_requested_details returns empty dict when no requests."""
+        from services.context_builder import ContextBuilder
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            details = await builder._build_requested_details(conn)
+
+        assert isinstance(details, dict)
+        assert len(details) == 0
+
+    @pytest.mark.asyncio
+    async def test_build_requested_details_with_requests(
+        self, client, test_user, test_pool
+    ):
+        """_build_requested_details returns entity data for stored requests."""
+        from services.context_builder import ContextBuilder
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        # Store a detail request for a known entity
+        npc_name = world_gen.characters[0].name
+        await service.store_info_requests(game_id, [npc_name])
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            details = await builder._build_requested_details(conn)
+
+        assert isinstance(details, dict)
+        assert npc_name in details
+        assert isinstance(details[npc_name], dict)
+
+    @pytest.mark.asyncio
+    async def test_active_arcs_from_context_builder(
+        self, client, test_user, test_pool
+    ):
+        """_build_active_arcs returns ActiveArcSummary objects from DB data."""
+        from services.context_builder import ContextBuilder
+        from schema.narration import ActiveArcSummary
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        builder = ContextBuilder(test_pool, game_id)
+        async with test_pool.acquire() as conn:
+            arcs_rows = await builder.reader.get_active_arcs(conn)
+            active_arcs = builder._build_active_arcs(arcs_rows)
+
+        assert isinstance(active_arcs, list)
+        assert len(active_arcs) > 0
+        for arc in active_arcs:
+            assert isinstance(arc, ActiveArcSummary)
+            assert isinstance(arc.type, str)
+            assert isinstance(arc.title, str)
+            assert isinstance(arc.description_brief, str)
+            assert isinstance(arc.involved, list)
+
+
+# =============================================================================
+# CONTEXT BUILDER — _row_to_npc_summary traits string fallback
+# =============================================================================
+
+
+class TestContextBuilderTraitsFallback:
+    """Test that _row_to_npc_summary handles traits as string (JSONB edge case)."""
+
+    def test_traits_as_list(self):
+        """Normal case: traits is already a list."""
+        from services.context_builder import ContextBuilder
+
+        builder = ContextBuilder.__new__(ContextBuilder)
+        row = {
+            "name": "Elena",
+            "known_by_protagonist": True,
+            "occupation": "ingénieure",
+            "species": "human",
+            "traits": ["prudente", "loyale", "curieuse"],
+            "relation_context": "collègue",
+            "relation_level": 5,
+            "usual_location": "Labo",
+            "ambient": None,
+        }
+        npc = builder._row_to_npc_summary(row)
+        assert npc.traits == ["prudente", "loyale", "curieuse"]
+
+    def test_traits_as_json_string(self):
+        """Edge case: traits stored as JSON string instead of list."""
+        from services.context_builder import ContextBuilder
+
+        builder = ContextBuilder.__new__(ContextBuilder)
+        row = {
+            "name": "Raj",
+            "known_by_protagonist": True,
+            "occupation": "médecin",
+            "species": "human",
+            "traits": '["calme", "méthodique"]',
+            "relation_context": None,
+            "relation_level": 3,
+            "usual_location": "Infirmerie",
+            "ambient": None,
+        }
+        npc = builder._row_to_npc_summary(row)
+        assert isinstance(npc.traits, list)
+        assert npc.traits == ["calme", "méthodique"]
+
+    def test_traits_as_invalid_string(self):
+        """Edge case: traits is a non-JSON string."""
+        from services.context_builder import ContextBuilder
+
+        builder = ContextBuilder.__new__(ContextBuilder)
+        row = {
+            "name": "Zed",
+            "known_by_protagonist": True,
+            "occupation": None,
+            "species": "alien",
+            "traits": "not valid json",
+            "relation_context": None,
+            "relation_level": None,
+            "usual_location": None,
+            "ambient": None,
+        }
+        npc = builder._row_to_npc_summary(row)
+        assert npc.traits == []
+
+    def test_traits_none(self):
+        """Edge case: traits is None."""
+        from services.context_builder import ContextBuilder
+
+        builder = ContextBuilder.__new__(ContextBuilder)
+        row = {
+            "name": "Ghost",
+            "known_by_protagonist": False,
+            "unknown_name": "Silhouette",
+            "occupation": None,
+            "species": "human",
+            "traits": None,
+            "relation_context": None,
+            "relation_level": None,
+            "usual_location": None,
+            "ambient": None,
+        }
+        npc = builder._row_to_npc_summary(row)
+        assert npc.traits == []
+        assert npc.name == "Silhouette"
+
+
+# =============================================================================
+# GAME SERVICE — update_mechanic_roll JSONB round-trip
+# =============================================================================
+
+
+class TestMechanicRollJsonbRoundTrip:
+    """Verify mechanic roll details survive DB round-trip as correct types."""
+
+    @pytest.mark.asyncio
+    async def test_roll_details_round_trip(self, client, test_user, test_pool):
+        """Roll details stored via json.dumps + ::jsonb should read back as dict."""
+        from schema import NarrationOutput
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        # Log a mechanic roll
+        roll_details = {
+            "dice": [3, 5],
+            "total": 8,
+            "skill": "Combat",
+            "difficulty": 6,
+            "shifts": 2,
+        }
+        roll_id = await service.log_mechanic_roll(
+            game_id=game_id,
+            message_id=None,
+            engine="fate_core",
+            skill_used="Combat",
+            roll_details=roll_details,
+            outcome="success",
+            complication=False,
+            cycle=1,
+        )
+
+        # Load it back
+        pending = await service.load_pending_roll(game_id, roll_id)
+        assert pending is not None
+        assert isinstance(pending["roll_details"], dict)
+        assert pending["roll_details"]["total"] == 8
+        assert pending["roll_details"]["dice"] == [3, 5]
+
+    @pytest.mark.asyncio
+    async def test_update_roll_details_round_trip(self, client, test_user, test_pool):
+        """Updated roll details should also round-trip correctly."""
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        roll_id = await service.log_mechanic_roll(
+            game_id=game_id,
+            message_id=None,
+            engine="fate_core",
+            skill_used="Empathie",
+            roll_details={"dice": [1, 2], "total": 3},
+            outcome="tie",
+            complication=False,
+            cycle=1,
+        )
+
+        # Update with aspect invocation
+        new_details = {
+            "dice": [1, 2],
+            "total": 5,
+            "aspect_invoked": "Ancien soldat",
+            "bonus": 2,
+        }
+        await service.update_mechanic_roll(roll_id, new_details, "success")
+
+        # Verify round-trip via direct DB read
+        async with test_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT roll_details, outcome FROM mechanic_rolls WHERE id = $1",
+                roll_id,
+            )
+        assert isinstance(row["roll_details"], dict)
+        assert row["roll_details"]["aspect_invoked"] == "Ancien soldat"
+        assert row["outcome"] == "success"
+
+
+# =============================================================================
+# EXTRACTION ORCHESTRATOR — concurrent guard and phase execution
+# =============================================================================
+
+
+class TestExtractionOrchestratorIntegration:
+    """Integration tests for the extraction orchestrator."""
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_with_no_triggers(self, client, test_user, test_pool):
+        """Orchestrator with no triggers runs resolver only."""
+        from services.extraction.orchestrator import run_resolve_and_extract
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        result = await run_resolve_and_extract(
+            pool=test_pool,
+            game_id=game_id,
+            trigger_cycle=1,
+            triggers=[],
+            message_content="Le soleil se couche.",
+        )
+
+        assert isinstance(result, dict)
+        assert "extractors" in result
+        assert len(result["extractors"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_concurrent_guard(self, client, test_user, test_pool):
+        """Concurrent extraction for same game is rejected."""
+        from services.extraction.orchestrator import (
+            run_resolve_and_extract,
+            _extracting_games,
+        )
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        # Simulate an in-progress extraction
+        key = str(game_id)
+        _extracting_games.add(key)
+        try:
+            result = await run_resolve_and_extract(
+                pool=test_pool,
+                game_id=game_id,
+                trigger_cycle=1,
+                triggers=["characters"],
+                message_content="Test",
+            )
+            assert result.get("skipped") is True
+            assert result.get("reason") == "concurrent"
+        finally:
+            _extracting_games.discard(key)
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_guard_cleared_after_run(
+        self, client, test_user, test_pool
+    ):
+        """Guard is cleared even when orchestrator completes (no lingering lock)."""
+        from services.extraction.orchestrator import (
+            run_resolve_and_extract,
+            _extracting_games,
+        )
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        key = str(game_id)
+        assert key not in _extracting_games
+
+        await run_resolve_and_extract(
+            pool=test_pool,
+            game_id=game_id,
+            trigger_cycle=1,
+            triggers=[],
+        )
+
+        assert key not in _extracting_games

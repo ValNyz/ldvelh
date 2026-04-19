@@ -291,8 +291,7 @@ class GameService:
                 "description": a.get("description") or "",
                 "type": a.get("domain") or "personal",
                 "status": "En cours",
-                "priority": "high" if a.get("deadline_cycle") else "normal",
-                "progress": a.get("progress") or 0,
+                "intensity": a.get("intensity") or 3,
             }
             for a in arcs
         ]
