@@ -114,11 +114,11 @@ class FateCoreEngine(BaseEngine):
             """
             INSERT INTO character_fate
                 (game_id, aspects, stunts, fate_points, refresh)
-            VALUES ($1, $2::jsonb, $3::jsonb, $4, $5)
+            VALUES ($1, $2, $3, $4, $5)
             """,
             game_id,
-            json.dumps(aspects),
-            json.dumps(stunts),
+            aspects,
+            stunts,
             fate_points,
             refresh,
         )
@@ -173,12 +173,12 @@ class FateCoreEngine(BaseEngine):
         await conn.execute(
             """
             INSERT INTO npc_fate (character_id, aspects, skills, stunts, fate_points)
-            VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5)
+            VALUES ($1, $2, $3, $4, $5)
             """,
             character_id,
-            json.dumps(data.get("aspects", [])),
-            json.dumps(data.get("skills", {})),
-            json.dumps(data.get("stunts", [])),
+            data.get("aspects", []),
+            data.get("skills", {}),
+            data.get("stunts", []),
             data.get("fate_points", 1),
         )
 
@@ -258,21 +258,21 @@ class FateCoreEngine(BaseEngine):
         await conn.execute(
             """
             UPDATE character_fate SET
-                aspects = $1::jsonb,
-                stunts = $2::jsonb,
+                aspects = $1,
+                stunts = $2,
                 stress_physical = $3,
                 stress_mental = $4,
-                consequences = $5::jsonb,
+                consequences = $5,
                 fate_points = $6,
                 refresh = $7,
                 updated_at = now()
             WHERE game_id = $8
             """,
-            json.dumps(snapshot.get("aspects", [])),
-            json.dumps(snapshot.get("stunts", [])),
+            snapshot.get("aspects", []),
+            snapshot.get("stunts", []),
             snapshot.get("stress_physical", [False] * 4),
             snapshot.get("stress_mental", [False] * 4),
-            json.dumps(snapshot.get("consequences", {})),
+            snapshot.get("consequences", {}),
             snapshot.get("fate_points", 3),
             snapshot.get("refresh", 3),
             game_id,
@@ -636,8 +636,8 @@ Inclure un encadré markdown après la narration de la complication :
                         a["name"] = new_name
                         break
                 await conn.execute(
-                    "UPDATE character_fate SET aspects = $1::jsonb, updated_at = now() WHERE game_id = $2",
-                    json.dumps(aspects),
+                    "UPDATE character_fate SET aspects = $1, updated_at = now() WHERE game_id = $2",
+                    aspects,
                     game_id,
                 )
         if extraction.get("aspect_renames"):
@@ -655,8 +655,8 @@ Inclure un encadré markdown après la narration de la complication :
                 stunts = row["stunts"] if isinstance(row["stunts"], list) else json.loads(row["stunts"])
                 stunts.append({"name": stunt.get("name", ""), "description": stunt.get("description", "")})
                 await conn.execute(
-                    "UPDATE character_fate SET stunts = $1::jsonb, updated_at = now() WHERE game_id = $2",
-                    json.dumps(stunts),
+                    "UPDATE character_fate SET stunts = $1, updated_at = now() WHERE game_id = $2",
+                    stunts,
                     game_id,
                 )
         if extraction.get("new_stunts"):
@@ -716,10 +716,10 @@ Inclure un encadré markdown après la narration de la complication :
             await conn.execute(
                 """
                 INSERT INTO object_fate (object_id, item_type, stunts)
-                VALUES ($1, $2, $3::jsonb)
+                VALUES ($1, $2, $3)
                 ON CONFLICT (object_id) DO NOTHING
                 """,
                 object_id,
                 item_type,
-                json.dumps(stunts),
+                stunts,
             )

@@ -147,10 +147,10 @@ class D6Engine(BaseEngine):
         await conn.execute(
             """
             INSERT INTO character_d6 (game_id, attributes, force_points)
-            VALUES ($1, $2::jsonb, $3)
+            VALUES ($1, $2, $3)
             """,
             game_id,
-            json.dumps(attributes),
+            attributes,
             force_points,
         )
 
@@ -190,11 +190,11 @@ class D6Engine(BaseEngine):
         await conn.execute(
             """
             INSERT INTO npc_d6 (character_id, attributes, skills, force_points)
-            VALUES ($1, $2::jsonb, $3::jsonb, $4)
+            VALUES ($1, $2, $3, $4)
             """,
             character_id,
-            json.dumps(data.get("attributes", {})),
-            json.dumps(data.get("skills", {})),
+            data.get("attributes", {}),
+            data.get("skills", {}),
             data.get("force_points", 0),
         )
 
@@ -216,10 +216,10 @@ class D6Engine(BaseEngine):
                 wounds[wound_level] = True
                 await conn.execute(
                     """
-                    UPDATE character_d6 SET wounds = $1::jsonb, updated_at = now()
+                    UPDATE character_d6 SET wounds = $1, updated_at = now()
                     WHERE game_id = $2
                     """,
-                    json.dumps(wounds),
+                    wounds,
                     game_id,
                 )
                 changes["wound_applied"] = wound_level
@@ -252,14 +252,14 @@ class D6Engine(BaseEngine):
         await conn.execute(
             """
             UPDATE character_d6 SET
-                attributes = $1::jsonb,
-                wounds = $2::jsonb,
+                attributes = $1,
+                wounds = $2,
                 force_points = $3,
                 updated_at = now()
             WHERE game_id = $4
             """,
-            json.dumps(snapshot.get("attributes", {})),
-            json.dumps(snapshot.get("wounds", {})),
+            snapshot.get("attributes", {}),
+            snapshot.get("wounds", {}),
             snapshot.get("force_points", 3),
             game_id,
         )
@@ -558,9 +558,9 @@ Ce jeu utilise le système D6 avec un dé sauvage (wild die).
             await conn.execute(
                 """
                 INSERT INTO object_d6 (object_id, stats)
-                VALUES ($1, $2::jsonb)
+                VALUES ($1, $2)
                 ON CONFLICT (object_id) DO NOTHING
                 """,
                 object_id,
-                json.dumps(stats),
+                stats,
             )

@@ -71,9 +71,9 @@ class NarrativeEngine(BaseEngine):
         """Create npc_narrative row."""
         traits = data.get("traits", [])
         await conn.execute(
-            "INSERT INTO npc_narrative (character_id, traits) VALUES ($1, $2::jsonb)",
+            "INSERT INTO npc_narrative (character_id, traits) VALUES ($1, $2)",
             character_id,
-            json.dumps(traits),
+            traits,
         )
 
     async def apply_roll_result(

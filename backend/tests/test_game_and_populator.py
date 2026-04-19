@@ -1039,8 +1039,19 @@ class TestRollback:
     @pytest.mark.asyncio
     async def test_rollback_cleans_inventory(self, client, test_user, test_pool):
         """Rollback removes inventory items acquired after rollback point."""
+        from schema import NarrationOutput
+
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+        # Save a message at cycle 1 so rollback has something to work with
+        narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
+        await service.process_light(game_id, narration, current_cycle=1)
+        await service.save_messages(
+            game_id, "action", "response", cycle=1,
+            time="09h00", location_ref=arrival_loc,
         )
 
         # Create an object and add to inventory at cycle 2
@@ -1062,8 +1073,8 @@ class TestRollback:
             )
             assert count == 1
 
-        # Rollback to cycle 1
-        await service.rollback_to_message(game_id, 0)
+        # Rollback to keep cycle 1 messages, remove cycle 2+ data
+        await service.rollback_to_message(game_id, 2)
 
         async with test_pool.acquire() as conn:
             count = await conn.fetchval(
@@ -1084,14 +1095,15 @@ class TestRollback:
         arrival_loc = world_gen.arrival_event.arrival_location_ref
 
         # Send 3 rounds with different cycles
-        for cycle in [1, 2, 3]:
+        times = ["09h00", "10h00", "11h00"]
+        for i, cycle in enumerate([1, 2, 3]):
             narration = NarrationOutput.model_validate(_make_narration_output(
-                arrival_loc, time={"new_time": f"0{cycle + 8}h00", "ellipse": False},
+                arrival_loc, time={"new_time": times[i], "ellipse": False},
             ))
             await service.process_light(game_id, narration, current_cycle=cycle)
             await service.save_messages(
                 game_id, f"Action cycle {cycle}", f"Response cycle {cycle}",
-                cycle=cycle, time=f"0{cycle + 8}h00", location_ref=arrival_loc,
+                cycle=cycle, time=times[i], location_ref=arrival_loc,
             )
 
         # Rollback to keep only first 2 rounds (4 messages)
@@ -1165,8 +1177,19 @@ class TestRollback:
     @pytest.mark.asyncio
     async def test_rollback_cleans_director_plans(self, client, test_user, test_pool):
         """Rollback removes director plans from rolled-back cycles."""
+        from schema import NarrationOutput
+
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+        # Save a message at cycle 1 so rollback has something to work with
+        narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
+        await service.process_light(game_id, narration, current_cycle=1)
+        await service.save_messages(
+            game_id, "action", "response", cycle=1,
+            time="09h00", location_ref=arrival_loc,
         )
 
         # Insert a director plan at cycle 3
@@ -1183,8 +1206,8 @@ class TestRollback:
             )
             assert count >= 1
 
-        # Rollback to cycle 1
-        await service.rollback_to_message(game_id, 0)
+        # Rollback to keep cycle 1 messages, remove cycle 2+ data
+        await service.rollback_to_message(game_id, 2)
 
         async with test_pool.acquire() as conn:
             count = await conn.fetchval(

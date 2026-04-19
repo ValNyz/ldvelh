@@ -753,3 +753,201 @@ class TestAspectInvocation:
         assert result.outcome == "tie"
         assert result.details["invoked_aspects"] == ["My Aspect"]
         assert result.details["fate_points_spent"] == 1
+
+
+# =============================================================================
+# INTEGRATION TESTS — Engine JSONB round-trips
+# =============================================================================
+
+
+@pytest.mark.integration
+class TestFateCoreJSONBRoundTrip:
+    """Verify Fate Core JSONB data survives DB write→read as correct types."""
+
+    @pytest.mark.asyncio
+    async def test_create_character_aspects_round_trip(self, test_pool, test_user):
+        """aspects and stunts stored and read back as list, not string."""
+        from services.game_service import GameService
+        from services.engine.fate_core import FateCoreEngine
+        from schema import WorldGeneration
+        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        import json as json_mod
+
+        service = GameService(test_pool)
+        game_id = await service.create_game(test_user["id"], engine="fate_core")
+
+        world_gen_data = json_mod.loads(WORLD_GENERATION_EXAMPLE)
+        world_gen = WorldGeneration.model_validate(world_gen_data)
+        await service.process_init(game_id, world_gen)
+
+        engine = FateCoreEngine()
+        data = {
+            "aspects": ["High Concept", "Trouble Aspect", "Other"],
+            "stunts": [{"name": "Quick Draw", "description": "Fast on the draw"}],
+            "skills": {"Combat": 3, "Furtivité": 2},
+            "fate_points": 3,
+            "refresh": 3,
+        }
+        async with test_pool.acquire() as conn:
+            await engine.create_character(conn, game_id, data)
+            stats = await engine.get_stats(conn, game_id)
+
+        assert isinstance(stats["aspects"], list), (
+            f"aspects should be list, got {type(stats['aspects'])}"
+        )
+        assert stats["aspects"] == ["High Concept", "Trouble Aspect", "Other"]
+        assert isinstance(stats["stunts"], list)
+        assert stats["stunts"][0]["name"] == "Quick Draw"
+        assert isinstance(stats["consequences"], dict)
+        assert stats["fate_points"] == 3
+
+    @pytest.mark.asyncio
+    async def test_npc_stats_round_trip(self, test_pool, test_user):
+        """NPC Fate stats round-trip through DB as correct types."""
+        from services.game_service import GameService
+        from services.engine.fate_core import FateCoreEngine
+        from schema import WorldGeneration
+        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        import json as json_mod
+
+        service = GameService(test_pool)
+        game_id = await service.create_game(test_user["id"], engine="fate_core")
+
+        world_gen_data = json_mod.loads(WORLD_GENERATION_EXAMPLE)
+        world_gen = WorldGeneration.model_validate(world_gen_data)
+        await service.process_init(game_id, world_gen)
+
+        # Get a character ID from world gen
+        async with test_pool.acquire() as conn:
+            char_id = await conn.fetchval(
+                "SELECT id FROM characters WHERE game_id = $1 LIMIT 1",
+                game_id,
+            )
+
+        engine = FateCoreEngine()
+        npc_data = {
+            "aspects": ["Tough as Nails"],
+            "skills": {"Combat": 4, "Tir": 3},
+            "stunts": [{"name": "Riposte", "description": "Counter attack"}],
+        }
+        async with test_pool.acquire() as conn:
+            await engine.create_npc_stats(conn, char_id, npc_data)
+            stats = await engine.get_npc_stats(conn, char_id)
+
+        assert isinstance(stats["aspects"], list)
+        assert isinstance(stats["skills"], dict)
+        assert stats["skills"]["Combat"] == 4
+        assert isinstance(stats["stunts"], list)
+
+
+@pytest.mark.integration
+class TestD6JSONBRoundTrip:
+    """Verify D6 JSONB data survives DB write→read as correct types."""
+
+    @pytest.mark.asyncio
+    async def test_create_character_attributes_round_trip(self, test_pool, test_user):
+        """attributes stored and read back as dict, not string."""
+        from services.game_service import GameService
+        from services.engine.d6 import D6Engine
+        from schema import WorldGeneration
+        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        import json as json_mod
+
+        service = GameService(test_pool)
+        game_id = await service.create_game(test_user["id"], engine="d6")
+
+        world_gen_data = json_mod.loads(WORLD_GENERATION_EXAMPLE)
+        world_gen = WorldGeneration.model_validate(world_gen_data)
+        await service.process_init(game_id, world_gen)
+
+        engine = D6Engine()
+        data = {
+            "attributes": {"Force": 3, "Agilité": 4, "Intelligence": 2},
+            "skills": [
+                {"attribute": "Force", "name": "Combat", "dice_value": 4},
+                {"attribute": "Agilité", "name": "Esquive", "dice_value": 3},
+            ],
+            "force_points": 5,
+        }
+        async with test_pool.acquire() as conn:
+            await engine.create_character(conn, game_id, data)
+            stats = await engine.get_stats(conn, game_id)
+
+        assert isinstance(stats["attributes"], dict), (
+            f"attributes should be dict, got {type(stats['attributes'])}"
+        )
+        assert stats["attributes"]["Force"] == 3
+        assert stats["force_points"] == 5
+
+    @pytest.mark.asyncio
+    async def test_npc_stats_round_trip(self, test_pool, test_user):
+        """NPC D6 stats round-trip through DB as correct types."""
+        from services.game_service import GameService
+        from services.engine.d6 import D6Engine
+        from schema import WorldGeneration
+        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        import json as json_mod
+
+        service = GameService(test_pool)
+        game_id = await service.create_game(test_user["id"], engine="d6")
+
+        world_gen_data = json_mod.loads(WORLD_GENERATION_EXAMPLE)
+        world_gen = WorldGeneration.model_validate(world_gen_data)
+        await service.process_init(game_id, world_gen)
+
+        async with test_pool.acquire() as conn:
+            char_id = await conn.fetchval(
+                "SELECT id FROM characters WHERE game_id = $1 LIMIT 1",
+                game_id,
+            )
+
+        engine = D6Engine()
+        npc_data = {
+            "attributes": {"Force": 2, "Perception": 3},
+            "skills": {"Tir": 4},
+        }
+        async with test_pool.acquire() as conn:
+            await engine.create_npc_stats(conn, char_id, npc_data)
+            stats = await engine.get_npc_stats(conn, char_id)
+
+        assert isinstance(stats["attributes"], dict)
+        assert stats["attributes"]["Force"] == 2
+        assert isinstance(stats["skills"], dict)
+
+
+@pytest.mark.integration
+class TestNarrativeJSONBRoundTrip:
+    """Verify Narrative engine JSONB data survives DB write→read."""
+
+    @pytest.mark.asyncio
+    async def test_npc_traits_round_trip(self, test_pool, test_user):
+        """NPC traits stored and read back as list, not string."""
+        from services.game_service import GameService
+        from services.engine.narrative import NarrativeEngine
+        from schema import WorldGeneration
+        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        import json as json_mod
+
+        service = GameService(test_pool)
+        game_id = await service.create_game(test_user["id"], engine="narrative")
+
+        world_gen_data = json_mod.loads(WORLD_GENERATION_EXAMPLE)
+        world_gen = WorldGeneration.model_validate(world_gen_data)
+        await service.process_init(game_id, world_gen)
+
+        async with test_pool.acquire() as conn:
+            char_id = await conn.fetchval(
+                "SELECT id FROM characters WHERE game_id = $1 LIMIT 1",
+                game_id,
+            )
+
+        engine = NarrativeEngine()
+        npc_data = {"traits": [{"name": "prudent"}, {"name": "loyal"}]}
+        async with test_pool.acquire() as conn:
+            await engine.create_npc_stats(conn, char_id, npc_data)
+            stats = await engine.get_npc_stats(conn, char_id)
+
+        assert isinstance(stats["traits"], list), (
+            f"traits should be list, got {type(stats['traits'])}"
+        )
+        assert len(stats["traits"]) == 2
