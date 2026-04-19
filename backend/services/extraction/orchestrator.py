@@ -87,10 +87,18 @@ async def run_resolve_and_extract(
                     )
 
                 if prev_msg and prev_msg["content"]:
+                    prev_text = prev_msg["content"]
+                    prev_annotations = prev_msg["narrator_context"]
+                else:
+                    prev_text, prev_annotations = await _build_first_turn_reference(
+                        pool, game_id
+                    )
+
+                if prev_text:
                     resolution_map, resolver_cost = await resolve_entities(
                         pool, game_id,
-                        previous_response=prev_msg["content"],
-                        previous_annotations=prev_msg["narrator_context"],
+                        previous_response=prev_text,
+                        previous_annotations=prev_annotations,
                         current_response=message_content,
                         provider_name=provider_name,
                         api_key=api_key,
@@ -100,7 +108,7 @@ async def run_resolve_and_extract(
                         total_cost += resolver_cost.get("cost_usd", 0)
                         result["resolver"] = resolver_cost
                 else:
-                    logger.info("[RESOLVER] No previous message, skipping")
+                    logger.info("[RESOLVER] No reference text available, skipping")
         except Exception as e:
             logger.warning(f"[RESOLVER] Failed, continuing without: {e}")
 
@@ -263,6 +271,44 @@ async def run_triggered_extraction(
         provider_name, api_key, assistant_message_id,
         message_content, narrator_deltas,
     )
+
+
+async def _build_first_turn_reference(
+    pool: asyncpg.Pool, game_id: UUID
+) -> tuple[str, list]:
+    """Build a synthetic reference text for first-turn entity resolution.
+
+    When no previous assistant message exists, we construct a fake "MESSAGE 1"
+    from known DB entities so the resolver can map mentions in the first response.
+    """
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT er.name, er.entity_type
+               FROM entity_registry er
+               WHERE er.game_id = $1
+                 AND er.entity_type IN ('character', 'location', 'organization')
+               ORDER BY er.entity_type, er.name""",
+            game_id,
+        )
+
+    if not rows:
+        return "", None
+
+    parts = []
+    annotations = []
+    offset = 0
+    for r in rows:
+        name = r["name"]
+        etype = r["entity_type"]
+        line = f"{name} [= {name}]"
+        start = offset
+        end = offset + len(name)
+        annotations.append([start, end, name, etype])
+        parts.append(line)
+        offset += len(line) + 1  # +1 for newline
+
+    text = "\n".join(parts)
+    return text, annotations
 
 
 async def _append_extraction_cost(

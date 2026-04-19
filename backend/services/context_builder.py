@@ -74,6 +74,7 @@ class ContextBuilder:
 
         # Companion
         companion = await self._build_companion(conn)
+        self._companion_name = companion.name.lower() if companion else None
 
         # Locations
         current_location = await self._build_current_location(
@@ -281,6 +282,7 @@ class ContextBuilder:
         self, all_characters: list[dict]
     ) -> list[NPCLightSummary]:
         """Build light summary of ALL NPCs from pre-fetched data"""
+        companion = getattr(self, "_companion_name", None)
         return [
             NPCLightSummary(
                 name=r["name"]
@@ -294,6 +296,7 @@ class ContextBuilder:
                 ambient=r.get("ambient"),
             )
             for r in all_characters
+            if not companion or r["name"].lower() != companion
         ]
 
     async def _build_npcs_at_location(
@@ -301,17 +304,24 @@ class ContextBuilder:
     ) -> list[NPCSummary]:
         """Build NPCs at location"""
         rows = await self.reader.get_npcs_at_location(conn, location_name)
-        return [self._row_to_npc_summary(r) for r in rows]
+        companion = getattr(self, "_companion_name", None)
+        return [
+            self._row_to_npc_summary(r) for r in rows
+            if not companion or r["name"].lower() != companion
+        ]
 
     def _build_relevant_npcs(
         self, all_characters: list[dict], exclude_names: set[str]
     ) -> list[NPCSummary]:
         """Build relevant NPCs (highest relationship, not at current location)"""
         # all_characters is already sorted by relation_level DESC
+        companion = getattr(self, "_companion_name", None)
         result = []
         for r in all_characters:
             if len(result) >= 5:
                 break
+            if companion and r["name"].lower() == companion:
+                continue
             display_name = r["name"]
             if not r.get("known_by_protagonist", True):
                 display_name = r.get("unknown_name") or "Inconnu(e)"

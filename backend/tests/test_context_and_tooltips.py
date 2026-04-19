@@ -679,6 +679,68 @@ class TestEnrichNpcsWithArcs:
 
 
 # =============================================================================
+# COMPANION FILTERING
+# =============================================================================
+
+
+class TestCompanionNotInNPCs:
+    """Companion should never appear in NPC lists."""
+
+    def test_companion_filtered_from_all_npcs(self):
+        """all_npcs list should not contain the companion."""
+        from services.context_builder import ContextBuilder
+
+        builder = ContextBuilder.__new__(ContextBuilder)
+        builder._companion_name = "théo"
+        characters = [
+            {"name": "Elena", "known_by_protagonist": True, "occupation": "ingénieure",
+             "species": "human", "relation_level": 5, "usual_location": "Labo",
+             "unknown_name": None, "ambient": None},
+            {"name": "Théo", "known_by_protagonist": True, "occupation": None,
+             "species": "human", "relation_level": None, "usual_location": None,
+             "unknown_name": None, "ambient": None},
+        ]
+        result = builder._build_all_npcs_light(characters)
+        names = [n.name for n in result]
+        assert "Théo" not in names
+        assert "Elena" in names
+
+    def test_companion_filtered_from_relevant_npcs(self):
+        """relevant NPCs should not contain the companion."""
+        from services.context_builder import ContextBuilder
+
+        builder = ContextBuilder.__new__(ContextBuilder)
+        builder._companion_name = "théo"
+        characters = [
+            {"name": "Elena", "known_by_protagonist": True, "occupation": "ingénieure",
+             "species": "human", "relation_level": 5, "usual_location": "Labo",
+             "unknown_name": None, "ambient": None, "traits": ["prudente"],
+             "relation_context": "collègue", "mood": None},
+            {"name": "Théo", "known_by_protagonist": True, "occupation": None,
+             "species": "human", "relation_level": 3, "usual_location": None,
+             "unknown_name": None, "ambient": None, "traits": [],
+             "relation_context": None, "mood": None},
+        ]
+        result = builder._build_relevant_npcs(characters, set())
+        names = [n.name for n in result]
+        assert "Théo" not in names
+
+    def test_no_companion_does_not_filter(self):
+        """Without a companion, all characters pass through."""
+        from services.context_builder import ContextBuilder
+
+        builder = ContextBuilder.__new__(ContextBuilder)
+        builder._companion_name = None
+        characters = [
+            {"name": "Elena", "known_by_protagonist": True, "occupation": None,
+             "species": "human", "relation_level": None, "usual_location": None,
+             "unknown_name": None, "ambient": None},
+        ]
+        result = builder._build_all_npcs_light(characters)
+        assert len(result) == 1
+
+
+# =============================================================================
 # TOOLTIPS
 # Old tooltip helper tests removed — api/tooltips.py was rewritten
 # with DB-backed entity lookup (no more truncate/format_connaissance/format_tooltip)

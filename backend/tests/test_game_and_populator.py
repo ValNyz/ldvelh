@@ -3033,3 +3033,39 @@ class TestExtractionOrchestratorIntegration:
         )
 
         assert key not in _extracting_games
+
+
+# =============================================================================
+# FIRST-TURN RESOLVER REFERENCE
+# =============================================================================
+
+
+class TestFirstTurnResolver:
+    """Test that the resolver can build a reference for the first message."""
+
+    @pytest.mark.asyncio
+    async def test_first_turn_reference_built(self, client, test_user, test_pool):
+        """_build_first_turn_reference returns entity names from DB."""
+        from services.extraction.orchestrator import _build_first_turn_reference
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        text, annotations = await _build_first_turn_reference(test_pool, game_id)
+
+        assert len(text) > 0
+        assert annotations is not None
+        assert len(annotations) > 0
+
+        # Should contain world gen entity names
+        entity_names = [a[2] for a in annotations]
+        assert len(entity_names) > 0
+
+        # Each annotation should have [start, end, name, type]
+        for ann in annotations:
+            assert len(ann) == 4
+            assert isinstance(ann[0], int)
+            assert isinstance(ann[1], int)
+            assert isinstance(ann[2], str)
+            assert ann[3] in ("character", "location", "organization")
