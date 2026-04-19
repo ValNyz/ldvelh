@@ -70,7 +70,7 @@ jobs:
           ENCRYPTION_KEY: "WkpQHs-KU7XuScnVGAxm35ucMGXCCGt1yLenNhtGqR0="
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: backend/coverage.xml
           flags: backend
