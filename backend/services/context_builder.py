@@ -172,7 +172,14 @@ class ContextBuilder:
         )
         if not row:
             return None, None, []
-        events = row["planned_events"] if row["planned_events"] else []
+        raw_events = row["planned_events"]
+        if not raw_events:
+            events = []
+        elif isinstance(raw_events, str):
+            import json
+            events = json.loads(raw_events)
+        else:
+            events = raw_events
         return row["narrator_guidance"], row["tension_level"], events
 
     # =========================================================================

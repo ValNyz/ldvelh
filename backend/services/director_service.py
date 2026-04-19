@@ -4,7 +4,6 @@ Background narrative planner that produces session-level guidance for the narrat
 Runs periodically based on in-game time elapsed.
 """
 
-import json
 import logging
 from uuid import UUID
 
@@ -295,7 +294,7 @@ async def run_director(
                 current_time,
                 plan.tension_level,
                 plan.narrator_guidance,
-                json.dumps([e.model_dump() for e in plan.planned_events]),
+                [e.model_dump() for e in plan.planned_events],
                 plan.long_term_vision,
             )
 
