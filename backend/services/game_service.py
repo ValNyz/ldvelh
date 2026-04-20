@@ -331,6 +331,7 @@ class GameService:
                 continue
 
             msg = {
+                "id": str(m["id"]),
                 "role": m["role"],
                 "content": m["content"],
                 "cycle": m.get("cycle"),
@@ -797,9 +798,12 @@ class GameService:
     # ROLLBACK
     # =========================================================================
 
-    async def rollback_to_message(self, game_id: UUID, keep_until_index: int) -> dict:
+    async def rollback_to_message(
+        self, game_id: UUID, message_id: UUID | None = None, keep_until_index: int | None = None
+    ) -> dict:
         """
-        Rollback: delete all messages from keep_until_index onwards.
+        Rollback: delete a message and everything after it.
+        Accepts either message_id (preferred) or keep_until_index (legacy).
         Also restores engine state from the last remaining message's snapshot.
         """
         reader = self._get_reader(game_id)
@@ -807,6 +811,20 @@ class GameService:
 
         async with self.pool.acquire() as conn:
             messages = await reader.get_messages(conn, order="asc")
+
+            if message_id:
+                # Find the index of the target message
+                msg_id_str = str(message_id)
+                cutoff = None
+                for i, m in enumerate(messages):
+                    if str(m["id"]) == msg_id_str:
+                        cutoff = i
+                        break
+                if cutoff is None:
+                    return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
+                keep_until_index = cutoff
+            elif keep_until_index is None:
+                return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
 
             if keep_until_index >= len(messages):
                 return {"deleted": 0, "target_cycle": None, "rollback_result": {}}

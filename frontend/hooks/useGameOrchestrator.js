@@ -352,16 +352,18 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const handleSubmitEdit = useCallback(async (content) => {
 		if (editingIndex === null) return;
 
+		const targetMsg = gs.messages[editingIndex];
+		if (!targetMsg?.id) return;
+
 		let result;
 		try {
-			result = await stateApi.rollback(gs.gameId, editingIndex);
+			result = await stateApi.rollback(gs.gameId, targetMsg.id);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			gs.setError({ message: 'Rollback failed: ' + e.message });
 			return;
 		}
 
-		// Use backend's authoritative message list instead of local slice
 		gs.setMessages(result.messages || []);
 		if (result.state) gs.replaceGameState(result.state);
 		setEditingIndex(null);
@@ -371,11 +373,11 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 	const handleResend = useCallback(async (index) => {
 		const msg = gs.messages[index];
-		if (!msg || msg.role !== 'user') return;
+		if (!msg || msg.role !== 'user' || !msg.id) return;
 
 		let result;
 		try {
-			result = await stateApi.rollback(gs.gameId, index);
+			result = await stateApi.rollback(gs.gameId, msg.id);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			gs.setError({ message: 'Rollback failed: ' + e.message });
@@ -390,12 +392,13 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const handleRegenerate = useCallback(async () => {
 		if (!lastUserMessage) return;
 
-		const lastAssistantIndex = gs.messages.length - 1;
-		if (gs.messages[lastAssistantIndex]?.role !== 'assistant') return;
+		const lastUserIndex = gs.messages.length - 2;
+		const lastUserMsg = gs.messages[lastUserIndex];
+		if (!lastUserMsg || lastUserMsg.role !== 'user' || !lastUserMsg.id) return;
 
 		let result;
 		try {
-			result = await stateApi.rollback(gs.gameId, gs.messages.length - 2);
+			result = await stateApi.rollback(gs.gameId, lastUserMsg.id);
 		} catch (e) {
 			console.error('Rollback failed:', e);
 			gs.setError({ message: 'Rollback failed: ' + e.message });

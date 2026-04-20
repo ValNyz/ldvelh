@@ -137,7 +137,7 @@ export const gamesApi = {
 export const stateApi = {
 	load: (gameId) => api.get(`/games/${gameId}`),
 	getWorld: (gameId) => api.get(`/games/${gameId}/world`),
-	rollback: (gameId, fromIndex) => api.post(`/games/${gameId}/rollback`, { fromIndex })
+	rollback: (gameId, messageId) => api.post(`/games/${gameId}/rollback`, { messageId })
 };
 
 // ============================================================================

@@ -109,7 +109,8 @@ class ChatRequest(BaseModel):
 class RollbackRequest(BaseModel):
     """Requête de rollback"""
 
-    fromIndex: int
+    messageId: str | None = None  # Preferred: UUID of the message to rollback from
+    fromIndex: int | None = None  # Legacy: index-based rollback
 
 
 class RenameRequest(BaseModel):
@@ -268,7 +269,10 @@ async def rollback_game(
     # Acquire game lock to prevent race with in-flight extraction
     lock = _get_game_lock(game_id)
     async with lock:
-        result = await service.rollback_to_message(game_id, request.fromIndex)
+        msg_id = UUID(request.messageId) if request.messageId else None
+        result = await service.rollback_to_message(
+            game_id, message_id=msg_id, keep_until_index=request.fromIndex
+        )
         new_state = await service.load_game_state(game_id)
         new_messages = await service.load_chat_messages(game_id)
 

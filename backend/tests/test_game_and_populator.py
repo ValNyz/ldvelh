@@ -1029,7 +1029,7 @@ class TestRollback:
         assert stats["credits"] == initial_credits - 80
 
         # Rollback: keep only first round (index 2 = keep messages 0,1)
-        await service.rollback_to_message(game_id, 2)
+        await service.rollback_to_message(game_id, keep_until_index=2)
 
         # Credits from round 2 (-30) should be reversed
         async with test_pool.acquire() as conn:
@@ -1077,7 +1077,7 @@ class TestRollback:
             assert count == 1
 
         # Rollback to keep cycle 1 messages (2 msgs), remove cycle 2+ data
-        await service.rollback_to_message(game_id, 2)
+        await service.rollback_to_message(game_id, keep_until_index=2)
 
         async with test_pool.acquire() as conn:
             count = await conn.fetchval(
@@ -1110,7 +1110,7 @@ class TestRollback:
             )
 
         # Rollback to keep only first 2 rounds (4 messages)
-        await service.rollback_to_message(game_id, 4)
+        await service.rollback_to_message(game_id, keep_until_index=4)
 
         messages = await service.load_chat_messages(game_id)
         assert len(messages) == 4
@@ -1156,7 +1156,7 @@ class TestRollback:
             )
 
         # Rollback to keep first round only
-        await service.rollback_to_message(game_id, 2)
+        await service.rollback_to_message(game_id, keep_until_index=2)
 
         # Send a new message after rollback
         narration = NarrationOutput.model_validate(
@@ -1213,7 +1213,7 @@ class TestRollback:
             assert count >= 1
 
         # Rollback to keep cycle 1 messages (2 msgs), remove cycle 2+ data
-        await service.rollback_to_message(game_id, 2)
+        await service.rollback_to_message(game_id, keep_until_index=2)
 
         async with test_pool.acquire() as conn:
             count = await conn.fetchval(
@@ -1222,6 +1222,131 @@ class TestRollback:
                 game_id,
             )
         assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_rollback_by_message_id(self, client, test_user, test_pool):
+        """rollback_to_message with message_id deletes correct messages."""
+        from schema import NarrationOutput
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+        # Save 2 rounds
+        for i in range(2):
+            narration = NarrationOutput.model_validate(
+                _make_narration_output(arrival_loc)
+            )
+            await service.process_light(game_id, narration, current_cycle=1)
+            await service.save_messages(
+                game_id, f"Action {i + 1}", f"Response {i + 1}",
+                cycle=1, time="09h15", location_ref=arrival_loc,
+            )
+
+        messages = await service.load_chat_messages(game_id)
+        assert len(messages) == 4
+
+        # Rollback by ID of the 3rd message (user message of round 2)
+        from uuid import UUID as _UUID
+        target_id = _UUID(messages[2]["id"])
+        result = await service.rollback_to_message(game_id, message_id=target_id)
+
+        assert result["deleted"] == 2  # messages[2] and messages[3]
+        remaining = await service.load_chat_messages(game_id)
+        assert len(remaining) == 2
+        assert remaining[0]["content"] == "Action 1"
+        assert remaining[1]["content"] == "Response 1"
+
+    @pytest.mark.asyncio
+    async def test_rollback_by_id_with_protocol_messages(
+        self, client, test_user, test_pool
+    ):
+        """Message ID rollback works even when protocol messages exist in DB."""
+        from schema import NarrationOutput
+        from kg.populator import KnowledgeGraphPopulator
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+        populator = service._get_populator(game_id)
+
+        # Save a protocol message (hidden from frontend)
+        async with test_pool.acquire() as conn:
+            conv_id = await populator.get_active_conversation(conn)
+            if not conv_id:
+                conv_id = await populator.create_conversation(conn, 1)
+            await populator.save_message(
+                conn, conv_id, "user", "__ARRIVEE__",
+                sequence=1, cycle=1,
+            )
+
+        # Save 2 visible rounds
+        for i in range(2):
+            narration = NarrationOutput.model_validate(
+                _make_narration_output(arrival_loc)
+            )
+            await service.process_light(game_id, narration, current_cycle=1)
+            await service.save_messages(
+                game_id, f"Action {i + 1}", f"Response {i + 1}",
+                cycle=1, time="09h15", location_ref=arrival_loc,
+            )
+
+        # Frontend sees 4 messages (protocol filtered out)
+        visible = await service.load_chat_messages(game_id)
+        assert len(visible) == 4
+
+        # Rollback by ID of 3rd visible message (Action 2)
+        from uuid import UUID as _UUID
+        target_id = _UUID(visible[2]["id"])
+        result = await service.rollback_to_message(game_id, message_id=target_id)
+
+        # Should delete Action 2 + Response 2, keep Action 1 + Response 1
+        remaining = await service.load_chat_messages(game_id)
+        assert len(remaining) == 2
+        assert remaining[0]["content"] == "Action 1"
+        assert remaining[1]["content"] == "Response 1"
+
+    @pytest.mark.asyncio
+    async def test_rollback_nonexistent_message_id(self, client, test_user, test_pool):
+        """Rollback with unknown message ID returns deleted=0."""
+        import uuid
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+
+        result = await service.rollback_to_message(
+            game_id, message_id=uuid.uuid4()
+        )
+        assert result["deleted"] == 0
+
+    @pytest.mark.asyncio
+    async def test_load_chat_messages_includes_id(self, client, test_user, test_pool):
+        """load_chat_messages includes message UUIDs."""
+        from schema import NarrationOutput
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        arrival_loc = world_gen.arrival_event.arrival_location_ref
+
+        narration = NarrationOutput.model_validate(
+            _make_narration_output(arrival_loc)
+        )
+        await service.process_light(game_id, narration, current_cycle=1)
+        await service.save_messages(
+            game_id, "Test", "Response", cycle=1,
+            time="09h00", location_ref=arrival_loc,
+        )
+
+        messages = await service.load_chat_messages(game_id)
+        assert len(messages) >= 2
+        for msg in messages:
+            assert "id" in msg
+            assert isinstance(msg["id"], str)
+            assert len(msg["id"]) == 36  # UUID format
 
 
 # =============================================================================
