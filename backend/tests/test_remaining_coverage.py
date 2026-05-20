@@ -881,41 +881,48 @@ class TestWorldGeneration:
         wg = WorldGeneration(**data)
         assert wg.organizations[0].founding_cycle == -5000
 
-    def test_invalid_character_workplace_ref_nullified(self):
-        """Invalid character workplace_ref is set to None."""
+    def test_invalid_character_workplace_ref_creates_stub(self):
+        """Invalid character workplace_ref creates a stub location instead of nullifying."""
         from schema.world_generation import WorldGeneration
 
         data = self._minimal_world_gen_data()
         data["characters"][0]["workplace_ref"] = "Nonexistent Place"
         wg = WorldGeneration(**data)
-        assert wg.characters[0].workplace_ref is None
+        # Ref preserved
+        assert wg.characters[0].workplace_ref == "Nonexistent Place"
+        # Stub created
+        loc_names = [loc.name for loc in wg.locations]
+        assert "Nonexistent Place" in loc_names
 
-    def test_invalid_character_residence_ref_nullified(self):
-        """Invalid character residence_ref is set to None."""
+    def test_invalid_character_residence_ref_creates_stub(self):
+        """Invalid character residence_ref creates a stub location."""
         from schema.world_generation import WorldGeneration
 
         data = self._minimal_world_gen_data()
         data["characters"][0]["residence_ref"] = "Nowhere"
         wg = WorldGeneration(**data)
-        assert wg.characters[0].residence_ref is None
+        assert wg.characters[0].residence_ref == "Nowhere"
+        assert "Nowhere" in [loc.name for loc in wg.locations]
 
-    def test_invalid_location_parent_ref_nullified(self):
-        """Invalid location parent_location_ref is set to None."""
+    def test_invalid_location_parent_ref_creates_stub(self):
+        """Invalid location parent_location_ref creates a stub."""
         from schema.world_generation import WorldGeneration
 
         data = self._minimal_world_gen_data()
         data["locations"][0]["parent_location_ref"] = "Ghost Parent"
         wg = WorldGeneration(**data)
-        assert wg.locations[0].parent_location_ref is None
+        assert wg.locations[0].parent_location_ref == "Ghost Parent"
+        assert "Ghost Parent" in [loc.name for loc in wg.locations]
 
-    def test_invalid_org_hq_ref_nullified(self):
-        """Invalid organization headquarters_ref is set to None."""
+    def test_invalid_org_hq_ref_creates_stub(self):
+        """Invalid organization headquarters_ref creates a stub location."""
         from schema.world_generation import WorldGeneration
 
         data = self._minimal_world_gen_data()
         data["organizations"][0]["headquarters_ref"] = "Phantom HQ"
         wg = WorldGeneration(**data)
-        assert wg.organizations[0].headquarters_ref is None
+        assert wg.organizations[0].headquarters_ref == "Phantom HQ"
+        assert "Phantom HQ" in [loc.name for loc in wg.locations]
 
     def test_invalid_relation_source_filtered(self):
         """Relations with invalid source_ref are filtered out."""

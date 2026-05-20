@@ -3,7 +3,6 @@ LDVELH - Fate Core Engine
 Full Fate Core implementation: 4dF dice, aspects, stunts, stress, consequences, fate points.
 """
 
-import json
 import random
 from uuid import UUID
 
@@ -67,9 +66,11 @@ class FateCoreEngine(BaseEngine):
             game_id,
         )
 
-        aspects = char["aspects"] if isinstance(char["aspects"], list) else json.loads(char["aspects"])
-        stunts = char["stunts"] if isinstance(char["stunts"], list) else json.loads(char["stunts"])
-        consequences = char["consequences"] if isinstance(char["consequences"], dict) else json.loads(char["consequences"])
+        from schema.core import _coerce_json_list, _coerce_json_dict
+
+        aspects = _coerce_json_list(char["aspects"])
+        stunts = _coerce_json_list(char["stunts"])
+        consequences = _coerce_json_dict(char["consequences"])
 
         return {
             "aspects": aspects,
@@ -105,8 +106,24 @@ class FateCoreEngine(BaseEngine):
 
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:
         """Create character_fate row and initial skills."""
-        aspects = data.get("aspects", [])
-        stunts = data.get("stunts", [])
+        from schema.core import _coerce_json_list
+
+        # Aspects: wizard sends {"high_concept": "...", "trouble": "...", "other": [...]}.
+        # Flatten to a list of strings so the DB and reads see a consistent shape.
+        raw_aspects = data.get("aspects", [])
+        if isinstance(raw_aspects, dict):
+            aspects = []
+            if hc := raw_aspects.get("high_concept"):
+                aspects.append(hc)
+            if tr := raw_aspects.get("trouble"):
+                aspects.append(tr)
+            for other in (raw_aspects.get("other") or []):
+                if other:
+                    aspects.append(other)
+        else:
+            aspects = _coerce_json_list(raw_aspects)
+
+        stunts = _coerce_json_list(data.get("stunts"))
         fate_points = data.get("fate_points", 3)
         refresh = data.get("refresh", 3)
 
@@ -158,13 +175,14 @@ class FateCoreEngine(BaseEngine):
         )
         if not row:
             return {}
+        from schema.core import _coerce_json_list, _coerce_json_dict
         return {
-            "aspects": row["aspects"] if isinstance(row["aspects"], list) else json.loads(row["aspects"]),
-            "skills": row["skills"] if isinstance(row["skills"], dict) else json.loads(row["skills"]),
-            "stunts": row["stunts"] if isinstance(row["stunts"], list) else json.loads(row["stunts"]),
+            "aspects": _coerce_json_list(row["aspects"]),
+            "skills": _coerce_json_dict(row["skills"]),
+            "stunts": _coerce_json_list(row["stunts"]),
             "stress_physical": list(row["stress_physical"]),
             "stress_mental": list(row["stress_mental"]),
-            "consequences": row["consequences"] if isinstance(row["consequences"], dict) else json.loads(row["consequences"]),
+            "consequences": _coerce_json_dict(row["consequences"]),
             "fate_points": row["fate_points"],
         }
 
@@ -630,7 +648,8 @@ Inclure un encadré markdown après la narration de la complication :
                 "SELECT aspects FROM character_fate WHERE game_id = $1", game_id
             )
             if row:
-                aspects = row["aspects"] if isinstance(row["aspects"], list) else json.loads(row["aspects"])
+                from schema.core import _coerce_json_list
+                aspects = _coerce_json_list(row["aspects"])
                 for a in aspects:
                     if isinstance(a, dict) and a.get("name") == old_name:
                         a["name"] = new_name
@@ -652,7 +671,8 @@ Inclure un encadré markdown après la narration de la complication :
                 "SELECT stunts FROM character_fate WHERE game_id = $1", game_id
             )
             if row:
-                stunts = row["stunts"] if isinstance(row["stunts"], list) else json.loads(row["stunts"])
+                from schema.core import _coerce_json_list
+                stunts = _coerce_json_list(row["stunts"])
                 stunts.append({"name": stunt.get("name", ""), "description": stunt.get("description", "")})
                 await conn.execute(
                     "UPDATE character_fate SET stunts = $1, updated_at = now() WHERE game_id = $2",

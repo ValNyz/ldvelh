@@ -12,6 +12,7 @@ from pydantic import (
     BeforeValidator,
     Field,
     StringConstraints,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -38,14 +39,19 @@ logger = logging.getLogger(__name__)
 def _truncate(max_len: int):
     """Factory to create a truncation function."""
 
-    def _inner(v: Any) -> str | None:
+    def _inner(v: Any, info: ValidationInfo | None = None) -> str | None:
         if v is None:
             return None
         v = str(v)
         if len(v) <= max_len:
             return v
         truncated = v[: max_len - 3].rsplit(" ", 1)[0] + "..."
-        logger.warning(f"[Truncate] {len(v)} -> {len(truncated)} chars")
+        field = info.field_name if info else "?"
+        preview = v[:60].replace("\n", " ")
+        logger.warning(
+            f"[Truncate] {field}: {len(v)} -> {len(truncated)} chars "
+            f"(was: \"{preview}...\")"
+        )
         return truncated
 
     return _inner
@@ -94,6 +100,95 @@ Backstory = Annotated[
     str, BeforeValidator(_truncate(600)), StringConstraints(max_length=600)
 ]
 """600 chars - full backstory"""
+
+
+# =============================================================================
+# SOFT NORMALIZERS — Handle LLM shape mistakes at the schema boundary.
+# LLMs often produce dict where we expect list, list where we expect dict,
+# JSON strings instead of parsed objects, or null where we expect a collection.
+# =============================================================================
+
+
+def _coerce_json_list(v: Any, info: ValidationInfo | None = None) -> list:
+    """Coerce LLM output to a list. Handles common shape mistakes.
+
+    - None → []
+    - list → as-is
+    - JSON string → parsed (if it's a list)
+    - dict → list of values (LLMs often nest a labeled dict)
+    - other scalar → [v]
+    """
+    if v is None or v == "":
+        return []
+    if isinstance(v, list):
+        return v
+    if isinstance(v, str):
+        import json
+        try:
+            parsed = json.loads(v)
+            if isinstance(parsed, list):
+                return parsed
+            if isinstance(parsed, dict):
+                return list(parsed.values())
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return [v]
+    if isinstance(v, dict):
+        field = info.field_name if info else "?"
+        logger.info(
+            f"[Coerce] {field}: dict -> list (took values), keys were {list(v.keys())[:5]}"
+        )
+        return list(v.values())
+    return [v]
+
+
+def _coerce_json_dict(v: Any, info: ValidationInfo | None = None) -> dict:
+    """Coerce LLM output to a dict. Handles common shape mistakes.
+
+    - None → {}
+    - dict → as-is
+    - JSON string → parsed (if it's a dict)
+    - list of dicts with name/value → merged dict
+    """
+    if v is None or v == "":
+        return {}
+    if isinstance(v, dict):
+        return v
+    if isinstance(v, str):
+        import json
+        try:
+            parsed = json.loads(v)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return {}
+    if isinstance(v, list):
+        # Heuristic: list of {name, value} pairs → merge into dict
+        result = {}
+        for item in v:
+            if isinstance(item, dict):
+                if "name" in item and "value" in item:
+                    result[item["name"]] = item["value"]
+                elif "name" in item and "level" in item:
+                    result[item["name"]] = item["level"]
+                else:
+                    result.update(item)
+            elif isinstance(item, str):
+                result[item] = True
+        field = info.field_name if info else "?"
+        logger.info(
+            f"[Coerce] {field}: list -> dict (merged {len(v)} items)"
+        )
+        return result
+    return {}
+
+
+JsonList = Annotated[list, BeforeValidator(_coerce_json_list)]
+"""List field that tolerates LLM shape mistakes (dict→list, str→parsed, None→[])"""
+
+JsonDict = Annotated[dict, BeforeValidator(_coerce_json_dict)]
+"""Dict field that tolerates LLM shape mistakes (list→dict, str→parsed, None→{})"""
 
 
 # =============================================================================

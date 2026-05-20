@@ -460,48 +460,36 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             changed = False
             known_names = self._build_name_registry()
 
-            # Characters: nullify invalid optional refs
+            # Auto-create stub locations for missing optional location refs.
+            # Rationale: the location extractor can enrich these later when the narrator
+            # describes them. Preserving the relation is more valuable than dropping it.
+            def _stub_if_missing(owner: str, ref_name: str, ref_value: str | None) -> bool:
+                if not ref_value or ref_value.lower() in known_names:
+                    return False
+                logger.info(
+                    f"[SoftRef] Pass {pass_num}: {owner} "
+                    f"- creating stub location for {ref_name} '{ref_value}'"
+                )
+                self.locations.append(LocationData(name=ref_value))
+                return True
+
             for char in self.characters:
-                if char.workplace_ref and char.workplace_ref.lower() not in known_names:
-                    logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Character '{char.name}' "
-                        f"- nullifying invalid workplace_ref '{char.workplace_ref}'"
-                    )
-                    char.workplace_ref = None
-                    changed = True
-                if char.residence_ref and char.residence_ref.lower() not in known_names:
-                    logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Character '{char.name}' "
-                        f"- nullifying invalid residence_ref '{char.residence_ref}'"
-                    )
-                    char.residence_ref = None
-                    changed = True
+                changed |= _stub_if_missing(
+                    f"Character '{char.name}'", "workplace_ref", char.workplace_ref
+                )
+                changed |= _stub_if_missing(
+                    f"Character '{char.name}'", "residence_ref", char.residence_ref
+                )
 
-            # Locations: nullify invalid optional parent refs
             for loc in self.locations:
-                if (
-                    loc.parent_location_ref
-                    and loc.parent_location_ref.lower() not in known_names
-                ):
-                    logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Location '{loc.name}' "
-                        f"- nullifying invalid parent_ref '{loc.parent_location_ref}'"
-                    )
-                    loc.parent_location_ref = None
-                    changed = True
+                changed |= _stub_if_missing(
+                    f"Location '{loc.name}'", "parent_location_ref", loc.parent_location_ref
+                )
 
-            # Organizations: nullify invalid optional HQ refs
             for org in self.organizations:
-                if (
-                    org.headquarters_ref
-                    and org.headquarters_ref.lower() not in known_names
-                ):
-                    logger.warning(
-                        f"[SoftRef] Pass {pass_num}: Organization '{org.name}' "
-                        f"- nullifying invalid HQ ref '{org.headquarters_ref}'"
-                    )
-                    org.headquarters_ref = None
-                    changed = True
+                changed |= _stub_if_missing(
+                    f"Organization '{org.name}'", "headquarters_ref", org.headquarters_ref
+                )
 
             # Relations: filter those with invalid required refs
             valid_rels = []

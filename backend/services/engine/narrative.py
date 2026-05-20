@@ -4,7 +4,6 @@ Traits-based resistance system. LLM judges outcomes based on character traits.
 No dice — the narrator decides success/failure using trait information.
 """
 
-import json
 from uuid import UUID
 
 from schema.engine import EngineType, MechanicalDecision, RollResult
@@ -64,7 +63,8 @@ class NarrativeEngine(BaseEngine):
         )
         if not row:
             return {}
-        traits = row["traits"] if isinstance(row["traits"], list) else json.loads(row["traits"])
+        from schema.core import _coerce_json_list
+        traits = _coerce_json_list(row["traits"])
         return {"traits": traits}
 
     async def create_npc_stats(self, conn, character_id: UUID, data: dict) -> None:

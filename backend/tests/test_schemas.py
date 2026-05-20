@@ -524,3 +524,72 @@ class TestStringTruncation:
         long_name = "A" * 200
         loc = LocationData(name=long_name)
         assert len(loc.name) <= 100
+
+
+# =============================================================================
+# SOFT NORMALIZERS — JSONB shape coercion
+# =============================================================================
+
+
+class TestCoerceJsonList:
+    """_coerce_json_list normalizes various LLM/UI shapes to a list."""
+
+    def test_none_returns_empty(self):
+        from schema.core import _coerce_json_list
+        assert _coerce_json_list(None) == []
+
+    def test_empty_string_returns_empty(self):
+        from schema.core import _coerce_json_list
+        assert _coerce_json_list("") == []
+
+    def test_list_returns_as_is(self):
+        from schema.core import _coerce_json_list
+        assert _coerce_json_list(["a", "b"]) == ["a", "b"]
+
+    def test_json_string_parsed(self):
+        from schema.core import _coerce_json_list
+        assert _coerce_json_list('["a", "b"]') == ["a", "b"]
+
+    def test_dict_taken_as_values(self):
+        """Wizard sends aspects as {high_concept, trouble, ...} — extract values."""
+        from schema.core import _coerce_json_list
+        result = _coerce_json_list({"high_concept": "Ancien soldat", "trouble": "Buveur"})
+        assert "Ancien soldat" in result
+        assert "Buveur" in result
+        assert len(result) == 2
+
+    def test_non_json_string_wrapped(self):
+        from schema.core import _coerce_json_list
+        assert _coerce_json_list("hello") == ["hello"]
+
+
+class TestCoerceJsonDict:
+    """_coerce_json_dict normalizes various shapes to a dict."""
+
+    def test_none_returns_empty(self):
+        from schema.core import _coerce_json_dict
+        assert _coerce_json_dict(None) == {}
+
+    def test_dict_returns_as_is(self):
+        from schema.core import _coerce_json_dict
+        assert _coerce_json_dict({"a": 1}) == {"a": 1}
+
+    def test_json_string_parsed(self):
+        from schema.core import _coerce_json_dict
+        assert _coerce_json_dict('{"a": 1}') == {"a": 1}
+
+    def test_list_of_name_level_merged(self):
+        """[{name, level}, ...] is the world gen format for skills."""
+        from schema.core import _coerce_json_dict
+        skills = [{"name": "Combat", "level": 3}, {"name": "Furtivité", "level": 2}]
+        result = _coerce_json_dict(skills)
+        assert result == {"Combat": 3, "Furtivité": 2}
+
+    def test_list_of_name_value_merged(self):
+        from schema.core import _coerce_json_dict
+        items = [{"name": "x", "value": 10}, {"name": "y", "value": 20}]
+        assert _coerce_json_dict(items) == {"x": 10, "y": 20}
+
+    def test_non_json_string_returns_empty(self):
+        from schema.core import _coerce_json_dict
+        assert _coerce_json_dict("not json") == {}
