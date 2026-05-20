@@ -60,11 +60,7 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 
-    # Extraction
-    extraction_model: str = os.getenv("EXTRACTION_MODEL", "")
-
     # Entity resolution (Phase 1 — pre-extraction disambiguation)
-    resolution_model: str = "claude-haiku-4-5"
     max_tokens_resolution: int = 1000
     resolution_context_window: int = 10
 

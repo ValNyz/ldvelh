@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from config import get_settings
 from schema.extraction import EntityResolution
 from services.llm_service import get_llm_service
 
@@ -246,14 +245,12 @@ async def resolve_entities(
 
     Returns (ResolutionMap, cost_dict) or (None, None) on failure.
     """
-    settings = get_settings()
-
     # Build annotated previous response (msg 1)
     annotated_prev = _rebuild_annotated_text(
         previous_response, previous_annotations or []
     )
 
-    # Call LLM with 2 messages
+    # Call LLM with 2 messages — use the provider's default model
     llm = get_llm_service()
     raw = await llm.extract_text(
         system_prompt=RESOLVER_SYSTEM_PROMPT,
@@ -261,7 +258,6 @@ async def resolve_entities(
                      f"MESSAGE 2 (current, to resolve):\n{current_response}",
         provider_name=provider_name,
         api_key=api_key,
-        model=settings.resolution_model,
     )
     cost = getattr(llm, "_last_call_cost", None)
 
