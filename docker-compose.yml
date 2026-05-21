@@ -3,7 +3,10 @@ services:
     build:
       context: ./db
       dockerfile: Dockerfile
-    restart: unless-stopped
+    # on-failure with cap so a broken db doesn't spam logs forever. Once it's
+    # running and healthy, restarts are caused only by crashes (real bugs) —
+    # 3 tries is enough to recover from transient failures.
+    restart: on-failure:3
     environment:
       POSTGRES_USER: ldvelh
       POSTGRES_PASSWORD: ${DB_PASSWORD:-ldvelh}
