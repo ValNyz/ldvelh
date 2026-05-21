@@ -1,0 +1,12 @@
+# Local dev overrides — auto-applied by `docker compose up`.
+# Coolify deploys with just docker-compose.yml, so this file is ignored in prod.
+# Adds host-port publishing so you can curl localhost:8000 / browse localhost:3000.
+
+services:
+  backend:
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+
+  frontend:
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"

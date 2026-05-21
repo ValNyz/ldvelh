@@ -48,8 +48,9 @@ services:
     volumes:
       # Read-only: backend just needs to verify the CA, never write certs.
       - db-certs:/certs:ro
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
+    # No `ports:` here on purpose — in production Coolify's Traefik proxy
+    # talks to this container via the Docker network. For local dev, see
+    # docker-compose.override.yml which adds host-port publishing.
 
   frontend:
     build:
@@ -61,8 +62,6 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
 
 volumes:
   pgdata:
