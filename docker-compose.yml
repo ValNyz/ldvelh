@@ -54,6 +54,18 @@ services:
     # No `ports:` here on purpose — in production Coolify's Traefik proxy
     # talks to this container via the Docker network. For local dev, see
     # docker-compose.override.yml which adds host-port publishing.
+    # Traefik routing: this backend has NO public domain of its own. It is
+    # reached only via /api/* on the frontend's hostname. The PathPrefix
+    # match passes the full path (including /api) through — no stripprefix
+    # middleware — so the FastAPI routes mounted at /api/* match correctly.
+    # Coolify injects SERVICE_FQDN_FRONTEND when you set the frontend domain.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`${SERVICE_FQDN_FRONTEND}`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.backend.entrypoints=https"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
 
   frontend:
     build:
