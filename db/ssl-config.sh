@@ -18,11 +18,11 @@ ssl_ca_file = '/certs/rootCA.crt'
 EOF
 
 # Replace pg_hba.conf entirely: only allow encrypted connections.
-# We use scram-sha-256 (password) over SSL — no client certs to distribute.
+# We use scram-sha-256 (password) over SSL -- no client certs to distribute.
 # Keep the local socket as trust so the upstream entrypoint scripts still work.
 echo "[db] Enforcing SSL in ${HBA}"
 cat > "${HBA}" <<EOF
-# === LDVELH pg_hba — SSL-only ===
+# === LDVELH pg_hba -- SSL-only ===
 # TYPE      DATABASE   USER   ADDRESS         METHOD
 local       all        all                    trust
 hostssl     all        all    0.0.0.0/0       scram-sha-256

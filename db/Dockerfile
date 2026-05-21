@@ -18,7 +18,7 @@ COPY ssl-config.sh /docker-entrypoint-initdb.d/ssl-config.sh
 COPY entrypoint.sh /usr/local/bin/ldvelh-entrypoint.sh
 # 755 = rwxr-xr-x. We use 755 explicitly (not chmod +x) because the host's
 # COPY may carry restrictive ACLs that block "others" from reading the script.
-# Postgres runs as the "postgres" user, which is in "others" — so it needs
+# Postgres runs as the "postgres" user, which is in "others" -- so it needs
 # both read AND execute bits set globally.
 RUN chmod 755 /usr/local/bin/ldvelh-entrypoint.sh \
     && chmod 755 /docker-entrypoint-initdb.d/ssl-config.sh

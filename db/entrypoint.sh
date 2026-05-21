@@ -11,9 +11,9 @@ DAYS_VALID="${CERT_DAYS_VALID:-3650}"  # 10 years for the CA, plenty for a self-
 mkdir -p "${CERT_DIR}"
 
 if [ ! -f "${CERT_DIR}/server.key" ]; then
-    echo "[db] No certs found — generating CA + server cert (CN=${SERVER_CN}, ${DAYS_VALID} days)"
+    echo "[db] No certs found -- generating CA + server cert (CN=${SERVER_CN}, ${DAYS_VALID} days)"
 
-    # Root CA — used to sign the server cert. Backend will trust this CA.
+    # Root CA -- used to sign the server cert. Backend will trust this CA.
     openssl genrsa -out "${CERT_DIR}/rootCA.key" 2048
     openssl req -x509 -new -nodes \
         -key "${CERT_DIR}/rootCA.key" \
@@ -21,7 +21,7 @@ if [ ! -f "${CERT_DIR}/server.key" ]; then
         -out "${CERT_DIR}/rootCA.crt" \
         -subj "/CN=LDVELH-LocalCA"
 
-    # Server cert — signed by the CA. CN matches the service hostname in compose.
+    # Server cert -- signed by the CA. CN matches the service hostname in compose.
     openssl genrsa -out "${CERT_DIR}/server.key" 2048
     openssl req -new \
         -key "${CERT_DIR}/server.key" \

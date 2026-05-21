@@ -1,4 +1,4 @@
-# Local dev overrides — auto-applied by `docker compose up`.
+# Local dev overrides -- auto-applied by `docker compose up`.
 # Coolify deploys with just docker-compose.yml, so this file is ignored in prod.
 # Adds host-port publishing so you can curl localhost:8000 / browse localhost:3000.
 
@@ -7,7 +7,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     environment:
-      # Dev runs over plain http on localhost — override the production
+      # Dev runs over plain http on localhost -- override the production
       # https://${FRONTEND_HOST} default in the base compose.
       FRONTEND_URL: http://localhost:3000
 
