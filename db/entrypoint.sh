@@ -46,6 +46,12 @@ fi
 chmod 600 "${CERT_DIR}/server.key" "${CERT_DIR}/rootCA.key"
 chown -R postgres:postgres "${CERT_DIR}"
 
+# Ensure /var/lib/postgresql (the volume mount root) is writable by postgres.
+# Fresh named volumes on some hosts (e.g. Coolify) mount as root:root 0755,
+# which prevents the upstream entrypoint from creating its data subdirectory.
+mkdir -p /var/lib/postgresql
+chown -R postgres:postgres /var/lib/postgresql
+
 # Chain to the upstream Postgres entrypoint, which handles initdb, env vars,
 # and finally executes the CMD (postgres).
 exec docker-entrypoint.sh "$@"
