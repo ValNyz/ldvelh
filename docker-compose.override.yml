@@ -6,6 +6,10 @@ services:
   backend:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      # Dev runs over plain http on localhost — override the production
+      # https://${FRONTEND_HOST} default in the base compose.
+      FRONTEND_URL: http://localhost:3000
 
   frontend:
     ports:
