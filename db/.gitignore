@@ -1,0 +1,9 @@
+.schema.sql
+schema.sql
+
+# Local certs (if you ever generate them outside the container)
+certs/
+*.crt
+*.key
+*.csr
+*.srl

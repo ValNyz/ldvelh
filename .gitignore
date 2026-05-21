@@ -14,3 +14,16 @@ TOFIX
 landing_page.md
 futures-plan.md
 db/schema.sql
+
+# Local docs/plans only — never commit
+docs/
+
+# Local DB dumps / backups
+*.dump
+
+# Local venv
+.venv/
+
+# Test artifacts (coverage reports, generated fixtures)
+backend/tests/fixtures/
+backend/tests/reports/
