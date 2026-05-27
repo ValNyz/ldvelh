@@ -122,11 +122,11 @@ JSON valide uniquement. Pas de markdown, pas de commentaires.
   (`credits: int`), PAS dans `inventory`.
 - `companion` : IA personnelle.
 - `locations`, `organizations`, `characters` : listes d'entités.
-- `inventory` : **liste plate** d'objets `{name, category, description,
-  quantity}`. Pas d'enveloppe `{credits, items}`.
+- `inventory` : **liste plate** d'objets `{{name, category, description,
+  quantity}}`. Pas d'enveloppe `{{credits, items}}`.
 - `narrative_arcs` : liste plate au root (voir §ARCS NARRATIFS).
 - `initial_relations` : liste de relations. Chaque entrée :
-  `{source_ref, target_ref, relation_type}` — PAS `source/target/type`.
+  `{{source_ref, target_ref, relation_type}}` — PAS `source/target/type`.
 - `arrival_event` : objet avec `arrival_method` (string),
   `arrival_location_ref` (nom d'un lieu), `arrival_date` (ex: "Lundi 14
   Mars 2847"), `time` (ex: "14h30"), `immediate_sensory_details` (liste
