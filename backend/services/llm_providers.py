@@ -163,6 +163,24 @@ class LLMProvider(ABC):
         """
         return [{"id": mid, "label": label} for mid, label in self.MODELS.items()]
 
+    @staticmethod
+    def _dedup_by_id(entries: list[dict]) -> list[dict]:
+        """Drop entries whose `id` was already seen, preserving first-seen order.
+
+        Several providers list aliases as separate entries that reuse the
+        canonical id (Mistral returns ~10 such duplicates) and we want the
+        dropdown to show each model once.
+        """
+        seen: set[str] = set()
+        out: list[dict] = []
+        for e in entries:
+            mid = e.get("id")
+            if not mid or mid in seen:
+                continue
+            seen.add(mid)
+            out.append(e)
+        return out
+
     @property
     @abstractmethod
     def provider_name(self) -> str: ...
@@ -331,11 +349,10 @@ class MistralProvider(LLMProvider):
         """Fetch the live model list from Mistral's /v1/models endpoint."""
         try:
             resp = await self.client.models.list_async()
-            # mistralai SDK returns a typed response; .data is a list of Model objects
-            return [{"id": m.id, "label": m.id} for m in resp.data]
         except Exception as e:
             logger.warning(f"[mistral] list_models failed: {e}")
             return []
+        return self._dedup_by_id([{"id": m.id, "label": m.id} for m in resp.data])
 
     async def stream(
         self,
@@ -420,10 +437,10 @@ class OpenAICompatibleProvider(LLMProvider):
         """Fetch the live model list from the provider's /v1/models endpoint."""
         try:
             resp = await self.client.models.list()
-            return [{"id": m.id, "label": m.id} for m in resp.data]
         except Exception as e:
             logger.warning(f"[{self.provider_name}] list_models failed: {e}")
             return []
+        return self._dedup_by_id([{"id": m.id, "label": m.id} for m in resp.data])
 
     async def stream(
         self,
@@ -653,7 +670,7 @@ class NousResearchProvider(OpenAICompatibleProvider):
                 ),
             )
             out.append(entry)
-        return out
+        return self._dedup_by_id(out)
 
 
 # =============================================================================
