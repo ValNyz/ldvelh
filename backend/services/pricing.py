@@ -8,6 +8,15 @@ Source: litellm's `model_prices_and_context_window.json`, vendored as
 
 The JSON file uses USD per token; we multiply by 1M to match the
 ModelPricing schema (USD per million tokens).
+
+IMPORTANT: `wandb/*` and several `mistral/*` entries have been
+hand-curated to match the vendors' official pricing pages:
+  - https://wandb.ai/site/inference (10x off in upstream litellm)
+  - https://mistral.ai/pricing       (stale aliases for "latest" tags
+    and missing new model dates like Medium 3.5, Small 4, Ministral 3,
+    Voxtral text pricing).
+After refreshing this file from litellm, diff the wandb and mistral
+blocks and re-apply the manual corrections.
 """
 
 from __future__ import annotations
@@ -82,17 +91,38 @@ def _normalize_rate(value: float | None) -> float:
 
 _PRICING: dict[str, ModelPricing] = _load()
 
+# Pricing registered at runtime by providers that ship pricing inline in
+# their /v1/models response (e.g. Nous Research). Keyed by "{provider}/{model}".
+# Takes precedence over the vendored litellm table.
+_DYNAMIC_PRICING: dict[str, ModelPricing] = {}
+
+
+def register_pricing(model: str, provider: str, pricing: ModelPricing) -> None:
+    """Register live per-million-token pricing for a model.
+
+    Use when the provider's own API returns the authoritative pricing,
+    so cost computation later doesn't need to depend on the vendored file.
+    """
+    if not model or not provider:
+        return
+    _DYNAMIC_PRICING[f"{provider}/{model}"] = pricing
+
 
 def lookup_pricing(model: str, provider: str | None = None) -> ModelPricing:
     """Return USD-per-million-token rates for a model.
 
-    Tries `model` directly first, then `{provider}/{model}` (litellm uses
-    a provider prefix for some entries, e.g. "mistral/mistral-large-latest").
-    Returns zero-rate pricing if the model isn't found (caller can decide
-    to surface tokens-only).
+    Resolution order:
+      1. Runtime-registered pricing (Nous and other vendors that expose
+         pricing in their /v1/models response).
+      2. Vendored litellm table by exact model id.
+      3. Vendored litellm table by "{provider}/{model}".
     """
     if not model:
         return ModelPricing()
+    if provider:
+        dyn = _DYNAMIC_PRICING.get(f"{provider}/{model}")
+        if dyn is not None:
+            return dyn
     if model in _PRICING:
         return _PRICING[model]
     if provider:

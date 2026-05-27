@@ -587,16 +587,73 @@ class NousResearchProvider(OpenAICompatibleProvider):
     FORCE_JSON = True
     STRUCTURED_OUTPUT = StructuredOutputMode.JSON_SCHEMA
     MODELS: dict[str, str] = {}
+    BASE_URL = "https://inference-api.nousresearch.com/v1"
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if model:
             self.MODEL_MAIN = model
-        key = api_key or get_settings().nous_api_key
-        super().__init__(base_url="https://inference-api.nousresearch.com/v1", api_key=key)
+        self._api_key = api_key or get_settings().nous_api_key
+        super().__init__(base_url=self.BASE_URL, api_key=self._api_key)
 
     @property
     def provider_name(self) -> str:
         return "nous"
+
+    async def list_models(self) -> list[dict]:
+        """Fetch live model list with inline pricing from Nous's /v1/models.
+
+        Unlike most OpenAI-compatible providers, Nous returns per-token
+        pricing directly on each model entry. We use that as the source of
+        truth instead of the vendored litellm pricing table.
+        """
+        import httpx
+        url = f"{self.BASE_URL}/models"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as c:
+                r = await c.get(url, headers=headers)
+                r.raise_for_status()
+                data = r.json()
+        except Exception as e:
+            logger.warning(f"[nous] list_models failed: {e}")
+            return []
+
+        from services.pricing import ModelPricing, register_pricing
+
+        out: list[dict] = []
+        for m in data.get("data", []):
+            price = m.get("pricing") or {}
+            try:
+                prompt = float(price.get("prompt") or 0)
+                completion = float(price.get("completion") or 0)
+                cache_read = float(price.get("input_cache_read") or 0)
+                cache_write = float(price.get("input_cache_write") or 0)
+            except (TypeError, ValueError):
+                continue
+            # Convert per-token rates to USD per million tokens
+            in_pm = prompt * 1_000_000
+            out_pm = completion * 1_000_000
+            entry: dict = {
+                "id": m["id"],
+                "label": m.get("name") or m["id"],
+                "input_price": in_pm,
+                "output_price": out_pm,
+            }
+            if cache_read:
+                entry["cache_read_price"] = cache_read * 1_000_000
+            # Register so later cost computations don't need to consult litellm
+            register_pricing(
+                m["id"],
+                "nous",
+                ModelPricing(
+                    input=in_pm,
+                    output=out_pm,
+                    cache_read=cache_read * 1_000_000,
+                    cache_write=cache_write * 1_000_000,
+                ),
+            )
+            out.append(entry)
+        return out
 
 
 # =============================================================================
@@ -674,6 +731,10 @@ def _enrich_with_pricing(
 ) -> list[dict]:
     """Attach input/output pricing to each model entry; drop unpriced models.
 
+    If a model entry already carries `input_price`/`output_price` (e.g. Nous,
+    which returns pricing inline in /v1/models), trust those values and skip
+    the vendored litellm lookup.
+
     UI policy: only show models we can compute cost for. Models missing from
     the vendored pricing table are silently dropped (logged at debug).
     """
@@ -682,6 +743,12 @@ def _enrich_with_pricing(
     enriched = []
     dropped = []
     for m in models:
+        if "input_price" in m and "output_price" in m:
+            if m["input_price"] == 0 and m["output_price"] == 0:
+                dropped.append(m["id"])
+                continue
+            enriched.append(m)
+            continue
         price = lookup_pricing(m["id"], provider_name)
         if price.input == 0 and price.output == 0:
             dropped.append(m["id"])

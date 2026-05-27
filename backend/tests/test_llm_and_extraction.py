@@ -152,18 +152,38 @@ class TestPricingLookup:
         # Cache reads should be cheaper than full input
         assert 0 < p.cache_read < p.input
 
-    def test_wandb_per_million_mislabeling_corrected(self):
-        """litellm stores per-million values in the per-token field for wandb;
-        our loader detects this via the >= 0.001 heuristic."""
+    def test_wandb_prices_match_official_pricing(self):
+        """wandb entries are hand-curated to match W&B's official pricing
+        (https://wandb.ai/site/inference). litellm's upstream data was
+        10x off for these models; the JSON has been corrected manually."""
         from services.pricing import lookup_pricing, is_loaded
         if not is_loaded():
             pytest.skip("pricing file not vendored")
-        # Real DeepSeek-V3 pricing is in the $0.1-$2/M range. Without our
-        # heuristic, the raw 0.165 value would become $165000/M.
-        p = lookup_pricing("wandb/deepseek-ai/DeepSeek-V3.1")
-        assert p.input < 100  # sanity: under $100 per million
-        assert p.output < 100
-        assert p.input > 0
+        # Spot-check a few representative models against W&B's published rates
+        p = lookup_pricing("deepseek-ai/DeepSeek-V3.1", provider="wandb")
+        assert p.input == pytest.approx(0.55)
+        assert p.output == pytest.approx(1.65)
+
+        p = lookup_pricing("Qwen/Qwen3-Coder-480B-A35B-Instruct", provider="wandb")
+        assert p.input == pytest.approx(1.0)
+        assert p.output == pytest.approx(1.5)
+
+        p = lookup_pricing("openai/gpt-oss-20b", provider="wandb")
+        assert p.input == pytest.approx(0.05)
+        assert p.output == pytest.approx(0.20)
+
+    def test_wandb_new_models_present(self):
+        """Models added manually (not in upstream litellm) must resolve."""
+        from services.pricing import lookup_pricing, is_loaded
+        if not is_loaded():
+            pytest.skip("pricing file not vendored")
+        p = lookup_pricing("deepseek-ai/DeepSeek-V4-Pro", provider="wandb")
+        assert p.input == pytest.approx(1.74)
+        assert p.output == pytest.approx(3.48)
+
+        p = lookup_pricing("moonshotai/Kimi-K2.6", provider="wandb")
+        assert p.input == pytest.approx(0.95)
+        assert p.output == pytest.approx(4.0)
 
     def test_normalize_rate_per_token_multiplied(self):
         """Values below the per-token ceiling are multiplied by 1M."""
@@ -171,9 +191,10 @@ class TestPricingLookup:
         assert _normalize_rate(0.000003) == pytest.approx(3.0)  # frontier rate
 
     def test_normalize_rate_per_million_passthrough(self):
-        """Values above the ceiling are already per-million; pass through."""
+        """Safety net: values above the per-token ceiling are assumed to
+        already be per-million (defends against other providers with the
+        same data-shape mistake)."""
         from services.pricing import _normalize_rate
-        assert _normalize_rate(0.165) == 0.165  # litellm wandb mislabel
         assert _normalize_rate(3.0) == 3.0  # already per-million
 
     def test_normalize_rate_none_and_zero(self):
