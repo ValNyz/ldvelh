@@ -601,7 +601,6 @@ class NousResearchProvider(OpenAICompatibleProvider):
     """Nous Research inference provider."""
 
     MODEL_MAIN = "Hermes-4-405B"
-    FORCE_JSON = True
     STRUCTURED_OUTPUT = StructuredOutputMode.JSON_SCHEMA
     MODELS: dict[str, str] = {}
     BASE_URL = "https://inference-api.nousresearch.com/v1"

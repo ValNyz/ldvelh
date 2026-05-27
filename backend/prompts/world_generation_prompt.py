@@ -67,10 +67,13 @@ Sur 3-4 PNJ, assure-toi d'avoir :
   Exemples INTERDITS : "Celle qui compte les pages", "La Nouvelle", "Le Gardien des Secrets"
   C'est ce que le protagoniste VOIT, pas un titre poétique ou un rôle narratif.
 
-### ARCS PAR PERSONNAGE
-Chaque PNJ peut avoir 1-3 arcs couvrant différents domaines :
-professional, personal, romantic, social, family, financial, health, existential
+### ARCS NARRATIFS
+**Une seule liste**, top-level `narrative_arcs[]`. PAS de `world.global_arcs`,
+PAS de `characters[].arcs` ni `characters[].details.archetypes`.
 
+Chaque arc lie ses PNJ via `involved_entities` (liste de noms exacts).
+Un PNJ peut apparaître dans 1-3 arcs. Domaines possibles :
+professional, personal, romantic, social, family, financial, health, existential.
 Chaque arc a une `intensity` (1-5).
 
 ### Inventaire selon departure_reason
@@ -108,8 +111,28 @@ Avant d'écrire un `*_ref`, vérifie qu'il existe :
 ## FORMAT DE SORTIE
 JSON valide uniquement. Pas de markdown, pas de commentaires.
 
+### CLÉS TOP-LEVEL REQUISES (toutes obligatoires)
+- `generation_seed_words` : 3-6 mots-clés thématiques guidant la génération
+  (ex: ["rouille", "reconversion", "isolement"]).
+- `world` : objet avec `name`, `description`, `atmosphere`, `founding_cycle`,
+  et `sectors` (2-10 zones nommées de la station, ex: ["Quai Central",
+  "Serres Hautes", "Quartier Ouvrier"]).
+- `protagonist` : refs au top-level (`residence_ref`, `employer_ref`,
+  `arrival_location_ref`), JAMAIS sous `details`.
+- `companion` : IA personnelle.
+- `locations`, `organizations`, `characters`, `inventory` : listes d'entités.
+- `narrative_arcs` : liste plate au root (voir §ARCS NARRATIFS).
+- `initial_relations` : relations de départ.
+- `arrival_event` : premier événement.
+
+### CHAMP `details` (CHARACTERS UNIQUEMENT)
+`characters[].details` n'existe QUE pour les stats moteur (Fate, D6...).
+- N'y mets PAS d'arcs, PAS de refs, PAS de champs ad-hoc en français.
+- Pour les arcs, utilise `narrative_arcs[]` au root.
+- Pour les refs, utilise `workplace_ref`, `residence_ref` au top du personnage.
+
 **LIMITES** :
-- Minimum 2 Arcs narratifs globaux
+- Minimum 2 arcs narratifs (`narrative_arcs[]`)
 - Maximum 6 personnages
 - Maximum 5 lieux
 - Maximum 4 organisations
@@ -171,9 +194,10 @@ def _build_engine_section(engine: str, world_config: dict | None = None) -> list
             f"Compétences disponibles : {', '.join(skills)}",
             "",
             "### PNJ — Stats Fate (IMPORTANT)",
-            "Chaque PNJ doit avoir dans son champ `details` :",
+            "Pour chaque PNJ, `details` contient UNIQUEMENT ces deux clés :",
             '- `"fate_skills"`: dict de 2-4 compétences clés avec niveaux (0-6)',
             '- `"fate_aspects"`: liste de 1-2 aspects narratifs',
+            "Aucun autre champ dans `details`. Arcs et refs restent au top-level.",
             "",
         ])
 
@@ -187,9 +211,10 @@ def _build_engine_section(engine: str, world_config: dict | None = None) -> list
             f"Attributs : {', '.join(D6_ATTRIBUTES)}",
             "",
             "### PNJ — Stats D6 (IMPORTANT)",
-            "Chaque PNJ doit avoir dans son champ `details` :",
+            "Pour chaque PNJ, `details` contient UNIQUEMENT ces deux clés :",
             '- `"d6_attributes"`: dict d\'attributs principaux en code dé',
             '- `"d6_skills"`: dict de 2-4 compétences clés en code dé',
+            "Aucun autre champ dans `details`. Arcs et refs restent au top-level.",
             "",
         ])
 
@@ -337,11 +362,16 @@ def build_world_generation_user_prompt(
     parts.extend([
         "## CHECKLIST FINALE",
         "",
+        "### Clés top-level (toutes obligatoires)",
+        "□ `generation_seed_words` (3-6 mots-clés)",
+        "□ `world.sectors` (2-10 zones nommées)",
+        "□ `narrative_arcs` (liste plate au root, min 2)",
+        "",
         "### Entités",
         "□ 3-4 personnages",
         "□ 4-5 lieux (dont un logement)",
         "□ 1-3 organisations",
-        "□ Chaque PNJ a 1-3 arcs variés",
+        "□ 2-4 arcs dans `narrative_arcs[]`, chacun liant 1-3 PNJ via `involved_entities`",
         "",
         "### RÉFÉRENCES (CRITIQUE)",
         "□ Chaque *_ref = nom EXACT d'un lieu dans 'locations'",
@@ -350,7 +380,7 @@ def build_world_generation_user_prompt(
         "### Friction",
         "□ Au moins 1 PNJ pas immédiatement sympathique",
         "□ Au moins 1 irritant dans la situation de départ",
-        "□ Les arcs PNJ ne positionnent PAS le protagoniste comme solution",
+        "□ Les arcs ne positionnent PAS le protagoniste comme solution",
         "",
         "Génère maintenant le JSON complet.",
     ])
