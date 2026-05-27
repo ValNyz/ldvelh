@@ -132,6 +132,18 @@ export default function SettingsPage({
 							if (models.length === 0) return null;
 							// Compact USD-per-million-tokens formatter
 							const fmt = (v) => (v == null ? '?' : v >= 1 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`);
+							// Group by namespace (Nous/W&B use "vendor/model"; Mistral uses
+							// "family-variant" so we split on the first dash instead).
+							const groupKey = (id) => id.includes('/')
+								? id.split('/')[0]
+								: id.split('-')[0];
+							const grouped = models.reduce((acc, m) => {
+								const k = groupKey(m.id);
+								(acc[k] = acc[k] || []).push(m);
+								return acc;
+							}, {});
+							const groups = Object.entries(grouped)
+								.sort(([a], [b]) => a.localeCompare(b));
 							return (
 								<div className="mb-4">
 									<label className="block text-xs text-gray-500 mb-2">
@@ -142,10 +154,14 @@ export default function SettingsPage({
 										onChange={(e) => preferences.setActiveModel(e.target.value || null)}
 										className="w-full px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 									>
-										{models.map(m => (
-											<option key={m.id} value={m.id}>
-												{m.label} -- {fmt(m.input_price)} / {fmt(m.output_price)}
-											</option>
+										{groups.map(([family, ms]) => (
+											<optgroup key={family} label={family}>
+												{ms.map(m => (
+													<option key={m.id} value={m.id}>
+														{m.label} -- {fmt(m.input_price)} / {fmt(m.output_price)}
+													</option>
+												))}
+											</optgroup>
 										))}
 									</select>
 								</div>
