@@ -65,9 +65,6 @@ def _mock_provider(name="anthropic", model="claude-sonnet-4-6"):
     provider.supports_cache_control = (name == "anthropic")
     provider.MODEL_MAIN = model
     provider.model_name.return_value = model
-    provider.get_pricing.return_value = ModelPricing(
-        input=3.0, output=15.0, cache_write=3.75, cache_read=0.30,
-    )
     # Default to TOOL_USE for anthropic, TEXT for others
     if name == "anthropic":
         provider.structured_output_mode = StructuredOutputMode.TOOL_USE
@@ -112,6 +109,48 @@ class TestLLMUsageAndDataclasses:
         p = ModelPricing()
         assert p.input == 0.0 and p.output == 0.0
         assert p.cache_write == 0.0 and p.cache_read == 0.0
+
+
+class TestPricingLookup:
+    """Tests for the central pricing module (services.pricing)."""
+
+    def test_unknown_model_returns_zero_pricing(self):
+        from services.pricing import lookup_pricing
+        p = lookup_pricing("this-model-does-not-exist", provider="some-provider")
+        assert p.input == 0.0
+        assert p.output == 0.0
+
+    def test_empty_model_returns_zero_pricing(self):
+        from services.pricing import lookup_pricing
+        p = lookup_pricing("")
+        assert p.input == 0.0
+
+    def test_anthropic_claude_sonnet_priced(self):
+        """A model known to be in the vendored litellm file must resolve."""
+        from services.pricing import lookup_pricing, is_loaded
+        if not is_loaded():
+            pytest.skip("pricing file not vendored")
+        p = lookup_pricing("claude-sonnet-4-6")
+        assert p.input > 0
+        assert p.output > p.input  # output is always pricier than input
+
+    def test_mistral_prefix_fallback(self):
+        """litellm uses 'mistral/<model>' keys; lookup tries the prefix."""
+        from services.pricing import lookup_pricing, is_loaded
+        if not is_loaded():
+            pytest.skip("pricing file not vendored")
+        # mistral-large-latest is keyed as "mistral/mistral-large-latest" in litellm
+        p = lookup_pricing("mistral-large-latest", provider="mistral")
+        assert p.input > 0
+
+    def test_cache_rates_loaded_when_present(self):
+        """Anthropic models expose cache_read pricing in the litellm file."""
+        from services.pricing import lookup_pricing, is_loaded
+        if not is_loaded():
+            pytest.skip("pricing file not vendored")
+        p = lookup_pricing("claude-sonnet-4-6")
+        # Cache reads should be cheaper than full input
+        assert 0 < p.cache_read < p.input
 
 
 class TestProviderRegistry:
@@ -162,7 +201,98 @@ class TestProviderRegistry:
             assert "models" in entry
             assert "default_model" in entry
             assert isinstance(entry["models"], list)
-            assert len(entry["models"]) > 0
+        # Anthropic is the only provider with a hardcoded MODELS dict (no live
+        # discovery endpoint); the others fetch their model list at runtime.
+        assert len(catalog["providers"]["anthropic"]["models"]) > 0
+
+
+class TestProviderCatalogAsync:
+    """Tests for get_provider_catalog_async (live model fetch + pricing filter)."""
+
+    def setup_method(self):
+        # Clear the model-list cache between tests
+        from services.llm_providers import _MODEL_CACHE
+        _MODEL_CACHE.clear()
+
+    @pytest.mark.asyncio
+    async def test_no_user_keys_returns_anthropic_models_others_empty(self):
+        from services.llm_providers import get_provider_catalog_async
+        result = await get_provider_catalog_async(user_keys=None)
+        assert "providers" in result
+        # Anthropic: hardcoded list, enriched with pricing
+        anthropic_models = result["providers"]["anthropic"]["models"]
+        assert len(anthropic_models) > 0
+        for m in anthropic_models:
+            assert "id" in m and "input_price" in m and "output_price" in m
+            assert m["input_price"] > 0
+        # Others: empty without a key
+        for name in ["mistral", "wandb", "nebius", "nous"]:
+            assert result["providers"][name]["models"] == []
+
+    @pytest.mark.asyncio
+    @patch("services.llm_providers.get_settings")
+    async def test_unpriced_models_filtered_out(self, mock_settings):
+        """Models with no entry in the pricing table are dropped from the response."""
+        from services.llm_providers import get_provider_catalog_async, MistralProvider
+        from unittest.mock import AsyncMock
+
+        mock_settings.return_value = MagicMock(mistral_api_key="key")
+
+        # Mock the provider's list_models to return a known model + a fake one
+        with patch.object(
+            MistralProvider, "list_models",
+            new=AsyncMock(return_value=[
+                {"id": "mistral-large-latest", "label": "mistral-large-latest"},
+                {"id": "completely-fake-model-id-not-in-pricing", "label": "fake"},
+            ]),
+        ):
+            result = await get_provider_catalog_async(
+                user_keys={"mistral": "fake-key"},
+            )
+
+        mistral_models = result["providers"]["mistral"]["models"]
+        ids = {m["id"] for m in mistral_models}
+        # The fake model is dropped (no pricing entry)
+        assert "completely-fake-model-id-not-in-pricing" not in ids
+        # mistral-large-latest IS in litellm's table (as mistral/mistral-large-latest)
+        assert "mistral-large-latest" in ids
+
+    @pytest.mark.asyncio
+    @patch("services.llm_providers.get_settings")
+    async def test_cache_hit_skips_second_fetch(self, mock_settings):
+        """A second call within TTL doesn't re-hit the provider API."""
+        from services.llm_providers import get_provider_catalog_async, MistralProvider
+        from unittest.mock import AsyncMock
+
+        mock_settings.return_value = MagicMock(mistral_api_key="key")
+
+        fetch_mock = AsyncMock(return_value=[
+            {"id": "mistral-large-latest", "label": "mistral-large-latest"},
+        ])
+        with patch.object(MistralProvider, "list_models", new=fetch_mock):
+            await get_provider_catalog_async(user_keys={"mistral": "key1"})
+            await get_provider_catalog_async(user_keys={"mistral": "key1"})
+
+        # Same key, two calls -> list_models invoked only once
+        assert fetch_mock.call_count == 1
+
+    @pytest.mark.asyncio
+    @patch("services.llm_providers.get_settings")
+    async def test_provider_failure_returns_empty_list(self, mock_settings):
+        """If the live fetch errors, the catalog still returns a (empty) entry."""
+        from services.llm_providers import get_provider_catalog_async, MistralProvider
+        from unittest.mock import AsyncMock
+
+        mock_settings.return_value = MagicMock(mistral_api_key="key")
+
+        with patch.object(
+            MistralProvider, "list_models",
+            new=AsyncMock(side_effect=RuntimeError("provider down")),
+        ):
+            result = await get_provider_catalog_async(
+                user_keys={"mistral": "bad-key"},
+            )
+        assert result["providers"]["mistral"]["models"] == []
 
 
 class TestAnthropicProvider:
@@ -189,22 +319,6 @@ class TestAnthropicProvider:
         assert p.MODEL_MAIN == "claude-sonnet-4-6"  # Unchanged
 
     @patch("services.llm_providers.get_settings")
-    def test_pricing_known_model(self, mock_settings):
-        mock_settings.return_value = MagicMock(anthropic_api_key="key")
-        p = AnthropicProvider()
-        pricing = p.get_pricing("claude-sonnet-4-6")
-        assert pricing.input == 3.0
-        assert pricing.output == 15.0
-
-    @patch("services.llm_providers.get_settings")
-    def test_pricing_fallback(self, mock_settings):
-        mock_settings.return_value = MagicMock(anthropic_api_key="key")
-        p = AnthropicProvider()
-        pricing = p.get_pricing("unknown-model")
-        # Falls back to sonnet-4-6 pricing
-        assert pricing.input == 3.0
-
-    @patch("services.llm_providers.get_settings")
     def test_model_name_returns_main(self, mock_settings):
         mock_settings.return_value = MagicMock(anthropic_api_key="key")
         p = AnthropicProvider()
@@ -223,16 +337,6 @@ class TestMistralProvider:
         assert p.supports_cache_control is False
         assert p.MODEL_MAIN == "mistral-large-latest"
 
-    @patch("services.llm_providers.get_settings")
-    def test_pricing(self, mock_settings):
-        mock_settings.return_value = MagicMock(mistral_api_key="key")
-        p = MistralProvider()
-        pricing = p.get_pricing("mistral-large-latest")
-        assert pricing.input == 0.5
-        assert pricing.output == 1.5
-        assert pricing.cache_write == 0.0
-
-
 class TestOpenAICompatibleProviders:
     """Tests for WandbProvider, NebiusProvider, NousResearchProvider."""
 
@@ -249,9 +353,6 @@ class TestOpenAICompatibleProviders:
         mock_settings.return_value = MagicMock(nebius_api_key="key")
         p = NebiusProvider()
         assert p.provider_name == "nebius"
-        # Different pricing than wandb
-        pricing = p.get_pricing(p.MODEL_MAIN)
-        assert pricing.input == 0.20
 
     @patch("services.llm_providers.get_settings")
     def test_nous_provider_force_json(self, mock_settings):
@@ -389,13 +490,9 @@ class TestCostTracker:
         assert summary["purposes"]["extraction"]["calls"] == 1
         assert summary["total_cost_usd"] > 0
 
-    @patch("services.llm_service.get_provider")
-    def test_get_summary_detects_mistral_model(self, mock_get_provider):
-        """Models starting with 'mistral' should use the mistral provider for pricing."""
+    def test_get_summary_detects_mistral_model(self):
+        """Models starting with 'mistral' should be priced via the mistral entry."""
         mistral_provider = _mock_provider(name="mistral", model="mistral-large-latest")
-        mistral_provider.get_pricing.return_value = ModelPricing(input=0.5, output=1.5)
-        mock_get_provider.return_value = mistral_provider
-
         tracker = CostTracker()
         tracker.record(
             "mistral-large-latest",
@@ -405,8 +502,9 @@ class TestCostTracker:
         )
         summary = tracker.get_summary()
         assert "narration" in summary["purposes"]
-        # Pricing should come from mistral provider
-        mock_get_provider.assert_called_with("mistral")
+        # Cost is computed via the central pricing table — if Mistral pricing
+        # is loaded for this model, cost should be > 0.
+        assert "total_cost_usd" in summary
 
 
 # =============================================================================

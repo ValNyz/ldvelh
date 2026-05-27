@@ -21,6 +21,7 @@ from services.llm_providers import (
     ToolResult,
     get_provider,
 )
+from services.pricing import lookup_pricing
 from utils import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -40,9 +41,9 @@ class ModelUsage:
     calls: int = 0
 
 
-def _compute_cost(usage: ModelUsage, provider: LLMProvider, model: str) -> float:
-    """Compute USD cost using provider-specific pricing."""
-    pricing = provider.get_pricing(model)
+def _compute_cost(usage: ModelUsage, provider_name: str, model: str) -> float:
+    """Compute USD cost from token usage using the central pricing table."""
+    pricing = lookup_pricing(model, provider_name)
     return (
         usage.input_tokens * pricing.input
         + usage.output_tokens * pricing.output
@@ -59,14 +60,13 @@ def compute_cost_from_stored(usage_data: dict) -> float:
     """
     model = usage_data.get("model", "")
     provider_name = usage_data.get("provider", "anthropic")
-    provider = get_provider(provider_name)
     mu = ModelUsage(
         input_tokens=usage_data.get("input_tokens", 0),
         output_tokens=usage_data.get("output_tokens", 0),
         cache_creation_input_tokens=usage_data.get("cache_creation_input_tokens", 0),
         cache_read_input_tokens=usage_data.get("cache_read_input_tokens", 0),
     )
-    return round(_compute_cost(mu, provider, model), 6)
+    return round(_compute_cost(mu, provider_name, model), 6)
 
 
 class CostTracker:
@@ -101,7 +101,7 @@ class CostTracker:
             cache_read_input_tokens=usage.cache_read_input_tokens,
             calls=1,
         )
-        call_cost = _compute_cost(call_usage, provider, model)
+        call_cost = _compute_cost(call_usage, provider.provider_name, model)
         logger.debug(
             f"[COST] {purpose}/{model}: +{usage.input_tokens}in +{usage.output_tokens}out "
             f"(cache_read={usage.cache_read_input_tokens}) = ${call_cost:.6f}"
@@ -124,17 +124,17 @@ class CostTracker:
         for key, usage in self._usage.items():
             purpose, model = key.split(":", 1)
 
-            # Determine provider from model name for pricing
+            # Heuristically determine provider name from model id for pricing lookup
             if model.startswith("mistral"):
-                provider = get_provider("mistral")
+                provider_name = "mistral"
             elif model.startswith("claude"):
-                provider = get_provider("anthropic")
-            elif default_provider:
-                provider = default_provider
+                provider_name = "anthropic"
+            elif default_provider is not None:
+                provider_name = default_provider.provider_name
             else:
-                provider = get_provider("anthropic")
+                provider_name = "anthropic"
 
-            cost = _compute_cost(usage, provider, model)
+            cost = _compute_cost(usage, provider_name, model)
             total_cost += cost
 
             if purpose not in purposes:

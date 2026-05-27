@@ -17,8 +17,11 @@ import openai
 from mistralai.client import Mistral
 
 from config import get_settings
+from services.pricing import ModelPricing  # re-exported for backward compat
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["ModelPricing"]  # silence unused-import warning
 
 
 # =============================================================================
@@ -51,16 +54,6 @@ class ToolResult:
     tool_name: str
     tool_input: dict  # Already parsed by the SDK
     usage: LLMUsage
-
-
-@dataclass
-class ModelPricing:
-    """Cost per million tokens (USD)."""
-
-    input: float = 0.0
-    output: float = 0.0
-    cache_write: float = 0.0
-    cache_read: float = 0.0
 
 
 class StructuredOutputMode(str, Enum):
@@ -152,16 +145,23 @@ class LLMProvider(ABC):
     MODEL_MAIN: str
 
     # Subclasses should define MODELS: dict[str, str] mapping model_id -> label
+    # (used as the fallback model list when no live discovery is possible).
     MODELS: dict[str, str] = {}
 
     def model_name(self, purpose: str) -> str:
         """Return model ID for a given purpose. Default: MODEL_MAIN for all."""
         return self.MODEL_MAIN
 
-    @abstractmethod
-    def get_pricing(self, model: str) -> ModelPricing:
-        """Return pricing for a specific model."""
-        ...
+    async def list_models(self) -> list[dict]:
+        """Return models available on this provider.
+
+        Default: returns the hardcoded MODELS dict (used by Anthropic which has
+        no live discovery endpoint). Subclasses with a `/v1/models` endpoint
+        should override to fetch from the provider.
+
+        Returns: [{"id": "model-id", "label": "Display Name"}, ...]
+        """
+        return [{"id": mid, "label": label} for mid, label in self.MODELS.items()]
 
     @property
     @abstractmethod
@@ -182,18 +182,6 @@ class AnthropicProvider(LLMProvider):
     MODELS: dict[str, str] = {
         "claude-sonnet-4-6": "Sonnet 4.6",
         "claude-haiku-4-5": "Haiku 4.5",
-    }
-
-    PRICING: dict[str, ModelPricing] = {
-        "claude-sonnet-4-5": ModelPricing(
-            input=3.0, output=15.0, cache_write=3.75, cache_read=0.30
-        ),
-        "claude-sonnet-4-6": ModelPricing(
-            input=3.0, output=15.0, cache_write=3.75, cache_read=0.30
-        ),
-        "claude-haiku-4-5": ModelPricing(
-            input=1.0, output=5.0, cache_write=1.25, cache_read=0.1
-        ),
     }
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
@@ -314,9 +302,6 @@ class AnthropicProvider(LLMProvider):
     def supports_cache_control(self) -> bool:
         return True
 
-    def get_pricing(self, model: str) -> ModelPricing:
-        return self.PRICING.get(model, self.PRICING["claude-sonnet-4-6"])
-
     @property
     def provider_name(self) -> str:
         return "anthropic"
@@ -332,19 +317,25 @@ class MistralProvider(LLMProvider):
 
     MODEL_MAIN = "mistral-large-latest"
 
-    MODELS: dict[str, str] = {
-        "mistral-large-latest": "Mistral Large",
-    }
-
-    PRICING: dict[str, ModelPricing] = {
-        "mistral-large-latest": ModelPricing(input=0.5, output=1.5),
-    }
+    # MODELS is no longer maintained: model list is fetched live via the
+    # provider's /v1/models endpoint. Kept empty for backward compat (tests).
+    MODELS: dict[str, str] = {}
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        if model and model in self.MODELS:
+        if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().mistral_api_key
         self.client = Mistral(api_key=key)
+
+    async def list_models(self) -> list[dict]:
+        """Fetch the live model list from Mistral's /v1/models endpoint."""
+        try:
+            resp = await self.client.models.list_async()
+            # mistralai SDK returns a typed response; .data is a list of Model objects
+            return [{"id": m.id, "label": m.id} for m in resp.data]
+        except Exception as e:
+            logger.warning(f"[mistral] list_models failed: {e}")
+            return []
 
     async def stream(
         self,
@@ -407,9 +398,6 @@ class MistralProvider(LLMProvider):
     def supports_cache_control(self) -> bool:
         return False
 
-    def get_pricing(self, model: str) -> ModelPricing:
-        return self.PRICING.get(model, self.PRICING["mistral-large-latest"])
-
     @property
     def provider_name(self) -> str:
         return "mistral"
@@ -423,17 +411,19 @@ class MistralProvider(LLMProvider):
 class OpenAICompatibleProvider(LLMProvider):
     """Base class for any provider exposing an OpenAI-compatible API."""
 
-    PRICING: dict[str, ModelPricing] = {}
     FORCE_JSON: bool = False
 
-    def __init__(
-        self,
-        base_url: str,
-        api_key: str,
-        pricing: dict[str, ModelPricing],
-    ):
+    def __init__(self, base_url: str, api_key: str):
         self.client = openai.AsyncOpenAI(base_url=base_url, api_key=api_key)
-        self._pricing = pricing
+
+    async def list_models(self) -> list[dict]:
+        """Fetch the live model list from the provider's /v1/models endpoint."""
+        try:
+            resp = await self.client.models.list()
+            return [{"id": m.id, "label": m.id} for m in resp.data]
+        except Exception as e:
+            logger.warning(f"[{self.provider_name}] list_models failed: {e}")
+            return []
 
     async def stream(
         self,
@@ -543,36 +533,25 @@ class OpenAICompatibleProvider(LLMProvider):
     def supports_cache_control(self) -> bool:
         return False
 
-    def get_pricing(self, model: str) -> ModelPricing:
-        return self._pricing.get(model, ModelPricing())
-
     @property
     def provider_name(self) -> str:
         return "openai_compatible"
 
 
+# Model lists below are fetched live via /v1/models in list_models().
+# Subclasses just declare their default model + provider-specific endpoint.
+
 class WandbProvider(OpenAICompatibleProvider):
-    """W&B Inference provider (Qwen 3 235B)."""
+    """W&B Inference provider."""
 
     MODEL_MAIN = "Qwen/Qwen3-235B-A22B-Instruct-2507"
-
-    MODELS: dict[str, str] = {
-        "Qwen/Qwen3-235B-A22B-Instruct-2507": "Qwen 3 235B",
-    }
-
-    PRICING = {
-        "Qwen/Qwen3-235B-A22B-Instruct-2507": ModelPricing(input=0.10, output=0.10),
-    }
+    MODELS: dict[str, str] = {}
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        if model and model in self.MODELS:
+        if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().wandb_api_key
-        super().__init__(
-            base_url="https://api.inference.wandb.ai/v1",
-            api_key=key,
-            pricing=self.PRICING,
-        )
+        super().__init__(base_url="https://api.inference.wandb.ai/v1", api_key=key)
 
     @property
     def provider_name(self) -> str:
@@ -580,27 +559,16 @@ class WandbProvider(OpenAICompatibleProvider):
 
 
 class NebiusProvider(OpenAICompatibleProvider):
-    """Nebius Token Factory provider (Qwen 3 235B)."""
+    """Nebius Token Factory provider."""
 
     MODEL_MAIN = "Qwen/Qwen3-235B-A22B-Instruct-2507"
-
-    MODELS: dict[str, str] = {
-        "Qwen/Qwen3-235B-A22B-Instruct-2507": "Qwen 3 235B",
-    }
-
-    PRICING = {
-        "Qwen/Qwen3-235B-A22B-Instruct-2507": ModelPricing(input=0.20, output=0.60),
-    }
+    MODELS: dict[str, str] = {}
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        if model and model in self.MODELS:
+        if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().nebius_api_key
-        super().__init__(
-            base_url="https://api.tokenfactory.nebius.com/v1/",
-            api_key=key,
-            pricing=self.PRICING,
-        )
+        super().__init__(base_url="https://api.tokenfactory.nebius.com/v1/", api_key=key)
 
     @property
     def provider_name(self) -> str:
@@ -613,31 +581,18 @@ class NebiusProvider(OpenAICompatibleProvider):
 
 
 class NousResearchProvider(OpenAICompatibleProvider):
-    """Nous Research inference provider (Hermes 4)."""
+    """Nous Research inference provider."""
 
     MODEL_MAIN = "Hermes-4-405B"
     FORCE_JSON = True
     STRUCTURED_OUTPUT = StructuredOutputMode.JSON_SCHEMA
-
-    MODELS: dict[str, str] = {
-        "Hermes-4-405B": "Hermes 4 405B",
-        "Hermes-4-70B": "Hermes 4 70B",
-    }
-
-    PRICING = {
-        "Hermes-4-405B": ModelPricing(input=0.09, output=0.37),
-        "Hermes-4-70B": ModelPricing(input=0.05, output=0.2),
-    }
+    MODELS: dict[str, str] = {}
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
-        if model and model in self.MODELS:
+        if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().nous_api_key
-        super().__init__(
-            base_url="https://inference-api.nousresearch.com/v1",
-            api_key=key,
-            pricing=self.PRICING,
-        )
+        super().__init__(base_url="https://inference-api.nousresearch.com/v1", api_key=key)
 
     @property
     def provider_name(self) -> str:
@@ -684,7 +639,11 @@ def get_provider(
 
 
 def get_provider_catalog() -> dict:
-    """Return available providers with their models for frontend discovery."""
+    """Return static provider metadata (no live model lookup).
+
+    Use get_provider_catalog_async(user_keys=...) if you have user-scoped
+    API keys and want live model discovery.
+    """
     catalog = {}
     for name, cls in _CLASSES.items():
         models = getattr(cls, "MODELS", {})
@@ -693,4 +652,103 @@ def get_provider_catalog() -> dict:
             "default_model": cls.MODEL_MAIN,
             "structured_output": cls.STRUCTURED_OUTPUT.value,
         }
+    return {"providers": catalog}
+
+
+# Live model-list cache: (provider, key_hash) -> (models, expires_at_epoch).
+# Single-process in-memory; refresh window controls staleness.
+import hashlib
+import time
+
+_MODEL_CACHE: dict[tuple[str, str], tuple[list[dict], float]] = {}
+_MODEL_CACHE_TTL_SECONDS = 24 * 3600  # 24h
+
+
+def _cache_key(provider_name: str, api_key: str | None) -> tuple[str, str]:
+    digest = hashlib.sha256((api_key or "").encode()).hexdigest()[:16]
+    return (provider_name, digest)
+
+
+def _enrich_with_pricing(
+    models: list[dict], provider_name: str
+) -> list[dict]:
+    """Attach input/output pricing to each model entry; drop unpriced models.
+
+    UI policy: only show models we can compute cost for. Models missing from
+    the vendored pricing table are silently dropped (logged at debug).
+    """
+    from services.pricing import lookup_pricing
+
+    enriched = []
+    dropped = []
+    for m in models:
+        price = lookup_pricing(m["id"], provider_name)
+        if price.input == 0 and price.output == 0:
+            dropped.append(m["id"])
+            continue
+        enriched.append({
+            **m,
+            "input_price": price.input,   # USD per million input tokens
+            "output_price": price.output,  # USD per million output tokens
+        })
+    if dropped:
+        logger.debug(
+            f"[catalog] {provider_name}: dropped {len(dropped)} unpriced models: "
+            f"{dropped[:5]}{'...' if len(dropped) > 5 else ''}"
+        )
+    return enriched
+
+
+async def get_provider_catalog_async(user_keys: dict[str, str] | None = None) -> dict:
+    """Return providers with live-fetched model lists where possible.
+
+    For each provider:
+      - Anthropic: returns the hardcoded MODELS (no live API)
+      - Mistral / wandb / Nebius / Nous: if the user has a stored API key,
+        fetch /v1/models live (cached 24h per provider+key)
+      - No key: returns an empty models list so the UI can prompt the user
+        to configure their key first.
+
+    Each model in the response includes input_price and output_price (USD
+    per million tokens). Models for which we don't have pricing data in
+    the vendored pricing table are filtered out — the UI never shows a
+    model whose cost can't be computed.
+    """
+    user_keys = user_keys or {}
+    catalog: dict = {}
+    for name, cls in _CLASSES.items():
+        entry = {
+            "models": [],
+            "default_model": cls.MODEL_MAIN,
+            "structured_output": cls.STRUCTURED_OUTPUT.value,
+        }
+
+        raw_models: list[dict] = []
+        if name == "anthropic":
+            raw_models = [
+                {"id": mid, "label": label} for mid, label in cls.MODELS.items()
+            ]
+        else:
+            key = user_keys.get(name)
+            if not key:
+                catalog[name] = entry  # empty; UI prompts user
+                continue
+
+            cache_k = _cache_key(name, key)
+            cached = _MODEL_CACHE.get(cache_k)
+            if cached and cached[1] > time.time():
+                raw_models = cached[0]
+            else:
+                try:
+                    provider = cls(api_key=key)
+                    raw_models = await provider.list_models()
+                    _MODEL_CACHE[cache_k] = (
+                        raw_models, time.time() + _MODEL_CACHE_TTL_SECONDS,
+                    )
+                except Exception as e:
+                    logger.warning(f"[catalog] {name} list_models failed: {e}")
+
+        entry["models"] = _enrich_with_pricing(raw_models, name)
+        catalog[name] = entry
+
     return {"providers": catalog}

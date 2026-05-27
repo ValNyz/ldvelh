@@ -242,11 +242,25 @@ async def session_cost(user: dict = Depends(get_current_user)):
 
 
 @router.get("/providers")
-async def list_providers(user: dict = Depends(get_current_user)):
-    """List available LLM providers and their models."""
-    from services.llm_providers import get_provider_catalog
+async def list_providers(
+    user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """List available LLM providers and their models.
 
-    return get_provider_catalog()
+    For each provider where the user has a stored API key, this fetches the
+    live model list (cached per-key for 24h). Anthropic always returns its
+    hardcoded model list (no live discovery endpoint). Providers with no
+    user key return an empty models list so the UI can prompt for one.
+    """
+    from services.llm_providers import _CLASSES, get_provider_catalog_async
+
+    user_keys: dict[str, str] = {}
+    for name in _CLASSES.keys():
+        key = await _resolve_user_api_key(pool, user["id"], name)
+        if key:
+            user_keys[name] = key
+    return await get_provider_catalog_async(user_keys=user_keys)
 
 
 # =============================================================================

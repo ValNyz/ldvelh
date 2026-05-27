@@ -125,21 +125,27 @@ export default function SettingsPage({
 							</select>
 						</div>
 
-						{/* Model selector — shown when active provider has multiple models */}
+						{/* Model selector -- backend filters to only priced models */}
 						{(() => {
 							const activeP = providers.find(p => p.id === (preferences.activeProvider || ''));
 							const models = activeP?.models || [];
-							if (models.length <= 1) return null;
+							if (models.length === 0) return null;
+							// Compact USD-per-million-tokens formatter
+							const fmt = (v) => (v == null ? '?' : v >= 1 ? `$${v.toFixed(0)}` : `$${v.toFixed(2)}`);
 							return (
 								<div className="mb-4">
-									<label className="block text-xs text-gray-500 mb-2">Modèle</label>
+									<label className="block text-xs text-gray-500 mb-2">
+										Modèle <span className="text-gray-600">(in/out par M tokens)</span>
+									</label>
 									<select
 										value={preferences.activeModel || models[0]?.id || ''}
 										onChange={(e) => preferences.setActiveModel(e.target.value || null)}
 										className="w-full px-3 py-2.5 bg-gray-900 border border-gray-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent"
 									>
 										{models.map(m => (
-											<option key={m.id} value={m.id}>{m.label}</option>
+											<option key={m.id} value={m.id}>
+												{m.label} -- {fmt(m.input_price)} / {fmt(m.output_price)}
+											</option>
 										))}
 									</select>
 								</div>
