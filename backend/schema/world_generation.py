@@ -243,6 +243,50 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                 "substrate": "terminal personnel",
             }
 
+        # --- Normalize location field names: type -> location_type ---
+        # LLMs often abbreviate `location_type` to `type` on each location entry,
+        # which then trips the residence/arrival detector (it scans by location_type).
+        if isinstance(data.get("locations"), list):
+            renamed = 0
+            for loc in data["locations"]:
+                if isinstance(loc, dict) and "type" in loc and "location_type" not in loc:
+                    loc["location_type"] = loc.pop("type")
+                    renamed += 1
+            if renamed:
+                logger.info(
+                    f"[Validation] Renamed {renamed} location 'type' -> 'location_type'"
+                )
+
+        # --- Normalize inventory shape: dict {credits, items} -> flat list ---
+        # LLMs naturally bundle credits + items into one inventory object.
+        # Hoist items to top-level inventory and move credits to protagonist.
+        inv = data.get("inventory")
+        if isinstance(inv, dict) and ("items" in inv or "credits" in inv):
+            credits = inv.get("credits")
+            items = inv.get("items", [])
+            if credits is not None:
+                proto = data.setdefault("protagonist", {})
+                if isinstance(proto, dict) and "credits" not in proto:
+                    proto["credits"] = credits
+            data["inventory"] = items if isinstance(items, list) else []
+            logger.info(
+                "[Validation] Normalized inventory dict -> list "
+                f"(moved {'credits' if credits is not None else 'no credits'} "
+                "to protagonist)"
+            )
+
+        # --- Normalize inventory item field: type -> category ---
+        if isinstance(data.get("inventory"), list):
+            renamed = 0
+            for item in data["inventory"]:
+                if isinstance(item, dict) and "type" in item and "category" not in item:
+                    item["category"] = item.pop("type")
+                    renamed += 1
+            if renamed:
+                logger.info(
+                    f"[Validation] Renamed {renamed} inventory item 'type' -> 'category'"
+                )
+
         # --- Create default inventory if missing ---
         if "inventory" not in data or not data["inventory"]:
             logger.warning("[Validation] inventory missing — creating default")
@@ -258,15 +302,56 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                 }
             ]
 
+        # --- Normalize relation field names: source/target/type -> *_ref/relation_type ---
+        # LLMs use the casual graph-data names; the schema uses *_ref suffixes
+        # for entity-name references plus the explicit `relation_type`.
+        relations = data.get("initial_relations")
+        if isinstance(relations, list):
+            REL_RENAMES = {
+                "source": "source_ref",
+                "target": "target_ref",
+                "type": "relation_type",
+            }
+            renamed_count = 0
+            for rel in relations:
+                if not isinstance(rel, dict):
+                    continue
+                for old, new in REL_RENAMES.items():
+                    if old in rel and new not in rel:
+                        rel[new] = rel.pop(old)
+                        renamed_count += 1
+            if renamed_count:
+                logger.info(
+                    f"[Validation] Renamed {renamed_count} relation fields "
+                    "(source/target/type -> *_ref/relation_type)"
+                )
+
         # --- Create default initial_relations if missing ---
         if "initial_relations" not in data or not data["initial_relations"]:
             logger.warning("[Validation] initial_relations missing — creating default")
             data["initial_relations"] = cls._build_default_relations(data)
 
-        # --- Create default arrival_event if missing ---
-        if "arrival_event" not in data or data["arrival_event"] is None:
+        # --- Create / repair arrival_event ---
+        # If missing, build the full default. If present but incomplete (LLM often
+        # writes just `description`), keep whatever schema-valid fields the LLM
+        # provided and fill the missing required ones from defaults.
+        ARRIVAL_REQUIRED = {
+            "arrival_method", "arrival_location_ref", "arrival_date", "time",
+            "immediate_sensory_details", "initial_mood", "immediate_need",
+        }
+        ae = data.get("arrival_event")
+        if not isinstance(ae, dict) or not ae:
             logger.warning("[Validation] arrival_event missing — creating default")
             data["arrival_event"] = cls._create_default_arrival_event(data)
+        elif not ARRIVAL_REQUIRED.issubset(ae.keys()):
+            missing = sorted(ARRIVAL_REQUIRED - ae.keys())
+            logger.warning(
+                f"[Validation] arrival_event missing fields {missing} — "
+                "filling from defaults"
+            )
+            default = cls._create_default_arrival_event(data)
+            for key, value in default.items():
+                ae.setdefault(key, value)
 
         return data
 
@@ -415,7 +500,10 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             "room",
             "studio",
         }
-        arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
+        arrival_types = {
+            "dock", "terminal", "port", "arrival", "gate", "bay", "quai",
+            "spaceport", "space_port", "landing", "landing_pad", "hangar",
+        }
 
         has_residence = any(
             any(keyword in t for keyword in residence_types) for t in types
@@ -609,7 +697,10 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     def _find_arrival_location_fallback(self) -> str | None:
         """Find a suitable arrival location from existing locations"""
-        arrival_types = {"dock", "terminal", "port", "arrival", "gate", "bay", "quai"}
+        arrival_types = {
+            "dock", "terminal", "port", "arrival", "gate", "bay", "quai",
+            "spaceport", "space_port", "landing", "landing_pad", "hangar",
+        }
         for loc in self.locations:
             if loc.location_type and loc.location_type.lower() in arrival_types:
                 return loc.name

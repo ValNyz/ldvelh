@@ -118,12 +118,24 @@ JSON valide uniquement. Pas de markdown, pas de commentaires.
   et `sectors` (2-10 zones nommées de la station, ex: ["Quai Central",
   "Serres Hautes", "Quartier Ouvrier"]).
 - `protagonist` : refs au top-level (`residence_ref`, `employer_ref`,
-  `arrival_location_ref`), JAMAIS sous `details`.
+  `arrival_location_ref`), JAMAIS sous `details`. Les crédits vont ici
+  (`credits: int`), PAS dans `inventory`.
 - `companion` : IA personnelle.
-- `locations`, `organizations`, `characters`, `inventory` : listes d'entités.
+- `locations`, `organizations`, `characters` : listes d'entités.
+- `inventory` : **liste plate** d'objets `{name, category, description,
+  quantity}`. Pas d'enveloppe `{credits, items}`.
 - `narrative_arcs` : liste plate au root (voir §ARCS NARRATIFS).
-- `initial_relations` : relations de départ.
-- `arrival_event` : premier événement.
+- `initial_relations` : liste de relations. Chaque entrée :
+  `{source_ref, target_ref, relation_type}` — PAS `source/target/type`.
+- `arrival_event` : objet avec `arrival_method` (string),
+  `arrival_location_ref` (nom d'un lieu), `arrival_date` (ex: "Lundi 14
+  Mars 2847"), `time` (ex: "14h30"), `immediate_sensory_details` (liste
+  3-6 strings), `initial_mood` (string), `immediate_need` (string).
+
+### NOMS DE CHAMPS (mots-clés exacts)
+- Sur un lieu : `location_type` (PAS `type`).
+- Sur une relation : `source_ref`, `target_ref`, `relation_type`.
+- Sur le protagoniste : `residence_ref`, `employer_ref` (PAS `lives_at_ref`).
 
 ### CHAMP `details` (CHARACTERS UNIQUEMENT)
 `characters[].details` n'existe QUE pour les stats moteur (Fate, D6...).
