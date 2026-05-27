@@ -52,12 +52,32 @@ def _load() -> dict[str, ModelPricing]:
         if input_cost is None and output_cost is None:
             continue
         result[key] = ModelPricing(
-            input=(input_cost or 0.0) * 1_000_000,
-            output=(output_cost or 0.0) * 1_000_000,
-            cache_write=(entry.get("cache_creation_input_token_cost") or 0.0) * 1_000_000,
-            cache_read=(entry.get("cache_read_input_token_cost") or 0.0) * 1_000_000,
+            input=_normalize_rate(input_cost),
+            output=_normalize_rate(output_cost),
+            cache_write=_normalize_rate(entry.get("cache_creation_input_token_cost")),
+            cache_read=_normalize_rate(entry.get("cache_read_input_token_cost")),
         )
     return result
+
+
+# Real per-token prices are always tiny (frontier GPT-4 is ~$30/M = 3e-5/token).
+# Anything >= this threshold is almost certainly already in "per million"
+# units (litellm has data errors of this kind, e.g. all wandb entries store
+# per-million values in the per-token field).
+_PER_TOKEN_PRICE_CEILING = 0.001  # $1000 per million tokens — well above frontier
+
+
+def _normalize_rate(value: float | None) -> float:
+    """Convert a litellm "cost per token" field to USD per million tokens.
+
+    If the value already looks like a per-million rate (> ceiling), trust it
+    and don't multiply. This corrects litellm's mislabeled wandb entries.
+    """
+    if not value:
+        return 0.0
+    if value >= _PER_TOKEN_PRICE_CEILING:
+        return value  # already per-million
+    return value * 1_000_000
 
 
 _PRICING: dict[str, ModelPricing] = _load()
