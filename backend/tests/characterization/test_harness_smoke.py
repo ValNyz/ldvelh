@@ -50,3 +50,16 @@ def test_engine_payloads_validate_against_schemas():
     assert out.compel_aspect and out.compel_result == "proposed"
     assert MechanicalDecision.model_validate(
         json.loads(payloads.mechanical(requires_test=True))).requires_test
+
+
+def test_frozen_world_and_narration_fixtures_validate_against_schemas():
+    """The frozen fixtures must stay valid for the current schemas (drift shows up here)."""
+    import json
+
+    from schema.narration import NarrationOutput
+    from schema.world_generation import WorldGeneration
+    from tests.characterization import payloads
+
+    WorldGeneration.model_validate(json.loads(payloads.WORLD_GEN))
+    out = NarrationOutput.model_validate(json.loads(payloads.NARRATION))
+    assert out.narrative_text
