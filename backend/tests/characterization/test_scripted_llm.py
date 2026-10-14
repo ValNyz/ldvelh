@@ -30,7 +30,9 @@ def test_classify_tool_name_wins():
 async def test_stream_returns_scripted_text_then_usage():
     p = ScriptedLLMProvider({"narration": '{"narrative_text": "Bonjour."}'})
     out = [x async for x in p.stream("Tu es le **Maître du Jeu** ...", [], 0.7, 100)]
-    assert out[0] == '{"narrative_text": "Bonjour."}'
+    texts = [x for x in out if isinstance(x, str)]
+    assert "".join(texts) == '{"narrative_text": "Bonjour."}'
+    assert len(texts) == 2
     assert isinstance(out[-1], LLMUsage)
     assert p.purposes() == ["narration"]
 
