@@ -225,10 +225,31 @@ def _try_dbmate_setup():
     migrations_dir = str(Path(__file__).parent.parent.parent / "db" / "migrations")
     env = os.environ.copy()
     env["DATABASE_URL"] = TEST_DB_URL
-    subprocess.run(
+    result = subprocess.run(
         ["dbmate", "--migrations-dir", migrations_dir, "--no-dump-schema", "up"],
         capture_output=True, text=True, env=env,
     )
+    if result.returncode != 0 and _require_test_db():
+        import pytest
+
+        pytest.fail(
+            f"dbmate up failed (rc={result.returncode}) and REQUIRE_TEST_DB=1:\n{result.stderr}",
+            pytrace=False,
+        )
+
+
+def _require_test_db() -> bool:
+    """True when a missing/broken test DB must fail the run instead of skipping (CI)."""
+    return os.environ.get("REQUIRE_TEST_DB") == "1"
+
+
+def _db_unavailable(reason: str) -> None:
+    """Skip locally, but fail when REQUIRE_TEST_DB=1 so CI cannot go green without a DB."""
+    import pytest
+
+    if _require_test_db():
+        pytest.fail(f"Test DB required (REQUIRE_TEST_DB=1) but unavailable: {reason}", pytrace=False)
+    pytest.skip(f"Test DB not available: {reason}")
 
 
 @pytest_asyncio.fixture
@@ -254,7 +275,7 @@ async def test_pool():
         async with pool.acquire() as conn:
             await conn.execute(_TRUNCATE_SQL)
     except Exception as exc:
-        pytest.skip(f"Test DB not available: {exc}")
+        _db_unavailable(str(exc))
         return
 
     yield pool
