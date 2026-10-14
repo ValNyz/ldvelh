@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from services import llm_service
 from tests.characterization import payloads
+from tests.characterization.harness import spy_narration
 from tests.characterization.snapshot import assert_snapshot
 
 
@@ -50,7 +50,21 @@ async def test_c07_credit_and_inventory_deltas(harness, world_game, monkeypatch)
         "inventory_changes": [{"action": "acquire", "object_hint": "Gobelet", "quantity_delta": 1}],
     }
     before = await _credits(harness, world_game)
+    async with harness.pool.acquire() as conn:
+        char = await conn.fetchrow(
+            "SELECT id, name, known_by_protagonist FROM characters WHERE game_id = $1 ORDER BY name LIMIT 1",
+            world_game)
+        loc = await conn.fetchrow(
+            "SELECT id, name, accessible FROM locations WHERE game_id = $1 ORDER BY name LIMIT 1",
+            world_game)
+        # Force the "before" state so the reveal's effect is observable.
+        await conn.execute("UPDATE characters SET known_by_protagonist = false WHERE id = $1", char["id"])
+        await conn.execute("UPDATE locations SET accessible = false WHERE id = $1", loc["id"])
     events = await _turn(harness, world_game, _narration(
+        entity_reveals=[
+            {"entity_type": "character", "current_name": char["name"], "real_name": "Nora Revealed"},
+            {"entity_type": "location", "current_name": loc["name"]},
+        ],
         credit_delta={"amount": -10, "description": "Un café"},
         inventory_hints=[{"action": "acquire", "item_name": "Gobelet", "item_description": "Vide"}],
         extraction_triggers=["inventory"],
@@ -62,14 +76,24 @@ async def test_c07_credit_and_inventory_deltas(harness, world_game, monkeypatch)
                WHERE i.game_id = $1 AND o.name = 'Gobelet'""", world_game)
         ledger = await conn.fetch(
             "SELECT name FROM objects WHERE game_id = $1 AND name = 'Gobelet'", world_game)
+    async with harness.pool.acquire() as conn:
+        char_after = await conn.fetchrow(
+            "SELECT name, known_by_protagonist FROM characters WHERE id = $1", char["id"])
+        loc_after = await conn.fetchrow(
+            "SELECT name, accessible FROM locations WHERE id = $1", loc["id"])
     done = [e for e in events if e["type"] == "done"][0]
     assert_snapshot("c07_deltas", {
+        # F-15 entity reveals: applied immediately; a real_name renames the character.
+        "reveal_character": {"renamed": char_after["name"] != char["name"], "name_after": char_after["name"],
+                             "known_after": char_after["known_by_protagonist"]},
+        "reveal_location": {"same_name": loc_after["name"] == loc["name"], "accessible_after": loc_after["accessible"]},
         "sse": harness.summarize(events),
         "credits_before": before,
         "credits_after": after,
         "credits_delta": after - before,
         "client_state_credits": done["state"]["game_state"]["player"]["credits"],
-        "client_state_inventory": [i["name"] for i in done["state"]["game_state"]["player"]["inventory"]],
+        # Sorted: the client state lists inventory in unspecified (DB) order.
+        "client_state_inventory": sorted(i["name"] for i in done["state"]["game_state"]["player"]["inventory"]),
         "inventory": [{"name": r["name"], "quantity": r["quantity"]} for r in items],
         "objects_named_gobelet": len(ledger),
         # The narrator hint only reaches the extractor prompt; the extractor writes the rows.
@@ -79,14 +103,7 @@ async def test_c07_credit_and_inventory_deltas(harness, world_game, monkeypatch)
 
 
 async def test_c08_info_requests_prefetch(harness, world_game, monkeypatch):
-    seen: list[str] = []
-    original = llm_service.LLMService.stream_narration
-
-    async def spy(self, system_prompt, messages, *args, **kwargs):
-        seen.append(str(messages[-1]))
-        return await original(self, system_prompt, messages, *args, **kwargs)
-
-    monkeypatch.setattr(llm_service.LLMService, "stream_narration", spy)
+    narration_calls = spy_narration(monkeypatch)
     header = "### DÉTAILS DEMANDÉS"
 
     def section(text: str):
@@ -105,6 +122,7 @@ async def test_c08_info_requests_prefetch(harness, world_game, monkeypatch):
     await _turn(harness, world_game, payloads.NARRATION, "Je reste là.")
     async with harness.pool.acquire() as conn:
         stored = await conn.fetchval("SELECT detail_requests FROM games WHERE id = $1", world_game)
+    seen = [str(c["messages"][-1]) for c in narration_calls]
     assert len(seen) == 4
     assert_snapshot("c08_info_requests", {
         "sse_turn_c": harness.summarize(events),
@@ -184,13 +202,23 @@ async def test_c10_extraction_writes_entities(harness, world_game):
     })
 
 
-async def test_c11_director_plan_written(harness, world_game):
+async def test_c11_director_plan_written(harness, world_game, monkeypatch):
+    narration_calls = spy_narration(monkeypatch)
+    # Distinct guidance: the default plan already exists from the arrival turn, so a unique
+    # marker proves the plan written by turn N reaches turn N+1 (and not turn N itself).
+    guidance = "Guidance de test: accélérer le rythme."
+    harness.llm._responses["director"] = json.dumps(
+        {**json.loads(payloads.DIRECTOR), "narrator_guidance": guidance}, ensure_ascii=False)
     harness.llm.calls.clear()
     per_turn = []
     for msg in ("Premier tour.", "Deuxième tour.", "Troisième tour."):
         harness.llm.calls.clear()
         await _turn(harness, world_game, payloads.NARRATION, msg)
         per_turn.append(harness.llm.purposes().count("director"))
+    assert len(narration_calls) == 3
+    # F-19: the plan written after turn N is injected into the narrator prompt of turn N+1.
+    guidance_in_prompt = [
+        guidance in str(c["system"]) + str(c["messages"]) for c in narration_calls]
     async with harness.pool.acquire() as conn:
         plans = await conn.fetch(
             """SELECT tension_level, narrator_guidance, planned_events, long_term_vision, ig_time
@@ -204,4 +232,5 @@ async def test_c11_director_plan_written(harness, world_game):
              "planned_events": p["planned_events"], "long_term_vision": p["long_term_vision"],
              "ig_time": p["ig_time"]} for p in plans],
         "last_director_time": last_time,
+        "guidance_in_narrator_prompt_per_turn": guidance_in_prompt,
     })

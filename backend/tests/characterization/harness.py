@@ -94,6 +94,15 @@ class ChatHarness:
         await self.drain()
         return events
 
+    @staticmethod
+    def narrated_text(events: list[dict]) -> dict:
+        """Streamed chunk text (joined) and the `done` event's displayText, for F-08 snapshots."""
+        done = [e for e in events if e.get("type") == "done"]
+        return {
+            "streamed_text": "".join(e.get("content", "") for e in events if e.get("type") == "chunk"),
+            "done_display_text": done[0].get("displayText") if done else None,
+        }
+
     def snapshot(self, events: list[dict], db: dict[str, int]) -> dict:
         return {
             "sse": self.summarize(events),
@@ -102,3 +111,18 @@ class ChatHarness:
             "llm_calls": sorted(self.llm.purposes()),
             "db_counts": db,
         }
+
+
+def spy_narration(monkeypatch) -> list[dict]:
+    """Record every narrator call as {"system": ..., "messages": ...}; behavior is unchanged."""
+    from services import llm_service
+
+    calls: list[dict] = []
+    original = llm_service.LLMService.stream_narration
+
+    async def spy(self, system_prompt, messages, *args, **kwargs):
+        calls.append({"system": system_prompt, "messages": messages})
+        return await original(self, system_prompt, messages, *args, **kwargs)
+
+    monkeypatch.setattr(llm_service.LLMService, "stream_narration", spy)
+    return calls

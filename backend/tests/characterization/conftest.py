@@ -65,3 +65,14 @@ async def world_game(harness):
     await harness.drain()
     harness.llm.calls.clear()
     return game_id
+
+
+@pytest.fixture
+def no_api_key(monkeypatch):
+    """Make the API-key lookup return None (no user key, no server key)."""
+    from api import routes
+
+    async def _no_key(pool, user_id, provider_name):
+        return None
+
+    monkeypatch.setattr(routes, "_resolve_user_api_key", _no_key)

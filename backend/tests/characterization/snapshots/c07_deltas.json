@@ -21,6 +21,15 @@
     "resolver"
   ],
   "objects_named_gobelet": 1,
+  "reveal_character": {
+    "known_after": true,
+    "name_after": "Nora Revealed",
+    "renamed": true
+  },
+  "reveal_location": {
+    "accessible_after": true,
+    "same_name": true
+  },
   "sse": [
     "chunk*",
     "done",

@@ -19,7 +19,9 @@ async def test_c02_arrival(harness):
     harness.llm.calls.clear()
     events = await harness.chat(game_id, "__ARRIVEE__")
     await harness.drain()
-    assert_snapshot("c02_arrival", harness.snapshot(events, await harness.db_summary(game_id)))
+    snap = harness.snapshot(events, await harness.db_summary(game_id))
+    snap.update(harness.narrated_text(events))
+    assert_snapshot("c02_arrival", snap)
 
 
 @pytest.mark.parametrize("llm_mode", [
@@ -36,6 +38,7 @@ async def test_c03_light_turn(harness, world_game, llm_mode):
     await harness.drain()
     snap = harness.snapshot(events, await harness.db_summary(world_game))
     assert "done" in snap["sse"] and "error" not in snap["sse"]
+    snap.update(harness.narrated_text(events))
     # A mode that silently skips extraction must fail here.
     assert "extract:extract_characters" in snap["llm_calls"], snap["llm_calls"]
     methods = {

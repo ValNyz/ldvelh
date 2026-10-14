@@ -4,9 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from services import llm_service
 from services.engine import d6, fate_core
 from tests.characterization import payloads
+from tests.characterization.harness import spy_narration
 from tests.characterization.snapshot import assert_snapshot
 
 
@@ -121,14 +121,7 @@ async def test_c18_dark_fantasy_arrival_has_no_ai_companion_text(harness, monkey
     """The first-light branch (api/routes.py: world_created and no current location) is only
     reached in production when the arrival location does not resolve, because real world
     generation sets current_location_id. The setup below forces that state explicitly."""
-    captured = {}
-    original = llm_service.LLMService.stream_narration
-
-    async def spy(self, system_prompt, messages, *args, **kwargs):
-        captured["messages"] = messages
-        return await original(self, system_prompt, messages, *args, **kwargs)
-
-    monkeypatch.setattr(llm_service.LLMService, "stream_narration", spy)
+    narration_calls = spy_narration(monkeypatch)
     game_id = await harness.create_game("none")
     await harness.chat(game_id, "__INIT__", engine="none",
                        world_config={"genre": "dark_fantasy", "difficulty": "moderate"})
@@ -141,8 +134,8 @@ async def test_c18_dark_fantasy_arrival_has_no_ai_companion_text(harness, monkey
         await conn.execute(
             "UPDATE genres SET arrival_prompt = $1 WHERE slug = 'dark_fantasy'",
             "Tu arrives a {world_name}, une lanterne a la main.")
-    captured.clear()
+    narration_calls.clear()
     await harness.chat(game_id, "__ARRIVEE__")
     await harness.drain()
-    assert captured.get("messages"), "spy captured no narration call"
-    assert "IA personnelle" not in str(captured["messages"])
+    assert narration_calls, "spy captured no narration call"
+    assert "IA personnelle" not in str(narration_calls[-1]["messages"])
