@@ -78,8 +78,10 @@ class ScriptedLLMProvider(LLMProvider):
         purpose = classify_call(system_prompt)
         self._record("stream", purpose)
         content = self._next(purpose, "{}")
-        # Single delta: the scripted payload is the whole text, then usage.
-        yield content
+        # Split in two chunks so SSE chunk reassembly is exercised.
+        mid = len(content) // 2
+        yield content[:mid]
+        yield content[mid:]
         yield USAGE
 
     async def complete(self, system_prompt, messages, temperature, max_tokens) -> CompletionResult:
