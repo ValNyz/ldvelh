@@ -1,0 +1,10 @@
+{
+  "cycle": 1,
+  "errors": [
+    "1 validation error for NarrationOutput | day_transition.new_cycle"
+  ],
+  "sse": [
+    "chunk*",
+    "error"
+  ]
+}
