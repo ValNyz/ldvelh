@@ -1,13 +1,50 @@
 {
-  "annotations": [],
-  "character_keys": [
-    "found",
-    "tooltip"
+  "annotations": [
+    {
+      "annotations": [
+        [
+          5,
+          19,
+          "Le Quart de Cycle",
+          "location"
+        ],
+        [
+          144,
+          149,
+          "Ossek",
+          "character"
+        ]
+      ],
+      "sequence_present": true
+    }
   ],
-  "location_keys": [
-    "found",
-    "tooltip"
-  ],
+  "character_tooltip": {
+    "found": true,
+    "tooltip": {
+      "icon": "👤",
+      "infos": [
+        "Métier: directrice technique Symbiose Tech",
+        "Humeur: tendue, irritable"
+      ],
+      "name": "Dr. Yuki Tanaka",
+      "relation": "works_at",
+      "type": "character"
+    }
+  },
+  "location_tooltip": {
+    "found": true,
+    "tooltip": {
+      "icon": "📍",
+      "infos": [
+        "Type: apartment",
+        "Secteur: Quartier Ouvrier",
+        "Ambiance: exigu et impersonnel"
+      ],
+      "name": "Appartement 4-12",
+      "relation": null,
+      "type": "location"
+    }
+  },
   "missing": {
     "found": false,
     "name": "Nobody At All",
