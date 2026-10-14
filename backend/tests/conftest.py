@@ -321,3 +321,10 @@ async def client(test_pool, monkeypatch):
         base_url="http://test",
     ) as ac:
         yield ac
+
+
+def pytest_collection_modifyitems(config, items):
+    """Tag every test that (transitively) uses test_pool with requires_db."""
+    for item in items:
+        if "test_pool" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.requires_db)
