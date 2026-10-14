@@ -6,14 +6,31 @@ pre-refactor code, against the ci-pg container:
   python -m pytest tests/characterization/make_legacy_fixture.py -q -s
 """
 
+import os
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 from types import SimpleNamespace
 
 from services.engine import fate_core
 from tests.characterization import payloads
 
 OUT = Path(__file__).parent / "fixtures" / "legacy_game.sql"
+
+
+def _dump_target() -> tuple[str, str, str]:
+    """(container, user, db) derived from TEST_DATABASE_URL; fail loudly on anything else.
+
+    The dump runs through `docker exec` into the throwaway container, so the URL must
+    point at it: db ldvelh_test on port 55432 (container name overridable via CI_PG_CONTAINER).
+    """
+    url = urlparse(os.environ.get("TEST_DATABASE_URL", ""))
+    db = url.path.lstrip("/")
+    if db != "ldvelh_test" or url.port != 55432 or not url.username:
+        raise RuntimeError(
+            f"TEST_DATABASE_URL must point at the ci-pg container (ldvelh_test on port 55432), got {url.geturl()!r}"
+        )
+    return os.environ.get("CI_PG_CONTAINER", "ci-pg"), url.username, db
 
 
 async def test_generate_legacy_fixture(harness, monkeypatch):
@@ -32,8 +49,9 @@ async def test_generate_legacy_fixture(harness, monkeypatch):
         await harness.drain()
     async with harness.pool.acquire() as conn:
         schema_version = await conn.fetchval("SELECT max(version) FROM schema_migrations")
+    container, db_user, db_name = _dump_target()
     dump = subprocess.run(
-        ["docker", "exec", "ci-pg", "pg_dump", "-U", "test", "-d", "ldvelh_test",
+        ["docker", "exec", container, "pg_dump", "-U", db_user, "-d", db_name,
          "--data-only", "--column-inserts", "--exclude-table=schema_migrations"],
         check=True, capture_output=True, text=True,
     ).stdout

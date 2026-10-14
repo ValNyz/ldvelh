@@ -19,6 +19,7 @@ import pytest_asyncio
 
 from services.auth_service import create_token
 from tests.characterization.harness import ChatHarness
+from tests.conftest import _db_unavailable
 
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_game.sql"
 
@@ -37,12 +38,12 @@ async def load_legacy_game(pool) -> tuple[str, str]:
         # The dump has circular FKs (games <-> locations) and already contains the rows the
         # entity_registry triggers would create: load it as a replica (no FK checks, no
         # triggers), scoped to this transaction. Needs a superuser, as in the test DB.
-        try:
-            async with conn.transaction():
+        async with conn.transaction():
+            try:
                 await conn.execute("SET LOCAL session_replication_role = replica")
-                await conn.execute(sql)
-        except asyncpg.InsufficientPrivilegeError:
-            pytest.skip("C-19 needs a superuser role to load the legacy dump")
+            except asyncpg.InsufficientPrivilegeError as exc:
+                _db_unavailable(f"C-19 needs a superuser role to load the legacy dump: {exc}")
+            await conn.execute(sql)
         email = await conn.fetchval(
             "SELECT u.email FROM users u JOIN games g ON g.user_id = u.id WHERE g.id = $1::uuid",
             game_id)
