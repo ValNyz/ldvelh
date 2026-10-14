@@ -32,6 +32,7 @@
     "narration",
     "resolver"
   ],
+  "roll": null,
   "sse": [
     "chunk*",
     "done",

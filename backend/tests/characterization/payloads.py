@@ -83,11 +83,11 @@ CHARACTER_DATA = {
 }
 
 
-def narration_with_compel(base: str) -> str:
+def narration_with_compel(base: str, result: str = "proposed") -> str:
     """Neutral narration plus a Fate compel proposal (schema/narration.py compel_* fields)."""
     data = json.loads(base)
     data["compel_aspect"] = "Je dois de l'argent à tout le monde"
-    data["compel_result"] = "proposed"
+    data["compel_result"] = result
     return json.dumps(data, ensure_ascii=False)
 
 

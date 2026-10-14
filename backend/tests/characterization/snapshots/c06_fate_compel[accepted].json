@@ -27,11 +27,14 @@
     "skills_fate": 10,
     "traits_narrative": 0
   },
+  "done_fate_points": 4,
   "done_keys": [
     "displayText",
     "state",
     "type"
   ],
+  "fate_points_after": 4,
+  "fate_points_before": 3,
   "sse": [
     "chunk*",
     "done",
