@@ -37,3 +37,16 @@ def test_new_character_payloads_validate_against_schemas():
     assert res.new[0].suggested_name == payloads.NEW_CHARACTER_NAME
     ext = CharactersExtraction.model_validate(payloads.EXTRACT_CHARACTERS_NEW)
     assert ext.entities_created[0].name == payloads.NEW_CHARACTER_NAME
+
+
+def test_engine_payloads_validate_against_schemas():
+    import json
+
+    from schema.engine import MechanicalDecision
+    from schema.narration import NarrationOutput
+    from tests.characterization import payloads
+
+    out = NarrationOutput.model_validate(json.loads(payloads.NARRATION_WITH_COMPEL))
+    assert out.compel_aspect and out.compel_result == "proposed"
+    assert MechanicalDecision.model_validate(
+        json.loads(payloads.mechanical(requires_test=True))).requires_test

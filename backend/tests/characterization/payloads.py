@@ -55,3 +55,40 @@ def mechanical(requires_test: bool, skill: str = "Athlétisme", skill_value: int
         "difficulty_label": "Correct",
         "reason": "Action risquée.",
     })
+
+
+# Shapes mirror what the wizard sends (frontend CharacterCreationStep.jsx):
+# Fate aspects as {high_concept, trouble, other[]}, skills as {name: level},
+# D6 attributes as {name: "3D+1"}, narrative traits as [{name, description}].
+CHARACTER_DATA = {
+    "narrative": {"name": "Ilya", "traits": [{"name": "Têtu", "description": "Ne lâche rien"}]},
+    "fate_core": {
+        "name": "Ilya",
+        "aspects": {
+            "high_concept": "Pilote déchu en quête de rédemption",
+            "trouble": "Je dois de l'argent à tout le monde",
+            "other": ["Mon vieux cargo est ma maison", "", ""],
+        },
+        "skills": {"Athlétisme": 4, "Pilotage": 3, "Empathie": 3,
+                   "Combat": 2, "Discrétion": 2, "Volonté": 2,
+                   "Contacts": 1, "Ressources": 1, "Physique": 1, "Tromperie": 1},
+        "fate_points": 3,
+        "refresh": 3,
+    },
+    "d6": {
+        "name": "Ilya",
+        "attributes": {"Dextérité": "3D", "Savoir": "2D+1", "Mécanique": "3D",
+                       "Perception": "3D+1", "Vigueur": "2D+2", "Technique": "3D"},
+    },
+}
+
+
+def narration_with_compel(base: str) -> str:
+    """Neutral narration plus a Fate compel proposal (schema/narration.py compel_* fields)."""
+    data = json.loads(base)
+    data["compel_aspect"] = "Je dois de l'argent à tout le monde"
+    data["compel_result"] = "proposed"
+    return json.dumps(data, ensure_ascii=False)
+
+
+NARRATION_WITH_COMPEL = narration_with_compel(NARRATION)
