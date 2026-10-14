@@ -27,6 +27,8 @@
     "skills_fate": 10,
     "traits_narrative": 0
   },
+  "fate_points_after_resume": 2,
+  "fate_points_before_resume": 3,
   "first": [
     "roll_pending"
   ],
@@ -36,10 +38,42 @@
     "narration",
     "resolver"
   ],
+  "pending_fate_points": 3,
+  "pending_roll": {
+    "dice": [
+      -1,
+      -1,
+      -1,
+      -1
+    ],
+    "outcome": "failure",
+    "shifts": -8,
+    "skill_total": -4,
+    "total": -4
+  },
   "resume": [
     "roll_result",
     "chunk*",
     "done",
     "saved"
-  ]
+  ],
+  "resume_roll": {
+    "dice": [
+      -1,
+      -1,
+      -1,
+      -1
+    ],
+    "difficulty": 4,
+    "fate_points_spent": 1,
+    "invocation_bonus": 2,
+    "invoked_aspects": [
+      "Pilote déchu en quête de rédemption"
+    ],
+    "outcome": "failure",
+    "shifts": -6,
+    "skill": "Athlétisme",
+    "skill_total": -2,
+    "total": -4
+  }
 }

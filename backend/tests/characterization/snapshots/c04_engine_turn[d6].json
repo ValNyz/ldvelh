@@ -33,6 +33,21 @@
     "narration",
     "resolver"
   ],
+  "roll": {
+    "dice": [
+      4,
+      4
+    ],
+    "difficulty": 1,
+    "fate_points_spent": null,
+    "invocation_bonus": null,
+    "invoked_aspects": null,
+    "outcome": "success",
+    "shifts": 7,
+    "skill": "Athlétisme",
+    "skill_total": 8,
+    "total": 8
+  },
   "sse": [
     "roll_result",
     "chunk*",
