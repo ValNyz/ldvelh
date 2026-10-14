@@ -1,0 +1,28 @@
+{
+  "first_sse": [
+    "chunk*",
+    "done",
+    "saved"
+  ],
+  "messages": [
+    {
+      "content": "Tour lent.",
+      "cycle": 1,
+      "role": "user"
+    },
+    {
+      "content": "Le **Quart de Cycle** est à moitié vide ",
+      "cycle": 1,
+      "role": "assistant"
+    }
+  ],
+  "second_first_event": {
+    "details": null,
+    "error": "A request is already being processed for this game.",
+    "recoverable": true,
+    "type": "error"
+  },
+  "second_sse": [
+    "error"
+  ]
+}
