@@ -120,6 +120,11 @@ def make_provider_class(instance: ScriptedLLMProvider) -> type:
     """Class whose constructor always returns the shared scripted instance."""
 
     class _Factory:
+        # Class-level attributes read by services.llm_providers catalog functions.
+        MODEL_MAIN = "scripted-model"
+        MODELS: dict[str, str] = {}
+        STRUCTURED_OUTPUT = instance.STRUCTURED_OUTPUT
+
         def __new__(cls, *args, **kwargs):
             return instance
 

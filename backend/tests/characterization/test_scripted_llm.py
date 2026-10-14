@@ -68,3 +68,14 @@ def test_provider_class_returns_shared_instance():
     assert cls(api_key="k", model=None) is p
     assert cls() is p
     assert p.structured_output_mode == StructuredOutputMode.TEXT
+
+
+def test_provider_class_is_compatible_with_catalog(monkeypatch):
+    from services import llm_providers
+
+    p = ScriptedLLMProvider({}, mode=StructuredOutputMode.JSON_SCHEMA)
+    monkeypatch.setitem(llm_providers._CLASSES, "scripted", make_provider_class(p))
+    entry = llm_providers.get_provider_catalog()["providers"]["scripted"]
+    assert entry["structured_output"] == "json_schema"
+    assert entry["default_model"] == "scripted-model"
+    assert entry["models"] == []
