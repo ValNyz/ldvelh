@@ -12,6 +12,8 @@ import pytest
 # Ajouter le dossier backend au path pour les imports
 backend_path = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_path))
+# Keep legacy top-level imports (e.g. `from helpers import ...`) working now that tests/ is a package
+sys.path.insert(0, str(Path(__file__).parent))
 
 # Configurer le logging pour les tests (moins verbeux)
 import logging
@@ -189,30 +191,44 @@ TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"
 )
 
+from urllib.parse import urlparse
+
+
+def assert_safe_test_db_url(url: str) -> None:
+    """Refuse to touch any database whose name does not end with '_test'."""
+    db_name = urlparse(url).path.lstrip("/")
+    if not db_name.endswith("_test"):
+        raise RuntimeError(
+            f"Refusing to use database '{db_name}': test DB name must end with '_test'"
+        )
+
+
+_DBMATE_DONE = False
+
 _TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres CASCADE;"
 
 
 
 def _try_dbmate_setup():
-    """Try to create and migrate test DB using dbmate (local dev only).
+    """Migrate the test DB with dbmate once per session (local dev only).
 
-    In CI, the workflow already migrates the DB — this is a no-op fallback.
+    In CI the workflow already migrates the DB; without dbmate on PATH this is a no-op.
     """
-    import subprocess
     import shutil
+    import subprocess
 
-    if not shutil.which("dbmate"):
-        return  # dbmate not installed, assume DB is pre-migrated (CI)
+    global _DBMATE_DONE
+    if _DBMATE_DONE or not shutil.which("dbmate"):
+        return
+    _DBMATE_DONE = True
 
     migrations_dir = str(Path(__file__).parent.parent.parent / "db" / "migrations")
     env = os.environ.copy()
     env["DATABASE_URL"] = TEST_DB_URL
-
     subprocess.run(
         ["dbmate", "--migrations-dir", migrations_dir, "--no-dump-schema", "up"],
         capture_output=True, text=True, env=env,
     )
-    # Don't raise on failure — the DB might already be ready
 
 
 @pytest_asyncio.fixture
@@ -221,6 +237,7 @@ async def test_pool():
 
     Tries dbmate setup locally, then connects. Skips if DB unreachable.
     """
+    assert_safe_test_db_url(TEST_DB_URL)
     import asyncpg
     import json
     import pytest
