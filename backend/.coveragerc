@@ -1,0 +1,10 @@
+[run]
+branch = True
+source = .
+omit =
+    tests/*
+    */__pycache__/*
+
+[report]
+skip_empty = True
+show_missing = True
