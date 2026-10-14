@@ -1,0 +1,26 @@
+{
+  "details_header_per_turn": [
+    false,
+    false,
+    true,
+    true
+  ],
+  "details_section_turn_c": [
+    "",
+    "**Le Quart de Cycle** (location)",
+    "  Café correct, sans plus. Le proprio n\\'est pas du genre bavard."
+  ],
+  "llm_calls_turn_c": [
+    "director",
+    "narration",
+    "resolver"
+  ],
+  "sse_turn_c": [
+    "chunk*",
+    "done",
+    "saved"
+  ],
+  "stored_detail_requests": [
+    "Le Quart de Cycle"
+  ]
+}

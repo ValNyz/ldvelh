@@ -1,0 +1,14 @@
+{
+  "client_cycle": 2,
+  "client_date": "Jour 2",
+  "client_time": "10h15",
+  "cycle": 2,
+  "cycle_before": 1,
+  "date": "Jour 2",
+  "date_before": "Lundi 18 Juillet 2847",
+  "sse": [
+    "chunk*",
+    "done",
+    "saved"
+  ]
+}

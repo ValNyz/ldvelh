@@ -1,0 +1,29 @@
+{
+  "client_state_credits": 1640,
+  "client_state_inventory": [
+    "Terminal personnel",
+    "Valise cabine"
+  ],
+  "credits_after": 1640,
+  "credits_before": 1650,
+  "credits_delta": -10,
+  "extractor_prompt_has_hint": true,
+  "inventory": [
+    {
+      "name": "Gobelet",
+      "quantity": 1
+    }
+  ],
+  "llm_calls": [
+    "director",
+    "extract:extract_inventory",
+    "narration",
+    "resolver"
+  ],
+  "objects_named_gobelet": 1,
+  "sse": [
+    "chunk*",
+    "done",
+    "saved"
+  ]
+}
