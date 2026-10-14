@@ -39,8 +39,16 @@ def scripted_llm(monkeypatch, llm_mode):
 
     from api import routes
     monkeypatch.setattr(routes, "_resolve_user_api_key", _fake_key)
-    random.seed(1234)
     return provider
+
+
+@pytest.fixture(autouse=True)
+def _seeded_random():
+    """Deterministic dice; global random state restored on teardown."""
+    state = random.getstate()
+    random.seed(1234)
+    yield
+    random.setstate(state)
 
 
 @pytest_asyncio.fixture
