@@ -1,0 +1,32 @@
+{
+  "db_changed": {},
+  "errors": [
+    {
+      "details": null,
+      "error": "LLM API error (anthropic): provider down",
+      "recoverable": true,
+      "type": "error"
+    },
+    {
+      "details": null,
+      "error": "provider down",
+      "recoverable": false,
+      "type": "error"
+    }
+  ],
+  "last_messages": [
+    {
+      "content": "Le **Quart de Cycle** est à moitié vide ",
+      "cycle": 1,
+      "role": "assistant"
+    }
+  ],
+  "llm_calls": [
+    "narration"
+  ],
+  "messages_added": 0,
+  "sse": [
+    "error",
+    "error"
+  ]
+}

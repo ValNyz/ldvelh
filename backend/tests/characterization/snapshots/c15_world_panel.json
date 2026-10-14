@@ -1,0 +1,38 @@
+{
+  "counts": {
+    "locations": 6,
+    "npcs": 0,
+    "organizations": 1,
+    "quests": 4
+  },
+  "item_keys": {
+    "locations": [
+      "accessible",
+      "id",
+      "name",
+      "parent",
+      "sector",
+      "type"
+    ],
+    "organizations": [
+      "domain",
+      "id",
+      "name",
+      "type"
+    ],
+    "quests": [
+      "description",
+      "id",
+      "intensity",
+      "name",
+      "status",
+      "type"
+    ]
+  },
+  "keys": [
+    "locations",
+    "npcs",
+    "organizations",
+    "quests"
+  ]
+}

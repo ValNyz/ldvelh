@@ -1,0 +1,13 @@
+{
+  "db_changed": {},
+  "first_event": {
+    "details": null,
+    "error": "Aucune clé API configurée pour anthropic. Ajoutez votre clé dans Paramètres > Modèle IA.",
+    "recoverable": false,
+    "type": "error"
+  },
+  "llm_calls": [],
+  "sse": [
+    "error"
+  ]
+}
