@@ -25,3 +25,15 @@ def test_default_payloads_validate_against_schemas():
     EntityResolution.model_validate(json.loads(payloads.RESOLVER_EMPTY))
     out = DirectorOutput.model_validate(json.loads(payloads.DIRECTOR))
     assert out.narrator_guidance and out.tension_level == 3
+
+
+def test_new_character_payloads_validate_against_schemas():
+    import json
+
+    from schema.extraction import CharactersExtraction, EntityResolution
+    from tests.characterization import payloads
+
+    res = EntityResolution.model_validate(json.loads(payloads.RESOLVER_NEW_CHARACTER))
+    assert res.new[0].suggested_name == payloads.NEW_CHARACTER_NAME
+    ext = CharactersExtraction.model_validate(payloads.EXTRACT_CHARACTERS_NEW)
+    assert ext.entities_created[0].name == payloads.NEW_CHARACTER_NAME

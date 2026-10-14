@@ -14,6 +14,25 @@ NARRATION = json.dumps(NARRATION_EXAMPLE_NEUTRAL, ensure_ascii=False)
 # Minimal VALID shapes: keys must match schema.extraction.EntityResolution and
 # schema.director.DirectorOutput (the smoke test model_validate()s both).
 RESOLVER_EMPTY = json.dumps({"existing": [], "new": []})
+# Resolver reporting one genuinely new character: makes the orchestrator add the
+# "characters" extractor, so extract_structured runs (mode-dependent code path).
+NEW_CHARACTER_NAME = "Mira Kessler"
+RESOLVER_NEW_CHARACTER = json.dumps({
+    "existing": [],
+    "new": [{
+        "mentions": [NEW_CHARACTER_NAME],
+        "suggested_name": NEW_CHARACTER_NAME,
+        "entity_type": "character",
+    }],
+})
+# Minimal valid schema.extraction.CharactersExtraction creating that character.
+EXTRACT_CHARACTERS_NEW = {
+    "entities_created": [{
+        "entity_type": "character",
+        "name": NEW_CHARACTER_NAME,
+        "data": {"occupation": "Technicienne"},
+    }],
+}
 DIRECTOR = json.dumps({
     "tension_level": 3,
     "narrator_guidance": "Rythme calme, laisser le joueur explorer.",
