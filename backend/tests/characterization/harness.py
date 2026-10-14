@@ -33,13 +33,28 @@ class ChatHarness:
         tasks (api/routes.py create_task calls) and has no app-level background loop under
         the ASGI test client, so nothing long-lived is swept in. The bounded retry loop
         also covers tasks spawned by tasks.
+
+        Fails loudly: raises AssertionError if tasks are still pending afterwards, and
+        re-raises the first exception from any task it waited on (cancellations ignored).
         """
         current = asyncio.current_task()
+        waited: set[asyncio.Task] = set()
+        pending: list[asyncio.Task] = []
         for _ in range(5):
             pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
             if not pending:
-                return
+                break
+            waited.update(pending)
             await asyncio.wait(pending, timeout=timeout)
+        pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
+        if pending:
+            raise AssertionError(
+                "drain(): tasks still pending: "
+                + ", ".join(f"{t.get_name()} {t.get_coro()!r}" for t in pending)
+            )
+        for t in waited:
+            if t.done() and not t.cancelled() and t.exception() is not None:
+                raise t.exception()
 
     async def db_summary(self, game_id: str) -> dict[str, int]:
         """Row counts of every table holding a game_id column, for this game."""

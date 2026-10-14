@@ -11,8 +11,16 @@ from prompts.examples import NARRATION_EXAMPLE_NEUTRAL, WORLD_GENERATION_EXAMPLE
 WORLD_GEN = WORLD_GENERATION_EXAMPLE
 # NARRATION_EXAMPLE_NEUTRAL is a dict; stream() yields text, so serialize it.
 NARRATION = json.dumps(NARRATION_EXAMPLE_NEUTRAL, ensure_ascii=False)
-RESOLVER_EMPTY = json.dumps({"entities": []})
-DIRECTOR = json.dumps({"plan": "Rien de particulier.", "arc_updates": []})
+# Minimal VALID shapes: keys must match schema.extraction.EntityResolution and
+# schema.director.DirectorOutput (the smoke test model_validate()s both).
+RESOLVER_EMPTY = json.dumps({"existing": [], "new": []})
+DIRECTOR = json.dumps({
+    "tension_level": 3,
+    "narrator_guidance": "Rythme calme, laisser le joueur explorer.",
+    "planned_events": [],
+    "arc_updates": [],
+    "long_term_vision": "Rien de particulier.",
+})
 
 
 def mechanical(requires_test: bool, skill: str = "Athlétisme", skill_value: int = 2,

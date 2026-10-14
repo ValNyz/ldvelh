@@ -12,3 +12,16 @@ async def test_init_world_reaches_world_gen(harness):
     assert purposes and "unknown" not in purposes
     db = await harness.db_summary(game_id)
     assert db["locations"] > 0 and db["characters"] > 0
+
+
+def test_default_payloads_validate_against_schemas():
+    """Resolver/director constants must be valid, not merely ignored, by their models."""
+    import json
+
+    from schema.director import DirectorOutput
+    from schema.extraction import EntityResolution
+    from tests.characterization import payloads
+
+    EntityResolution.model_validate(json.loads(payloads.RESOLVER_EMPTY))
+    out = DirectorOutput.model_validate(json.loads(payloads.DIRECTOR))
+    assert out.narrator_guidance and out.tension_level == 3
