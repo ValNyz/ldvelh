@@ -1,5 +1,7 @@
 """Unit tests for the characterization LLM double."""
 
+import json
+
 import pytest
 
 from services.extraction.resolver import RESOLVER_SYSTEM_PROMPT
@@ -21,6 +23,20 @@ from tests.characterization.scripted_llm import (
 ])
 def test_classify_by_system_prompt(prompt, expected):
     assert classify_call(prompt) == expected
+
+
+@pytest.mark.parametrize("module,label", [
+    ("characters_prompt", "extract:extract_characters"),
+    ("locations_prompt", "extract:extract_locations"),
+    ("organizations_prompt", "extract:extract_organizations"),
+    ("inventory_prompt", "extract:extract_inventory"),
+    ("narrative_arcs_prompt", "extract:extract_narrative_arcs"),
+])
+def test_classify_extractor_system_prompt_matches_tool_label(module, label):
+    import importlib
+
+    prompt = importlib.import_module(f"prompts.extraction.{module}").SYSTEM_PROMPT
+    assert classify_call(prompt) == label
 
 
 def test_classify_tool_name_wins():
@@ -79,3 +95,22 @@ def test_provider_class_is_compatible_with_catalog(monkeypatch):
     assert entry["structured_output"] == "json_schema"
     assert entry["default_model"] == "scripted-model"
     assert entry["models"] == []
+
+
+async def test_complete_with_schema_answers_scripted_payload_as_json():
+    p = ScriptedLLMProvider({"extract:extract_characters": {"entities_created": []}},
+                            mode=StructuredOutputMode.JSON_SCHEMA)
+    r = await p.complete_with_schema("sys", [], "extract_characters", {}, 0.3, 100)
+    assert json.loads(r.content) == {"entities_created": []}
+    assert p.purposes() == ["extract:extract_characters"]
+    assert p.calls[0].method == "complete_with_schema"
+
+
+async def test_text_mode_extraction_uses_complete_with_same_label():
+    from prompts.extraction import characters_prompt
+
+    p = ScriptedLLMProvider({"extract:extract_characters": {"entities_created": []}},
+                            mode=StructuredOutputMode.TEXT)
+    r = await p.complete(characters_prompt.SYSTEM_PROMPT, [], 0.3, 100)
+    assert json.loads(r.content) == {"entities_created": []}
+    assert p.purposes() == ["extract:extract_characters"]

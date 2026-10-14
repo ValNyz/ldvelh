@@ -8,6 +8,13 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
+from prompts.extraction import (
+    characters_prompt,
+    inventory_prompt,
+    locations_prompt,
+    narrative_arcs_prompt,
+    organizations_prompt,
+)
 from services.extraction.resolver import RESOLVER_SYSTEM_PROMPT
 from services.llm_providers import (
     CompletionResult,
@@ -27,6 +34,16 @@ _MARKERS = [
     ("## YOUR ROLE", "mechanical"),
 ]
 
+# Extractor system prompts -> the same label the tool_use / json_schema paths derive
+# from the tool name, so a TEXT-mode (plain complete()) extraction is labelled alike.
+_EXTRACTOR_PROMPTS = {
+    characters_prompt.SYSTEM_PROMPT: "extract:extract_characters",
+    locations_prompt.SYSTEM_PROMPT: "extract:extract_locations",
+    organizations_prompt.SYSTEM_PROMPT: "extract:extract_organizations",
+    inventory_prompt.SYSTEM_PROMPT: "extract:extract_inventory",
+    narrative_arcs_prompt.SYSTEM_PROMPT: "extract:extract_narrative_arcs",
+}
+
 
 def classify_call(system_prompt: str, tool_name: str | None = None) -> str:
     """Map an LLM call to a stable purpose label."""
@@ -34,6 +51,8 @@ def classify_call(system_prompt: str, tool_name: str | None = None) -> str:
         return f"extract:{tool_name}"
     if system_prompt == RESOLVER_SYSTEM_PROMPT:
         return "resolver"
+    if system_prompt in _EXTRACTOR_PROMPTS:
+        return _EXTRACTOR_PROMPTS[system_prompt]
     head = system_prompt[:600]
     for marker, purpose in _MARKERS:
         if marker in head:
@@ -100,6 +119,14 @@ class ScriptedLLMProvider(LLMProvider):
         if isinstance(payload, str):
             payload = json.loads(payload)
         return ToolResult(tool_name=tool_name, tool_input=payload, usage=USAGE)
+
+    async def complete_with_schema(self, system_prompt, messages, schema_name, schema, temperature, max_tokens) -> CompletionResult:
+        purpose = classify_call(system_prompt, tool_name=schema_name)
+        self._record("complete_with_schema", purpose)
+        payload = self._next(purpose, {})
+        if not isinstance(payload, str):
+            payload = json.dumps(payload)
+        return CompletionResult(content=payload, usage=USAGE)
 
     @property
     def supports_cache_control(self) -> bool:
