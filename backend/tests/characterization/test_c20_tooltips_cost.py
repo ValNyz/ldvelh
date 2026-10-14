@@ -10,8 +10,15 @@ from tests.characterization.snapshot import assert_snapshot
 
 
 async def test_c20_tooltips_annotations_and_entity(harness, world_game):
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    # The default narration mentions "Ossek" and "Quart de Cycle": resolve both so spans are stored.
+    harness.llm._responses["resolver"] = json.dumps({
+        "existing": [
+            {"mentions": ["Ossek"], "canonical": "Ossek", "entity_type": "character"},
+            {"mentions": ["Quart de Cycle"], "canonical": "Le Quart de Cycle",
+             "entity_type": "location"},
+        ],
+        "new": [],
+    })
     await harness.chat(world_game, "Je regarde autour de moi.")
     await harness.drain()
 
@@ -36,6 +43,7 @@ async def test_c20_tooltips_annotations_and_entity(harness, world_game):
         "/api/tooltips/entity",
         params={"gameId": world_game, "name": "Nobody At All", "entityType": "character"},
         headers=harness.headers)
+    assert ann["messages"], "resolver mappings must produce stored annotation spans"
     assert found_char.json()["found"] is True
     assert found_loc.json()["found"] is True
     assert missing.json()["found"] is False
@@ -46,13 +54,22 @@ async def test_c20_tooltips_annotations_and_entity(harness, world_game):
                              for a in m["annotations"]]}
             for m in ann["messages"]
         ],
-        "character_keys": sorted(found_char.json().keys()),
-        "location_keys": sorted(found_loc.json().keys()),
+        "character_tooltip": found_char.json(),
+        "location_tooltip": found_loc.json(),
         "missing": missing.json(),
     })
 
 
-async def test_c21_cost_recorded_on_message_and_session(harness, world_game):
+async def test_c21_cost_recorded_on_message_and_session(harness, world_game, monkeypatch):
+    # The scripted model is unpriced; register dynamic pricing (USD per million tokens)
+    # so a loss of cost computation changes the snapshot.
+    from services import pricing
+    # /session/cost calls get_summary() without a provider, so it looks the model up under
+    # "anthropic/" (current behavior); the per-message cost uses the real "scripted/" provider.
+    for prefix in ("scripted", "anthropic"):
+        monkeypatch.setitem(
+            pricing._DYNAMIC_PRICING, f"{prefix}/scripted-model",
+            pricing.ModelPricing(input=3.0, output=15.0))
     before = (await harness.client.get("/api/session/cost", headers=harness.headers)).json()
     events = await harness.chat(world_game, "Je regarde autour de moi.")
     await harness.drain()
@@ -70,6 +87,9 @@ async def test_c21_cost_recorded_on_message_and_session(harness, world_game):
         "message_cost": cost,
         "session_keys": sorted(after.keys()),
         "session_total_grew": after["total_cost_usd"] > before["total_cost_usd"],
+        "session_narration_cost_usd": round(
+            after["purposes"]["narration"]["cost_usd"]
+            - before["purposes"].get("narration", {}).get("cost_usd", 0.0), 6),
         "narration_purpose_tracked": "narration" in after.get("purposes", {}),
     })
 
