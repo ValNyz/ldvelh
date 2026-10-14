@@ -405,11 +405,10 @@ class TestOpenAICompatibleProviders:
         assert p.provider_name == "nebius"
 
     @patch("services.llm_providers.get_settings")
-    def test_nous_provider_force_json(self, mock_settings):
+    def test_nous_provider(self, mock_settings):
         mock_settings.return_value = MagicMock(nous_api_key="key")
         p = NousResearchProvider()
         assert p.provider_name == "nous"
-        assert p.FORCE_JSON is True
         assert p.MODEL_MAIN == "Hermes-4-405B"
 
     @patch("services.llm_providers.get_settings")

@@ -42,15 +42,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest-cov
 
+      # Pinned + checksum-verified: an unpinned "latest" (v2.33.0+) silently
+      # switched the default to SSL and broke this step for months.
       - name: Install dbmate
+        env:
+          DBMATE_VERSION: v2.36.0
+          DBMATE_SHA256: 47e284b3d8cbad1ba5f090495aa05afd1bbd5f35e2ed5577aad06da74ce780ce
         run: |
-          curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/latest/download/dbmate-linux-amd64
+          curl -fsSL -o /usr/local/bin/dbmate "https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-amd64"
+          echo "${DBMATE_SHA256}  /usr/local/bin/dbmate" | sha256sum -c -
           chmod +x /usr/local/bin/dbmate
 
+      # The CI Postgres service has no TLS: make sslmode explicit.
       - name: Apply DB migrations
         run: dbmate --migrations-dir ../db/migrations --no-dump-schema up
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/ldvelh_test
+          DATABASE_URL: postgresql://test:test@localhost:5432/ldvelh_test?sslmode=disable
 
       - name: Run all tests with coverage
         run: |
