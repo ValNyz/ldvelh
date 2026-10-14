@@ -1,0 +1,23 @@
+{
+  "done_keys": [
+    "displayText",
+    "state",
+    "type"
+  ],
+  "message_cost": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "cost_usd": 0.0,
+    "input_tokens": 100,
+    "model": "scripted-model",
+    "output_tokens": 50,
+    "provider": "scripted"
+  },
+  "meta": null,
+  "narration_purpose_tracked": true,
+  "session_keys": [
+    "purposes",
+    "total_cost_usd"
+  ],
+  "session_total_grew": false
+}

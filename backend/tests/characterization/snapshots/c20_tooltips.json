@@ -1,0 +1,16 @@
+{
+  "annotations": [],
+  "character_keys": [
+    "found",
+    "tooltip"
+  ],
+  "location_keys": [
+    "found",
+    "tooltip"
+  ],
+  "missing": {
+    "found": false,
+    "name": "Nobody At All",
+    "type": "character"
+  }
+}
