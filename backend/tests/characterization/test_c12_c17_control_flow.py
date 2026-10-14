@@ -69,9 +69,11 @@ async def test_c12_rollback_regenerate(harness, world_game):
 
 async def test_c13_busy_game_rejected(harness, world_game):
     gate = asyncio.Event()
+    started = asyncio.Event()
     original_stream = harness.llm.stream
 
     async def slow_stream(*a, **k):
+        started.set()  # the first request holds the game lock once it reaches the LLM
         await gate.wait()
         async for x in original_stream(*a, **k):
             yield x
@@ -79,8 +81,8 @@ async def test_c13_busy_game_rejected(harness, world_game):
     harness.llm.stream = slow_stream
     first = asyncio.create_task(harness.chat(world_game, "Tour lent."))
     try:
-        await asyncio.sleep(0.5)
-        second = await harness.chat(world_game, "Tour concurrent.")
+        await asyncio.wait_for(started.wait(), 5)
+        second = await asyncio.wait_for(harness.chat(world_game, "Tour concurrent."), 10)
     finally:
         gate.set()
     first_events = await first
@@ -118,10 +120,23 @@ async def test_c15_world_panel(harness, world_game):
     r = await harness.client.get(f"/api/games/{world_game}/world", headers=harness.headers)
     assert r.status_code == 200
     data = r.json()
+    counts_unknown = {k: len(v) for k, v in sorted(data.items())}
+    assert data["npcs"] == []  # the panel lists only characters known by the protagonist
+    async with harness.pool.acquire() as conn:
+        name = await conn.fetchval(
+            "UPDATE characters SET known_by_protagonist = true WHERE id = ("
+            "SELECT id FROM characters WHERE game_id = $1 ORDER BY name LIMIT 1) RETURNING name",
+            world_game)
+    r2 = await harness.client.get(f"/api/games/{world_game}/world", headers=harness.headers)
+    npcs = r2.json()["npcs"]
+    assert [n["name"] for n in npcs] == [name]
     assert_snapshot("c15_world_panel", {
         "keys": sorted(data.keys()),
-        "counts": {k: len(v) for k, v in sorted(data.items())},
+        "counts_all_unknown": counts_unknown,
+        "counts_one_known": {k: len(v) for k, v in sorted(r2.json().items())},
         "item_keys": {k: sorted(v[0].keys()) for k, v in sorted(data.items()) if v},
+        "npc_keys": sorted(npcs[0].keys()),
+        "npc": {k: v for k, v in npcs[0].items() if k != "id"},
     })
 
 
@@ -175,7 +190,6 @@ async def test_c17_back_to_back_turns_keep_both_extractions(harness, world_game)
     try:
         await harness.chat(world_game, "Tour A.")
         await harness.chat(world_game, "Tour B.")  # no drain in between on purpose
-        await asyncio.sleep(0.3)
     finally:
         gate.set()
     await harness.drain()
