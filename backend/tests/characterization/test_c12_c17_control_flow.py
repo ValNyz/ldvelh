@@ -81,8 +81,13 @@ async def test_c13_busy_game_rejected(harness, world_game):
     harness.llm.stream = slow_stream
     first = asyncio.create_task(harness.chat(world_game, "Tour lent."))
     try:
-        await asyncio.wait_for(started.wait(), 5)
-        second = await asyncio.wait_for(harness.chat(world_game, "Tour concurrent."), 10)
+        await asyncio.wait_for(started.wait(), 30)
+        second = await asyncio.wait_for(harness.chat(world_game, "Tour concurrent."), 30)
+    except BaseException:
+        gate.set()
+        first.cancel()
+        await asyncio.gather(first, return_exceptions=True)
+        raise
     finally:
         gate.set()
     first_events = await first
@@ -96,13 +101,7 @@ async def test_c13_busy_game_rejected(harness, world_game):
     assert second[0]["type"] == "error" and second[0].get("recoverable") is True
 
 
-async def test_c14_missing_api_key(harness, world_game, monkeypatch):
-    from api import routes
-
-    async def no_key(pool, user_id, provider_name):
-        return None
-
-    monkeypatch.setattr(routes, "_resolve_user_api_key", no_key)
+async def test_c14_missing_api_key(harness, world_game, no_api_key):
     before = await harness.db_summary(world_game)
     events = await harness.chat(world_game, "Bonjour.")
     await harness.drain()

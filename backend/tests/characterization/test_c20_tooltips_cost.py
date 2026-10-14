@@ -94,15 +94,10 @@ async def test_c21_cost_recorded_on_message_and_session(harness, world_game, mon
     })
 
 
-async def test_c22_providers_endpoint_without_user_keys(client, test_user, monkeypatch):
+async def test_c22_providers_endpoint_without_user_keys(client, test_user, no_api_key):
     """F-05: GET /api/providers with no stored keys (no network, hard-coded Anthropic list only)."""
-    from api import routes
     from tests.helpers import auth_headers
 
-    async def no_key(pool, user_id, provider_name):
-        return None
-
-    monkeypatch.setattr(routes, "_resolve_user_api_key", no_key)
     r = await client.get("/api/providers", headers=auth_headers(test_user["token"]))
     assert r.status_code == 200
     data = r.json()
