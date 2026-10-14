@@ -1,0 +1,298 @@
+{
+    "generation_seed_words": ["rouille", "reconversion", "isolement"],
+    "world": {
+        "name": "Escale Méridienne",
+        "description": "Ancienne station minière reconvertie. Infrastructure vieillissante, population blasée.",
+        "atmosphere": "Station industrielle usée, indifférence ambiante",
+        "sectors": ["Quai Central", "Serres Hautes", "Quartier Ouvrier"],
+        "founding_cycle": -4500
+    },
+    "locations": [
+        {
+            "name": "Terminal Quai 7",
+            "parent_location_ref": null,
+            "location_type": "terminal",
+            "sector": "Quai Central",
+            "description": "Hall bruyant aux plafonds tachés. Files d'attente permanentes.",
+            "atmosphere": "transit impersonnel",
+            "accessible": true,
+            "notable_features": ["kiosque à café médiocre", "sièges inconfortables"],
+            "typical_crowd": "voyageurs fatigués, dockers indifférents",
+            "operating_hours": "24/7"
+        },
+        {
+            "name": "Bloc Tournesol",
+            "parent_location_ref": null,
+            "location_type": "residential_building",
+            "sector": "Quartier Ouvrier",
+            "description": "Immeuble de six étages, façade défraîchie. Ascenseur en panne un jour sur trois.",
+            "atmosphere": "vétuste mais vivant",
+            "accessible": true,
+            "notable_features": ["hall mal éclairé", "boîtes aux lettres cabossées"]
+        },
+        {
+            "name": "Appartement 4-12",
+            "parent_location_ref": "Bloc Tournesol",
+            "location_type": "apartment",
+            "sector": "Quartier Ouvrier",
+            "description": "28m², murs fins, vue sur conduit d'aération. Le minimum syndical.",
+            "atmosphere": "exigu et impersonnel",
+            "accessible": true,
+            "notable_features": ["kitchenette vétuste", "lit qui grince"]
+        },
+        {
+            "name": "Serres Hydro-7",
+            "parent_location_ref": null,
+            "location_type": "workplace",
+            "sector": "Serres Hautes",
+            "description": "Serre industrielle. Humidité constante, éclairage agressif.",
+            "atmosphere": "humide et bruyante",
+            "accessible": true,
+            "notable_features": ["bassins nutritifs", "ventilation assourdissante"],
+            "typical_crowd": "techniciens concentrés",
+            "operating_hours": "06h-22h"
+        },
+        {
+            "name": "Le Quart de Cycle",
+            "parent_location_ref": null,
+            "location_type": "cafe",
+            "sector": "Quai Central",
+            "description": "Café correct, sans plus. Le proprio n'est pas du genre bavard.",
+            "atmosphere": "fonctionnel",
+            "accessible": true,
+            "notable_features": ["comptoir usé", "chaises dépareillées"],
+            "typical_crowd": "habitués silencieux",
+            "operating_hours": "07h-23h",
+            "price_range": "budget"
+        }
+    ],
+    "organizations": [
+        {
+            "name": "Symbiose Tech",
+            "headquarters_ref": "Serres Hydro-7",
+            "org_type": "company",
+            "domain": "IA agricole",
+            "size": "medium",
+            "description": "Startup en difficulté. Ambiance tendue, deadlines impossibles.",
+            "reputation": "innovants mais désorganisés, turnover élevé",
+            "founding_cycle": -2920
+        }
+    ],
+    "protagonist": {
+        "name": "Valentin",
+        "origin": "Cité-Dôme de Vega III",
+        "departure_reason": "fresh_start",
+        "backstory": "Huit ans dans une startup qui a implosé. Burnout. Besoin de partir. Développeur compétent mais fatigué. Idéalisme érodé par les déceptions.",
+        "occupation": "développeur IA senior",
+        "hobbies": ["cuisine", "lecture", "course à pied"],
+        "credits": 1650,
+        "employer_ref": "Symbiose Tech",
+        "residence_ref": "Appartement 4-12",
+        "skills": [
+            {"name": "architecture_systemes", "level": 4},
+            {"name": "programmation_ia", "level": 4}
+        ]
+    },
+    "companion": {
+        "name": "Célimène",
+        "voice": "voix rauque, débit lent",
+        "traits": ["sarcastique", "observatrice", "peu impressionnable"],
+        "substrate": "personal_device",
+        "quirk": "Note les contradictions des gens sans les commenter... sauf quand c'est drôle"
+    },
+    "characters": [
+        {
+            "name": "Justine Lépicier",
+            "workplace_ref": "Serres Hydro-7",
+            "residence_ref": "Bloc Tournesol",
+            "known_by_protagonist": false,
+            "unknown_name": null,
+            "species": "human",
+            "gender": "femme",
+            "pronouns": "elle",
+            "age": "32",
+            "description": "1m54, courbes prononcées, blonde en désordre, yeux bleus cernés",
+            "traits": ["pragmatique", "humour caustique", "méfiante", "épuisée"],
+            "occupation": "technicienne maintenance serres",
+            "mood": "fatiguée, sur la défensive",
+            "origin": "Station Kepler-22",
+            "romantic_potential": true,
+            "is_mandatory": true
+        },
+        {
+            "name": "Dr. Yuki Tanaka",
+            "workplace_ref": "Serres Hydro-7",
+            "residence_ref": "Bloc Tournesol",
+            "known_by_protagonist": false,
+            "unknown_name": null,
+            "species": "human",
+            "gender": "femme",
+            "pronouns": "elle",
+            "age": "45",
+            "description": "Petite, cheveux gris en chignon serré, posture rigide, regard dur",
+            "traits": ["perfectionniste", "impatiente", "cassante", "méfiante envers les nouveaux"],
+            "occupation": "directrice technique Symbiose Tech",
+            "mood": "tendue, irritable",
+            "origin": "Mars-Cité",
+            "romantic_potential": false,
+            "is_mandatory": false
+        },
+        {
+            "name": "Ossek",
+            "workplace_ref": "Le Quart de Cycle",
+            "residence_ref": "Le Quart de Cycle",
+            "known_by_protagonist": false,
+            "unknown_name": null,
+            "species": "keth (semi-aquatique)",
+            "gender": "non-binaire",
+            "pronouns": "iel",
+            "description": "Peau bleu-gris, branchies latérales, yeux sans pupilles, mouvements lents",
+            "traits": ["calme", "distant", "mélancolique", "peu bavard"],
+            "occupation": "propriétaire du café",
+            "mood": "mélancolique, absent",
+            "origin": "Monde-Océan de Téthys",
+            "romantic_potential": false,
+            "is_mandatory": false
+        }
+    ],
+    "inventory": [
+        {
+            "name": "Terminal personnel",
+            "category": "tech",
+            "description": "Modèle standard usé, héberge Célimène",
+            "transportable": true,
+            "stackable": false,
+            "base_value": 300,
+            "quantity": 1
+        },
+        {
+            "name": "Valise cabine",
+            "category": "baggage",
+            "description": "Plastique rayé, fermeture capricieuse",
+            "transportable": true,
+            "stackable": false,
+            "base_value": 40,
+            "quantity": 1
+        }
+    ],
+    "narrative_arcs": [
+        {
+            "title": "La mère malade",
+            "domain": "family",
+            "description": "Justine envoie la moitié de son salaire pour sa mère malade restée sur Kepler-22. Le coût du transfert médical est astronomique.",
+            "involved_entities": ["Justine Lépicier"],
+            "intensity": 5,
+            "situation": "Mère malade, envoie la moitié de son salaire",
+            "desire": "Faire venir sa mère ici",
+            "obstacle": "Coût du transfert médical astronomique",
+            "potential_triggers": ["discussion sur la famille", "nouvelles de Kepler-22"],
+            "stakes": "Santé de sa mère"
+        },
+        {
+            "title": "Burnout silencieux",
+            "domain": "health",
+            "description": "Dr. Tanaka pousse l'équipe au-delà du raisonnable. 14h par jour depuis des mois. Refuse d'admettre le problème.",
+            "involved_entities": ["Dr. Yuki Tanaka", "Symbiose Tech"],
+            "intensity": 5,
+            "situation": "14h/jour depuis des mois",
+            "desire": "Prouver qu'elle gère",
+            "obstacle": "Refuse d'admettre le problème",
+            "potential_triggers": ["incident au travail", "confrontation"],
+            "stakes": "Santé de Tanaka et survie de l'équipe"
+        },
+        {
+            "title": "Le mal du banc",
+            "domain": "health",
+            "description": "Mélancolie keth chronique d'Ossek. Seul de son espèce sur la station.",
+            "involved_entities": ["Ossek"],
+            "intensity": 4,
+            "situation": "Mélancolie chronique, isolement",
+            "desire": "Équilibre émotionnel",
+            "obstacle": "Aucun traitement connu",
+            "potential_triggers": ["conversation sincère", "rappel de Téthys"],
+            "stakes": "Santé mentale d'Ossek"
+        },
+        {
+            "title": "Pression sur Symbiose",
+            "domain": "professional",
+            "description": "Investisseur externe s'intéresse à Symbiose avec intentions floues.",
+            "involved_entities": ["Symbiose Tech", "Dr. Yuki Tanaka"],
+            "intensity": 4,
+            "potential_triggers": ["réunion générale", "rumeurs"],
+            "stakes": "Indépendance de l'entreprise",
+            "deadline_cycle": 180
+        }
+    ],
+    "initial_relations": [
+        {
+            "source_ref": "Valentin",
+            "target_ref": "Appartement 4-12",
+            "relation_type": "lives_at",
+            "known_by_protagonist": true
+        },
+        {
+            "source_ref": "Valentin",
+            "target_ref": "Symbiose Tech",
+            "relation_type": "employed_by",
+            "known_by_protagonist": true
+        },
+        {
+            "source_ref": "Justine Lépicier",
+            "target_ref": "Serres Hydro-7",
+            "relation_type": "works_at",
+            "known_by_protagonist": false
+        },
+        {
+            "source_ref": "Justine Lépicier",
+            "target_ref": "Bloc Tournesol",
+            "relation_type": "lives_at",
+            "known_by_protagonist": false
+        },
+        {
+            "source_ref": "Dr. Yuki Tanaka",
+            "target_ref": "Serres Hydro-7",
+            "relation_type": "works_at",
+            "known_by_protagonist": false
+        },
+        {
+            "source_ref": "Dr. Yuki Tanaka",
+            "target_ref": "Symbiose Tech",
+            "relation_type": "manages",
+            "known_by_protagonist": false
+        },
+        {
+            "source_ref": "Ossek",
+            "target_ref": "Le Quart de Cycle",
+            "relation_type": "owns",
+            "known_by_protagonist": false
+        },
+        {
+            "source_ref": "Appartement 4-12",
+            "target_ref": "Bloc Tournesol",
+            "relation_type": "located_in",
+            "known_by_protagonist": false
+        },
+        {
+            "source_ref": "Symbiose Tech",
+            "target_ref": "Serres Hydro-7",
+            "relation_type": "located_in",
+            "known_by_protagonist": false
+        }
+    ],
+    "arrival_event": {
+        "arrival_method": "navette cargo, 3h de retard",
+        "arrival_location_ref": "Terminal Quai 7",
+        "arrival_date": "Lundi 18 Juillet 2847",
+        "time": "11h42",
+        "immediate_sensory_details": [
+            "Odeur de sueur et de métal recyclé",
+            "Annonce PA grésillante",
+            "Lumière crue après la pénombre de la navette",
+            "File d'attente interminable"
+        ],
+        "first_npc_encountered": null,
+        "initial_mood": "fatigué, nauséeux, décalé",
+        "immediate_need": "Trouver l'appartement et dormir",
+        "optional_incident": "Systèmes bagages en panne, attente indéterminée"
+    }
+}

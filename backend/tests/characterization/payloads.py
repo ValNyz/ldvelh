@@ -1,16 +1,18 @@
 """Scripted LLM payloads reused across characterization scenarios.
 
-World and narration payloads come from prompts/examples.py, the single source of
-truth for JSON examples, so they match the schemas the app validates against.
+World and narration payloads are FROZEN copies under fixtures/ (taken from
+prompts/examples.py), so reworking the prompt examples does not churn snapshots.
+test_harness_smoke validates them against the current Pydantic schemas, so schema
+drift still shows up there.
 """
 
 import json
+from pathlib import Path
 
-from prompts.examples import NARRATION_EXAMPLE_NEUTRAL, WORLD_GENERATION_EXAMPLE
+_FIXTURES = Path(__file__).parent / "fixtures"
 
-WORLD_GEN = WORLD_GENERATION_EXAMPLE
-# NARRATION_EXAMPLE_NEUTRAL is a dict; stream() yields text, so serialize it.
-NARRATION = json.dumps(NARRATION_EXAMPLE_NEUTRAL, ensure_ascii=False)
+WORLD_GEN = (_FIXTURES / "world_gen.json").read_text(encoding="utf-8")
+NARRATION = (_FIXTURES / "narration.json").read_text(encoding="utf-8")
 # Minimal VALID shapes: keys must match schema.extraction.EntityResolution and
 # schema.director.DirectorOutput (the smoke test model_validate()s both).
 RESOLVER_EMPTY = json.dumps({"existing": [], "new": []})
