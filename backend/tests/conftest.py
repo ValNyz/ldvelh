@@ -191,7 +191,7 @@ TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"
 )
 
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 def assert_safe_test_db_url(url: str) -> None:
@@ -209,6 +209,22 @@ _TRUNCATE_SQL = "TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres
 
 
 
+def _dbmate_url(url: str) -> str:
+    """Return the URL dbmate should use: same DB, but with sslmode=disable if unset.
+
+    dbmate >=2.33 defaults to SSL when sslmode is absent, and the test DB (local or
+    the CI Postgres service) does not serve TLS, so it fails with
+    "SSL is not enabled on the server". Existing query params and an explicit
+    sslmode are preserved. asyncpg keeps using the original URL.
+    """
+    parts = urlparse(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    if any(key == "sslmode" for key, _ in query):
+        return url
+    query.append(("sslmode", "disable"))
+    return urlunparse(parts._replace(query=urlencode(query)))
+
+
 def _try_dbmate_setup():
     """Migrate the test DB with dbmate once per session (local dev only).
 
@@ -224,7 +240,8 @@ def _try_dbmate_setup():
 
     migrations_dir = str(Path(__file__).parent.parent.parent / "db" / "migrations")
     env = os.environ.copy()
-    env["DATABASE_URL"] = TEST_DB_URL
+    # dbmate-only URL; TEST_DB_URL itself stays unchanged for asyncpg.
+    env["DATABASE_URL"] = _dbmate_url(TEST_DB_URL)
     result = subprocess.run(
         ["dbmate", "--migrations-dir", migrations_dir, "--no-dump-schema", "up"],
         capture_output=True, text=True, env=env,
