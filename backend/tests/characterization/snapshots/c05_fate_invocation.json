@@ -1,0 +1,45 @@
+{
+  "db_counts": {
+    "character_d6": 0,
+    "character_fate": 1,
+    "character_narrative": 0,
+    "characters": 3,
+    "chronology": 1,
+    "companions": 1,
+    "conversations": 1,
+    "director_plans": 3,
+    "entity_registry": 13,
+    "events": 1,
+    "extraction_logs": 1,
+    "facts": 5,
+    "inventory": 2,
+    "locations": 6,
+    "mechanic_rolls": 1,
+    "messages": 4,
+    "narrative_arcs": 4,
+    "narrative_seeds": 0,
+    "objects": 2,
+    "organizations": 1,
+    "protagonists": 1,
+    "relations": 9,
+    "skills": 2,
+    "skills_d6": 0,
+    "skills_fate": 10,
+    "traits_narrative": 0
+  },
+  "first": [
+    "roll_pending"
+  ],
+  "llm_calls": [
+    "director",
+    "mechanical",
+    "narration",
+    "resolver"
+  ],
+  "resume": [
+    "roll_result",
+    "chunk*",
+    "done",
+    "saved"
+  ]
+}
