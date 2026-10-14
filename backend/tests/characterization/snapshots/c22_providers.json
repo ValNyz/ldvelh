@@ -1,0 +1,37 @@
+{
+  "entry_keys": [
+    "default_model",
+    "models",
+    "structured_output"
+  ],
+  "model_keys": [
+    "id",
+    "input_price",
+    "label",
+    "output_price"
+  ],
+  "models_listed": {
+    "anthropic": true,
+    "mistral": false,
+    "nebius": false,
+    "nous": false,
+    "wandb": false
+  },
+  "providers": [
+    "anthropic",
+    "mistral",
+    "nebius",
+    "nous",
+    "wandb"
+  ],
+  "structured_output": {
+    "anthropic": "tool_use",
+    "mistral": "text",
+    "nebius": "text",
+    "nous": "json_schema",
+    "wandb": "text"
+  },
+  "top_keys": [
+    "providers"
+  ]
+}
