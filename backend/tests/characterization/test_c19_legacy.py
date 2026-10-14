@@ -1,18 +1,31 @@
-"""C-19: a game created before refactors must load and accept a new turn.
+"""C-19: rows written by the pre-refactor code must stay readable and playable.
 
-The fixture is a frozen data-only dump (see make_legacy_fixture.py). Later phases that add
-migrations replay it against the then-current schema, so a failure here means a migration
-broke existing saves.
+The fixture is a frozen data-only dump (see make_legacy_fixture.py; header records the
+schema version it was taken at). It is loaded into a schema built by ALL current
+migrations, so this guards "legacy-shaped rows are readable/playable by the current schema
+and code". It does NOT prove that a migration preserved data: migrations never run over
+these rows (a pinned-version migrate-over harness is deferred to the first phase that
+ships a migration).
+
+Replica mode (see load_legacy_game) means triggers do not run on load: regenerate the
+fixture when a migration adds triggers or derived tables, or they will be missing here.
 """
 
 from pathlib import Path
 
+import asyncpg
+import pytest
 import pytest_asyncio
 
 from services.auth_service import create_token
 from tests.characterization.harness import ChatHarness
 
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_game.sql"
+
+
+def legacy_schema_version() -> str:
+    """Latest migration version applied when the dump was taken (2nd header line)."""
+    return FIXTURE.read_text(encoding="utf-8").splitlines()[1].split()[-1]
 
 
 async def load_legacy_game(pool) -> tuple[str, str]:
@@ -24,9 +37,12 @@ async def load_legacy_game(pool) -> tuple[str, str]:
         # The dump has circular FKs (games <-> locations) and already contains the rows the
         # entity_registry triggers would create: load it as a replica (no FK checks, no
         # triggers), scoped to this transaction. Needs a superuser, as in the test DB.
-        async with conn.transaction():
-            await conn.execute("SET LOCAL session_replication_role = replica")
-            await conn.execute(sql)
+        try:
+            async with conn.transaction():
+                await conn.execute("SET LOCAL session_replication_role = replica")
+                await conn.execute(sql)
+        except asyncpg.InsufficientPrivilegeError:
+            pytest.skip("C-19 needs a superuser role to load the legacy dump")
         email = await conn.fetchval(
             "SELECT u.email FROM users u JOIN games g ON g.user_id = u.id WHERE g.id = $1::uuid",
             game_id)
@@ -47,6 +63,7 @@ async def legacy_token(test_pool, legacy_game):
 
 
 async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, legacy_token, scripted_llm):
+    """A legacy-shaped game loads with its Fate stats and accepts a new turn (see module docstring for scope)."""
     game_id, _ = legacy_game
     h = ChatHarness(client, test_pool, legacy_token, scripted_llm)
 

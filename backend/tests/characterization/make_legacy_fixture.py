@@ -1,6 +1,7 @@
 """Generate fixtures/legacy_game.sql: a Fate game with world, 3 turns and a roll, dumped as INSERTs.
 
-Not collected by CI (name is not test_*.py). Run once by explicit path, on the
+Column-named INSERTs keep the dump robust to harmless schema changes. The header records
+the latest applied migration version at dump time. Not collected by CI (name is not test_*.py). Run once by explicit path, on the
 pre-refactor code, against the ci-pg container:
   python -m pytest tests/characterization/make_legacy_fixture.py -q -s
 """
@@ -29,9 +30,11 @@ async def test_generate_legacy_fixture(harness, monkeypatch):
             monkeypatch.setattr(fate_core, "random", SimpleNamespace(choice=lambda seq: 1))
         await harness.chat(game_id, msg)
         await harness.drain()
+    async with harness.pool.acquire() as conn:
+        schema_version = await conn.fetchval("SELECT max(version) FROM schema_migrations")
     dump = subprocess.run(
         ["docker", "exec", "ci-pg", "pg_dump", "-U", "test", "-d", "ldvelh_test",
-         "--data-only", "--inserts", "--exclude-table=schema_migrations"],
+         "--data-only", "--column-inserts", "--exclude-table=schema_migrations"],
         check=True, capture_output=True, text=True,
     ).stdout
     # Keep only portable data statements: drop psql meta-commands (\\restrict, new in recent
@@ -40,4 +43,4 @@ async def test_generate_legacy_fixture(harness, monkeypatch):
     kept = [ln for ln in dump.splitlines()
             if not ln.startswith(("\\", "SET ", "SELECT pg_catalog.set_config"))]
     OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(f"-- legacy game {game_id}\n" + "\n".join(kept) + "\n", encoding="utf-8")
+    OUT.write_text(f"-- legacy game {game_id}\n-- schema version {schema_version}\n" + "\n".join(kept) + "\n", encoding="utf-8")
