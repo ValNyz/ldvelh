@@ -6,9 +6,11 @@ OpenAI-compatible providers (wandb, Nebius), and Nous Research.
 Each provider handles raw API calls and exposes pricing.
 """
 
+import hashlib
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections import OrderedDict
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from enum import Enum
 
@@ -22,6 +24,43 @@ from services.pricing import ModelPricing  # re-exported for backward compat
 logger = logging.getLogger(__name__)
 
 __all__ = ["ModelPricing"]  # silence unused-import warning
+
+# SDK clients keyed by (provider, sha256(api key)): one connection pool per user key
+# instead of one per call (#42). Provider instances stay per call and carry the model.
+CLIENT_CACHE_SIZE = 256
+_client_cache: "OrderedDict[tuple[str, str], object]" = OrderedDict()
+
+
+def shared_client(provider_name: str, api_key: str, factory: Callable[[], object]) -> object:
+    """Return the cached SDK client for this provider and key, creating it once."""
+    key = (provider_name, hashlib.sha256((api_key or "").encode()).hexdigest())
+    client = _client_cache.get(key)
+    if client is None:
+        client = factory()
+        _client_cache[key] = client
+        # Evicted clients are not closed here: an in-flight call may still use them.
+        while len(_client_cache) > CLIENT_CACHE_SIZE:
+            _client_cache.popitem(last=False)
+    else:
+        _client_cache.move_to_end(key)
+    return client
+
+
+async def close_shared_clients() -> None:
+    """Close every cached SDK client (application shutdown)."""
+    clients = list(_client_cache.values())
+    _client_cache.clear()
+    for client in clients:
+        closer = getattr(client, "close", None) or getattr(client, "aclose", None)
+        if closer is None:
+            continue
+        try:
+            result = closer()
+            if hasattr(result, "__await__"):
+                await result
+        except Exception as e:  # shutdown must not fail on one client
+            logger.warning(f"[LLM] Failed to close client: {e}")
+
 
 
 # =============================================================================
@@ -227,7 +266,7 @@ class AnthropicProvider(LLMProvider):
         if model and model in self.MODELS:
             self.MODEL_MAIN = model
         key = api_key or get_settings().anthropic_api_key
-        self.client = anthropic.AsyncAnthropic(api_key=key)
+        self.client = shared_client("anthropic", key, lambda: anthropic.AsyncAnthropic(api_key=key))
 
     def _request_options(self, max_tokens: int) -> dict:
         """Model, output budget and thinking setting for one request (no sampling params)."""
@@ -376,7 +415,7 @@ class MistralProvider(LLMProvider):
         if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().mistral_api_key
-        self.client = Mistral(api_key=key)
+        self.client = shared_client("mistral", key, lambda: Mistral(api_key=key))
 
     async def list_models(self) -> list[dict]:
         """Fetch the live model list from Mistral's /v1/models endpoint."""
@@ -464,7 +503,11 @@ class OpenAICompatibleProvider(LLMProvider):
     FORCE_JSON: bool = False
 
     def __init__(self, base_url: str, api_key: str):
-        self.client = openai.AsyncOpenAI(base_url=base_url, api_key=api_key)
+        self.client = shared_client(
+            self.provider_name,
+            api_key,
+            lambda: openai.AsyncOpenAI(base_url=base_url, api_key=api_key),
+        )
 
     async def list_models(self) -> list[dict]:
         """Fetch the live model list from the provider's /v1/models endpoint."""

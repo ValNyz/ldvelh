@@ -83,6 +83,9 @@ async def lifespan(app: FastAPI):
     print("[SHUTDOWN] Fermeture du pool de connexions...")
     if db_pool:
         await db_pool.close()
+    from services.llm_providers import close_shared_clients
+
+    await close_shared_clients()
     print("[SHUTDOWN] Terminé")
 
 
