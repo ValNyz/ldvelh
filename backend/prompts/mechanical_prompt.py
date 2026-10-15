@@ -113,7 +113,7 @@ D6_MECHANICAL_PROMPT = f"""{_SHARED_RULES}
 {_d6_difficulty_text()}
 
 ### Skill Values
-- `skill_value` is the character's dice code as an integer (number of dice, e.g. 3 for "3D")
+- `skill_value` is the character's dice code as a string (e.g. "3D+1"); if no skill fits, name the attribute in `skill`
 - `difficulty` is the target number to beat
 - For opposed tests, set `opposition` with the NPC's skill dice code
 
@@ -165,6 +165,13 @@ def build_mechanical_context(
         # NPC-style flat dict: {"Combat": 3}
         for name, value in skills.items():
             lines.append(f"- {name}: {value}")
+
+    # D6 attributes (an untrained skill uses its attribute)
+    attributes = engine_stats.get("attributes")
+    if isinstance(attributes, dict) and attributes:
+        lines.append("Attributes:")
+        for name, code in attributes.items():
+            lines.append(f"- {name}: {code}")
 
     # Vitals
     if engine_stats.get("fate_points") is not None:

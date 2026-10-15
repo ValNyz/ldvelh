@@ -75,6 +75,15 @@ class BaseEngine(ABC):
         """Whether this engine requires a mechanical LLM call before narration."""
         ...
 
+    def resolve_roll_inputs(
+        self, decision: MechanicalDecision, engine_stats: dict
+    ) -> MechanicalDecision:
+        """Replace LLM-provided roll values with the character sheet values.
+
+        Default: unchanged (engines without a character sheet).
+        """
+        return decision
+
     @abstractmethod
     def roll_dice(self, decision: MechanicalDecision) -> RollResult:
         """Execute a dice roll based on the mechanical decision."""

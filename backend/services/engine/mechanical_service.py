@@ -97,6 +97,15 @@ async def run_mechanical_step(
         logger.info(f"[MECHANICAL] No test needed: {decision.reason}")
         return MechanicalResult(decision=decision, roll=None, cost=cost)
 
+    # The arbiter picks the skill; the value comes from the character sheet (#13)
+    sheet_decision = engine.resolve_roll_inputs(decision, engine_stats)
+    if sheet_decision.skill_value != decision.skill_value:
+        logger.info(
+            f"[MECHANICAL] {decision.skill}: LLM value {decision.skill_value!r} "
+            f"replaced by sheet value {sheet_decision.skill_value!r}"
+        )
+    decision = sheet_decision
+
     # Roll dice
     logger.info(
         f"[MECHANICAL] Test required: {decision.skill} "

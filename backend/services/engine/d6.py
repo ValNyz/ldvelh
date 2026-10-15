@@ -25,6 +25,22 @@ def parse_dice_code(code: str) -> tuple[int, int]:
     return (num_dice, pips)
 
 
+def _dice_code(value, default: str = "1D") -> tuple[int, int]:
+    """Read a D6 value written as a dice code ("3D+1"), an int or a numeric string (dice count)."""
+    if isinstance(value, bool) or value is None or value == "":
+        return parse_dice_code(default)
+    if isinstance(value, int):
+        return (max(value, 1), 0)
+    text = str(value).strip()
+    if text.isdigit():
+        return (max(int(text), 1), 0)
+    return parse_dice_code(text)
+
+
+def _format_code(num_dice: int, pips: int) -> str:
+    return f"{num_dice}D" + (f"+{pips}" if pips else "")
+
+
 def roll_d6_pool(num_dice: int, pip_bonus: int = 0) -> dict:
     """Roll NdD6 with wild die rules.
 
@@ -288,16 +304,35 @@ class D6Engine(BaseEngine):
     def needs_mechanical_step(self) -> bool:
         return True
 
+    def resolve_roll_inputs(
+        self, decision: MechanicalDecision, engine_stats: dict
+    ) -> MechanicalDecision:
+        """Use the sheet's skill code, else the attribute of that name.
+
+        An unknown skill keeps the LLM value capped at the character's best
+        attribute, so the arbiter can never roll above the sheet.
+        """
+        if not engine_stats or not decision.skill:
+            return decision
+        wanted = decision.skill.strip().lower()
+        for skill in engine_stats.get("skills") or []:
+            if isinstance(skill, dict) and str(skill.get("name", "")).strip().lower() == wanted:
+                return decision.model_copy(update={"skill_value": skill.get("dice_value")})
+        attributes = engine_stats.get("attributes") or {}
+        for name, code in attributes.items():
+            if name.strip().lower() == wanted:
+                return decision.model_copy(update={"skill_value": code})
+        if not attributes:
+            return decision
+        best = max((parse_dice_code(str(c)) for c in attributes.values()), default=(1, 0))
+        asked = _dice_code(decision.skill_value, default=_format_code(*best))
+        capped = min(asked, best)
+        return decision.model_copy(update={"skill_value": _format_code(*capped)})
+
     def roll_dice(self, decision: MechanicalDecision) -> RollResult:
         """Roll D6 pool for the character's skill vs difficulty number."""
-        skill_value_str = str(decision.skill_value or "1D")
-        # skill_value might be an int (from mechanical LLM) or a dice code string
-        # If it's a bare int, treat it as that many D6
-        if isinstance(decision.skill_value, int):
-            num_dice = decision.skill_value
-            pip_bonus = 0
-        else:
-            num_dice, pip_bonus = parse_dice_code(skill_value_str)
+        num_dice, pip_bonus = _dice_code(decision.skill_value)
+        skill_value_str = _format_code(num_dice, pip_bonus)
 
         pool = roll_d6_pool(num_dice, pip_bonus)
         difficulty = decision.difficulty or 10  # default moderate difficulty
@@ -308,8 +343,9 @@ class D6Engine(BaseEngine):
         opposition_total = None
         opp_pool = None
         if decision.opposition:
-            opp_code = decision.opposition.get("skill_value", "2D")
-            opp_dice, opp_pips = parse_dice_code(str(opp_code))
+            opp_dice, opp_pips = _dice_code(
+                decision.opposition.get("skill_value"), default="2D"
+            )
             opp_pool = roll_d6_pool(opp_dice, opp_pips)
             opposition_total = opp_pool["total"]
             difficulty = opposition_total
@@ -324,7 +360,7 @@ class D6Engine(BaseEngine):
 
         details = {
             "skill_name": decision.skill,
-            "dice_code": skill_value_str if not isinstance(decision.skill_value, int) else f"{num_dice}D",
+            "dice_code": skill_value_str,
             "regular_dice": pool["regular_dice"],
             "wild_die_rolls": pool["wild_die_rolls"],
             "pip_bonus": pip_bonus,
