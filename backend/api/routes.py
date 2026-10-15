@@ -237,8 +237,9 @@ async def get_world_data(
 @router.get("/session/cost")
 async def session_cost(user: dict = Depends(get_current_user)):
     """Return accumulated token usage and cost for this server session."""
-    llm_service = get_llm_service()
-    return llm_service.cost_tracker.get_summary()
+    from llm.usage import get_usage_ledger
+
+    return get_usage_ledger().get_summary()
 
 
 @router.get("/providers")

@@ -64,12 +64,9 @@ async def test_c21_cost_recorded_on_message_and_session(harness, world_game, mon
     # The scripted model is unpriced; register dynamic pricing (USD per million tokens)
     # so a loss of cost computation changes the snapshot.
     from services import pricing
-    # /session/cost calls get_summary() without a provider, so it looks the model up under
-    # "anthropic/" (current behavior); the per-message cost uses the real "scripted/" provider.
-    for prefix in ("scripted", "anthropic"):
-        monkeypatch.setitem(
-            pricing._DYNAMIC_PRICING, f"{prefix}/scripted-model",
-            pricing.ModelPricing(input=3.0, output=15.0))
+    monkeypatch.setitem(
+        pricing._DYNAMIC_PRICING, "scripted/scripted-model",
+        pricing.ModelPricing(input=3.0, output=15.0))
     before = (await harness.client.get("/api/session/cost", headers=harness.headers)).json()
     events = await harness.chat(world_game, "Je regarde autour de moi.")
     await harness.drain()

@@ -6,7 +6,6 @@ Handles streaming logic, JSON parsing, SSE events, cost tracking.
 """
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 
 import json
 import logging
@@ -14,6 +13,7 @@ import re
 
 from api.streaming import SSEWriter, build_display_text, extract_narrative_from_partial
 from config import get_settings
+from llm.usage import call_cost, get_usage_ledger
 from services.llm_providers import (
     LLMProvider,
     LLMUsage,
@@ -21,35 +21,14 @@ from services.llm_providers import (
     ToolResult,
     get_provider,
 )
-from services.pricing import lookup_pricing
 from utils import parse_json_response
 
 logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# COST TRACKING
+# COST HELPERS
 # =============================================================================
-
-
-@dataclass
-class ModelUsage:
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_creation_input_tokens: int = 0
-    cache_read_input_tokens: int = 0
-    calls: int = 0
-
-
-def _compute_cost(usage: ModelUsage, provider_name: str, model: str) -> float:
-    """Compute USD cost from token usage using the central pricing table."""
-    pricing = lookup_pricing(model, provider_name)
-    return (
-        usage.input_tokens * pricing.input
-        + usage.output_tokens * pricing.output
-        + usage.cache_creation_input_tokens * pricing.cache_write
-        + usage.cache_read_input_tokens * pricing.cache_read
-    ) / 1_000_000
 
 
 def compute_cost_from_stored(usage_data: dict) -> float:
@@ -58,104 +37,15 @@ def compute_cost_from_stored(usage_data: dict) -> float:
     Expected keys: input_tokens, output_tokens, cache_creation_input_tokens,
     cache_read_input_tokens, model, provider.
     """
-    model = usage_data.get("model", "")
-    provider_name = usage_data.get("provider", "anthropic")
-    mu = ModelUsage(
+    usage = LLMUsage(
         input_tokens=usage_data.get("input_tokens", 0),
         output_tokens=usage_data.get("output_tokens", 0),
         cache_creation_input_tokens=usage_data.get("cache_creation_input_tokens", 0),
         cache_read_input_tokens=usage_data.get("cache_read_input_tokens", 0),
     )
-    return round(_compute_cost(mu, provider_name, model), 6)
-
-
-class CostTracker:
-    """Accumulates token usage and computes cost, tracked per purpose."""
-
-    def __init__(self):
-        self._usage: dict[str, ModelUsage] = {}  # key = "purpose:model"
-
-    def record(
-        self, model: str, usage: LLMUsage, purpose: str, provider: LLMProvider
-    ) -> dict:
-        """Record usage from a provider call.
-
-        Returns a cost snapshot for this individual call.
-        """
-        key = f"{purpose}:{model}"
-        if key not in self._usage:
-            self._usage[key] = ModelUsage()
-        u = self._usage[key]
-
-        u.input_tokens += usage.input_tokens
-        u.output_tokens += usage.output_tokens
-        u.cache_creation_input_tokens += usage.cache_creation_input_tokens
-        u.cache_read_input_tokens += usage.cache_read_input_tokens
-        u.calls += 1
-
-        # Build per-call snapshot
-        call_usage = ModelUsage(
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            cache_creation_input_tokens=usage.cache_creation_input_tokens,
-            cache_read_input_tokens=usage.cache_read_input_tokens,
-            calls=1,
-        )
-        call_cost = _compute_cost(call_usage, provider.provider_name, model)
-        logger.debug(
-            f"[COST] {purpose}/{model}: +{usage.input_tokens}in +{usage.output_tokens}out "
-            f"(cache_read={usage.cache_read_input_tokens}) = ${call_cost:.6f}"
-        )
-        return {
-            "cost_usd": round(call_cost, 6),
-            "input_tokens": usage.input_tokens,
-            "output_tokens": usage.output_tokens,
-            "cache_creation_input_tokens": usage.cache_creation_input_tokens,
-            "cache_read_input_tokens": usage.cache_read_input_tokens,
-            "model": model,
-            "provider": provider.provider_name,
-        }
-
-    def get_summary(self, default_provider: LLMProvider | None = None) -> dict:
-        """Return a summary of usage and cost grouped by purpose."""
-        purposes: dict[str, dict] = {}
-        total_cost = 0.0
-
-        for key, usage in self._usage.items():
-            purpose, model = key.split(":", 1)
-
-            # Heuristically determine provider name from model id for pricing lookup
-            if model.startswith("mistral"):
-                provider_name = "mistral"
-            elif model.startswith("claude"):
-                provider_name = "anthropic"
-            elif default_provider is not None:
-                provider_name = default_provider.provider_name
-            else:
-                provider_name = "anthropic"
-
-            cost = _compute_cost(usage, provider_name, model)
-            total_cost += cost
-
-            if purpose not in purposes:
-                purposes[purpose] = {"models": {}, "cost_usd": 0.0, "calls": 0}
-            purposes[purpose]["models"][model] = {
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
-                "cache_creation_input_tokens": usage.cache_creation_input_tokens,
-                "cache_read_input_tokens": usage.cache_read_input_tokens,
-                "calls": usage.calls,
-                "cost_usd": round(cost, 6),
-            }
-            purposes[purpose]["cost_usd"] = round(
-                purposes[purpose]["cost_usd"] + cost, 6
-            )
-            purposes[purpose]["calls"] += usage.calls
-
-        return {
-            "purposes": purposes,
-            "total_cost_usd": round(total_cost, 6),
-        }
+    return round(
+        call_cost(usage, usage_data.get("provider", "anthropic"), usage_data.get("model", "")), 6
+    )
 
 
 # =============================================================================
@@ -168,7 +58,7 @@ class LLMService:
 
     def __init__(self):
         self.settings = get_settings()
-        self.cost_tracker = CostTracker()
+        self.cost_tracker = get_usage_ledger()
 
     def _get_provider(
         self,
@@ -260,7 +150,7 @@ class LLMService:
             model = provider.model_name(purpose)
             if stream_usage:
                 self._last_call_cost = self.cost_tracker.record(
-                    model, stream_usage, purpose=purpose, provider=provider
+                    purpose, provider.provider_name, model, stream_usage
                 )
 
             if is_init_mode and len(full_json) > last_progress_length:
@@ -392,7 +282,7 @@ class LLMService:
             )
             mdl = provider.model_name("extraction")
             self._last_call_cost = self.cost_tracker.record(
-                mdl, tool_result.usage, purpose="extraction", provider=provider
+                "extraction", provider.provider_name, mdl, tool_result.usage
             )
             logger.info(f"[LLM] tool_use extraction via {provider_name}")
             return tool_result.tool_input
@@ -435,7 +325,7 @@ class LLMService:
             )
             mdl = provider.model_name("extraction")
             self._last_call_cost = self.cost_tracker.record(
-                mdl, result.usage, purpose="extraction", provider=provider
+                "extraction", provider.provider_name, mdl, result.usage
             )
             logger.info(f"[LLM] json_schema extraction via {provider_name}")
             return json.loads(result.content)
@@ -480,7 +370,7 @@ class LLMService:
             )
             model = provider.model_name(purpose)
             self._last_call_cost = self.cost_tracker.record(
-                model, result.usage, purpose=purpose, provider=provider
+                purpose, provider.provider_name, model, result.usage
             )
             return parse_json_response(result.content)
 
@@ -520,7 +410,7 @@ Résumé (une phrase):""",
             )
             model = provider.model_name("summary")
             self.cost_tracker.record(
-                model, result.usage, purpose="summary", provider=provider
+                "summary", provider.provider_name, model, result.usage
             )
             return result.content.strip()[:max_length]
 

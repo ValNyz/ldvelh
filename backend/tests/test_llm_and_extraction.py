@@ -32,11 +32,9 @@ from services.llm_providers import (
     _CLASSES,
     _providers,
 )
+from llm.usage import UsageLedger, call_cost
 from services.llm_service import (
     LLMService,
-    CostTracker,
-    ModelUsage,
-    _compute_cost,
     compute_cost_from_stored,
     get_llm_service,
     _llm_service,
@@ -441,32 +439,28 @@ class TestOpenAICompatibleProviders:
 
 
 class TestComputeCost:
-    """Tests for _compute_cost and compute_cost_from_stored."""
+    """Tests for call_cost and compute_cost_from_stored."""
 
     def test_compute_cost_basic(self):
-        provider = _mock_provider()
-        usage = ModelUsage(input_tokens=1000, output_tokens=500)
-        cost = _compute_cost(usage, provider, "claude-sonnet-4-6")
+        usage = _make_usage(inp=1000, out=500)
+        cost = call_cost(usage, "anthropic", "claude-sonnet-4-6")
         # (1000 * 3.0 + 500 * 15.0) / 1_000_000 = (3000 + 7500) / 1_000_000 = 0.0105
         assert abs(cost - 0.0105) < 1e-9
 
     def test_compute_cost_with_cache(self):
-        provider = _mock_provider()
-        usage = ModelUsage(
+        usage = LLMUsage(
             input_tokens=1000,
             output_tokens=500,
             cache_creation_input_tokens=200,
             cache_read_input_tokens=300,
         )
-        cost = _compute_cost(usage, provider, "claude-sonnet-4-6")
+        cost = call_cost(usage, "anthropic", "claude-sonnet-4-6")
         expected = (
             1000 * 3.0 + 500 * 15.0 + 200 * 3.75 + 300 * 0.30
         ) / 1_000_000
         assert abs(cost - expected) < 1e-9
 
-    @patch("services.llm_service.get_provider")
-    def test_compute_cost_from_stored(self, mock_get_provider):
-        mock_get_provider.return_value = _mock_provider()
+    def test_compute_cost_from_stored(self):
         result = compute_cost_from_stored({
             "input_tokens": 2000,
             "output_tokens": 1000,
@@ -480,15 +474,12 @@ class TestComputeCost:
 
 
 class TestCostTracker:
-    """Tests for CostTracker.record and CostTracker.get_summary."""
+    """Tests for UsageLedger.record and UsageLedger.get_summary."""
 
     def test_record_returns_snapshot(self):
-        tracker = CostTracker()
-        provider = _mock_provider()
+        tracker = UsageLedger()
         usage = _make_usage(inp=1000, out=500)
-        snapshot = tracker.record(
-            "claude-sonnet-4-6", usage, purpose="narration", provider=provider
-        )
+        snapshot = tracker.record("narration", "anthropic", "claude-sonnet-4-6", usage)
         assert "cost_usd" in snapshot
         assert snapshot["input_tokens"] == 1000
         assert snapshot["output_tokens"] == 500
@@ -496,41 +487,26 @@ class TestCostTracker:
         assert snapshot["provider"] == "anthropic"
 
     def test_record_accumulates(self):
-        tracker = CostTracker()
-        provider = _mock_provider()
+        tracker = UsageLedger()
         usage = _make_usage(inp=100, out=50)
-        tracker.record("claude-sonnet-4-6", usage, purpose="narration", provider=provider)
-        tracker.record("claude-sonnet-4-6", usage, purpose="narration", provider=provider)
+        tracker.record("narration", "anthropic", "claude-sonnet-4-6", usage)
+        tracker.record("narration", "anthropic", "claude-sonnet-4-6", usage)
 
-        key = "narration:claude-sonnet-4-6"
-        accumulated = tracker._usage[key]
+        accumulated = tracker._totals[("narration", "anthropic", "claude-sonnet-4-6")]
         assert accumulated.input_tokens == 200
         assert accumulated.output_tokens == 100
         assert accumulated.calls == 2
 
     def test_get_summary_empty(self):
-        tracker = CostTracker()
+        tracker = UsageLedger()
         summary = tracker.get_summary()
         assert summary["total_cost_usd"] == 0.0
         assert summary["purposes"] == {}
 
-    @patch("services.llm_service.get_provider")
-    def test_get_summary_grouped_by_purpose(self, mock_get_provider):
-        mock_get_provider.return_value = _mock_provider()
-        tracker = CostTracker()
-        provider = _mock_provider()
-        tracker.record(
-            "claude-sonnet-4-6",
-            _make_usage(inp=1000, out=500),
-            purpose="narration",
-            provider=provider,
-        )
-        tracker.record(
-            "claude-sonnet-4-6",
-            _make_usage(inp=500, out=200),
-            purpose="extraction",
-            provider=provider,
-        )
+    def test_get_summary_grouped_by_purpose(self):
+        tracker = UsageLedger()
+        tracker.record("narration", "anthropic", "claude-sonnet-4-6", _make_usage(inp=1000, out=500))
+        tracker.record("extraction", "anthropic", "claude-sonnet-4-6", _make_usage(inp=500, out=200))
 
         summary = tracker.get_summary()
         assert "narration" in summary["purposes"]
@@ -540,19 +516,11 @@ class TestCostTracker:
         assert summary["total_cost_usd"] > 0
 
     def test_get_summary_detects_mistral_model(self):
-        """Models starting with 'mistral' should be priced via the mistral entry."""
-        mistral_provider = _mock_provider(name="mistral", model="mistral-large-latest")
-        tracker = CostTracker()
-        tracker.record(
-            "mistral-large-latest",
-            _make_usage(inp=100, out=50),
-            purpose="narration",
-            provider=mistral_provider,
-        )
+        """Mistral calls are priced via the mistral entry."""
+        tracker = UsageLedger()
+        tracker.record("narration", "mistral", "mistral-large-latest", _make_usage(inp=100, out=50))
         summary = tracker.get_summary()
         assert "narration" in summary["purposes"]
-        # Cost is computed via the central pricing table — if Mistral pricing
-        # is loaded for this model, cost should be > 0.
         assert "total_cost_usd" in summary
 
 
