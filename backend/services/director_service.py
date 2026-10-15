@@ -70,20 +70,25 @@ def should_run_director(
 
 
 async def load_director_schedule(conn, game_id: UUID) -> tuple[int | None, str | None, str]:
-    """Return (last_plan_cycle, last_director_time, game_duration) from the raw game row.
+    """Return (last_plan_cycle, last_plan_time, game_duration) from the DB.
 
-    Reads the DB directly: the frontend-normalized game state drops these fields.
+    Cycle and time come from the same latest plan row, so a rollback (which
+    deletes later plans) keeps them consistent. The frontend-normalized game
+    state drops these fields, hence the direct read (#9).
     """
     row = await conn.fetchrow(
-        """SELECT g.last_director_time, g.game_duration,
-                  (SELECT dp.cycle FROM director_plans dp
-                   WHERE dp.game_id = g.id ORDER BY dp.created_at DESC LIMIT 1) AS last_cycle
-           FROM games g WHERE g.id = $1""",
+        """SELECT g.game_duration, dp.cycle AS last_cycle, dp.ig_time AS last_time
+           FROM games g
+           LEFT JOIN LATERAL (
+               SELECT cycle, ig_time FROM director_plans
+               WHERE game_id = g.id ORDER BY created_at DESC LIMIT 1
+           ) dp ON true
+           WHERE g.id = $1""",
         game_id,
     )
     if not row:
         return None, None, "medium"
-    return row["last_cycle"], row["last_director_time"], row["game_duration"] or "medium"
+    return row["last_cycle"], row["last_time"], row["game_duration"] or "medium"
 
 
 async def _apply_arc_update(conn, game_id, arc_update, cycle):

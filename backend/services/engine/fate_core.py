@@ -7,7 +7,7 @@ import random
 from uuid import UUID
 
 from schema.engine import EngineType, MechanicalDecision, RollResult
-from .base import BaseEngine
+from .base import BaseEngine, normalize_name
 
 
 # Fate Core ladder labels
@@ -340,10 +340,10 @@ class FateCoreEngine(BaseEngine):
         skills = engine_stats.get("skills") if engine_stats else None
         if not skills or not decision.skill:
             return decision
-        wanted = decision.skill.strip().lower()
+        wanted = normalize_name(decision.skill)
         level = next(
             (s.get("level", 0) for s in skills
-             if isinstance(s, dict) and str(s.get("name", "")).strip().lower() == wanted),
+             if isinstance(s, dict) and normalize_name(s.get("name")) == wanted),
             0,
         )
         return decision.model_copy(update={"skill_value": level})

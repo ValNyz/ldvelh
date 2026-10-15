@@ -3,6 +3,7 @@ LDVELH - Narration Schema
 Input/Output models for the narrator LLM
 """
 
+import logging
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -70,7 +71,10 @@ class ArcSummary(BaseModel):
     def _normalize_domain(cls, v):
         v = getattr(v, "value", v)  # ArcDomain members are accepted too
         text = str(v).strip().lower() if v is not None else ""
-        return text or "personal"
+        if not text:
+            logging.getLogger(__name__).warning("[ARC] Empty arc domain, using 'personal'")
+            return "personal"
+        return text
 
 
 class NPCLightSummary(BaseModel):

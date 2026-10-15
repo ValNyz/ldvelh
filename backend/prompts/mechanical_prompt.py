@@ -1,7 +1,7 @@
 """
 LDVELH - Mechanical Prompt
 System prompt for the mechanical LLM step (decides if a test is needed and parameters).
-Uses Haiku for cost efficiency.
+The model comes from the provider (cheap model where it has one, e.g. Haiku on Anthropic).
 """
 
 from services.engine.engine_data import (
