@@ -179,17 +179,24 @@ async def probe_structured(provider: LLMProvider) -> ProbeResult:
 PROBES = {"stream": probe_stream, "json": probe_json, "structured": probe_structured}
 
 
+async def run_probes(provider: LLMProvider) -> dict[str, ProbeResult]:
+    """Run every probe on one provider instance; failures are reported, never raised."""
+    results: dict[str, ProbeResult] = {}
+    for name, probe in PROBES.items():
+        try:
+            results[name] = await asyncio.wait_for(probe(provider), timeout=PROBE_TIMEOUT_S)
+        except Exception as e:  # report every failure, never stop the run
+            results[name] = ProbeResult(False, _short(e))
+    return results
+
+
 async def run_model(provider_name: str, api_key: str, model: str, is_default: bool) -> ModelReport:
     report = ModelReport(provider_name, model, is_default)
     provider = get_provider(provider_name, api_key=api_key, model=model)
     pricing = lookup_pricing(model, provider_name)
     report.priced = bool(pricing.input or pricing.output)
-    for name, probe in PROBES.items():
-        try:
-            result = await asyncio.wait_for(probe(provider), timeout=PROBE_TIMEOUT_S)
-        except Exception as e:  # report every failure, never stop the run
-            result = ProbeResult(False, _short(e))
-        report.probes[name] = result
+    report.probes = await run_probes(provider)
+    for result in report.probes.values():
         if result.usage:
             report.cost_usd += (
                 result.usage.input_tokens * pricing.input

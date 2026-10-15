@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     # Nous Research
     nous_api_key: str = os.getenv("NOUS_API_KEY", "")
 
+    # Model catalog refresh (scripts/refresh_model_catalog.py)
+    # Player account whose saved API keys are used when the server has no key.
+    catalog_keys_user_email: str = ""
+    # Providers whose newly working, priced models are enabled automatically
+    # (comma list). Anthropic never auto-enables: its discoveries stay pending.
+    catalog_auto_enable: str = "mistral,wandb,nebius,nous"
+
     # API Config
     max_tokens_init: int = 10000
     max_tokens_narration: int = 4000

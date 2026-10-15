@@ -819,6 +819,8 @@ class NousResearchProvider(OpenAICompatibleProvider):
             }
             if cache_read:
                 entry["cache_read_price"] = cache_read * 1_000_000
+            if cache_write:
+                entry["cache_write_price"] = cache_write * 1_000_000
             # Register so later cost computations don't need to consult litellm
             register_pricing(
                 m["id"],

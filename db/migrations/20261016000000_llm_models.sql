@@ -11,6 +11,8 @@ CREATE TABLE public.llm_models (
     output_price    numeric(12, 6),
     cache_write_price numeric(12, 6),
     cache_read_price  numeric(12, 6),
+    price_source    varchar(16)          -- where the prices come from; NULL when unpriced
+                    CHECK (price_source IN ('manual', 'provider', 'code', 'models.dev', 'openrouter')),
     profile         jsonb        NOT NULL DEFAULT '{}',
     probe_results   jsonb,
     source          varchar(16)  NOT NULL DEFAULT 'auto' CHECK (source IN ('auto', 'manual')),
