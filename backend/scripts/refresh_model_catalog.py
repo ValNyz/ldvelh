@@ -67,7 +67,7 @@ BIG_PRICE_CHANGE = 0.5  # relative change that deserves a log line
 DEMOTE_AFTER_RUNS = 3
 # Probe errors that mean the model is gone for good: demote at once.
 PERMANENT_ERROR_MARKERS = (
-    "404", "notfounderror", "model_not_found", "not_found_error", "model not found",
+    "error code: 404", "status 404", "status code 404", "notfounderror", "model_not_found", "not_found_error", "model not found",
     "does not exist", "invalid model", "unknown model", "invalid_model",
 )
 

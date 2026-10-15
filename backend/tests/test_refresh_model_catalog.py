@@ -514,3 +514,14 @@ async def test_set_role_keeps_source(conn, monkeypatch):
     assert await refresh.main(["--set-role", "mistral", "a", "mechanical"]) == 0
     row = await _row(conn, "mistral", "a")
     assert row["source"] == "auto" and row["roles"] == ["mechanical"]
+
+
+@pytest.mark.parametrize("detail,permanent", [
+    ("NotFoundError: Error code: 404 - model gone", True),
+    ("BadRequestError: invalid model id", True),
+    ("RateLimitError: Error code: 429 (request id req_4040a)", False),
+    ("APITimeoutError: timeout after 404 ms", False),
+])
+def test_permanent_error_detection_ignores_stray_404(detail, permanent):
+    results = {"stream": ProbeResult(False, detail)}
+    assert refresh._is_permanent(results) is permanent
