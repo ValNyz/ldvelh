@@ -38,6 +38,7 @@ from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from domain.game import GameSnapshot
 from prompts.world_generation_prompt import get_full_generation_prompt
+from repos.llm_models import load_catalog
 from services.context_builder import ContextBuilder
 from services.extraction import run_resolve_and_extract
 from services.game_service import GameService, RollbackRejected
@@ -262,8 +263,6 @@ async def list_providers(
         key = await _resolve_user_api_key(pool, user["id"], name)
         if key:
             user_keys[name] = key
-    from repos.llm_models import load_catalog
-
     return await get_provider_catalog_async(user_keys=user_keys, catalog=await load_catalog(pool))
 
 
@@ -435,8 +434,6 @@ async def _handle_chat(
             return
 
         from llm.session import LLMSession, Purpose
-
-        from repos.llm_models import load_catalog
 
         session = LLMSession(provider_name, user_api_key, request.model,
                              catalog=await load_catalog(pool))

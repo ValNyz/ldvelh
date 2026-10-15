@@ -75,10 +75,80 @@ async def test_providers_catalog_lists_only_enabled_models():
 
 async def test_providers_endpoint_lists_only_enabled_models(client, test_user, llm_table):  # noqa: F811
     await _insert(llm_table, "claude-sonnet-5-5", provider="anthropic", label="S",
-                  rank=1, inp=3, out=15)
+                  roles=["narration"], rank=1, inp=3, out=15)
     await _insert(llm_table, "claude-opus-5-5", provider="anthropic", label="O",
                   status="pending", rank=2, inp=5, out=25)
     r = await client.get("/api/providers", headers=auth_headers(test_user["token"]))
+    a = r.json()["providers"]["anthropic"]
+    assert [m["id"] for m in a["models"]] == ["claude-sonnet-5-5"]
+    assert a["default_model"] == "claude-sonnet-5-5"
+
+
+async def test_providers_endpoint_survives_catalog_db_error(client, test_user, monkeypatch):
+    import api.routes as routes
+    from repos.llm_models import load_catalog
+
+    class Broken:
+        def acquire(self):
+            raise OSError("db down")
+
+    async def broken_load(pool):
+        return await load_catalog(Broken())
+
+    monkeypatch.setattr(routes, "load_catalog", broken_load)
+    r = await client.get("/api/providers", headers=auth_headers(test_user["token"]))
+    assert r.status_code == 200
     ids = [m["id"] for m in r.json()["providers"]["anthropic"]["models"]]
-    assert "claude-opus-5-5" not in ids
-    assert "claude-sonnet-5-5" in ids
+    assert "claude-sonnet-5-5" in ids and "claude-opus-5-5" in ids  # hard-coded list
+
+
+def test_other_provider_only_catalog_keeps_old_path():
+    cat = ModelCatalog([_e("big")])  # mistral rows only
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat)
+    assert s.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
+    assert s.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"
+
+
+def _a(model_id, profile=None, roles=("narration",), status="enabled", rank=1):
+    return CatalogEntry("anthropic", model_id, model_id, status, tuple(roles), rank, None, profile)
+
+
+def test_admin_profile_reaches_default_model_purposes():
+    prof = ModelProfile(send_temperature=False, thinking_headroom=7)
+    cat = ModelCatalog([_a("claude-sonnet-5-5", prof)])
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat)
+    assert s.provider_for(Purpose.EXTRACTION).profile == prof
+    assert s.provider_for(Purpose.RESOLVER).profile == prof
+
+
+def test_enabled_entry_without_profile_passes_none(monkeypatch):
+    import llm.session as sess
+    seen = []
+    real = sess.get_provider
+    monkeypatch.setattr(sess, "get_provider",
+                        lambda *a, **kw: (seen.append(kw.get("profile", "absent")), real(*a, **kw))[1])
+    cat = ModelCatalog([_a("claude-sonnet-5-5")])
+    LLMSession("anthropic", "k", catalog=cat).provider_for(Purpose.NARRATION)
+    assert seen[-1] is None
+
+
+def test_user_model_not_enabled_is_dropped_without_narration_holder():
+    cat = ModelCatalog([_e("big", roles=("mechanical",)), _e("off", status="pending")])
+    s = LLMSession("mistral", "k", user_model="off", catalog=cat)
+    assert s.model_for(Purpose.NARRATION) == "mistral-large-latest"  # provider default
+    ok = LLMSession("mistral", "k", user_model="big", catalog=cat)
+    assert ok.model_for(Purpose.NARRATION) == "big"
+
+
+async def test_unknown_anthropic_model_without_profile_hidden():
+    from services.llm_providers import get_provider_catalog_async
+
+    cat = ModelCatalog([_a("claude-sonnet-5-5"), _a("claude-new-9", roles=()),
+                        _a("claude-new-8", ModelProfile(send_temperature=False), roles=())])
+    cat = ModelCatalog([CatalogEntry(e.provider, e.model_id, e.label, e.status, e.roles,
+                                     e.default_rank, ModelPricing(1, 2, 0, 0), e.profile)
+                        for e in (cat.entry("anthropic", m) for m in
+                                  ("claude-sonnet-5-5", "claude-new-9", "claude-new-8"))])
+    data = await get_provider_catalog_async({}, catalog=cat)
+    ids = [m["id"] for m in data["providers"]["anthropic"]["models"]]
+    assert "claude-new-9" not in ids and "claude-new-8" in ids

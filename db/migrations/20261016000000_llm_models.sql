@@ -30,7 +30,7 @@ INSERT INTO public.llm_models (provider, model_id, label, status, roles, default
   '{"send_temperature": false, "force_tool": false, "thinking_headroom": 16000}', 'manual'),
  ('anthropic', 'claude-fable-5-1', 'Fable 5.1', 'enabled', '{}', 4,
   '{"send_temperature": false, "force_tool": false, "thinking_headroom": 16000}', 'manual'),
- ('mistral', 'mistral-large-latest', 'mistral-large-latest', 'enabled', '{narration,mechanical}', 1, '{}', 'auto'),
+ ('mistral', 'mistral-large-latest', 'mistral-large-latest', 'pending', '{narration,mechanical}', 1, '{}', 'auto'),
  ('nous', 'google/gemini-4-argon', 'google/gemini-4-argon', 'pending', '{}', 1, '{}', 'auto'),
  ('nous', 'anthropic/claude-haiku-5.5', 'anthropic/claude-haiku-5.5', 'pending', '{}', 2, '{}', 'auto'),
  ('wandb', 'google/gemma-4-31B-it', 'google/gemma-4-31B-it', 'pending', '{}', 1, '{}', 'auto'),

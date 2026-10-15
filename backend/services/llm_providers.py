@@ -901,6 +901,7 @@ import time
 
 _MODEL_CACHE: dict[tuple[str, str], tuple[list[dict], float]] = {}
 _MODEL_CACHE_TTL_SECONDS = 24 * 3600  # 24h
+_WARNED_UNSUPPORTED: set[str] = set()
 
 
 def _cache_key(provider_name: str, api_key: str | None) -> tuple[str, str]:
@@ -963,6 +964,11 @@ async def get_provider_catalog_async(user_keys: dict[str, str] | None = None,
     per million tokens). Models for which we don't have pricing data in
     the vendored pricing table are filtered out — the UI never shows a
     model whose cost can't be computed.
+
+    When `catalog` has enabled models for a provider (and, except for
+    Anthropic, the user has a key), that list is offered instead of the live
+    one: catalog rows without catalog prices fall back to lookup_pricing, and
+    rows still unpriced are hidden (ruling R7).
     """
     user_keys = user_keys or {}
     model_catalog = catalog
@@ -980,6 +986,13 @@ async def get_provider_catalog_async(user_keys: dict[str, str] | None = None,
             from services.pricing import lookup_pricing
             models = []
             for e in enabled:
+                if name == "anthropic" and e.model_id not in cls.MODELS and e.profile is None:
+                    # The session would silently swap such a model for MODEL_MAIN.
+                    if e.model_id not in _WARNED_UNSUPPORTED:
+                        _WARNED_UNSUPPORTED.add(e.model_id)
+                        logger.warning(f"[catalog] anthropic {e.model_id} has no profile "
+                                       "and is not a known model, hiding it")
+                    continue
                 price = e.prices or lookup_pricing(e.model_id, name)
                 if price.input == 0 and price.output == 0:
                     continue
