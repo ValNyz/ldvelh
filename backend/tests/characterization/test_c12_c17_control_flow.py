@@ -67,6 +67,52 @@ async def test_c12_rollback_regenerate(harness, world_game):
     })
 
 
+async def test_c12b_back_to_arrival_after_day_change_and_new_place(harness, world_game):
+    """#11: editing the first message after the arrival, when that turn changed day and
+    moved the player to an unknown place (stub location + a fact pointing at it)."""
+    import json
+    async with harness.pool.acquire() as conn:
+        before = await conn.fetchrow(
+            """SELECT g.current_cycle, l.name AS location FROM games g
+               LEFT JOIN locations l ON l.id = g.current_location_id WHERE g.id = $1""", world_game)
+    msgs_before = await _messages(harness, world_game)
+
+    narration = json.loads(payloads.NARRATION)
+    narration.update(current_location="Dock 9",
+                     day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"})
+    harness.llm._responses["narration"] = json.dumps(narration, ensure_ascii=False)
+    await harness.chat(world_game, "Je prends la navette vers Dock 9.")
+    await harness.drain()
+    async with harness.pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO facts (game_id, cycle, type, description, location_id)
+               SELECT $1, 1, (SELECT type FROM facts WHERE game_id = $1 LIMIT 1),
+                      'Réservation pour Dock 9.', id
+               FROM locations WHERE game_id = $1 AND name = 'Dock 9'""", world_game)
+        moved = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1", world_game)
+    assert moved == before["current_cycle"] + 1
+
+    first_user = [m for m in await _messages(harness, world_game) if m["role"] == "user"][0]
+    r = await harness.client.post(f"/api/games/{world_game}/rollback",
+                                  json={"messageId": first_user["id"]}, headers=harness.headers)
+    assert r.status_code == 200, r.text
+
+    async with harness.pool.acquire() as conn:
+        after = await conn.fetchrow(
+            """SELECT g.current_cycle, l.name AS location FROM games g
+               LEFT JOIN locations l ON l.id = g.current_location_id WHERE g.id = $1""", world_game)
+        dock9 = await conn.fetchval(
+            "SELECT COUNT(*) FROM locations WHERE game_id = $1 AND name = 'Dock 9'", world_game)
+    assert _brief(await _messages(harness, world_game)) == _brief(msgs_before)
+    assert dict(after) == dict(before)
+    assert dock9 == 0
+
+    # And the game plays on from the arrival scene.
+    harness.llm._responses["narration"] = payloads.NARRATION
+    events = await harness.chat(world_game, "Je regarde autour de moi.")
+    assert "done" in harness.summarize(events)
+
+
 async def test_c13_busy_game_rejected(harness, world_game):
     gate = asyncio.Event()
     started = asyncio.Event()
