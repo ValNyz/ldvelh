@@ -19,6 +19,7 @@ import openai
 from mistralai.client import Mistral
 
 from config import get_settings
+from llm.profile import ModelProfile
 from services.pricing import ModelPricing  # re-exported for backward compat
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,14 @@ class StructuredOutputMode(str, Enum):
 
 
 class LLMProvider(ABC):
+    profile: ModelProfile | None = None
+
+    def _temperature_kwargs(self, temperature: float) -> dict:
+        """`temperature` kwarg unless the model profile says it is rejected."""
+        if self.profile is not None and not self.profile.send_temperature:
+            return {}
+        return {"temperature": temperature}
+
     """Abstract LLM provider interface.
 
     stream() yields str deltas, then a final LLMUsage as last item.
@@ -275,28 +284,56 @@ class AnthropicProvider(LLMProvider):
     # Per-model thinking: Sonnet 5.5 can skip up-front thinking ("between_tools"),
     # Haiku 5.5 can disable it; Opus 5.5 and Fable 5.1 always think, so they get
     # extra output room on top of the caller's budget.
-    _THINKING: dict[str, dict] = {
-        "claude-sonnet-5-5": {"type": "between_tools"},
-        "claude-haiku-5-5": {"type": "disabled"},
-    }
-    _ALWAYS_THINKING = frozenset({"claude-opus-5-5", "claude-fable-5-1"})
     THINKING_HEADROOM = 16_000
+    FALLBACK_PROFILES: dict[str, ModelProfile] = {
+        "claude-sonnet-5-5": ModelProfile(
+            send_temperature=False, force_tool=False, thinking={"type": "between_tools"}
+        ),
+        "claude-haiku-5-5": ModelProfile(
+            send_temperature=False, force_tool=False, thinking={"type": "disabled"}
+        ),
+        "claude-opus-5-5": ModelProfile(
+            send_temperature=False, force_tool=False, thinking_headroom=THINKING_HEADROOM
+        ),
+        "claude-fable-5-1": ModelProfile(
+            send_temperature=False, force_tool=False, thinking_headroom=THINKING_HEADROOM
+        ),
+    }
 
-    def __init__(self, api_key: str | None = None, model: str | None = None):
-        if model and model in self.MODELS:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        profile: ModelProfile | None = None,
+    ):
+        # A catalog profile vouches for the model, so unknown ids are accepted then.
+        if model and (model in self.MODELS or profile is not None):
             self.MODEL_MAIN = model
+        self.profile = profile
         key = api_key or get_settings().anthropic_api_key
         self.client = shared_client("anthropic", key, lambda: anthropic.AsyncAnthropic(api_key=key))
 
-    def _request_options(self, max_tokens: int) -> dict:
-        """Model, output budget and thinking setting for one request (no sampling params)."""
-        options: dict = {"model": self.MODEL_MAIN, "max_tokens": max_tokens}
-        if self.MODEL_MAIN in self._ALWAYS_THINKING:
-            options["max_tokens"] = max_tokens + self.THINKING_HEADROOM
-        thinking = self._THINKING.get(self.MODEL_MAIN)
-        if thinking:
+    @property
+    def _effective_profile(self) -> ModelProfile:
+        """Catalog profile, else the built-in Claude 5 rules for this model."""
+        if self.profile is not None:
+            return self.profile
+        return self.FALLBACK_PROFILES.get(
+            self.MODEL_MAIN, self.FALLBACK_PROFILES["claude-sonnet-5-5"]
+        )
+
+    def _request_options(self, max_tokens: int, temperature: float | None = None) -> dict:
+        """Model, output budget, thinking and (if allowed) temperature for one request."""
+        profile = self._effective_profile
+        options: dict = {
+            "model": self.MODEL_MAIN,
+            "max_tokens": max_tokens + profile.thinking_headroom,
+        }
+        if profile.send_temperature and temperature is not None:
+            options["temperature"] = temperature
+        if profile.thinking:
             # Sent as extra_body so older SDK versions do not reject the field.
-            options["extra_body"] = {"thinking": thinking}
+            options["extra_body"] = {"thinking": profile.thinking}
         return options
 
     async def stream(
@@ -308,7 +345,7 @@ class AnthropicProvider(LLMProvider):
     ) -> AsyncIterator[str | LLMUsage]:
         # temperature is accepted for interface compatibility but not sent (rejected by Claude 5)
         async with self.client.messages.stream(
-            **self._request_options(max_tokens),
+            **self._request_options(max_tokens, temperature),
             system=[
                 {
                     "type": "text",
@@ -344,7 +381,7 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int,
     ) -> CompletionResult:
         response = await self.client.messages.create(
-            **self._request_options(max_tokens),
+            **self._request_options(max_tokens, temperature),
             system=system_prompt,
             messages=messages,
         )
@@ -374,15 +411,17 @@ class AnthropicProvider(LLMProvider):
         temperature: float,
         max_tokens: int,
     ) -> ToolResult:
-        # Claude 5 rejects a forced tool_choice: offer the single tool with "auto".
+        # Claude 5 rejects a forced tool_choice (profile.force_tool False): offer the tool with "auto".
         # If the model answers in text instead, the ValueError below triggers the
         # caller's text fallback.
         response = await self.client.messages.create(
-            **self._request_options(max_tokens),
+            **self._request_options(max_tokens, temperature),
             system=system_prompt,
             messages=messages,
             tools=tools,
-            tool_choice={"type": "auto"},
+            tool_choice=(
+                tool_choice if self._effective_profile.force_tool else {"type": "auto"}
+            ),
         )
         usage = response.usage
 
@@ -431,7 +470,13 @@ class MistralProvider(LLMProvider):
     # provider's /v1/models endpoint. Kept empty for backward compat (tests).
     MODELS: dict[str, str] = {}
 
-    def __init__(self, api_key: str | None = None, model: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        profile: ModelProfile | None = None,
+    ):
+        self.profile = profile
         if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().mistral_api_key
@@ -459,7 +504,7 @@ class MistralProvider(LLMProvider):
         response = await self.client.chat.stream_async(
             model=self.MODEL_MAIN,
             max_tokens=max_tokens,
-            temperature=temperature,
+            **self._temperature_kwargs(temperature),
             messages=full_messages,
         )
 
@@ -491,7 +536,7 @@ class MistralProvider(LLMProvider):
         response = await self.client.chat.complete_async(
             model=self.MODEL_MAIN,
             max_tokens=max_tokens,
-            temperature=temperature,
+            **self._temperature_kwargs(temperature),
             messages=full_messages,
         )
 
@@ -523,7 +568,8 @@ class OpenAICompatibleProvider(LLMProvider):
 
     FORCE_JSON: bool = False
 
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: str, profile: ModelProfile | None = None):
+        self.profile = profile
         self.client = shared_client(
             self.provider_name,
             api_key,
@@ -556,7 +602,7 @@ class OpenAICompatibleProvider(LLMProvider):
         response = await self.client.chat.completions.create(
             model=self.MODEL_MAIN,
             max_tokens=max_tokens,
-            temperature=temperature,
+            **self._temperature_kwargs(temperature),
             messages=full_messages,
             stream=True,
             stream_options={"include_usage": True},
@@ -594,7 +640,7 @@ class OpenAICompatibleProvider(LLMProvider):
         response = await self.client.chat.completions.create(
             model=self.MODEL_MAIN,
             max_tokens=max_tokens,
-            temperature=temperature,
+            **self._temperature_kwargs(temperature),
             messages=full_messages,
             **extra,
         )
@@ -623,7 +669,7 @@ class OpenAICompatibleProvider(LLMProvider):
         response = await self.client.chat.completions.create(
             model=self.MODEL_MAIN,
             max_tokens=max_tokens,
-            temperature=temperature,
+            **self._temperature_kwargs(temperature),
             messages=full_messages,
             response_format={
                 "type": "json_schema",
@@ -662,11 +708,17 @@ class WandbProvider(OpenAICompatibleProvider):
     MODEL_MAIN = "Qwen/Qwen3-235B-A22B-Instruct-2507"
     MODELS: dict[str, str] = {}
 
-    def __init__(self, api_key: str | None = None, model: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        profile: ModelProfile | None = None,
+    ):
+        self.profile = profile
         if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().wandb_api_key
-        super().__init__(base_url="https://api.inference.wandb.ai/v1", api_key=key)
+        super().__init__(base_url="https://api.inference.wandb.ai/v1", api_key=key, profile=profile)
 
     @property
     def provider_name(self) -> str:
@@ -679,11 +731,17 @@ class NebiusProvider(OpenAICompatibleProvider):
     MODEL_MAIN = "Qwen/Qwen3-235B-A22B-Instruct-2507"
     MODELS: dict[str, str] = {}
 
-    def __init__(self, api_key: str | None = None, model: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        profile: ModelProfile | None = None,
+    ):
+        self.profile = profile
         if model:
             self.MODEL_MAIN = model
         key = api_key or get_settings().nebius_api_key
-        super().__init__(base_url="https://api.tokenfactory.nebius.com/v1/", api_key=key)
+        super().__init__(base_url="https://api.tokenfactory.nebius.com/v1/", api_key=key, profile=profile)
 
     @property
     def provider_name(self) -> str:
@@ -703,11 +761,17 @@ class NousResearchProvider(OpenAICompatibleProvider):
     MODELS: dict[str, str] = {}
     BASE_URL = "https://inference-api.nousresearch.com/v1"
 
-    def __init__(self, api_key: str | None = None, model: str | None = None):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        profile: ModelProfile | None = None,
+    ):
+        self.profile = profile
         if model:
             self.MODEL_MAIN = model
         self._api_key = api_key or get_settings().nous_api_key
-        super().__init__(base_url=self.BASE_URL, api_key=self._api_key)
+        super().__init__(base_url=self.BASE_URL, api_key=self._api_key, profile=profile)
 
     @property
     def provider_name(self) -> str:
@@ -789,6 +853,7 @@ def get_provider(
     provider_name: str = "anthropic",
     api_key: str | None = None,
     model: str | None = None,
+    profile: ModelProfile | None = None,
 ) -> LLMProvider:
     """Get or create a provider instance.
 
@@ -800,7 +865,11 @@ def get_provider(
         raise ValueError(f"Unknown LLM provider: {provider_name}")
 
     if api_key:
-        return cls(api_key=api_key, model=model)
+        return cls(api_key=api_key, model=model, profile=profile)
+
+    if profile is not None:
+        # A catalog profile is model-specific: never share the default singleton.
+        return cls(model=model, profile=profile)
 
     # Server-level key: cached singleton (default model)
     if provider_name not in _providers:
