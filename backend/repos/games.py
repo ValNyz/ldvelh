@@ -6,6 +6,25 @@ from domain.game import DirectorSchedule, GameSnapshot
 from kg.reader import KnowledgeGraphReader
 
 
+async def get_director_schedule(conn, game_id: UUID) -> DirectorSchedule:
+    """Latest director plan (cycle, ig_time) plus the game's duration setting.
+
+    Re-read at trigger time: the previous turn's Director runs outside the game
+    lock and may commit a plan after a turn-start snapshot was taken.
+    """
+    plan = await conn.fetchrow(
+        """SELECT cycle, ig_time FROM director_plans
+           WHERE game_id = $1 ORDER BY created_at DESC LIMIT 1""",
+        game_id,
+    )
+    duration = await conn.fetchval("SELECT game_duration FROM games WHERE id = $1", game_id)
+    return DirectorSchedule(
+        last_cycle=plan["cycle"] if plan else None,
+        last_time=plan["ig_time"] if plan else None,
+        game_duration=duration or "medium",
+    )
+
+
 async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
     """Return the game snapshot, or None if the game is missing or inactive.
 
@@ -16,11 +35,6 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
     if not game or not game["active"]:
         return None
     protagonist = await reader.get_protagonist(conn)
-    plan = await conn.fetchrow(
-        """SELECT cycle, ig_time FROM director_plans
-           WHERE game_id = $1 ORDER BY created_at DESC LIMIT 1""",
-        game_id,
-    )
     return GameSnapshot(
         id=game_id,
         name=game["name"],
@@ -35,9 +49,5 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
         genre_id=game["genre_id"],
         world_name=game["world_name"],
         protagonist_name=(protagonist or {}).get("name"),
-        director=DirectorSchedule(
-            last_cycle=plan["cycle"] if plan else None,
-            last_time=plan["ig_time"] if plan else None,
-            game_duration=game["game_duration"] or "medium",
-        ),
+        director=await get_director_schedule(conn, game_id),
     )

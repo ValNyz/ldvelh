@@ -49,3 +49,31 @@ async def test_unknown_game_is_none(test_pool):
     import uuid
     async with test_pool.acquire() as conn:
         assert await get_snapshot(conn, uuid.uuid4()) is None
+
+
+async def test_new_game_has_no_current_location(test_pool, test_user):
+    from services.game_service import GameService
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    async with test_pool.acquire() as conn:
+        snap = await get_snapshot(conn, game_id)
+    assert snap.current_location_name is None and snap.current_location_id is None
+
+
+async def test_fresh_schedule_prevents_duplicate_director_trigger(test_pool, test_user):
+    """A plan committed after the snapshot must be seen by the trigger-time re-read."""
+    from repos.games import get_director_schedule
+    from services.director_service import should_run_director
+    from services.game_service import GameService
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    async with test_pool.acquire() as conn:
+        snap = await get_snapshot(conn, game_id)
+        stale = snap.director
+        assert should_run_director("20h00", stale.last_time, stale.game_duration,
+                                   current_cycle=1, last_cycle=stale.last_cycle)
+        await conn.execute(
+            """INSERT INTO director_plans (game_id, cycle, ig_time, tension_level, narrator_guidance)
+               VALUES ($1, 1, '20h00', 3, 'g')""", game_id)
+        fresh = await get_director_schedule(conn, game_id)
+    assert (fresh.last_cycle, fresh.last_time) == (1, "20h00")
+    assert not should_run_director("20h00", fresh.last_time, fresh.game_duration,
+                                   current_cycle=1, last_cycle=fresh.last_cycle)

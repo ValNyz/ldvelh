@@ -36,6 +36,7 @@ from schema.sse_payload import (
 from api.dependencies import get_pool, get_settings_dep, get_current_user
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
+from domain.game import GameSnapshot
 from prompts.world_generation_prompt import get_full_generation_prompt
 from services.context_builder import ContextBuilder
 from services.extraction import run_resolve_and_extract
@@ -368,7 +369,7 @@ ARRIVAL_TOKEN = "__ARRIVEE__"
 DEFAULT_ARRIVAL_MESSAGE = "Je viens d'arriver."
 
 
-async def _build_arrival_message(pool: asyncpg.Pool, snapshot) -> str:
+async def _build_arrival_message(pool: asyncpg.Pool, snapshot: GameSnapshot) -> str:
     """Player message for the arrival turn, from the game's genre arrival_prompt."""
     from kg.reader import KnowledgeGraphReader
 
@@ -624,8 +625,7 @@ async def _handle_chat(
             logger.info(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
 
             # Protocol token (__ARRIVEE__): replace it with the genre's arrival text.
-            # The raw game row is read here because the normalized game state
-            # does not carry genre_id / world_name (#9).
+            # genre_id / world_name / protagonist_name come from the snapshot (#9).
             is_arrival_turn = request.message == ARRIVAL_TOKEN
             if is_arrival_turn:
                 message = await _build_arrival_message(pool, snapshot)
@@ -988,12 +988,18 @@ async def _handle_chat(
                     try:
                         from services.director_service import should_run_director, run_director
 
+                        from repos.games import get_director_schedule
+
+                        # Re-read now: the previous turn's Director may have
+                        # committed a plan since the turn-start snapshot.
+                        async with pool.acquire() as sched_conn:
+                            schedule = await get_director_schedule(sched_conn, game_id)
                         if should_run_director(
                             process_result["time"],
-                            snapshot.director.last_time,
-                            snapshot.director.game_duration,
+                            schedule.last_time,
+                            schedule.game_duration,
                             current_cycle=process_result["cycle"],
-                            last_cycle=snapshot.director.last_cycle,
+                            last_cycle=schedule.last_cycle,
                         ):
                             asyncio.create_task(
                                 run_director(
