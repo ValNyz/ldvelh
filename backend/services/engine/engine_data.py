@@ -31,18 +31,24 @@ FATE_SKILLS_BASE = [
     "Volonté",
 ]
 
+# Keys are genre slugs from the genres table (presets: sci_fi, dark_fantasy,
+# cosmic_horror, cyberpunk). Mirrored in frontend/lib/game/engineConfig.js.
 FATE_SKILLS_BY_GENRE: dict[str, dict[str, list[str]]] = {
-    "fantasy": {
+    "dark_fantasy": {
         "add": ["Magie", "Équitation", "Survie"],
         "remove": [],
     },
-    "sci-fi": {
+    "sci_fi": {
         "add": ["Pilotage", "Technologie", "Piratage"],
         "remove": ["Équitation"],
     },
-    "cthulhu": {
+    "cosmic_horror": {
         "add": ["Occultisme", "Santé Mentale", "Langues Anciennes"],
         "remove": ["Commandement"],
+    },
+    "cyberpunk": {
+        "add": ["Piratage", "Technologie", "Cybernétique"],
+        "remove": [],
     },
     "historical": {
         "add": ["Équitation", "Survie", "Artisanat"],
@@ -138,7 +144,7 @@ D6_SKILLS_BASE: dict[str, list[str]] = {
 }
 
 D6_SKILLS_BY_GENRE: dict[str, dict[str, dict[str, list[str]]]] = {
-    "fantasy": {
+    "dark_fantasy": {
         "add": {
             "Connaissance": ["Arcanes", "Herboristerie", "Théologie"],
             "Dextérité": ["Équitation", "Tir à l'arc"],
@@ -148,7 +154,7 @@ D6_SKILLS_BY_GENRE: dict[str, dict[str, dict[str, list[str]]]] = {
             "Technique": ["Informatique", "Programmation"],
         },
     },
-    "sci-fi": {
+    "sci_fi": {
         "add": {
             "Dextérité": ["Blasters", "Pilotage"],
             "Technique": ["Astrogation", "Capteurs", "Droïdes"],
@@ -156,7 +162,7 @@ D6_SKILLS_BY_GENRE: dict[str, dict[str, dict[str, list[str]]]] = {
         },
         "remove": {},
     },
-    "cthulhu": {
+    "cosmic_horror": {
         "add": {
             "Connaissance": ["Occultisme", "Mythes de Cthulhu", "Archéologie"],
             "Perception": ["Psychologie"],
@@ -164,6 +170,14 @@ D6_SKILLS_BY_GENRE: dict[str, dict[str, dict[str, list[str]]]] = {
         "remove": {
             "Technique": ["Programmation"],
         },
+    },
+    "cyberpunk": {
+        "add": {
+            "Dextérité": ["Armes à feu"],
+            "Technique": ["Cybernétique", "Piratage"],
+            "Mécanique": ["Pilotage"],
+        },
+        "remove": {},
     },
     "contemporary": {
         "add": {
@@ -188,8 +202,9 @@ D6_DIFFICULTY_SCALE = {
 # D6 starting attribute dice (18D to distribute across 6 attributes)
 D6_STARTING_ATTRIBUTE_DICE = 18
 
-# D6 starting skill dice (7D to distribute)
+# D6 starting skill dice (7D to distribute, at most 2D added to one skill)
 D6_STARTING_SKILL_DICE = 7
+D6_MAX_SKILL_DICE_AT_CREATION = 2
 
 # D6 wound levels (ascending severity)
 D6_WOUND_LEVELS = [

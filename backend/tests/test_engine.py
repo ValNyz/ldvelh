@@ -37,6 +37,8 @@ from services.engine.engine_data import (
     D6_WOUND_LEVELS,
     FATE_DIFFICULTY_LADDER,
     FATE_SKILLS_BASE,
+    FATE_SKILLS_BY_GENRE,
+    D6_SKILLS_BY_GENRE,
     get_d6_skills,
     get_fate_skills,
 )
@@ -537,7 +539,7 @@ class TestEngineData:
 
     def test_fate_skills_genre(self):
         base = get_fate_skills()
-        scifi = get_fate_skills("sci-fi")
+        scifi = get_fate_skills("sci_fi")
         assert "Pilotage" in scifi
         assert "Pilotage" not in base
         # sci-fi removes Équitation
@@ -546,6 +548,11 @@ class TestEngineData:
     def test_fate_skills_unknown_genre(self):
         skills = get_fate_skills("alien_genre")
         assert skills == sorted(FATE_SKILLS_BASE)
+
+    def test_genre_tables_use_preset_genre_slugs(self):
+        presets = {"sci_fi", "dark_fantasy", "cosmic_horror", "cyberpunk"}
+        assert presets <= set(FATE_SKILLS_BY_GENRE)
+        assert presets <= set(D6_SKILLS_BY_GENRE)
 
     def test_d6_attributes(self):
         assert len(D6_ATTRIBUTES) == 6
@@ -557,7 +564,7 @@ class TestEngineData:
         assert "Esquive" in skills["Dextérité"]
 
     def test_d6_skills_genre(self):
-        fantasy = get_d6_skills("fantasy")
+        fantasy = get_d6_skills("dark_fantasy")
         assert "Arcanes" in fantasy["Connaissance"]
         # Fantasy removes Informatique from Technique
         assert "Informatique" not in fantasy["Technique"]

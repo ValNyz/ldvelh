@@ -182,7 +182,7 @@ def _build_engine_section(engine: str, world_config: dict | None = None) -> list
         return []
 
     parts = ["## MOTEUR DE JEU", ""]
-    genre = world_config.get("genre", "sci-fi") if world_config else "sci-fi"
+    genre = world_config.get("genre", "sci_fi") if world_config else "sci_fi"
     difficulty = world_config.get("difficulty", "moderate") if world_config else "moderate"
 
     if engine == "narrative":

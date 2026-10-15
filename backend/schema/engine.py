@@ -29,7 +29,7 @@ class EngineType(str, Enum):
 class WorldConfig(BaseModel):
     """World configuration set during game creation wizard."""
 
-    genre: str  # fantasy, sci-fi, cthulhu, historical, contemporary
+    genre: str  # genre slug (presets: sci_fi, dark_fantasy, cosmic_horror, cyberpunk)
     difficulty: str = "moderate"  # easy, moderate, hard, brutal
     hardcore: bool = False
     lore: str | None = None

@@ -247,7 +247,7 @@ class TestWorldGenerationPromptBuilder:
 
         prompt = build_world_generation_user_prompt(
             engine="narrative",
-            world_config={"genre": "sci-fi", "difficulty": "moderate"},
+            world_config={"genre": "sci_fi", "difficulty": "moderate"},
         )
         assert "MOTEUR DE JEU" in prompt
         assert "Narratif" in prompt
@@ -262,7 +262,7 @@ class TestWorldGenerationPromptBuilder:
 
         prompt = build_world_generation_user_prompt(
             engine="fate_core",
-            world_config={"genre": "sci-fi", "difficulty": "hard"},
+            world_config={"genre": "sci_fi", "difficulty": "hard"},
         )
         assert "MOTEUR DE JEU" in prompt
         assert "Fate Core" in prompt
@@ -278,7 +278,7 @@ class TestWorldGenerationPromptBuilder:
 
         prompt = build_world_generation_user_prompt(
             engine="d6",
-            world_config={"genre": "sci-fi", "difficulty": "moderate"},
+            world_config={"genre": "sci_fi", "difficulty": "moderate"},
         )
         assert "MOTEUR DE JEU" in prompt
         assert "D6 System" in prompt
@@ -293,7 +293,7 @@ class TestWorldGenerationPromptBuilder:
         prompt = build_world_generation_user_prompt(
             engine="fate_core",
             world_config={
-                "genre": "cthulhu",
+                "genre": "cosmic_horror",
                 "lore": "The station orbits a dead star. Strange whispers at night.",
             },
         )
@@ -307,7 +307,7 @@ class TestWorldGenerationPromptBuilder:
         prompt = build_world_generation_user_prompt(
             engine="d6",
             world_config={
-                "genre": "sci-fi",
+                "genre": "sci_fi",
                 "custom_rules": "No force users allowed",
             },
         )
@@ -320,7 +320,7 @@ class TestWorldGenerationPromptBuilder:
 
         prompt = build_world_generation_user_prompt(
             engine="narrative",
-            world_config={"genre": "sci-fi", "hardcore": True},
+            world_config={"genre": "sci_fi", "hardcore": True},
         )
         assert "Mode Hardcore" in prompt
         assert "BRUTAL" in prompt
@@ -365,7 +365,7 @@ class TestWorldGenerationPromptBuilder:
 
         result = get_full_generation_prompt(
             engine="fate_core",
-            world_config={"genre": "fantasy"},
+            world_config={"genre": "dark_fantasy"},
         )
         assert "Fate Core" in result["user"]
         assert "Magie" in result["user"]  # fantasy genre skill
@@ -375,10 +375,10 @@ class TestWorldGenerationPromptBuilder:
         from prompts.world_generation_prompt import build_world_generation_user_prompt
 
         scifi = build_world_generation_user_prompt(
-            engine="fate_core", world_config={"genre": "sci-fi"}
+            engine="fate_core", world_config={"genre": "sci_fi"}
         )
         fantasy = build_world_generation_user_prompt(
-            engine="fate_core", world_config={"genre": "fantasy"}
+            engine="fate_core", world_config={"genre": "dark_fantasy"}
         )
         assert "Technologie" in scifi
         assert "Magie" in fantasy
