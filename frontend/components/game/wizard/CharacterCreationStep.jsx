@@ -1,6 +1,11 @@
 'use client';
 
-import { getFateSkills, FATE_LADDER, D6_ATTRIBUTES, D6_STARTING_ATTRIBUTE_DICE } from '../../../lib/game/engineConfig';
+import {
+	getFateSkills, getD6Skills, FATE_LADDER, D6_ATTRIBUTES, D6_STARTING_ATTRIBUTE_DICE,
+	D6_STARTING_SKILL_DICE, D6_MAX_SKILL_DICE_AT_CREATION,
+} from '../../../lib/game/engineConfig';
+import { parseDice, formatDice } from '../../../lib/game/d6.mjs';
+import EnhanceButton from './EnhanceButton';
 
 // ============================================================================
 // NONE ENGINE
@@ -216,32 +221,21 @@ function FateCoreCharacter({ data, onChange, genre }) {
 }
 
 // ============================================================================
-// D6 SYSTEM — Attribute Allocation
+// D6 SYSTEM — Attribute and Skill Allocation
 // ============================================================================
 
-function D6Character({ data, onChange }) {
+const D6_STEP_BUTTON = 'w-7 h-7 flex items-center justify-center bg-gray-800 border border-gray-700 rounded text-gray-400 hover:text-white hover:border-gray-500 transition-colors';
+
+function D6Character({ data, onChange, genre }) {
 	const attrs = data.attributes || {};
 	const totalDice = D6_STARTING_ATTRIBUTE_DICE;
+	const attrPips = (attr) => parseDice(attrs[attr], 6); // 2D default
 
-	// Parse "3D+1" format to pips (1D = 3 pips)
-	const parseDice = (str) => {
-		if (!str) return 6; // 2D default
-		const m = str.match(/(\d+)D(?:\+(\d+))?/i);
-		if (!m) return 6;
-		return parseInt(m[1]) * 3 + parseInt(m[2] || 0);
-	};
-
-	const formatDice = (pips) => {
-		const dice = Math.floor(pips / 3);
-		const rem = pips % 3;
-		return rem > 0 ? `${dice}D+${rem}` : `${dice}D`;
-	};
-
-	const usedPips = D6_ATTRIBUTES.reduce((sum, a) => sum + parseDice(attrs[a]), 0);
+	const usedPips = D6_ATTRIBUTES.reduce((sum, a) => sum + attrPips(a), 0);
 	const remainingPips = totalDice * 3 - usedPips;
 
 	const updateAttr = (attr, delta) => {
-		const current = parseDice(attrs[attr]);
+		const current = attrPips(attr);
 		const next = current + delta;
 		if (next < 3 || next > 15) return; // Min 1D, max 5D
 		if (delta > 0 && remainingPips < delta) return;
@@ -249,44 +243,97 @@ function D6Character({ data, onChange }) {
 	};
 
 	return (
-		<div className="space-y-4">
+		<div className="space-y-6">
+			<div className="space-y-4">
+				<p className="text-gray-400 text-sm">
+					Répartis {totalDice}D entre 6 attributs (min 1D, max 5D).
+					<span className={`ml-2 font-mono ${remainingPips >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
+						Reste: {formatDice(remainingPips > 0 ? remainingPips : 0)}
+					</span>
+				</p>
+				<div className="space-y-2">
+					{D6_ATTRIBUTES.map(attr => {
+						const pips = attrPips(attr);
+						return (
+							<div key={attr} className="flex items-center gap-3">
+								<span className="text-sm text-gray-300 w-28">{attr}</span>
+								<button onClick={() => updateAttr(attr, -1)} className={D6_STEP_BUTTON}>-</button>
+								<span className="text-sm text-white font-mono w-12 text-center">
+									{formatDice(pips)}
+								</span>
+								<button onClick={() => updateAttr(attr, 1)} className={D6_STEP_BUTTON}>+</button>
+								{/* Visual bar */}
+								<div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
+									<div
+										className="h-full bg-blue-500 transition-all"
+										style={{ width: `${(pips / 15) * 100}%` }}
+									/>
+								</div>
+							</div>
+						);
+					})}
+				</div>
+			</div>
+			<D6Skills data={data} onChange={onChange} genre={genre} attrPips={attrPips} />
+		</div>
+	);
+}
+
+/** Skill dice added on top of the attribute: 7D in total, at most 2D per skill. */
+function D6Skills({ data, onChange, genre, attrPips }) {
+	const skillsByAttr = getD6Skills(genre);
+	const known = new Set(Object.values(skillsByAttr).flat());
+	const skills = data.skills && !Array.isArray(data.skills) ? data.skills : {};
+	const maxPips = D6_MAX_SKILL_DICE_AT_CREATION * 3;
+	// Skills of another genre (genre changed after allocating) are not counted.
+	const usedPips = Object.entries(skills)
+		.filter(([name]) => known.has(name))
+		.reduce((sum, [, code]) => sum + parseDice(code), 0);
+	const remainingPips = D6_STARTING_SKILL_DICE * 3 - usedPips;
+
+	const updateSkill = (name, delta) => {
+		const next = parseDice(skills[name]) + delta;
+		if (next < 0 || next > maxPips) return;
+		if (delta > 0 && remainingPips < delta) return;
+		const nextSkills = { ...skills };
+		if (next > 0) nextSkills[name] = formatDice(next);
+		else delete nextSkills[name];
+		onChange({ ...data, skills: nextSkills });
+	};
+
+	return (
+		<div className="space-y-3">
 			<p className="text-gray-400 text-sm">
-				Répartis {totalDice}D entre 6 attributs (min 1D, max 5D).
+				Compétences : répartis {D6_STARTING_SKILL_DICE}D en plus des attributs (max {D6_MAX_SKILL_DICE_AT_CREATION}D par compétence).
 				<span className={`ml-2 font-mono ${remainingPips >= 0 ? 'text-blue-400' : 'text-red-400'}`}>
-					Reste: {formatDice(remainingPips > 0 ? remainingPips : 0)}
+					Reste: {formatDice(Math.max(remainingPips, 0))}
 				</span>
 			</p>
-			<div className="space-y-2">
-				{D6_ATTRIBUTES.map(attr => {
-					const pips = parseDice(attrs[attr]);
-					return (
-						<div key={attr} className="flex items-center gap-3">
-							<span className="text-sm text-gray-300 w-28">{attr}</span>
-							<button
-								onClick={() => updateAttr(attr, -1)}
-								className="w-7 h-7 flex items-center justify-center bg-gray-800 border border-gray-700 rounded text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
-							>
-								-
-							</button>
-							<span className="text-sm text-white font-mono w-12 text-center">
-								{formatDice(pips)}
-							</span>
-							<button
-								onClick={() => updateAttr(attr, 1)}
-								className="w-7 h-7 flex items-center justify-center bg-gray-800 border border-gray-700 rounded text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
-							>
-								+
-							</button>
-							{/* Visual bar */}
-							<div className="flex-1 h-2 bg-gray-800 rounded-full overflow-hidden">
-								<div
-									className="h-full bg-blue-500 transition-all"
-									style={{ width: `${(pips / 15) * 100}%` }}
-								/>
-							</div>
+			<div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
+				{Object.entries(skillsByAttr).map(([attr, names]) => (
+					<div key={attr}>
+						<div className="text-xs text-gray-400 uppercase tracking-wider mb-1">
+							{attr} <span className="font-mono normal-case text-gray-500">{formatDice(attrPips(attr))}</span>
 						</div>
-					);
-				})}
+						<div className="space-y-1">
+							{names.map(name => {
+								const added = parseDice(skills[name]);
+								return (
+									<div key={name} className="flex items-center gap-2">
+										<span className={`text-sm flex-1 truncate ${added > 0 ? 'text-white' : 'text-gray-400'}`}>{name}</span>
+										<button onClick={() => updateSkill(name, -1)} disabled={added === 0} className={`${D6_STEP_BUTTON} disabled:opacity-30`}>-</button>
+										<span className="text-xs font-mono w-16 text-center" title="Dés ajoutés → code total">
+											{added > 0
+												? <><span className="text-blue-400">+{formatDice(added)}</span> <span className="text-white">{formatDice(attrPips(attr) + added)}</span></>
+												: <span className="text-gray-600">—</span>}
+										</span>
+										<button onClick={() => updateSkill(name, 1)} disabled={added >= maxPips || remainingPips <= 0} className={`${D6_STEP_BUTTON} disabled:opacity-30`}>+</button>
+									</div>
+								);
+							})}
+						</div>
+					</div>
+				))}
 			</div>
 		</div>
 	);
@@ -296,13 +343,36 @@ function D6Character({ data, onChange }) {
 // MAIN DISPATCH
 // ============================================================================
 
-export default function CharacterCreationStep({ engine, genre, data, onChange }) {
+export default function CharacterCreationStep({ engine, genre, data, onChange, onEnhance, enhancing, enhanceError }) {
 	return (
 		<div className="space-y-6">
 			<h2 className="text-xl font-semibold text-white">Création du personnage</h2>
 
 			{/* Common character identity — all engines */}
 			<div className="space-y-4">
+				{/* Description: the player's short text, which the AI can enrich into the whole step */}
+				<div>
+					<label className="block text-sm text-on-surface-variant mb-1">Description</label>
+					<textarea
+						value={data.description || ''}
+						onChange={(e) => onChange({ ...data, description: e.target.value })}
+						placeholder="Quelques mots suffisent : « ancienne pilote de course, dettes de jeu, ne fait confiance à personne »…"
+						rows={3}
+						className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
+					/>
+					{onEnhance ? (
+						<EnhanceButton
+							onEnhance={onEnhance}
+							enhancing={enhancing}
+							error={enhanceError}
+							disabled={!data.description?.trim()}
+							hint="Enrichit la description et remplit le reste de la fiche."
+						/>
+					) : (
+						<p className="text-xs text-on-surface-variant/40 mt-1">Optionnel — le MJ inventera ce que tu ne précises pas</p>
+					)}
+				</div>
+
 				<div>
 					<label className="block text-sm text-on-surface-variant mb-1">Nom du protagoniste</label>
 					<input
@@ -339,24 +409,13 @@ export default function CharacterCreationStep({ engine, genre, data, onChange })
 					</div>
 				</div>
 
-				<div>
-					<label className="block text-sm text-on-surface-variant mb-1">Description</label>
-					<textarea
-						value={data.description || ''}
-						onChange={(e) => onChange({ ...data, description: e.target.value })}
-						placeholder="Apparence, personnalité, passé... Décris ton personnage en quelques lignes."
-						rows={3}
-						className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-					/>
-					<p className="text-xs text-on-surface-variant/40 mt-1">Optionnel — le MJ inventera ce que tu ne précises pas</p>
-				</div>
 			</div>
 
 			{/* Engine-specific mechanics */}
 			{engine === 'none' && <NoneCharacter />}
 			{engine === 'narrative' && <NarrativeCharacter data={data} onChange={onChange} />}
 			{engine === 'fate_core' && <FateCoreCharacter data={data} onChange={onChange} genre={genre} />}
-			{engine === 'd6' && <D6Character data={data} onChange={onChange} />}
+			{engine === 'd6' && <D6Character data={data} onChange={onChange} genre={genre} />}
 		</div>
 	);
 }

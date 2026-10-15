@@ -120,6 +120,15 @@ export const api = {
 };
 
 // ============================================================================
+// WORLD CREATION API
+// ============================================================================
+
+export const worldApi = {
+	// scope "world": enriches the lore and fills the world step; "character": the character step
+	enhance: (body) => api.post('/world/enhance', body),
+};
+
+// ============================================================================
 // GAMES API
 // ============================================================================
 

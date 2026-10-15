@@ -169,15 +169,19 @@ Phase routing renders `WizardContainer` when `phaseHook.isWizard`.
 
 **File:** `frontend/components/game/wizard/WizardContainer.jsx`
 
-Three steps collect data locally (no API calls):
+Three steps collect data locally (the only API call is the optional AI fill below):
 
 | Step | Component | Data Collected |
 |------|-----------|----------------|
 | 0 | `EngineSelectionStep` | `engine`: `"none"` / `"narrative"` / `"fate_core"` / `"d6"` |
-| 1 | `WorldConfigStep` | `worldConfig`: `{genre, difficulty, hardcore, lore}` + `manualEntities`: `{npcs, locations, organizations}` |
-| 2 | `CharacterCreationStep` | `characterData`: engine-specific stats (traits, aspects, attributes, etc.) |
+| 1 | `WorldConfigStep` | `worldConfig`: `{genre, difficulty, duration, hardcore, lore}` + `manualEntities`: `{npcs, locations, organizations}` |
+| 2 | `CharacterCreationStep` | `characterData`: `{name, gender, occupation, description}` + engine-specific stats (traits, aspects, attributes, etc.) |
 
-On "Create" click → calls `onComplete({engine, worldConfig, characterData, manualEntities})`.
+On "Create" click → calls `onComplete({engine, worldConfig, characterData, manualEntities})`. `characterData` is sent for every engine (free mode included) when not empty. For D6, the wizard keeps skills as `{name: dice added}` and sends `skills: [{attribute, name, dice_value}]` with the full code (attribute + added dice) and every attribute (2D when untouched); skills of another genre are dropped.
+
+**AI fill ("✨ Enrichir avec l'IA").** The player writes a few words in "Contexte libre" (world step) or in the character "Description"; the button sends `POST /world/enhance` with `scope` (`"world"` / `"character"`), `engine`, `provider`, `model` and the whole form as `current`. One LLM call (`Purpose.WORLD_GEN`, prompts in `backend/prompts/world_enhance_prompt.py`) rewrites that text richer and fills the rest of the step: genre (only an existing slug), difficulty, duration, entities for `world`; name, gender, occupation and the selected engine's section for `character`: narrative traits; Fate aspects and the skill pyramid (1 at +4, 2 at +3, 3 at +2, 4 at +1, completed from the current sheet then the list); D6 attributes (1D–5D, 18D total) and skills (dice added to the attribute, at most 2D each, up to 7D). Skills come only from the genre's list (`engine_data.py`, keyed by genre slug, mirrored in `frontend/lib/game/engineConfig.js`). `services/world_enhance.py` validates every field and falls back to the form's current value; the player's entities are kept, and a skill proposal with nothing usable keeps the current skills. Errors: 400 (empty text, unknown scope/engine/provider, no API key), 502 (no usable JSON), 429 (10 calls/min per IP). The step is disabled while the call runs.
+
+**Undo / redo.** The whole form (`engine`, `worldConfig`, `characterData`, `manualEntities`) lives in one history (`hooks/useFormHistory.js` over the pure `lib/game/formHistory.mjs`, tested by `npm test`). Every change, by the player or the AI fill, is an entry; typing in the same field within 1 s is merged into one entry. Buttons in the step card and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y; undoing a change made on another step goes back to that step. Step navigation is not recorded.
 
 #### 2.3 Frontend: handleWizardComplete
 

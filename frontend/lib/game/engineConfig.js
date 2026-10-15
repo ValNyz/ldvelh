@@ -40,18 +40,6 @@ export const ENGINES = [
 ];
 
 // ============================================================================
-// GENRES
-// ============================================================================
-
-export const GENRES = [
-	{ id: 'sci-fi', name: 'Science-Fiction', icon: '🚀' },
-	{ id: 'fantasy', name: 'Fantasy', icon: '🗡️' },
-	{ id: 'cthulhu', name: 'Cthulhu', icon: '🐙' },
-	{ id: 'historical', name: 'Historique', icon: '🏛️' },
-	{ id: 'contemporary', name: 'Contemporain', icon: '🌆' },
-];
-
-// ============================================================================
 // DIFFICULTY
 // ============================================================================
 
@@ -73,12 +61,14 @@ const FATE_SKILLS_BASE = [
 	'Provocation', 'Ressources', 'Tir', 'Tromperie', 'Volonté',
 ];
 
+// Keys are genre slugs from the genres table (presets: sci_fi, dark_fantasy, cosmic_horror, cyberpunk).
 const FATE_SKILLS_BY_GENRE = {
-	'fantasy': { add: ['Magie', 'Équitation', 'Survie'], remove: [] },
-	'sci-fi': { add: ['Pilotage', 'Technologie', 'Piratage'], remove: ['Équitation'] },
-	'cthulhu': { add: ['Occultisme', 'Santé Mentale', 'Langues Anciennes'], remove: ['Commandement'] },
-	'historical': { add: ['Équitation', 'Survie', 'Artisanat'], remove: ['Pilotage', 'Technologie'] },
-	'contemporary': { add: ['Informatique', 'Réseau Social'], remove: [] },
+	dark_fantasy: { add: ['Magie', 'Équitation', 'Survie'], remove: [] },
+	sci_fi: { add: ['Pilotage', 'Technologie', 'Piratage'], remove: ['Équitation'] },
+	cosmic_horror: { add: ['Occultisme', 'Santé Mentale', 'Langues Anciennes'], remove: ['Commandement'] },
+	cyberpunk: { add: ['Piratage', 'Technologie', 'Cybernétique'], remove: [] },
+	historical: { add: ['Équitation', 'Survie', 'Artisanat'], remove: ['Pilotage', 'Technologie'] },
+	contemporary: { add: ['Informatique', 'Réseau Social'], remove: [] },
 };
 
 export function getFateSkills(genre) {
@@ -113,3 +103,72 @@ export const D6_ATTRIBUTES = [
 
 export const D6_STARTING_ATTRIBUTE_DICE = 18;
 export const D6_STARTING_SKILL_DICE = 7;
+export const D6_MAX_SKILL_DICE_AT_CREATION = 2;
+
+const D6_SKILLS_BASE = {
+	'Dextérité': ['Acrobaties', 'Armes blanches', 'Bagarre', 'Corps à corps', 'Esquive', 'Lancer'],
+	'Connaissance': ['Bureaucratie', 'Culture', 'Droit', 'Langues', 'Sciences', 'Stratégie'],
+	'Mécanique': ['Armurerie', 'Démolition', 'Premiers secours', 'Réparation', 'Sécurité'],
+	'Perception': ['Baratin', 'Commandement', 'Dissimulation', 'Investigation', 'Marchandage', 'Recherche'],
+	'Force': ['Endurance', 'Escalade', 'Natation', 'Soulever'],
+	'Technique': ['Informatique', 'Médecine', 'Navigation', 'Programmation'],
+};
+
+const D6_SKILLS_BY_GENRE = {
+	dark_fantasy: {
+		add: {
+			'Connaissance': ['Arcanes', 'Herboristerie', 'Théologie'],
+			'Dextérité': ['Équitation', "Tir à l'arc"],
+			'Force': ['Survie en milieu sauvage'],
+		},
+		remove: { 'Technique': ['Informatique', 'Programmation'] },
+	},
+	sci_fi: {
+		add: {
+			'Dextérité': ['Blasters', 'Pilotage'],
+			'Technique': ['Astrogation', 'Capteurs', 'Droïdes'],
+			'Mécanique': ['Transpondeurs'],
+		},
+		remove: {},
+	},
+	cosmic_horror: {
+		add: {
+			'Connaissance': ['Occultisme', 'Mythes de Cthulhu', 'Archéologie'],
+			'Perception': ['Psychologie'],
+		},
+		remove: { 'Technique': ['Programmation'] },
+	},
+	cyberpunk: {
+		add: {
+			'Dextérité': ['Armes à feu'],
+			'Technique': ['Cybernétique', 'Piratage'],
+			'Mécanique': ['Pilotage'],
+		},
+		remove: {},
+	},
+	contemporary: {
+		add: {
+			'Technique': ['Réseau Social', 'Conduite'],
+			'Dextérité': ['Armes à feu'],
+		},
+		remove: {},
+	},
+};
+
+/** D6 skills by attribute for a genre (sorted), like backend get_d6_skills. */
+export function getD6Skills(genre) {
+	const skills = Object.fromEntries(
+		Object.entries(D6_SKILLS_BASE).map(([attr, list]) => [attr, [...list]]),
+	);
+	const mods = D6_SKILLS_BY_GENRE[genre];
+	if (mods) {
+		for (const [attr, toRemove] of Object.entries(mods.remove)) {
+			if (skills[attr]) skills[attr] = skills[attr].filter(s => !toRemove.includes(s));
+		}
+		for (const [attr, toAdd] of Object.entries(mods.add)) {
+			skills[attr] = [...(skills[attr] || []), ...toAdd];
+		}
+	}
+	for (const attr of Object.keys(skills)) skills[attr].sort((a, b) => a.localeCompare(b, 'fr'));
+	return skills;
+}

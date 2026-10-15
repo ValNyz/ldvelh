@@ -142,6 +142,7 @@ export default function Home() {
 				onComplete={orch.handleWizardComplete}
 				onCancel={orch.handleWizardCancel}
 				loading={gs.loading}
+				preferences={prefs}
 			/>
 		);
 	}

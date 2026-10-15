@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../../lib/api';
 import { DIFFICULTIES } from '../../../lib/game/engineConfig';
+import EnhanceButton from './EnhanceButton';
 
 const GENRE_ICONS = {
 	sci_fi: '🚀',
@@ -11,11 +12,16 @@ const GENRE_ICONS = {
 	cyberpunk: '💾',
 };
 
-export default function WorldConfigStep({ config, onChange, manualEntities, onManualEntitiesChange }) {
+export default function WorldConfigStep({
+	config, onChange, manualEntities, onManualEntitiesChange, onEnhance, enhancing, enhanceError,
+}) {
 	const update = (key, val) => onChange({ ...config, [key]: val });
-	const [showEntities, setShowEntities] = useState(
-		() => !!(manualEntities?.npcs?.length || manualEntities?.locations?.length || manualEntities?.organizations?.length)
-	);
+	const hasEntities = !!(manualEntities?.npcs?.length || manualEntities?.locations?.length || manualEntities?.organizations?.length);
+	const [showEntities, setShowEntities] = useState(hasEntities);
+	// Open the section when entities appear (AI fill, redo) so the player sees them.
+	useEffect(() => {
+		if (hasEntities) setShowEntities(true);
+	}, [hasEntities]);
 	const [genres, setGenres] = useState([]);
 
 	// Load genres from API
@@ -32,6 +38,28 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 	return (
 		<div className="space-y-6">
 			<h2 className="text-xl font-semibold text-white">Configuration du monde</h2>
+
+			{/* Lore: the player's short text, which the AI can enrich into the whole step */}
+			<div>
+				<label className="block text-sm text-gray-300 mb-2">
+					Contexte libre <span className="text-gray-500">(optionnel)</span>
+				</label>
+				<textarea
+					value={config.lore || ''}
+					onChange={(e) => update('lore', e.target.value)}
+					placeholder="Quelques mots suffisent : « cyberpunk sous une pluie éternelle, une corpo traque les hackers »…"
+					className="w-full h-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
+				/>
+				{onEnhance && (
+					<EnhanceButton
+						onEnhance={onEnhance}
+						enhancing={enhancing}
+						error={enhanceError}
+						disabled={!config.lore?.trim()}
+						hint="Enrichit le contexte et remplit genre, difficulté, durée et entités."
+					/>
+				)}
+			</div>
 
 			{/* Genre */}
 			<div>
@@ -98,19 +126,6 @@ export default function WorldConfigStep({ config, onChange, manualEntities, onMa
 						</button>
 					))}
 				</div>
-			</div>
-
-			{/* Lore (optional) */}
-			<div>
-				<label className="block text-sm text-gray-300 mb-2">
-					Contexte libre <span className="text-gray-500">(optionnel)</span>
-				</label>
-				<textarea
-					value={config.lore || ''}
-					onChange={(e) => update('lore', e.target.value)}
-					placeholder="Décris l'ambiance, le contexte historique, des détails particuliers..."
-					className="w-full h-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
-				/>
 			</div>
 
 			{/* Hardcore toggle */}
