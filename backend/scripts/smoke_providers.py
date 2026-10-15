@@ -8,13 +8,16 @@ runs the three call shapes the game uses:
                 (tool_use / json_schema / text)
 
 Keys come from config.Settings (environment, or backend/.env when run from
-backend/). Providers without a key are skipped.
+backend/), or with --user-email from the API keys that player saved in the
+app (encrypted in the DB, decrypted with ENCRYPTION_KEY like /chat does).
+Providers without a key are skipped. Keys are never printed.
 
 Usage (from backend/):
   python -m scripts.smoke_providers                    # defaults of each provider
   python -m scripts.smoke_providers --all-models       # every listed chat model
   python -m scripts.smoke_providers --provider mistral --all-models --max-models 10
   python -m scripts.smoke_providers --provider anthropic --model claude-opus-5-5
+  python -m scripts.smoke_providers --user-email me@example.com --all-models
 
 Exit code 1 if any provider default model fails a probe.
 """
@@ -229,18 +232,47 @@ def print_report(reports: list[ModelReport]) -> None:
     print("\n* = provider default (narration or mechanical)")
 
 
+async def user_api_keys(email: str) -> dict[str, str]:
+    """Decrypted API keys a player saved in the app, by provider name."""
+    import asyncpg
+
+    from utils.crypto import decrypt_value
+
+    conn = await asyncpg.connect(get_settings().database_url)
+    try:
+        prefs = await conn.fetchval(
+            "SELECT preferences FROM users WHERE LOWER(email) = LOWER($1)", email
+        )
+    finally:
+        await conn.close()
+    if prefs is None:
+        raise SystemExit(f"No user with email {email!r}")
+    if isinstance(prefs, str):
+        prefs = json.loads(prefs)
+    keys = {}
+    for provider_name, encrypted in (prefs.get("api_keys") or {}).items():
+        try:
+            keys[provider_name] = decrypt_value(encrypted)
+        except Exception as e:
+            print(f"[warn] {provider_name}: stored key cannot be decrypted ({type(e).__name__})")
+    return keys
+
+
 async def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--provider", action="append", choices=sorted(_CLASSES))
     parser.add_argument("--model", action="append", help="test only these model ids")
     parser.add_argument("--all-models", action="store_true", help="also test every listed chat model")
     parser.add_argument("--max-models", type=int, default=0, help="cap extra models per provider")
+    parser.add_argument("--user-email", help="use the API keys this player saved in the app")
     args = parser.parse_args(argv)
 
     settings = get_settings()
+    saved_keys = await user_api_keys(args.user_email) if args.user_email else {}
     reports: list[ModelReport] = []
     for provider_name in args.provider or sorted(_CLASSES):
-        api_key = getattr(settings, KEY_FIELDS.get(provider_name, ""), "")
+        api_key = saved_keys.get(provider_name) or getattr(
+            settings, KEY_FIELDS.get(provider_name, ""), "")
         if not api_key:
             print(f"[skip] {provider_name}: no API key configured")
             continue

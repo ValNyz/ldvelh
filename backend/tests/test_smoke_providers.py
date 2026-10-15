@@ -79,3 +79,14 @@ async def test_exit_code_fails_only_on_default_models(monkeypatch, capsys):
     monkeypatch.setattr(smoke, "get_provider", lambda *a, **k: StubProvider(fail=RuntimeError("down")))
     assert await smoke.main(["--provider", "anthropic"]) == 1
     assert "KO" in capsys.readouterr().out
+
+
+async def test_user_saved_keys_are_decrypted(test_pool, test_user, monkeypatch):
+    from utils.crypto import encrypt_value
+
+    async with test_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET preferences = $1 WHERE id = $2",
+            {"api_keys": {"mistral": encrypt_value("sk-test-mistral")}}, test_user["id"])
+        email = await conn.fetchval("SELECT email FROM users WHERE id = $1", test_user["id"])
+    assert await smoke.user_api_keys(email.upper()) == {"mistral": "sk-test-mistral"}
