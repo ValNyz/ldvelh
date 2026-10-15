@@ -5,10 +5,24 @@ All engine-specific logic goes through this abstraction.
 
 from __future__ import annotations
 
+import unicodedata
 from abc import ABC, abstractmethod
 from uuid import UUID
 
 from schema.engine import EngineType, MechanicalDecision, RollResult
+
+
+def normalize_name(name) -> str:
+    """Case- and accent-insensitive key for skill/attribute names ("Dexterite" == "Dextérité")."""
+    decomposed = unicodedata.normalize("NFKD", str(name or ""))
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).strip().lower()
+
+
+def _format_skill_value(value) -> str:
+    """Fate level as "+2" / "-1", D6 dice code as is ("4D+2")."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{value:+d}"
+    return str(value) if value not in (None, "") else "?"
 
 
 class BaseEngine(ABC):
@@ -156,7 +170,7 @@ class BaseEngine(ABC):
         Override in subclasses for engine-specific formatting."""
         lines = [
             "### RÉSULTAT MÉCANIQUE",
-            f"**Compétence testée**: {decision.skill} (+{decision.skill_value})",
+            f"**Compétence testée**: {decision.skill} ({_format_skill_value(decision.skill_value)})",
             f"**Difficulté**: {decision.difficulty}" + (
                 f" ({decision.difficulty_label})" if decision.difficulty_label else ""
             ),

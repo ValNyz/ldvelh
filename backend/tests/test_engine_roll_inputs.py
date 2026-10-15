@@ -73,3 +73,20 @@ class TestD6Resolution:
             skill="Blasters", skill_value="4D+2", opposition={"npc_name": "Garde", "skill_value": 5}))
         # 5 dice showing 4 = 20 (a single die would give 4)
         assert roll.opposition_total == 20
+
+
+class TestNarratorResultSection:
+    @pytest.mark.parametrize("engine_name,value,expected", [
+        ("fate_core", 2, "(+2)"), ("fate_core", -1, "(-1)"), ("d6", "4D+2", "(4D+2)")])
+    def test_skill_value_is_rendered_per_engine(self, engine_name, value, expected):
+        engine = get_engine(engine_name)
+        decision = _decision(skill="Combat", skill_value=value, difficulty=2, reason="r")
+        lines = engine.build_mechanical_result_section(decision, engine.roll_dice(decision))
+        assert f"Combat {expected}" in "\n".join(lines)
+
+
+def test_skill_names_match_without_accents():
+    resolved = get_engine("d6").resolve_roll_inputs(_decision(skill="Dexterite", skill_value="6D"), D6_STATS)
+    assert resolved.skill_value == "3D"
+    fate = get_engine("fate_core").resolve_roll_inputs(_decision(skill="athletisme", skill_value=0), FATE_STATS)
+    assert fate.skill_value == 3

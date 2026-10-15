@@ -74,6 +74,19 @@ async def test_c04b_mechanical_failure_warns_and_narrates(harness, engine):
     })
 
 
+async def test_c04c_arrival_turn_never_rolls_dice(harness):
+    """The arrival text is narration only: no mechanical call even if one would ask for a test."""
+    game_id = await harness.create_game("fate_core")
+    await harness.init_world(game_id, engine="fate_core",
+                             character_data=payloads.CHARACTER_DATA["fate_core"])
+    harness.llm._responses["mechanical"] = payloads.mechanical(requires_test=True, difficulty=4)
+    harness.llm.calls.clear()
+    events = await harness.chat(game_id, "__ARRIVEE__")
+    await harness.drain()
+    assert "mechanical" not in harness.llm.purposes()
+    assert "roll_pending" not in harness.summarize(events)
+
+
 async def test_c05_fate_invocation_pending_then_resume(harness, monkeypatch):
     game_id = await _engine_game(harness, "fate_core")
     harness.llm._responses["mechanical"] = payloads.mechanical(

@@ -8,7 +8,7 @@ import re
 from uuid import UUID
 
 from schema.engine import EngineType, MechanicalDecision, RollResult
-from .base import BaseEngine
+from .base import BaseEngine, normalize_name
 
 
 def parse_dice_code(code: str) -> tuple[int, int]:
@@ -314,13 +314,13 @@ class D6Engine(BaseEngine):
         """
         if not engine_stats or not decision.skill:
             return decision
-        wanted = decision.skill.strip().lower()
+        wanted = normalize_name(decision.skill)
         for skill in engine_stats.get("skills") or []:
-            if isinstance(skill, dict) and str(skill.get("name", "")).strip().lower() == wanted:
+            if isinstance(skill, dict) and normalize_name(skill.get("name")) == wanted:
                 return decision.model_copy(update={"skill_value": skill.get("dice_value")})
         attributes = engine_stats.get("attributes") or {}
         for name, code in attributes.items():
-            if name.strip().lower() == wanted:
+            if normalize_name(name) == wanted:
                 return decision.model_copy(update={"skill_value": code})
         if not attributes:
             return decision

@@ -363,6 +363,7 @@ async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):
         await _handle_chat(**kwargs)
 
 
+ARRIVAL_TOKEN = "__ARRIVEE__"
 DEFAULT_ARRIVAL_MESSAGE = "Je viens d'arriver."
 
 
@@ -620,7 +621,8 @@ async def _handle_chat(
             # Protocol token (__ARRIVEE__): replace it with the genre's arrival text.
             # The raw game row is read here because the normalized game state
             # does not carry genre_id / world_name (#9).
-            if message.startswith("__"):
+            is_arrival_turn = request.message == ARRIVAL_TOKEN
+            if is_arrival_turn:
                 message = await _build_arrival_message(pool, game_id)
 
             async with pool.acquire() as conn:
@@ -693,7 +695,12 @@ async def _handle_chat(
                 )
                 await sse_writer.send_roll_result(updated_roll.model_dump())
 
-            elif engine.needs_mechanical_step() and context.engine_stats:
+            # The arrival scene is narration only: no dice on the opening text.
+            elif (
+                engine.needs_mechanical_step()
+                and context.engine_stats
+                and not is_arrival_turn
+            ):
                 try:
                     mechanical_result = await run_mechanical_step(
                         engine=engine,
