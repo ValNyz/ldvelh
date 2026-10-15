@@ -113,7 +113,7 @@ export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSave
 		} finally {
 			abortControllerRef.current = null;
 		}
-	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus]);
+	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus, onWarning]);
 
 	const cancel = useCallback(() => {
 		if (abortControllerRef.current) {
