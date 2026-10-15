@@ -5,11 +5,14 @@ For each provider with an API key:
      a listing failure (or an empty listing) writes nothing for that provider;
   2. insert new chat models as `pending`;
   3. retire `auto` rows the provider no longer lists (never `manual` ones);
+     enabled rows and role holders only after 3 consecutive absent runs;
   4. probe new, pending, failed and role-holding models (all with --reprobe-all),
      retrying once with an adjusted profile on a temperature / tool_choice error;
   5. set the status: probes OK + known price -> enabled when the provider may
-     auto-enable (Anthropic never does), else pending; probe failure -> failed.
-     `manual` rows keep their status and profile;
+     auto-enable (Anthropic never does) or was enabled before, else pending;
+     probe failure -> failed, except an enabled row, demoted only after 3
+     consecutive failed runs or at once on a permanent error (404, unknown
+     model). `manual` rows keep their status and profile (retired ones are not probed);
   6. make sure `narration` and `mechanical` each have an enabled model;
   7. fill prices: manual > provider listing > code table > models.dev > OpenRouter (estimate).
 
@@ -58,6 +61,15 @@ MODELS_DEV_URL = "https://models.dev/api.json"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/models"
 PRICE_FETCH_TIMEOUT_S = 20.0
 BIG_PRICE_CHANGE = 0.5  # relative change that deserves a log line
+# An enabled model survives this many consecutive bad runs (failed probes, or
+# absence from a non-empty listing) before it is demoted: 429 / 5xx / timeouts
+# and listing glitches are usually transient.
+DEMOTE_AFTER_RUNS = 3
+# Probe errors that mean the model is gone for good: demote at once.
+PERMANENT_ERROR_MARKERS = (
+    "404", "notfounderror", "model_not_found", "not_found_error", "model not found",
+    "does not exist", "invalid model", "unknown model", "invalid_model",
+)
 
 Prober = Callable[[str, str, ModelProfile | None], Awaitable[dict[str, ProbeResult]]]
 Lister = Callable[[str], Awaitable[list[dict]]]
@@ -75,6 +87,8 @@ class PriceSources:
     openrouter: dict | None
 
     def from_models_dev(self, provider: str, model_id: str) -> ModelPricing | None:
+        if self.models_dev is None:
+            return None
         try:
             cost = self.models_dev[provider]["models"][model_id]["cost"]
             return _priced(ModelPricing(
@@ -192,19 +206,31 @@ def live_prober(api_key: str) -> Prober:
     return prober
 
 
+def _fallback_profile(provider: str, model_id: str) -> ModelProfile:
+    """The rules the provider applies to this model when the catalog gives none."""
+    if provider == "anthropic":
+        fallbacks = AnthropicProvider.FALLBACK_PROFILES
+        return fallbacks.get(model_id, fallbacks[AnthropicProvider.MODEL_MAIN])
+    return DEFAULT_PROFILE
+
+
 def _base_profile(provider: str, model_id: str, stored: dict | None) -> ModelProfile | None:
     """Row profile; empty -> provider fallback rules (R5). An unknown Claude id needs
     an explicit profile, else the Anthropic provider would swap it for its default model."""
     if stored:
         return ModelProfile.from_dict(stored)
     if provider == "anthropic" and model_id not in AnthropicProvider.MODELS:
-        fallbacks = AnthropicProvider.FALLBACK_PROFILES
-        return fallbacks.get(model_id, fallbacks[AnthropicProvider.MODEL_MAIN])
+        return _fallback_profile(provider, model_id)
     return None
 
 
 def _all_ok(results: dict[str, ProbeResult]) -> bool:
     return bool(results) and all(r.ok for r in results.values())
+
+
+def _is_permanent(results: dict[str, ProbeResult]) -> bool:
+    errors = " ".join(r.detail.lower() for r in results.values() if not r.ok)
+    return any(marker in errors for marker in PERMANENT_ERROR_MARKERS)
 
 
 async def probe_with_retry(prober: Prober, provider: str, model_id: str,
@@ -218,7 +244,7 @@ async def probe_with_retry(prober: Prober, provider: str, model_id: str,
         if _all_ok(results):
             break
         errors = " ".join(r.detail.lower() for r in results.values() if not r.ok)
-        current = profile or DEFAULT_PROFILE
+        current = profile or _fallback_profile(provider, model_id)
         fixed = current
         if "temperature" in errors and current.send_temperature:
             fixed = replace(fixed, send_temperature=False)
@@ -331,12 +357,29 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
                           "source": "auto", "last_probed_at": None}
     report.inserted = new_ids
 
-    # 3. Auto rows the provider no longer lists are retired.
+    for r in rows.values():
+        r["probe_results"] = _as_dict(r["probe_results"])
+
+    # 3. Auto rows the provider no longer lists are retired; enabled rows and
+    # role holders only after DEMOTE_AFTER_RUNS consecutive absent runs.
     for model_id, r in rows.items():
-        if model_id not in listed and r["source"] == "auto" and r["status"] != "retired":
-            r["status"] = "retired"
-            dirty.add(model_id)
-            report.retired.append(model_id)
+        if model_id in listed:
+            if r["probe_results"].get("absent"):
+                r["probe_results"]["absent"] = 0
+                dirty.add(model_id)
+            continue
+        if r["source"] != "auto" or r["status"] == "retired":
+            continue
+        dirty.add(model_id)
+        if r["status"] == "enabled" or r["roles"]:
+            absent = int(r["probe_results"].get("absent") or 0) + 1
+            r["probe_results"]["absent"] = absent
+            if absent < DEMOTE_AFTER_RUNS:
+                logger.warning(f"[catalog] {provider}/{model_id}: missing from the listing "
+                               f"({absent}/{DEMOTE_AFTER_RUNS}), kept")
+                continue
+        r["status"] = "retired"
+        report.retired.append(model_id)
 
     # 7 (before 5: the status needs the price). Prices, unless set by hand.
     for model_id, r in rows.items():
@@ -366,13 +409,20 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
             continue
         needs_probe = (model_id in new_ids or r["status"] in ("pending", "failed", "retired")
                        or bool(r["roles"]) or reprobe_all)
+        if r["source"] == "manual" and r["status"] == "retired":
+            needs_probe = False  # switched off by hand: no paid probe
         if not needs_probe:
             continue
         base = _base_profile(provider, model_id, r["profile"])
         results, used, adjusted = await probe_with_retry(prober, provider, model_id, base)
         ok = _all_ok(results)
         report.probed[model_id] = ok
+        previous = r["probe_results"]
+        failures = 0 if ok else int(previous.get("failures") or 0) + 1
         r["probe_results"] = {name: {"ok": p.ok, "detail": p.detail} for name, p in results.items()}
+        r["probe_results"].update(failures=failures, absent=int(previous.get("absent") or 0))
+        if previous.get("was_enabled") and not ok:
+            r["probe_results"]["was_enabled"] = True
         r["last_probed_at"] = "now"
         dirty.add(model_id)
         if r["source"] == "manual":
@@ -384,11 +434,19 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
             # R5: save the profile the model needed (or the Claude rules an unknown id needs).
             r["profile"] = used.to_dict()
         priced = r["input_price"] is not None or r["output_price"] is not None
-        if not ok:
+        was_enabled = r["status"] == "enabled" or bool(previous.get("was_enabled"))
+        if not ok and r["status"] == "enabled" and not _is_permanent(results) \
+                and failures < DEMOTE_AFTER_RUNS:
+            status = "enabled"  # transient until proven otherwise
+            logger.warning(f"[catalog] {provider}/{model_id}: probes failed "
+                           f"({failures}/{DEMOTE_AFTER_RUNS}), kept enabled")
+        elif not ok:
             status = "failed"
-        elif priced and (auto_enable or r["status"] == "enabled"):
+            if r["status"] == "enabled":
+                r["probe_results"]["was_enabled"] = True
+        elif priced and (auto_enable or was_enabled):
             status = "enabled"
-        elif r["status"] == "enabled":
+        elif was_enabled:
             status = "enabled"  # never drop a working model for a missing price
             logger.warning(f"[catalog] {provider}/{model_id}: enabled without a known price")
         else:
@@ -433,7 +491,7 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
                WHERE provider = $1 AND model_id = $2""",
             provider, model_id, r["status"], r["roles"], r["input_price"], r["output_price"],
             r["cache_write_price"], r["cache_read_price"], r["price_source"], r["profile"],
-            _as_dict(r["probe_results"]) or None, probed_now,
+            r["probe_results"] or None, probed_now,
         )
 
 
@@ -474,8 +532,8 @@ async def manual_action(conn, action: str, provider: str, model_id: str, role: s
             "UPDATE llm_models SET roles = array_remove(roles, $2), updated_at = now() "
             "WHERE provider = $1 AND $2 = ANY(roles)", provider, role)
         await conn.execute(
-            "UPDATE llm_models SET roles = array_append(roles, $3), source = 'manual', "
-            "updated_at = now() WHERE provider = $1 AND model_id = $2", provider, model_id, role)
+            "UPDATE llm_models SET roles = array_append(roles, $3), updated_at = now() "
+            "WHERE provider = $1 AND model_id = $2", provider, model_id, role)
     return None
 
 
@@ -526,7 +584,7 @@ def _print_report(r: RefreshReport) -> None:
 
 
 async def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n\n")[0])
     parser.add_argument("--provider", action="append", choices=sorted(_CLASSES))
     parser.add_argument("--user-email", help="use the API keys this player saved in the app")
     parser.add_argument("--reprobe-all", action="store_true", help="probe every listed model")
@@ -569,11 +627,17 @@ async def main(argv: list[str] | None = None) -> int:
             if name not in keys:
                 print(f"[catalog] {name}: no API key, skipped")
                 continue
-            reports.append(await refresh_provider(
-                conn, name, keys[name], auto_enable=name in auto, reprobe_all=args.reprobe_all,
-                prober=live_prober(keys[name]), price_sources=sources,
-                lister=live_lister(name, keys[name]), dry_run=args.dry_run,
-            ))
+            try:
+                report = await refresh_provider(
+                    conn, name, keys[name], auto_enable=name in auto,
+                    reprobe_all=args.reprobe_all, prober=live_prober(keys[name]),
+                    price_sources=sources, lister=live_lister(name, keys[name]),
+                    dry_run=args.dry_run,
+                )
+            except Exception as e:  # rolled back by refresh_provider; go on with the others
+                logger.exception(f"[catalog] {name}: refresh crashed")
+                report = RefreshReport(name, error=f"refresh crashed ({_short(e)})")
+            reports.append(report)
             _print_report(reports[-1])
     finally:
         await _close(conn)

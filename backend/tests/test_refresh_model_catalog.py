@@ -13,7 +13,7 @@ import pytest_asyncio
 
 from llm.profile import ModelProfile
 from scripts import refresh_model_catalog as refresh
-from scripts.refresh_model_catalog import PriceSources, refresh_provider
+from scripts.refresh_model_catalog import PriceSources, RefreshReport, refresh_provider
 from scripts.smoke_providers import ProbeResult
 from services.llm_providers import AnthropicProvider
 
@@ -146,7 +146,7 @@ async def test_dead_default_is_replaced_by_preferred_enabled_model(conn, caplog)
     await _insert(conn, "mistral", "third", rank=3, inp=5, out=5, price_source="code")
     with caplog.at_level(logging.WARNING):
         report = await _refresh(conn, "mistral", ["dead", "cheap", "second", "third"],
-                                prober=_prober({"dead": "APIError: 500"}))
+                                prober=_prober({"dead": "NotFoundError: Error code: 404 - model_not_found"}))
     dead, second = await _row(conn, "mistral", "dead"), await _row(conn, "mistral", "second")
     assert dead["status"] == "failed" and dead["roles"] == []
     assert set(second["roles"]) == {"narration", "mechanical"}
@@ -172,7 +172,7 @@ async def test_listing_failure_does_not_retire_models(conn):
 
 @pytest.mark.asyncio
 async def test_auto_model_absent_from_listing_is_retired(conn):
-    await _insert(conn, "mistral", "gone", inp=1, out=1, price_source="code")
+    await _insert(conn, "mistral", "gone", status="pending", inp=1, out=1, price_source="code")
     await _insert(conn, "mistral", "gone-manual", inp=1, out=1, price_source="code", source="manual")
     await _refresh(conn, "mistral", [PRICED])
     assert (await _row(conn, "mistral", "gone"))["status"] == "retired"
@@ -277,7 +277,7 @@ async def test_price_source_down_does_not_fail_refresh(conn, caplog):
 async def test_role_without_enabled_model_fails_the_run(conn):
     await _insert(conn, "mistral", "only", roles=["narration", "mechanical"], inp=1, out=1,
                   price_source="code")
-    report = await _refresh(conn, "mistral", ["only"], prober=_prober({"only": "APIError: 500"}))
+    report = await _refresh(conn, "mistral", ["only"], prober=_prober({"only": "NotFoundError: Error code: 404 - model_not_found"}))
     assert not report.ok and set(report.roles_lost) == {"narration", "mechanical"}
     # The dead holder keeps its roles so it takes them back once it recovers.
     assert set((await _row(conn, "mistral", "only"))["roles"]) == {"narration", "mechanical"}
@@ -374,3 +374,143 @@ async def test_manual_actions(conn, monkeypatch):
     assert (await _row(conn, "mistral", "b"))["status"] == "retired"
     assert await refresh.main(["--disable", "mistral", "missing"]) == 1
     assert await refresh.main(["--set-role", "mistral", "a", "bogus"]) == 1
+
+
+# --- Fix round 1: transient failures never drop a working model -------------
+
+async def _holder(c, model_id="holder", **kw):
+    await _insert(c, "mistral", model_id, roles=["narration", "mechanical"], rank=1, inp=1, out=1,
+                  price_source="code", **kw)
+
+
+@pytest.mark.asyncio
+async def test_role_holder_transient_failure_stays_enabled_then_recovers(conn):
+    await _holder(conn)
+    await _insert(conn, "mistral", "backup", rank=2, inp=1, out=1, price_source="code")
+    await _refresh(conn, "mistral", ["holder", "backup"],
+                   prober=_prober({"holder": "RateLimitError: Error code: 429"}))
+    row = await _row(conn, "mistral", "holder")
+    assert row["status"] == "enabled" and set(row["roles"]) == {"narration", "mechanical"}
+    assert row["probe_results"]["failures"] == 1 and not row["probe_results"]["stream"]["ok"]
+    await _refresh(conn, "mistral", ["holder", "backup"])
+    row = await _row(conn, "mistral", "holder")
+    assert row["status"] == "enabled" and row["probe_results"]["failures"] == 0
+
+
+@pytest.mark.asyncio
+async def test_three_consecutive_failures_demote_and_move_role(conn):
+    await _holder(conn)
+    await _insert(conn, "mistral", "backup", rank=2, inp=1, out=1, price_source="code")
+    for run in range(3):
+        await _refresh(conn, "mistral", ["holder", "backup"],
+                       prober=_prober({"holder": "APIError: Error code: 503"}))
+        row = await _row(conn, "mistral", "holder")
+        assert row["status"] == ("failed" if run == 2 else "enabled")
+    assert row["roles"] == [] and row["probe_results"]["was_enabled"] is True
+    assert set((await _row(conn, "mistral", "backup"))["roles"]) == {"narration", "mechanical"}
+
+
+@pytest.mark.asyncio
+async def test_not_found_demotes_immediately(conn):
+    await _holder(conn)
+    await _insert(conn, "mistral", "backup", rank=2, inp=1, out=1, price_source="code")
+    await _refresh(conn, "mistral", ["holder", "backup"],
+                   prober=_prober({"holder": "NotFoundError: Error code: 404 - not found"}))
+    row = await _row(conn, "mistral", "holder")
+    assert row["status"] == "failed" and row["roles"] == []
+
+
+@pytest.mark.asyncio
+async def test_role_holder_absent_three_times_is_retired(conn):
+    await _holder(conn)
+    await _insert(conn, "mistral", "backup", rank=2, inp=1, out=1, price_source="code")
+    for run in range(3):
+        await _refresh(conn, "mistral", ["backup"])
+        row = await _row(conn, "mistral", "holder")
+        assert row["status"] == ("retired" if run == 2 else "enabled")
+        if run < 2:
+            assert set(row["roles"]) == {"narration", "mechanical"}
+            assert row["probe_results"]["absent"] == run + 1
+    assert set((await _row(conn, "mistral", "backup"))["roles"]) == {"narration", "mechanical"}
+    # Listed again: the absence counter of a surviving row resets.
+    await _insert(conn, "mistral", "flaky", inp=1, out=1, price_source="code")
+    await _refresh(conn, "mistral", ["backup"])
+    await _refresh(conn, "mistral", ["backup", "flaky"])
+    assert (await _row(conn, "mistral", "flaky"))["probe_results"]["absent"] == 0
+
+
+@pytest.mark.asyncio
+async def test_exception_in_one_provider_still_processes_the_next(conn, monkeypatch):
+    monkeypatch.setattr(refresh, "get_settings",
+                        lambda: _settings(mistral_api_key="sk-a", nous_api_key="sk-b",
+                                          catalog_auto_enable="mistral,nous"))
+
+    async def same_conn(url):
+        return conn
+
+    async def no_close(c):
+        return None
+
+    async def sources(fetch=None):
+        return NO_PRICES
+
+    async def boom(name, model, profile):
+        raise RuntimeError("prober crashed")
+
+    monkeypatch.setattr(refresh, "_connect", same_conn)
+    monkeypatch.setattr(refresh, "_close", no_close)
+    monkeypatch.setattr(refresh, "fetch_price_sources", sources)
+    monkeypatch.setattr(refresh, "live_lister", lambda name, key: _lister([PRICED]))
+    monkeypatch.setattr(refresh, "live_prober", lambda key: boom if key == "sk-a" else _prober())
+    assert await refresh.main(["--provider", "mistral", "--provider", "nous"]) == 1
+    assert await _row(conn, "mistral", "zz-new") is None  # rolled back
+    assert (await _row(conn, "nous", "zz-new"))["status"] == "enabled"
+
+
+@pytest.mark.asyncio
+async def test_manual_retired_row_not_probed(conn):
+    await _insert(conn, "mistral", "off", status="retired", source="manual", inp=1, out=1,
+                  price_source="code")
+    calls = []
+    await _refresh(conn, "mistral", ["off"], prober=_prober(calls=calls), reprobe_all=True)
+    assert calls == [] and (await _row(conn, "mistral", "off"))["status"] == "retired"
+
+
+@pytest.mark.asyncio
+async def test_recovered_previously_enabled_row_is_re_enabled_without_auto_enable(conn):
+    await _holder(conn)
+    await _refresh(conn, "mistral", ["holder"], auto_enable=False,
+                   prober=_prober({"holder": "NotFoundError: Error code: 404"}))
+    assert (await _row(conn, "mistral", "holder"))["status"] == "failed"
+    await _refresh(conn, "mistral", ["holder"], auto_enable=False)
+    row = await _row(conn, "mistral", "holder")
+    assert row["status"] == "enabled" and row["probe_results"].get("was_enabled") is not True
+
+
+@pytest.mark.asyncio
+async def test_retry_starts_from_provider_fallback_profile(conn):
+    calls = []
+    fail = lambda model, profile: "BadRequestError: temperature is deprecated" \
+        if profile is None else None
+    await _refresh(conn, "anthropic", [{"id": "claude-haiku-5-5"}], prober=_prober(fail, calls),
+                   auto_enable=False)
+    # Any retry keeps Haiku's built-in rules (thinking disabled), never DEFAULT_PROFILE's.
+    haiku = AnthropicProvider.FALLBACK_PROFILES["claude-haiku-5-5"]
+    assert all(p is None or p.thinking == haiku.thinking for _, p in calls)
+
+
+@pytest.mark.asyncio
+async def test_set_role_keeps_source(conn, monkeypatch):
+    async def same_conn(url):
+        return conn
+
+    async def no_close(c):
+        return None
+
+    monkeypatch.setattr(refresh, "get_settings", lambda: _settings())
+    monkeypatch.setattr(refresh, "_connect", same_conn)
+    monkeypatch.setattr(refresh, "_close", no_close)
+    await _insert(conn, "mistral", "a", source="auto")
+    assert await refresh.main(["--set-role", "mistral", "a", "mechanical"]) == 0
+    row = await _row(conn, "mistral", "a")
+    assert row["source"] == "auto" and row["roles"] == ["mechanical"]
