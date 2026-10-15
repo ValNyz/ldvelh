@@ -41,6 +41,14 @@ test('same key within the window merges (typing), other keys do not', () => {
 	assert.equal(h.past.length, 5, 'null key (AI fill) never merges');
 });
 
+test('a merged edit that comes back to its start leaves no entry', () => {
+	let h = push(createHistory({ n: 1 }), { n: 0 }, { key: 'x', at: 0 });   // older entry
+	h = push(h, { n: 2 }, { key: 'n', at: 5000 });
+	h = push(h, { n: 0 }, { key: 'n', at: 5300 });                        // "+" then "-"
+	assert.equal(h.past.length, 1);
+	assert.deepEqual(undo(h).present, { n: 1 });
+});
+
 test('typing right after an undo starts a new entry', () => {
 	let h = push(createHistory(''), 'a', { key: 'lore', at: 0 });
 	h = undo(h);

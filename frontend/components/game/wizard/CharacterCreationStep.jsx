@@ -319,15 +319,15 @@ function D6Skills({ data, onChange, genre, attrPips }) {
 							{names.map(name => {
 								const added = parseDice(skills[name]);
 								return (
-									<div key={name} className="flex items-center gap-2">
-										<span className={`text-sm flex-1 truncate ${added > 0 ? 'text-white' : 'text-gray-400'}`}>{name}</span>
-										<button onClick={() => updateSkill(name, -1)} disabled={added === 0} className={`${D6_STEP_BUTTON} disabled:opacity-30`}>-</button>
-										<span className="text-xs font-mono w-16 text-center" title="Dés ajoutés → code total">
+									<div key={name} className="flex items-center gap-1.5">
+										<span className={`text-sm flex-1 min-w-0 leading-tight ${added > 0 ? 'text-white' : 'text-gray-400'}`}>{name}</span>
+										<button onClick={() => updateSkill(name, -1)} disabled={added === 0} aria-label={`Retirer un cran : ${name}`} className={`${D6_STEP_BUTTON} disabled:opacity-30`}>-</button>
+										<span className="text-xs font-mono w-20 shrink-0 text-center whitespace-nowrap" title="Dés ajoutés → code total">
 											{added > 0
 												? <><span className="text-blue-400">+{formatDice(added)}</span> <span className="text-white">{formatDice(attrPips(attr) + added)}</span></>
 												: <span className="text-gray-600">—</span>}
 										</span>
-										<button onClick={() => updateSkill(name, 1)} disabled={added >= maxPips || remainingPips <= 0} className={`${D6_STEP_BUTTON} disabled:opacity-30`}>+</button>
+										<button onClick={() => updateSkill(name, 1)} disabled={added >= maxPips || remainingPips <= 0} aria-label={`Ajouter un cran : ${name}`} className={`${D6_STEP_BUTTON} disabled:opacity-30`}>+</button>
 									</div>
 								);
 							})}

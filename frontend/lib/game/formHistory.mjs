@@ -24,6 +24,10 @@ export function createHistory(present) {
 export function push(h, next, { key = null, at = Date.now(), meta = null } = {}) {
 	if (Object.is(next, h.present)) return h;
 	const merge = key !== null && key === h.lastKey && at - h.lastAt < COALESCE_MS && h.past.length > 0;
+	if (merge && sameState(next, h.past[h.past.length - 1].state)) {
+		// The merged edit came back to where it started (e.g. "+" then "-"): no entry left.
+		return { past: h.past.slice(0, -1), present: next, future: [], lastKey: null, lastAt: 0 };
+	}
 	const past = merge
 		? h.past
 		: [...h.past, { state: h.present, meta }].slice(-HISTORY_LIMIT);
@@ -75,6 +79,11 @@ export function changeKey(prev, next) {
 	const fields = Object.keys({ ...a, ...b }).filter(k => !Object.is(a[k], b[k]));
 	if (fields.length !== 1) return null;
 	return `${slice}.${fields[0]}`;
+}
+
+// Form states are small JSON-like objects.
+function sameState(a, b) {
+	return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function isPlainObject(v) {
