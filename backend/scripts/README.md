@@ -10,6 +10,8 @@ Keeps the `llm_models` table in sync with what each provider really offers.
 - Container: `backend` (WORKDIR is `/app`)
 - Command: `cd /app && python -m scripts.refresh_model_catalog`
 - Frequency: `0 4 * * *` (daily)
+- **Timeout: raise it to 3600 s** (Coolify scheduled tasks have a per-task
+  timeout, 300 s by default in recent versions: check yours). See "Run time" below.
 
 Environment variables (read by `config.Settings`):
 
@@ -35,10 +37,35 @@ tokens per probed model).
 1. Lists each provider's live models (a failed or empty listing writes nothing for that provider).
 2. Inserts new chat models as `pending`.
 3. Retires `auto` rows no longer listed. Enabled rows and role holders are retired only after 3 consecutive absences.
-4. Probes new, pending, failed and role-holding models (all of them with `--reprobe-all`), retrying once with an adjusted profile on a temperature / tool_choice error.
+4. Probes role holders and new / pending / failed models that have a price (an unpriced model can never be enabled, so it is not probed); a `failed` model is re-probed at most once every 7 days (`last_probed_at`). `--reprobe-all` probes every listed model. A temperature / tool_choice error triggers one retry with an adjusted profile.
 5. Sets the status: probes OK and price known -> `enabled` if the provider auto-enables or the model was enabled before, else `pending`; probe failure -> `failed`.
-6. Makes sure `narration` and `mechanical` each have an enabled model.
+6. Makes sure `narration` and `mechanical` each have an enabled, priced model: seeded rank first, then the provider's own default for that role (`MODEL_MAIN` / mechanical model), then the cheapest.
 7. Fills prices.
+
+The paid probes (step 4) run **before** the per-provider write transaction:
+the rows are planned from an unlocked read, probed, then re-read under
+`FOR UPDATE` and updated in one short transaction. A run killed while probing
+writes nothing for the provider in progress (providers already done are
+committed) and never blocks a manual `--enable` / `--disable` / `--set-role`;
+a manual change made during the probes wins.
+
+### Run time
+
+Each probed model makes 3 calls (stream, JSON, structured), each capped at
+90 s; a temperature / tool_choice error adds at most 2 more rounds.
+
+- Daily run: role holders (2 per provider, about 10) plus new priced models
+  and the weekly re-probe of failed ones. Typically 5-15 s per model, so
+  **1-5 minutes**. Worst case if every role holder times out on every call:
+  10 x 3 x 90 s = **45 minutes**.
+- First run (or `--reprobe-all`): every priced chat model is probed (about
+  100 across Mistral, Nous, W&B and Nebius), **15-30 minutes** typically.
+  Run it by hand once per provider (`--provider mistral`, ...) before enabling
+  the schedule.
+
+Providers are processed in a fixed order (anthropic, mistral, nebius, nous,
+wandb): with too short a timeout the last ones may never be refreshed. Hence the
+3600 s timeout; check the task logs for a `[catalog] wandb:` report line.
 
 Demotion rules for an enabled model: it is demoted after 3 consecutive failed
 runs, or at once on a permanent error (404 / model not found / invalid model).
@@ -51,6 +78,21 @@ Claude 5 rows) keep their status and profile.
 Resolved in this order: manual > provider listing > code table
 (`services/pricing.py`) > models.dev > OpenRouter (estimate, Nous only). The
 origin is stored in `price_source`. A price change above 50% is logged.
+Values that are not finite, negative or >= 100000 USD/MTok are ignored (logged)
+and the next source is tried. Prices are rounded to 6 decimals like the DB.
+The app registers catalog prices for cost tracking when it loads the catalog.
+
+A manual price (never overwritten by a refresh) has no CLI flag; set it in SQL:
+
+```sql
+UPDATE llm_models
+   SET input_price = 1.20, output_price = 4.80,        -- USD per million tokens
+       cache_write_price = 0, cache_read_price = 0.12,
+       price_source = 'manual', updated_at = now()
+ WHERE provider = 'nous' AND model_id = 'Hermes-4-405B';
+```
+
+Set `price_source` back to `NULL` to let the next refresh fill the price again.
 
 ### Reading the report
 
@@ -64,13 +106,19 @@ Check the task's exit status in Coolify.
 
 ### Enabling an Anthropic model
 
-Anthropic discoveries stay `pending`. After checking the model's rules (see the
-Claude 5 notes: no temperature, no forced tool_choice, thinking counts in
-max_tokens), enable it by hand:
+Anthropic has no model listing endpoint here: the refresh only knows the models
+built into `AnthropicProvider.MODELS` plus the rows already in the table, so it
+never discovers a new Claude model, and it never auto-enables one. To offer a
+new model, after checking its rules (see the Claude 5 notes: no temperature, no
+forced tool_choice, thinking counts in max_tokens), add it by hand (it is
+inserted with the Claude 5 rules as its profile):
 
 ```
 python -m scripts.refresh_model_catalog --enable anthropic claude-...
 ```
+
+If `services/pricing.py` does not know its price, set a manual price (SQL in
+"Prices"): an unpriced model is hidden from players.
 
 ## Provider smoke test (`smoke_providers.py`)
 

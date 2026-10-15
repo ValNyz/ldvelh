@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 
 from llm.profile import ModelProfile
-from services.pricing import ModelPricing
+from services.pricing import ModelPricing, register_pricing
 
 logger = logging.getLogger(__name__)
 
@@ -104,9 +104,15 @@ async def load_catalog(pool, *, ttl_seconds: int = 600) -> ModelCatalog:
                           input_price, output_price, cache_write_price, cache_read_price, profile
                    FROM llm_models"""
             )
-        catalog = ModelCatalog([_row_to_entry(r) for r in rows])
+        entries = [_row_to_entry(r) for r in rows]
     except Exception as e:
         logger.warning(f"[llm_models] catalog load failed, using fallback: {e}")
         return _cache[0] if _cache is not None else ModelCatalog([])
+    # The usage ledger prices calls with lookup_pricing: register catalog prices there,
+    # else a model priced only by the catalog (Nous, models.dev, OpenRouter) costs $0.
+    for e in entries:
+        if e.prices is not None and (e.prices.input > 0 or e.prices.output > 0):
+            register_pricing(e.model_id, e.provider, e.prices)
+    catalog = ModelCatalog(entries)
     _cache = (catalog, now)
     return catalog

@@ -43,6 +43,17 @@ from prompts.examples import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolated_dynamic_pricing():
+    """load_catalog registers catalog prices process-wide: never leak them between tests."""
+    from services import pricing
+
+    saved = dict(pricing._DYNAMIC_PRICING)
+    yield
+    pricing._DYNAMIC_PRICING.clear()
+    pricing._DYNAMIC_PRICING.update(saved)
+
+
 @pytest.fixture
 def world_generation_example():
     """Exemple complet de génération de monde (parsed as dict)"""

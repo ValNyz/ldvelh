@@ -6,14 +6,18 @@ For each provider with an API key:
   2. insert new chat models as `pending`;
   3. retire `auto` rows the provider no longer lists (never `manual` ones);
      enabled rows and role holders only after 3 consecutive absent runs;
-  4. probe new, pending, failed and role-holding models (all with --reprobe-all),
-     retrying once with an adjusted profile on a temperature / tool_choice error;
+  4. probe role holders and new / pending / failed rows that have a price (an
+     unpriced row can never be enabled), failed rows at most weekly; all listed
+     models with --reprobe-all. Retry once with an adjusted profile on a
+     temperature / tool_choice error. Probes run BEFORE the per-provider write
+     transaction: a run killed while probing writes nothing and holds no lock;
   5. set the status: probes OK + known price -> enabled when the provider may
      auto-enable (Anthropic never does) or was enabled before, else pending;
      probe failure -> failed, except an enabled row, demoted only after 3
      consecutive failed runs or at once on a permanent error (404, unknown
      model). `manual` rows keep their status and profile (retired ones are not probed);
-  6. make sure `narration` and `mechanical` each have an enabled model;
+  6. make sure `narration` and `mechanical` each have an enabled, priced model
+     (seeded rank, then the provider's default for that role, then the cheapest);
   7. fill prices: manual > provider listing > code table > models.dev > OpenRouter (estimate).
 
 Keys come from config.Settings, else from the API keys saved in the app by the
@@ -36,7 +40,9 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import sys
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field, replace
 from typing import Awaitable, Callable
 
@@ -60,6 +66,9 @@ ROLES = ("narration", "mechanical")
 MODELS_DEV_URL = "https://models.dev/api.json"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/models"
 PRICE_FETCH_TIMEOUT_S = 20.0
+MAX_PAYLOAD_BYTES = 20 * 1024 * 1024  # price source payloads above this are refused
+MAX_PRICE = 1e5  # USD per million tokens; also keeps values inside numeric(12, 6)
+FAILED_REPROBE_AFTER = timedelta(days=7)  # failed rows are re-probed at most weekly
 BIG_PRICE_CHANGE = 0.5  # relative change that deserves a log line
 # An enabled model survives this many consecutive bad runs (failed probes, or
 # absence from a non-empty listing) before it is demoted: 429 / 5xx / timeouts
@@ -94,7 +103,7 @@ class PriceSources:
             return _priced(ModelPricing(
                 float(cost.get("input") or 0), float(cost.get("output") or 0),
                 float(cost.get("cache_write") or 0), float(cost.get("cache_read") or 0),
-            ))
+            ), f"models.dev {provider}/{model_id}")
         except (KeyError, TypeError, ValueError, AttributeError):
             return None
 
@@ -121,23 +130,39 @@ class PriceSources:
                     float(p.get("prompt") or 0) * 1e6, float(p.get("completion") or 0) * 1e6,
                     float(p.get("input_cache_write") or 0) * 1e6,
                     float(p.get("input_cache_read") or 0) * 1e6,
-                ))
+                ), f"openrouter {model_id}")
             except (TypeError, ValueError, AttributeError):
                 return None
         return None
 
 
-def _priced(p: ModelPricing) -> ModelPricing | None:
+def _priced(p: ModelPricing, origin: str = "price") -> ModelPricing | None:
+    """The price rounded to the DB precision, None when unknown (zero) or not sane.
+
+    External values can be NaN / Infinity / negative / absurd: NaN would make
+    /api/providers fail to serialize, too large a value overflows numeric(12, 6)."""
+    values = (p.input, p.output, p.cache_write, p.cache_read)
+    if not all(math.isfinite(v) and 0 <= v < MAX_PRICE for v in values):
+        logger.warning(f"[catalog] ignoring invalid price from {origin}: {values}")
+        return None
+    # Rounded like numeric(12, 6), so an unchanged price compares equal to the stored one.
+    p = ModelPricing(*(round(v, 6) for v in values))
     return p if (p.input > 0 or p.output > 0) else None
 
 
-async def _http_get_json(url: str):
+async def _http_get_json(url: str, *, transport=None, max_bytes: int = MAX_PAYLOAD_BYTES):
+    """GET a JSON payload, refusing bodies above max_bytes (read in chunks)."""
     import httpx
 
-    async with httpx.AsyncClient(timeout=PRICE_FETCH_TIMEOUT_S) as client:
-        r = await client.get(url)
-        r.raise_for_status()
-        return r.json()
+    async with httpx.AsyncClient(timeout=PRICE_FETCH_TIMEOUT_S, transport=transport) as client:
+        async with client.stream("GET", url) as r:
+            r.raise_for_status()
+            body = bytearray()
+            async for chunk in r.aiter_bytes():
+                body.extend(chunk)
+                if len(body) > max_bytes:
+                    raise ValueError(f"payload too large (> {max_bytes} bytes)")
+    return json.loads(bytes(body))
 
 
 async def fetch_price_sources(fetch=None) -> PriceSources:
@@ -168,12 +193,12 @@ def resolve_price(provider: str, model_id: str, listed: dict | None,
         from_listing = _priced(ModelPricing(
             float(listed.get("input_price") or 0), float(listed.get("output_price") or 0),
             float(listed.get("cache_write_price") or 0), float(listed.get("cache_read_price") or 0),
-        ))
+        ), f"{provider} listing {model_id}")
     except (TypeError, ValueError):
         from_listing = None
     if from_listing:
         return from_listing, "provider"
-    code = _priced(lookup_pricing(model_id, provider))
+    code = _priced(lookup_pricing(model_id, provider), f"code table {model_id}")
     if code:
         return code, "code"
     md = sources.from_models_dev(provider, model_id)
@@ -291,10 +316,93 @@ _COLUMNS = ("label", "status", "roles", "input_price", "output_price", "cache_wr
             "cache_read_price", "price_source", "profile", "probe_results", "last_probed_at")
 
 
+def _priced_row(r: dict) -> bool:
+    return r["input_price"] is not None or r["output_price"] is not None
+
+
+async def _read_rows(conn, provider: str, *, lock: bool) -> dict[str, dict]:
+    query = "SELECT * FROM llm_models WHERE provider = $1" + (" FOR UPDATE" if lock else "")
+    rows = {r["model_id"]: dict(r) for r in await conn.fetch(query, provider)}
+    for r in rows.values():
+        r["profile"] = _as_dict(r["profile"])
+        r["roles"] = list(r["roles"] or [])
+        r["probe_results"] = _as_dict(r["probe_results"])
+    return rows
+
+
+def _new_row(model_id: str, label: str) -> dict:
+    return {"model_id": model_id, "label": label, "status": "pending", "roles": [],
+            "default_rank": None, "input_price": None, "output_price": None,
+            "cache_write_price": None, "cache_read_price": None,
+            "price_source": None, "profile": {}, "probe_results": {},
+            "source": "auto", "last_probed_at": None}
+
+
+def _with_known_rows(provider: str, listed: dict[str, dict], rows: dict[str, dict]) -> dict[str, dict]:
+    if provider == "anthropic":
+        # No discovery endpoint: rows we already know are never retired.
+        return {**{m: {"id": m} for m in rows}, **listed}
+    return listed
+
+
+def _needs_probe(r: dict, *, priced: bool, reprobe_all: bool, now: datetime) -> bool:
+    """Whether this run pays for probing the row (rows already locked out by hand never)."""
+    if r["source"] == "manual" and r["status"] == "retired":
+        return False  # switched off by hand: no paid probe
+    if reprobe_all or r["roles"]:
+        return True
+    if r["status"] == "enabled":
+        return False
+    was_enabled = bool(r["probe_results"].get("was_enabled"))
+    if not priced and not was_enabled:
+        return False  # can never be enabled without a price: probing would be wasted
+    last = r["last_probed_at"]
+    if r["status"] == "failed" and not was_enabled and last is not None \
+            and now - last < FAILED_REPROBE_AFTER:
+        return False  # failed rows are re-probed at most weekly
+    return True
+
+
+@dataclass
+class _Plan:
+    """Decisions taken before the write transaction (no lock held while probing)."""
+
+    listed: dict[str, dict]
+    prices: dict[str, tuple[ModelPricing, str]]  # model -> resolved price (not manual rows)
+    to_probe: dict[str, ModelProfile | None]  # model -> base profile
+
+
+def _plan(provider: str, listed: dict[str, dict], rows: dict[str, dict], *,
+          reprobe_all: bool, sources: PriceSources) -> _Plan:
+    listed = _with_known_rows(provider, listed, rows)
+    now = datetime.now(timezone.utc)
+    prices: dict[str, tuple[ModelPricing, str]] = {}
+    to_probe: dict[str, ModelProfile | None] = {}
+    for model_id in listed:
+        r = rows.get(model_id)
+        if r is None:
+            if not is_chat_model(model_id):
+                continue
+            r = _new_row(model_id, model_id)
+        if r["price_source"] != "manual":
+            found = resolve_price(provider, model_id, listed.get(model_id), sources)
+            if found:
+                prices[model_id] = found
+        priced = model_id in prices or _priced_row(r)
+        if _needs_probe(r, priced=priced, reprobe_all=reprobe_all, now=now):
+            to_probe[model_id] = _base_profile(provider, model_id, r["profile"])
+    return _Plan(listed, prices, to_probe)
+
+
 async def refresh_provider(conn, provider_name: str, api_key: str, *, auto_enable: bool,
                            reprobe_all: bool, prober: Prober,
                            price_sources: PriceSources | None = None,
                            lister: Lister | None = None, dry_run: bool = False) -> RefreshReport:
+    """List, plan and probe without any lock, then apply in one short transaction.
+
+    The paid probes run before the transaction: a run killed while probing
+    (scheduled task timeout) writes nothing for this provider instead of holding
+    `FOR UPDATE` locks, and manual actions are never blocked by a refresh."""
     report = RefreshReport(provider_name)
     sources = price_sources or PriceSources(None, None)
     lister = lister or live_lister(provider_name, api_key)
@@ -312,11 +420,18 @@ async def refresh_provider(conn, provider_name: str, api_key: str, *, auto_enabl
         return report
     listed = {m["id"]: m for m in listing if isinstance(m, dict) and m.get("id")}
 
+    # Decide what to probe from an unlocked read, then pay for the probes.
+    plan = _plan(provider_name, listed, await _read_rows(conn, provider_name, lock=False),
+                 reprobe_all=reprobe_all, sources=sources)
+    outcomes = {}
+    for model_id, base in plan.to_probe.items():
+        outcomes[model_id] = await probe_with_retry(prober, provider_name, model_id, base)
+        report.probed[model_id] = _all_ok(outcomes[model_id][0])
+
     tx = conn.transaction()
     await tx.start()
     try:
-        await _refresh_rows(conn, provider_name, listed, report, auto_enable=auto_enable,
-                            reprobe_all=reprobe_all, prober=prober, sources=sources)
+        await _apply(conn, provider_name, listed, plan, outcomes, report, auto_enable=auto_enable)
     except BaseException:
         await tx.rollback()
         raise
@@ -328,17 +443,11 @@ async def refresh_provider(conn, provider_name: str, api_key: str, *, auto_enabl
     return report
 
 
-async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: RefreshReport, *,
-                        auto_enable: bool, reprobe_all: bool, prober: Prober,
-                        sources: PriceSources) -> None:
-    rows = {r["model_id"]: dict(r) for r in await conn.fetch(
-        "SELECT * FROM llm_models WHERE provider = $1 FOR UPDATE", provider)}
-    for r in rows.values():
-        r["profile"] = _as_dict(r["profile"])
-        r["roles"] = list(r["roles"] or [])
-    if provider == "anthropic":
-        # No discovery endpoint: rows we already know are never retired.
-        listed = {**{m: {"id": m} for m in rows}, **listed}
+async def _apply(conn, provider: str, listed: dict[str, dict], plan: _Plan, outcomes: dict,
+                 report: RefreshReport, *, auto_enable: bool) -> None:
+    """Re-read the rows under lock (an operator may have acted meanwhile) and apply the run."""
+    rows = await _read_rows(conn, provider, lock=True)
+    listed = _with_known_rows(provider, listed, rows)
     had_enabled = {role: any(r["status"] == "enabled" and role in r["roles"] for r in rows.values())
                    for role in ROLES}
     dirty: set[str] = set()
@@ -350,15 +459,8 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
         await conn.execute(
             "INSERT INTO llm_models (provider, model_id, label, status, source) "
             "VALUES ($1, $2, $3, 'pending', 'auto')", provider, model_id, label)
-        rows[model_id] = {"model_id": model_id, "label": label, "status": "pending", "roles": [],
-                          "default_rank": None, "input_price": None, "output_price": None,
-                          "cache_write_price": None, "cache_read_price": None,
-                          "price_source": None, "profile": {}, "probe_results": None,
-                          "source": "auto", "last_probed_at": None}
+        rows[model_id] = _new_row(model_id, label)
     report.inserted = new_ids
-
-    for r in rows.values():
-        r["probe_results"] = _as_dict(r["probe_results"])
 
     # 3. Auto rows the provider no longer lists are retired; enabled rows and
     # role holders only after DEMOTE_AFTER_RUNS consecutive absent runs.
@@ -385,7 +487,7 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
     for model_id, r in rows.items():
         if model_id not in listed or r["price_source"] == "manual":
             continue
-        found = resolve_price(provider, model_id, listed.get(model_id), sources)
+        found = plan.prices.get(model_id)
         if not found:
             continue
         price, source = found
@@ -403,20 +505,14 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
                  cache_read_price=new[3], price_source=source)
         dirty.add(model_id)
 
-    # 4-5. Probe and set the status.
+    # 4-5. Record the probes made before the transaction and set the status.
     for model_id, r in rows.items():
-        if model_id not in listed:
+        if model_id not in listed or model_id not in outcomes:
             continue
-        needs_probe = (model_id in new_ids or r["status"] in ("pending", "failed", "retired")
-                       or bool(r["roles"]) or reprobe_all)
         if r["source"] == "manual" and r["status"] == "retired":
-            needs_probe = False  # switched off by hand: no paid probe
-        if not needs_probe:
-            continue
-        base = _base_profile(provider, model_id, r["profile"])
-        results, used, adjusted = await probe_with_retry(prober, provider, model_id, base)
+            continue  # switched off by hand while probing
+        results, used, adjusted = outcomes[model_id]
         ok = _all_ok(results)
-        report.probed[model_id] = ok
         previous = r["probe_results"]
         failures = 0 if ok else int(previous.get("failures") or 0) + 1
         r["probe_results"] = {name: {"ok": p.ok, "detail": p.detail} for name, p in results.items()}
@@ -433,7 +529,7 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
         if ok and used is not None and (adjusted or not r["profile"]):
             # R5: save the profile the model needed (or the Claude rules an unknown id needs).
             r["profile"] = used.to_dict()
-        priced = r["input_price"] is not None or r["output_price"] is not None
+        priced = _priced_row(r)
         was_enabled = r["status"] == "enabled" or bool(previous.get("was_enabled"))
         if not ok and r["status"] == "enabled" and not _is_permanent(results) \
                 and failures < DEMOTE_AFTER_RUNS:
@@ -455,20 +551,28 @@ async def _refresh_rows(conn, provider: str, listed: dict[str, dict], report: Re
             report.statuses[model_id] = status
         r["status"] = status
 
-    # 6. Each role keeps an enabled holder, else moves to the preferred enabled model.
-    enabled = [r for r in rows.values() if r["status"] == "enabled"]
+    # 6. Each role keeps an enabled, priced holder, else moves to the preferred one:
+    # seeded rank, then the provider's own default for that role, then the cheapest.
+    # An unpriced model is hidden from players, so it never becomes a default.
+    cls = _CLASSES.get(provider)
+    provider_default = {
+        "narration": getattr(cls, "MODEL_MAIN", None),
+        "mechanical": getattr(cls, "MODEL_MECHANICAL", None) or getattr(cls, "MODEL_MAIN", None),
+    }
+    enabled = [r for r in rows.values() if r["status"] == "enabled" and _priced_row(r)]
     for role in ROLES:
         if any(role in r["roles"] for r in enabled):
             continue
         ranked = sorted((r for r in enabled if r["default_rank"] is not None),
                         key=lambda r: (r["default_rank"], r["model_id"]))
+        preferred = [r for r in enabled if r["model_id"] == provider_default[role]]
         cheapest = sorted(enabled, key=lambda r: (r["output_price"] is None,
                                                   _f(r["output_price"]) or 0.0, r["model_id"]))
-        chosen = (ranked or cheapest or [None])[0]
+        chosen = (ranked or preferred or cheapest or [None])[0]
         if chosen is None:
             if had_enabled[role]:
                 report.roles_lost.append(role)
-                logger.error(f"[catalog] {provider}: no enabled model left for {role}")
+                logger.error(f"[catalog] {provider}: no enabled, priced model left for {role}")
             continue
         for r in rows.values():
             if role in r["roles"]:

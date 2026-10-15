@@ -5,6 +5,7 @@ no real LLM call is ever made here. The llm_models seed rows are restored
 after each test.
 """
 
+import asyncio
 import logging
 from types import SimpleNamespace
 
@@ -525,3 +526,147 @@ async def test_set_role_keeps_source(conn, monkeypatch):
 def test_permanent_error_detection_ignores_stray_404(detail, permanent):
     results = {"stream": ProbeResult(False, detail)}
     assert refresh._is_permanent(results) is permanent
+
+
+# --- Final review fixes ------------------------------------------------------
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -1.0, 1e5, 1234567.0])
+def test_invalid_source_price_is_ignored(bad, caplog):
+    sources = PriceSources(models_dev={"mistral": {"models": {"zz": {"cost": {
+        "input": bad, "output": 2}}}}}, openrouter=None)
+    with caplog.at_level(logging.WARNING):
+        assert sources.from_models_dev("mistral", "zz") is None
+    assert "invalid price" in caplog.text
+    # Listing first: an invalid listing price falls through to the next source.
+    listed = {"id": "zz", "input_price": str(bad), "output_price": 1}
+    found = refresh.resolve_price("mistral", "zz", listed, PriceSources(
+        models_dev={"mistral": {"models": {"zz": {"cost": {"input": 0.4, "output": 2}}}}},
+        openrouter=None))
+    assert found[1] == "models.dev" and found[0].input == 0.4
+
+
+def test_openrouter_invalid_price_is_ignored():
+    sources = PriceSources(models_dev=None, openrouter={"data": [
+        {"id": "zz", "pricing": {"prompt": "Infinity", "completion": "0.000001"}}]})
+    assert sources.from_openrouter("zz") is None
+
+
+def test_prices_rounded_to_db_precision():
+    sources = PriceSources(models_dev=None, openrouter={"data": [
+        {"id": "zz", "pricing": {"prompt": "0.0000001", "completion": "0.0000007"}}]})
+    price, _ = refresh.resolve_price("nous", "zz", None, sources)
+    assert price.input == 0.1 and price.output == 0.7
+
+
+@pytest.mark.asyncio
+async def test_unchanged_float_price_does_not_rewrite_row(conn):
+    sources = PriceSources(models_dev=None, openrouter={"data": [
+        {"id": "zz-or", "pricing": {"prompt": "0.0000001", "completion": "0.0000007"}}]})
+    await _holder(conn)
+    await conn.execute("UPDATE llm_models SET provider = 'nous' WHERE model_id = 'holder'")
+    await _insert(conn, "nous", "zz-or", inp=0.1, out=0.7, price_source="openrouter")
+    await conn.execute("UPDATE llm_models SET cache_write_price = 0, cache_read_price = 0 "
+                       "WHERE model_id = 'zz-or'")  # as a previous run stored it
+    before = (await _row(conn, "nous", "zz-or"))["updated_at"]
+    await _refresh(conn, "nous", ["holder", "zz-or"], sources=sources)
+    assert (await _row(conn, "nous", "zz-or"))["updated_at"] == before
+
+
+@pytest.mark.asyncio
+async def test_roles_prefer_provider_default_over_cheapest(conn):
+    main = "Qwen/Qwen3-235B-A22B-Instruct-2507"  # NebiusProvider.MODEL_MAIN
+    await _insert(conn, "nebius", main, inp=1, out=3, price_source="provider")
+    await _insert(conn, "nebius", "tiny-1b", inp=0.01, out=0.02, price_source="provider")
+    report = await _refresh(conn, "nebius", [main, "tiny-1b"])
+    assert report.role_moves == {"narration": main, "mechanical": main}
+    # Default model not enabled: the cheapest enabled one, as before.
+    await conn.execute("UPDATE llm_models SET roles = '{}', status = 'pending', source = 'manual' "
+                       "WHERE model_id = $1", main)
+    report = await _refresh(conn, "nebius", [main, "tiny-1b"])
+    assert report.role_moves == {"narration": "tiny-1b", "mechanical": "tiny-1b"}
+
+
+@pytest.mark.asyncio
+async def test_unpriced_enabled_row_never_takes_a_role(conn):
+    await _holder(conn, "dead")
+    await _insert(conn, "mistral", "noprice", rank=0)  # enabled, kept without a price
+    await _insert(conn, "mistral", "priced", rank=5, inp=1, out=1, price_source="code")
+    report = await _refresh(conn, "mistral", ["dead", "noprice", "priced"],
+                            prober=_prober({"dead": "NotFoundError: Error code: 404"}))
+    assert report.role_moves == {"narration": "priced", "mechanical": "priced"}
+    assert (await _row(conn, "mistral", "noprice"))["roles"] == []
+
+
+@pytest.mark.asyncio
+async def test_unpriced_pending_rows_are_not_probed(conn):
+    calls = []
+    await _refresh(conn, "mistral", [PRICED, "zz-unpriced"], prober=_prober(calls=calls))
+    assert [m for m, _ in calls] == ["zz-new"]
+    row = await _row(conn, "mistral", "zz-unpriced")
+    assert row["status"] == "pending" and row["last_probed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_failed_rows_reprobed_at_most_weekly(conn):
+    await _holder(conn)
+    for model_id, days in (("failed-recent", 2), ("failed-old", 8)):
+        await _insert(conn, "mistral", model_id, status="failed", inp=1, out=1, price_source="code")
+        await conn.execute(
+            "UPDATE llm_models SET last_probed_at = now() - make_interval(days => $2) "
+            "WHERE model_id = $1", model_id, days)
+    listing = ["holder", "failed-recent", "failed-old"]
+    calls = []
+    await _refresh(conn, "mistral", listing, prober=_prober(calls=calls))
+    assert sorted(m for m, _ in calls) == ["failed-old", "holder"]
+    assert (await _row(conn, "mistral", "failed-recent"))["status"] == "failed"
+    calls.clear()
+    await _refresh(conn, "mistral", listing, prober=_prober(calls=calls), reprobe_all=True)
+    assert "failed-recent" in [m for m, _ in calls]
+
+
+@pytest.mark.asyncio
+async def test_probes_run_outside_the_write_transaction(conn, test_pool):
+    """No lock while paying for probes: a manual action during probing is neither
+    blocked nor overwritten, and a crash mid-probing writes nothing."""
+    await _holder(conn)
+    await _insert(conn, "mistral", "backup", rank=2, inp=1, out=1, price_source="code")
+    seen = []
+
+    async def prober(provider_name, model, profile):
+        seen.append(conn.is_in_transaction())
+        if model == "holder":
+            async with test_pool.acquire() as other:
+                await other.execute("SET lock_timeout = '2s'")
+                await other.execute(
+                    "UPDATE llm_models SET status = 'retired', source = 'manual' "
+                    "WHERE provider = 'mistral' AND model_id = 'backup'")
+        return {name: ProbeResult(True, "ok") for name in ("stream", "json", "structured")}
+
+    await _refresh(conn, "mistral", ["holder", "backup", PRICED], prober=prober)
+    assert seen and not any(seen)
+    backup = await _row(conn, "mistral", "backup")
+    assert backup["status"] == "retired" and backup["source"] == "manual"
+    assert (await _row(conn, "mistral", "zz-new"))["status"] == "enabled"
+
+    async def crash(provider_name, model, profile):
+        raise asyncio.CancelledError()  # e.g. the scheduled task is killed
+
+    await _insert(conn, "mistral", "zz-other", status="pending", inp=1, out=1, price_source="code")
+    with pytest.raises(asyncio.CancelledError):
+        await _refresh(conn, "mistral", ["holder", "zz-other", PRICED], prober=crash)
+    assert not conn.is_in_transaction()
+    assert (await _row(conn, "mistral", "zz-other"))["last_probed_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_price_payload_size_is_capped():
+    import httpx
+
+    def handler(request):
+        return httpx.Response(200, content=b'{"a": "' + b"x" * 5000 + b'"}')
+
+    transport = httpx.MockTransport(handler)
+    with pytest.raises(ValueError, match="too large"):
+        await refresh._http_get_json("https://example.test/x", transport=transport, max_bytes=1000)
+    assert await refresh._http_get_json("https://example.test/x", transport=transport,
+                                        max_bytes=10_000) == {"a": "x" * 5000}

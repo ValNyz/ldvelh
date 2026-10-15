@@ -152,3 +152,21 @@ async def test_unknown_anthropic_model_without_profile_hidden():
     data = await get_provider_catalog_async({}, catalog=cat)
     ids = [m["id"] for m in data["providers"]["anthropic"]["models"]]
     assert "claude-new-9" not in ids and "claude-new-8" in ids
+
+
+# --- Final review fixes ------------------------------------------------------
+
+def test_anthropic_mechanical_follows_catalog_model():
+    """With a catalog profile the instance runs MODEL_MAIN for every purpose (logs, ledger)."""
+    from services.llm_providers import AnthropicProvider
+
+    prof = AnthropicProvider.FALLBACK_PROFILES["claude-sonnet-5-5"]
+    p = AnthropicProvider(api_key="k", model="claude-sonnet-5-5", profile=prof)
+    assert p.model_name("mechanical") == "claude-sonnet-5-5"
+    # Without a catalog profile: unchanged (Haiku for the mechanical tier).
+    assert AnthropicProvider(api_key="k", model="claude-sonnet-5-5").model_name("mechanical") \
+        == "claude-haiku-5-5"
+    cat = ModelCatalog([CatalogEntry("anthropic", "claude-sonnet-5-5", "S", "enabled",
+                                     ("narration", "mechanical"), 1, None, prof)])
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat)
+    assert s.model_for(Purpose.MECHANICAL) == "claude-sonnet-5-5"

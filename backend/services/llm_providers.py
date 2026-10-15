@@ -313,6 +313,13 @@ class AnthropicProvider(LLMProvider):
         key = api_key or get_settings().anthropic_api_key
         self.client = shared_client("anthropic", key, lambda: anthropic.AsyncAnthropic(api_key=key))
 
+    def model_name(self, purpose: str) -> str:
+        # Built from a catalog profile, this instance is one catalog model (the
+        # session picked it per purpose): every call goes to MODEL_MAIN.
+        if self.profile is not None:
+            return self.MODEL_MAIN
+        return super().model_name(purpose)
+
     @property
     def _effective_profile(self) -> ModelProfile:
         """Catalog profile, else the built-in Claude 5 rules for this model."""

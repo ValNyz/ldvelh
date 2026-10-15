@@ -178,3 +178,38 @@ async def test_db_error_returns_empty_then_last_good(caplog):
     # expire the cache, then fail: last good catalog survives
     cat2 = await load_catalog(bad, ttl_seconds=0)
     assert cat2 is cat
+
+
+# --- Final review fixes ------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_load_registers_catalog_prices_for_cost_tracking(monkeypatch):
+    """Catalog prices feed call_cost: a model priced only by the catalog is never $0."""
+    from llm.usage import call_cost
+    from services import pricing
+    from services.llm_providers import LLMUsage
+
+    monkeypatch.setattr(pricing, "_DYNAMIC_PRICING", {})
+
+    class Acq:
+        async def __aenter__(self):
+            return self
+
+        async def fetch(self, q):
+            base = {"provider": "nous", "label": "x", "status": "enabled", "roles": [],
+                    "default_rank": None, "cache_write_price": None, "cache_read_price": None,
+                    "profile": None}
+            return [{**base, "model_id": "zz-priced", "input_price": 1, "output_price": 3},
+                    {**base, "model_id": "zz-unpriced", "input_price": None, "output_price": None}]
+
+        async def __aexit__(self, *a):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acq()
+
+    await load_catalog(Pool())
+    usage = LLMUsage(input_tokens=1_000_000, output_tokens=1_000_000)
+    assert call_cost(usage, "nous", "zz-priced") == pytest.approx(4.0)
+    assert "nous/zz-unpriced" not in pricing._DYNAMIC_PRICING
