@@ -103,3 +103,12 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # E2E on the static export with a mocked API (tests/e2e/): no backend, no LLM.
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results
+          path: frontend/test-results/
+          retention-days: 7

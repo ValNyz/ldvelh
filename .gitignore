@@ -27,3 +27,7 @@ docs/
 # Test artifacts (coverage reports, generated fixtures)
 backend/tests/fixtures/
 backend/tests/reports/
+
+# Playwright e2e outputs
+frontend/test-results/
+frontend/playwright-report/

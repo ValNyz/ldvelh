@@ -86,8 +86,20 @@ pytest tests/ -m integration -q
 pytest tests/ -m "not integration" --cov=. --cov-branch -q
 ```
 
+Frontend:
+
+```bash
+cd frontend
+npm test            # unit tests (node --test, pure .mjs modules)
+npx playwright install chromium   # once
+npm run test:e2e    # builds the static export and drives it in Chromium against a mocked API
+```
+
+The e2e tests (`frontend/tests/e2e/`) answer every `/api` call from `mockApi.mjs`, so they need neither the backend nor an LLM key. Screenshots of the key screens land in `frontend/test-results/screens/`.
+
 ## CI
 
 GitHub Actions runs on every push to `main`/`dev`/`test`:
 - **Unit tests** with coverage (uploaded to Codecov)
 - **Integration tests** against a Postgres 16 service container
+- **Frontend**: lint, unit tests, build, then the Playwright e2e tests (results uploaded as the `e2e-results` artifact)
