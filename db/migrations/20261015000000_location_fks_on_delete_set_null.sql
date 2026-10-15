@@ -27,6 +27,19 @@ ALTER TABLE public.narrative_seeds ADD CONSTRAINT narrative_seeds_location_id_fk
 ALTER TABLE public.organizations DROP CONSTRAINT organizations_headquarters_id_fkey;
 ALTER TABLE public.organizations ADD CONSTRAINT organizations_headquarters_id_fkey FOREIGN KEY (headquarters_id) REFERENCES public.locations(id) ON DELETE SET NULL;
 
+-- Facts stay immutable, except for the location cleared by ON DELETE SET NULL above.
+CREATE OR REPLACE FUNCTION public.facts_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.location_id IS NULL AND OLD.location_id IS NOT NULL
+     AND (to_jsonb(NEW) - 'location_id') = (to_jsonb(OLD) - 'location_id') THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'Les faits sont immutables';
+END;
+$$;
+
 -- migrate:down
 ALTER TABLE public.characters DROP CONSTRAINT characters_residence_id_fkey;
 ALTER TABLE public.characters ADD CONSTRAINT characters_residence_id_fkey FOREIGN KEY (residence_id) REFERENCES public.locations(id);
@@ -52,3 +65,11 @@ ALTER TABLE public.narrative_seeds DROP CONSTRAINT narrative_seeds_location_id_f
 ALTER TABLE public.narrative_seeds ADD CONSTRAINT narrative_seeds_location_id_fkey FOREIGN KEY (location_id) REFERENCES public.locations(id);
 ALTER TABLE public.organizations DROP CONSTRAINT organizations_headquarters_id_fkey;
 ALTER TABLE public.organizations ADD CONSTRAINT organizations_headquarters_id_fkey FOREIGN KEY (headquarters_id) REFERENCES public.locations(id);
+
+CREATE OR REPLACE FUNCTION public.facts_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE EXCEPTION 'Les faits sont immutables';
+END;
+$$;
