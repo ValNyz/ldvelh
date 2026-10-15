@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     max_tokens_extraction: int = 3000
     max_tokens_summary: int = 500
     max_tokens_mechanical: int = 500
+    max_tokens_world_enhance: int = 3000
     temperature: float = 0.8
     temperature_extraction: float = 0.3
     temperature_mechanical: float = 0.2

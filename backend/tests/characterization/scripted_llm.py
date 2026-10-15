@@ -32,6 +32,7 @@ _MARKERS = [
     ("Tu es le **Maître du Jeu**", "narration"),
     ("Tu es le **Directeur de scénario**", "director"),
     ("## YOUR ROLE", "mechanical"),
+    ("**assistant de création de partie**", "world_enhance"),
 ]
 
 # Extractor system prompts -> the same label the tool_use / json_schema paths derive

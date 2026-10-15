@@ -381,6 +381,8 @@ async def client(test_pool, monkeypatch):
     # Reset rate limiter between tests
     from utils.rate_limit import auth_limiter
     auth_limiter._hits.clear()
+    from api.world import enhance_limiter
+    enhance_limiter._hits.clear()
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
