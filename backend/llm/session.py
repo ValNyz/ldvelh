@@ -1,0 +1,186 @@
+"""One LLM session per /chat request (#10, #18, #42).
+
+It picks the provider instance and model for each purpose, exposes the
+provider capabilities, and returns the cost of every call to its caller.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+from llm.usage import UsageLedger, get_usage_ledger
+from services.llm_providers import (
+    LLMProvider,
+    LLMUsage,
+    StructuredOutputMode,
+    get_provider,
+)
+from utils import parse_json_response
+
+logger = logging.getLogger(__name__)
+
+
+class Purpose(str, Enum):
+    NARRATION = "narration"
+    WORLD_GEN = "world_gen"
+    MECHANICAL = "mechanical"
+    RESOLVER = "resolver"
+    EXTRACTION = "extraction"
+    DIRECTOR = "director"
+    SUMMARY = "summary"
+
+
+@dataclass(frozen=True)
+class Caps:
+    cache_control: bool
+    structured_output: StructuredOutputMode
+
+
+@dataclass(frozen=True)
+class LLMCall:
+    value: Any  # parsed JSON, text, or None when the call failed
+    cost: dict | None  # this call's ledger snapshot; None when nothing was billed
+
+
+class StreamCall:
+    """Async iterator of text deltas; usage and cost are set once it is exhausted."""
+
+    def __init__(self, session: "LLMSession", purpose: Purpose, system_prompt: str,
+                 messages: list[dict], temperature: float, max_tokens: int):
+        self._session = session
+        self._purpose = purpose
+        self._args = dict(system_prompt=system_prompt, messages=messages,
+                          temperature=temperature, max_tokens=max_tokens)
+        self.usage: LLMUsage | None = None
+        self.cost: dict | None = None
+
+    def __aiter__(self):
+        return self._run()
+
+    async def _run(self):
+        provider = self._session.provider_for(self._purpose)
+        async for item in provider.stream(**self._args):
+            if isinstance(item, LLMUsage):
+                self.usage = item
+                continue
+            yield item
+        if self.usage is not None:
+            self.cost = self._session._record(self._purpose, provider, self.usage)
+
+
+class LLMSession:
+    """Provider, models and usage for one game request. Holds no request resources."""
+
+    def __init__(self, provider_name: str, api_key: str | None,
+                 user_model: str | None = None, ledger: UsageLedger | None = None):
+        self.provider_name = provider_name
+        self._api_key = api_key
+        self.user_model = user_model
+        self.ledger = ledger or get_usage_ledger()
+        self._providers: dict[Purpose, LLMProvider] = {}
+
+    @classmethod
+    def from_provider(cls, provider: LLMProvider, ledger: UsageLedger | None = None) -> "LLMSession":
+        """Session that uses one given provider instance for every purpose (tests)."""
+        session = cls(provider.provider_name, api_key=None, ledger=ledger)
+        session._providers = {purpose: provider for purpose in Purpose}
+        return session
+
+    # -- model selection (unchanged from before P2, see the plan) -------------
+
+    def _model_argument(self, purpose: Purpose) -> str | None:
+        if purpose in (Purpose.NARRATION, Purpose.WORLD_GEN):
+            return self.user_model
+        if purpose is Purpose.MECHANICAL:
+            # The user's model picks the tier; the provider maps it to its
+            # mechanical model (Haiku on Anthropic, the same model elsewhere).
+            return get_provider(self.provider_name, api_key=self._api_key,
+                                model=self.user_model).model_name("mechanical")
+        return None  # resolver, extraction, director, summary: provider default
+
+    def provider_for(self, purpose: Purpose) -> LLMProvider:
+        if purpose not in self._providers:
+            self._providers[purpose] = get_provider(
+                self.provider_name, api_key=self._api_key,
+                model=self._model_argument(purpose),
+            )
+        return self._providers[purpose]
+
+    def model_for(self, purpose: Purpose) -> str:
+        return self.provider_for(purpose).model_name(purpose.value)
+
+    @property
+    def caps(self) -> Caps:
+        provider = self.provider_for(Purpose.NARRATION)
+        return Caps(provider.supports_cache_control, provider.structured_output_mode)
+
+    def _record(self, purpose: Purpose, provider: LLMProvider, usage: LLMUsage) -> dict:
+        return self.ledger.record(purpose.value, provider.provider_name,
+                                  provider.model_name(purpose.value), usage)
+
+    # -- calls ----------------------------------------------------------------
+
+    def stream(self, purpose: Purpose, system_prompt: str, messages: list[dict],
+               temperature: float, max_tokens: int) -> StreamCall:
+        return StreamCall(self, purpose, system_prompt, messages, temperature, max_tokens)
+
+    async def complete_text(self, purpose: Purpose, system_prompt: str, messages: list[dict],
+                            temperature: float, max_tokens: int) -> LLMCall:
+        """Plain completion; provider errors propagate to the caller."""
+        provider = self.provider_for(purpose)
+        result = await provider.complete(system_prompt=system_prompt, messages=messages,
+                                         temperature=temperature, max_tokens=max_tokens)
+        return LLMCall(result.content, self._record(purpose, provider, result.usage))
+
+    async def complete_json(self, purpose: Purpose, system_prompt: str, user_message: str,
+                            temperature: float, max_tokens: int) -> LLMCall:
+        """JSON-in-text call; a provider error gives LLMCall(None, None)."""
+        provider = self.provider_for(purpose)
+        try:
+            result = await provider.complete(
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": user_message}],
+                temperature=temperature, max_tokens=max_tokens,
+            )
+        except Exception as e:
+            logger.error(f"[LLM] {purpose.value} call failed ({self.provider_name}): {e}")
+            return LLMCall(None, None)
+        cost = self._record(purpose, provider, result.usage)
+        return LLMCall(parse_json_response(result.content), cost)
+
+    async def extract_structured(self, system_prompt: str, user_message: str, tool_name: str,
+                                 tool_description: str, schema: dict, temperature: float,
+                                 max_tokens: int) -> LLMCall:
+        """Structured extraction dispatched on the provider's mode, with a text fallback."""
+        purpose = Purpose.EXTRACTION
+        provider = self.provider_for(purpose)
+        messages = [{"role": "user", "content": user_message}]
+        mode = provider.structured_output_mode
+        try:
+            if mode == StructuredOutputMode.TOOL_USE:
+                result = await provider.complete_with_tools(
+                    system_prompt=system_prompt, messages=messages,
+                    tools=[{"name": tool_name, "description": tool_description,
+                            "input_schema": schema}],
+                    tool_choice={"type": "tool", "name": tool_name},
+                    temperature=temperature, max_tokens=max_tokens,
+                )
+                return LLMCall(result.tool_input, self._record(purpose, provider, result.usage))
+            if mode == StructuredOutputMode.JSON_SCHEMA:
+                result = await provider.complete_with_schema(
+                    system_prompt=system_prompt, messages=messages,
+                    schema_name=tool_name, schema=schema,
+                    temperature=temperature, max_tokens=max_tokens,
+                )
+                return LLMCall(json.loads(result.content),
+                               self._record(purpose, provider, result.usage))
+        except NotImplementedError:
+            logger.info(f"[LLM] {self.provider_name} has no {mode.value} support, using text")
+        except Exception as e:
+            logger.warning(f"[LLM] {mode.value} extraction failed: {e}, falling back to text")
+        return await self.complete_json(purpose, system_prompt, user_message,
+                                        temperature, max_tokens)
