@@ -43,6 +43,7 @@ Tu prépares les sessions du Maître du Jeu (narrateur). Tu lis l'état du monde
 
 5. **arc_updates** : gestion des arcs narratifs (fils d'intrigue)
    - `"create"` : nouvel arc (title, description, domain, intensity, involved_entities)
+     - `domain` : un parmi professional, personal, romantic, social, family, financial, health, existential
    - `"update"` : modifier un arc existant (title pour identifier + champs à modifier)
    - `"resolve"` : résoudre un arc (title + resolution)
    - Chaque arc connecte des entités entre elles (PNJ, organisations, lieux)

@@ -5,10 +5,9 @@ Input/Output models for the narrator LLM
 
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
-    ArcDomain,
     EntityRef,
     Name,
     Phrase,
@@ -59,10 +58,19 @@ class LocationSummary(BaseModel):
 class ArcSummary(BaseModel):
     """Lightweight arc summary (used in NPC context)"""
 
-    domain: ArcDomain
+    # Free text since migration 20260418000000: the Director and the arc extractor
+    # may store values outside ArcDomain. Never reject them (#12).
+    domain: str = "personal"
     title: str
     situation_brief: str
     intensity: int  # 1-5
+
+    @field_validator("domain", mode="before")
+    @classmethod
+    def _normalize_domain(cls, v):
+        v = getattr(v, "value", v)  # ArcDomain members are accepted too
+        text = str(v).strip().lower() if v is not None else ""
+        return text or "personal"
 
 
 class NPCLightSummary(BaseModel):
