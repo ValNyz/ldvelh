@@ -33,12 +33,23 @@ def _parse_ig_hours(t: str) -> float:
         return 0.0
 
 
+# Games with a Director run in flight. Claimed synchronously at the start of
+# run_director (before any await) so back-to-back triggers cannot overlap.
+_in_flight: set[UUID] = set()
+
+
 def should_run_director(
     current_time: str,
     last_director_time: str | None,
     game_duration: str = "medium",
+    current_cycle: int | None = None,
+    last_cycle: int | None = None,
 ) -> bool:
-    """Check if enough in-game time has elapsed since last Director run."""
+    """Check if enough in-game time has elapsed since last Director run.
+
+    When both cycles are known, elapsed time counts whole in-game days;
+    otherwise it falls back to hour-of-day with a single day wrap.
+    """
     interval = DIRECTOR_INTERVAL.get(game_duration, 6)
 
     if last_director_time is None:
@@ -47,12 +58,32 @@ def should_run_director(
     current_h = _parse_ig_hours(current_time)
     last_h = _parse_ig_hours(last_director_time)
 
-    # Handle day wrap (e.g., last=22h, current=03h → elapsed=5h)
-    elapsed = current_h - last_h
-    if elapsed < 0:
-        elapsed += 24
+    if current_cycle is not None and last_cycle is not None:
+        elapsed = (current_cycle - last_cycle) * 24 + (current_h - last_h)
+    else:
+        # Handle day wrap (e.g., last=22h, current=03h → elapsed=5h)
+        elapsed = current_h - last_h
+        if elapsed < 0:
+            elapsed += 24
 
     return elapsed >= interval
+
+
+async def load_director_schedule(conn, game_id: UUID) -> tuple[int | None, str | None, str]:
+    """Return (last_plan_cycle, last_director_time, game_duration) from the raw game row.
+
+    Reads the DB directly: the frontend-normalized game state drops these fields.
+    """
+    row = await conn.fetchrow(
+        """SELECT g.last_director_time, g.game_duration,
+                  (SELECT dp.cycle FROM director_plans dp
+                   WHERE dp.game_id = g.id ORDER BY dp.created_at DESC LIMIT 1) AS last_cycle
+           FROM games g WHERE g.id = $1""",
+        game_id,
+    )
+    if not row:
+        return None, None, "medium"
+    return row["last_cycle"], row["last_director_time"], row["game_duration"] or "medium"
 
 
 async def _apply_arc_update(conn, game_id, arc_update, cycle):
@@ -61,6 +92,22 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
     title = arc_update.title
 
     if action == "create":
+        existing = await conn.fetchval(
+            """SELECT id FROM narrative_arcs
+               WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false""",
+            game_id, title,
+        )
+        if existing:
+            # Same open arc proposed again: update it instead of duplicating it
+            await conn.execute(
+                """UPDATE narrative_arcs
+                   SET description = COALESCE(NULLIF($2, ''), description),
+                       intensity = COALESCE($3, intensity), updated_at = now()
+                   WHERE id = $1""",
+                existing, arc_update.description or "", arc_update.intensity,
+            )
+            logger.info(f"[DIRECTOR] Arc already open, updated: '{title}'")
+            return
         # Create new arc
         arc_id = await conn.fetchval(
             """INSERT INTO narrative_arcs (game_id, title, description, domain, intensity)
@@ -128,8 +175,14 @@ async def run_director(
     SSE status events as each JSON key is detected. Without sse_writer
     (per-message trigger), uses a simple non-streaming complete() call.
     """
+    if game_id in _in_flight:
+        logger.info(f"[DIRECTOR] Already running for game {game_id}, skipping")
+        return None
+    _in_flight.add(game_id)
+
     logger.info(f"[DIRECTOR] Starting for game {game_id} at cycle {current_cycle} {current_time}")
 
+    user_prompt = ""
     try:
         reader = KnowledgeGraphReader(pool, game_id)
 
@@ -322,3 +375,5 @@ async def run_director(
         logger.error(f"[DIRECTOR] Failed for game {game_id}: {e}", exc_info=True)
         logger.debug(f"[DIRECTOR] Context prompt was:\n{user_prompt[:2000]}")
         return None
+    finally:
+        _in_flight.discard(game_id)

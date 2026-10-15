@@ -204,16 +204,20 @@ async def test_c10_extraction_writes_entities(harness, world_game):
 
 async def test_c11_director_plan_written(harness, world_game, monkeypatch):
     narration_calls = spy_narration(monkeypatch)
-    # Distinct guidance: the default plan already exists from the arrival turn, so a unique
-    # marker proves the plan written by turn N reaches turn N+1 (and not turn N itself).
+    # Distinct guidance: a default plan already exists from init, so a unique marker
+    # proves the plan written by turn N reaches turn N+1 (and not turn N itself).
     guidance = "Guidance de test: accélérer le rythme."
     harness.llm._responses["director"] = json.dumps(
         {**json.loads(payloads.DIRECTOR), "narrator_guidance": guidance}, ensure_ascii=False)
     harness.llm.calls.clear()
     per_turn = []
-    for msg in ("Premier tour.", "Deuxième tour.", "Troisième tour."):
+    # The init plan is written at 08h00 and the medium interval is 6 in-game hours (#9):
+    # 10h15 is too early, 15h00 triggers the Director, 16h00 is too early again.
+    for msg, new_time in (("Premier tour.", "10h15"), ("Deuxième tour.", "15h00"),
+                          ("Troisième tour.", "16h00")):
         harness.llm.calls.clear()
-        await _turn(harness, world_game, payloads.NARRATION, msg)
+        await _turn(harness, world_game, _narration(
+            time={"new_time": new_time, "ellipse": False, "ellipse_summary": None}), msg)
         per_turn.append(harness.llm.purposes().count("director"))
     assert len(narration_calls) == 3
     # F-19: the plan written after turn N is injected into the narrator prompt of turn N+1.
@@ -226,7 +230,7 @@ async def test_c11_director_plan_written(harness, world_game, monkeypatch):
         last_time = await conn.fetchval(
             "SELECT last_director_time FROM games WHERE id = $1", world_game)
     assert_snapshot("c11_director", {
-        "director_calls_per_turn": per_turn,  # #9: runs every turn (last_director_time never loaded)
+        "director_calls_per_turn": per_turn,  # #9: only once the interval has elapsed
         "plans": [
             {"tension_level": p["tension_level"], "narrator_guidance": p["narrator_guidance"],
              "planned_events": p["planned_events"], "long_term_vision": p["long_term_vision"],

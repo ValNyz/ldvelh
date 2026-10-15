@@ -1,15 +1,15 @@
 {
   "director_calls_per_turn": [
+    0,
     1,
-    1,
-    1
+    0
   ],
   "guidance_in_narrator_prompt_per_turn": [
     false,
-    true,
+    false,
     true
   ],
-  "last_director_time": "10h15",
+  "last_director_time": "15h00",
   "plans": [
     {
       "ig_time": "08h00",
@@ -19,28 +19,7 @@
       "tension_level": 3
     },
     {
-      "ig_time": "10h15",
-      "long_term_vision": "Rien de particulier.",
-      "narrator_guidance": "Rythme calme, laisser le joueur explorer.",
-      "planned_events": [],
-      "tension_level": 3
-    },
-    {
-      "ig_time": "10h15",
-      "long_term_vision": "Rien de particulier.",
-      "narrator_guidance": "Guidance de test: accélérer le rythme.",
-      "planned_events": [],
-      "tension_level": 3
-    },
-    {
-      "ig_time": "10h15",
-      "long_term_vision": "Rien de particulier.",
-      "narrator_guidance": "Guidance de test: accélérer le rythme.",
-      "planned_events": [],
-      "tension_level": 3
-    },
-    {
-      "ig_time": "10h15",
+      "ig_time": "15h00",
       "long_term_vision": "Rien de particulier.",
       "narrator_guidance": "Guidance de test: accélérer le rythme.",
       "planned_events": [],

@@ -329,3 +329,109 @@ async def test_director_handles_empty_llm_result(test_pool, test_user):
             "SELECT COUNT(*) FROM director_plans WHERE game_id = $1", game_id
         )
     assert count == 0
+
+
+# =============================================================================
+# #9 — cycle-aware trigger, per-game guard, arc dedup, schedule from DB
+# =============================================================================
+
+
+class TestShouldRunDirectorAcrossCycles:
+    def test_same_cycle_within_interval(self):
+        assert should_run_director("10h00", "08h00", "medium", current_cycle=1, last_cycle=1) is False
+
+    def test_same_cycle_at_interval(self):
+        assert should_run_director("14h00", "08h00", "medium", current_cycle=1, last_cycle=1) is True
+
+    def test_elapsed_counts_whole_cycles(self):
+        # Two in-game days later at a later hour: hour-of-day alone says 1h elapsed.
+        assert should_run_director("11h00", "10h00", "medium", current_cycle=3, last_cycle=1) is True
+
+    def test_next_cycle_short_night(self):
+        # 22h00 cycle 1 -> 03h00 cycle 2 = 5h elapsed (< 6h medium interval).
+        assert should_run_director("03h00", "22h00", "medium", current_cycle=2, last_cycle=1) is False
+
+
+class TestApplyArcUpdateDedup:
+    @pytest.mark.asyncio
+    async def test_create_existing_unresolved_title_updates_instead(self, test_pool, test_user):
+        from services.director_service import _apply_arc_update
+        from schema.director import ArcUpdate
+        from services.game_service import GameService
+
+        game_id = await GameService(test_pool).create_game(test_user["id"])
+        update = ArcUpdate(action="create", title="La Dette", description="v1", domain="personal", intensity=2)
+        again = ArcUpdate(action="create", title="la dette", description="v2", domain="personal", intensity=4)
+        async with test_pool.acquire() as conn:
+            await _apply_arc_update(conn, game_id, update, 1)
+            await _apply_arc_update(conn, game_id, again, 2)
+            rows = await conn.fetch(
+                "SELECT title, description, intensity FROM narrative_arcs WHERE game_id = $1", game_id
+            )
+        assert len(rows) == 1
+        assert rows[0]["description"] == "v2"
+        assert rows[0]["intensity"] == 4
+
+
+class TestDirectorGuards:
+    @pytest.mark.asyncio
+    async def test_concurrent_runs_for_same_game_call_llm_once(self, test_pool, test_user):
+        import asyncio
+        from services.director_service import run_director
+        from services.game_service import GameService
+        from schema import WorldGeneration
+        from prompts.examples import WORLD_GENERATION_EXAMPLE
+
+        service = GameService(test_pool)
+        game_id = await service.create_game(test_user["id"])
+        await service.process_init(game_id, WorldGeneration.model_validate(json.loads(WORLD_GENERATION_EXAMPLE)))
+
+        gate = asyncio.Event()
+        completion = AsyncMock()
+        completion.content = json.dumps({"tension_level": 3, "narrator_guidance": "g"})
+
+        async def slow_complete(**kwargs):
+            await gate.wait()
+            return completion
+
+        provider = AsyncMock()
+        provider.complete = AsyncMock(side_effect=slow_complete)
+        with patch("services.director_service.get_provider", return_value=provider):
+            first = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00"))
+            second = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00"))
+            await asyncio.sleep(0.2)
+            gate.set()
+            results = await asyncio.gather(first, second)
+
+        assert provider.complete.await_count == 1
+        assert sum(r is not None for r in results) == 1
+
+    @pytest.mark.asyncio
+    async def test_reader_failure_returns_none_without_unbound_error(self, test_pool, test_user):
+        from services.director_service import run_director
+        from services.game_service import GameService
+
+        game_id = await GameService(test_pool).create_game(test_user["id"])
+        with patch("services.director_service.KnowledgeGraphReader.get_game", side_effect=RuntimeError("db down")):
+            result = await run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00")
+        assert result is None
+
+
+class TestLoadDirectorSchedule:
+    @pytest.mark.asyncio
+    async def test_reads_raw_game_row_and_latest_plan_cycle(self, test_pool, test_user):
+        from services.director_service import load_director_schedule
+        from services.game_service import GameService
+
+        game_id = await GameService(test_pool).create_game(test_user["id"])
+        async with test_pool.acquire() as conn:
+            assert await load_director_schedule(conn, game_id) == (None, None, "medium")
+            await conn.execute(
+                "UPDATE games SET last_director_time = '08h00', game_duration = 'short' WHERE id = $1", game_id
+            )
+            await conn.execute(
+                """INSERT INTO director_plans (game_id, cycle, ig_time, tension_level, narrator_guidance)
+                   VALUES ($1, 2, '08h00', 3, 'g')""",
+                game_id,
+            )
+            assert await load_director_schedule(conn, game_id) == (2, "08h00", "short")
