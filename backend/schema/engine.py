@@ -185,7 +185,9 @@ class MechanicalDecision(BaseModel):
 
     requires_test: bool
     skill: str | None = None
-    skill_value: int | None = None
+    # Fate: ladder level; D6: dice code such as "3D+1". The engine replaces it with
+    # the character sheet value when the skill is known (#13).
+    skill_value: int | str | None = None
     difficulty: int | None = None
     difficulty_label: str | None = None
     opposition: dict | None = None  # {npc_name, skill, skill_value}

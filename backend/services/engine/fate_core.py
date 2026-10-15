@@ -35,6 +35,22 @@ def _ladder_label(value: int) -> str:
     return FATE_LADDER.get(value, f"+{value}" if value > 0 else str(value))
 
 
+_LADDER_BY_LABEL = {label.lower(): value for value, label in FATE_LADDER.items()}
+
+
+def _fate_value(value) -> int:
+    """Read a Fate ladder value written as an int, "+3", "-1" or a ladder label ("Bon")."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    text = str(value or "").strip()
+    try:
+        return int(text.replace("+", ""))
+    except ValueError:
+        return _LADDER_BY_LABEL.get(text.lower(), 0)
+
+
 class FateCoreEngine(BaseEngine):
     engine_type = EngineType.FATE_CORE
 
@@ -317,11 +333,26 @@ class FateCoreEngine(BaseEngine):
     def needs_mechanical_step(self) -> bool:
         return True
 
+    def resolve_roll_inputs(
+        self, decision: MechanicalDecision, engine_stats: dict
+    ) -> MechanicalDecision:
+        """Use the sheet's skill level; an untrained skill is Mediocre (+0)."""
+        skills = engine_stats.get("skills") if engine_stats else None
+        if not skills or not decision.skill:
+            return decision
+        wanted = decision.skill.strip().lower()
+        level = next(
+            (s.get("level", 0) for s in skills
+             if isinstance(s, dict) and str(s.get("name", "")).strip().lower() == wanted),
+            0,
+        )
+        return decision.model_copy(update={"skill_value": level})
+
     def roll_dice(self, decision: MechanicalDecision) -> RollResult:
         """Roll 4 Fudge dice (each -1, 0, or +1) + skill value vs difficulty."""
         dice = [random.choice([-1, 0, 1]) for _ in range(4)]
         total = sum(dice)
-        skill_value = decision.skill_value or 0
+        skill_value = _fate_value(decision.skill_value)
         skill_total = total + skill_value
 
         difficulty = decision.difficulty or 0
@@ -330,7 +361,7 @@ class FateCoreEngine(BaseEngine):
         # If opposed roll, roll for opposition too
         if decision.opposition:
             opp_dice = [random.choice([-1, 0, 1]) for _ in range(4)]
-            opp_skill = decision.opposition.get("skill_value", 0)
+            opp_skill = _fate_value(decision.opposition.get("skill_value", 0))
             opposition_total = sum(opp_dice) + opp_skill
             difficulty = opposition_total
 

@@ -46,8 +46,8 @@
       -1
     ],
     "outcome": "failure",
-    "shifts": -8,
-    "skill_total": -4,
+    "shifts": -4,
+    "skill_total": 0,
     "total": -4
   },
   "resume": [
@@ -70,9 +70,9 @@
       "Pilote déchu en quête de rédemption"
     ],
     "outcome": "failure",
-    "shifts": -6,
+    "shifts": -2,
     "skill": "Athlétisme",
-    "skill_total": -2,
+    "skill_total": 2,
     "total": -4
   }
 }
