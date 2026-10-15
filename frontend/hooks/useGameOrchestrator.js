@@ -148,6 +148,9 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				fatePoints: data.fate_points,
 			});
 		},
+		onWarning: (message) => {
+			gs.setWarning(message);
+		},
 		onError: (err, details) => {
 			sendingRef.current = false;
 			gs.setError({ message: err, details, recoverable: true });
@@ -164,6 +167,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const generateWorld = useCallback(async (id) => {
 		gs.setLoading(true);
 		gs.setError(null);
+		gs.setWarning(null);
 		phase.setWorldGenProgress('');
 
 		await startStream('/chat', {
@@ -179,6 +183,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		phase.setGamePhase(phase.GAME_PHASE.STARTING_ADVENTURE);
 		gs.setLoading(true);
 		gs.setError(null);
+		gs.setWarning(null);
 		gs.setMessages([]);
 
 		await startStream('/chat', {
@@ -196,6 +201,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 	const handleNewGame = useCallback(async () => {
 		gs.setError(null);
+		gs.setWarning(null);
 		gs.setMessages([]);
 		gs.replaceGameState(null);
 		phase.setWorldGenProgress('');
@@ -206,6 +212,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const handleWizardComplete = useCallback(async ({ engine, worldConfig, characterData, manualEntities }) => {
 		gs.setLoading(true);
 		gs.setError(null);
+		gs.setWarning(null);
 		try {
 			const id = await games.createGame(engine);
 			gs.setGameId(id);
@@ -240,6 +247,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const handleLoadGame = useCallback(async (id) => {
 		gs.setLoading(true);
 		gs.setError(null);
+		gs.setWarning(null);
 		try {
 			const data = await games.loadGame(id);
 			gs.setGameId(id);
@@ -308,6 +316,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 		setLastUserMessage(content);
 		gs.setMessages(prev => [...prev, { role: 'user', content }]);
+		gs.setWarning(null);
 		gs.setLoading(true);
 		gs.setSaving(true);
 

@@ -61,3 +61,10 @@ test('a malformed event is dropped without stopping the stream', () => {
 	}
 	assert.deepEqual(events, [{ type: 'saved' }]);
 });
+
+test('CRLF split across two reads does not end the event early', () => {
+	const { events, parser } = collect();
+	parser.push('data: {"type":\r');
+	parser.push('\ndata: "status"}\r\n\r\n');
+	assert.deepEqual(events, [{ type: 'status' }]);
+});

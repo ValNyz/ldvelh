@@ -9,6 +9,8 @@ export default function MessageList({
 	loading,
 	saving,
 	error,
+	warning,
+	onClearWarning,
 	fontSize,
 	editingIndex,
 	onEdit,
@@ -122,6 +124,14 @@ export default function MessageList({
 						</svg>
 						Sauvegarde...
 					</span>
+				</div>
+			)}
+
+			{/* Avertissement non bloquant (ex. jet de dés indisponible) */}
+			{warning && (
+				<div role="status" className="mb-4 flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
+					<span className="flex-1">{warning}</span>
+					<button type="button" onClick={onClearWarning} className="text-amber-300 hover:text-amber-100" aria-label="Fermer l'avertissement">✕</button>
 				</div>
 			)}
 

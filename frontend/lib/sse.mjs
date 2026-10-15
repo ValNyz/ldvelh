@@ -10,6 +10,8 @@ export function createSSEParser(onEvent) {
 	// Pending text kept as parts: joining a long event on every small read is quadratic.
 	let parts = [];
 	let lastChar = '';
+	// A read ending in "\r" may be the first half of "\r\n": hold it back.
+	let pendingCR = false;
 
 	function dispatch(block) {
 		const dataLines = [];
@@ -30,7 +32,10 @@ export function createSSEParser(onEvent) {
 
 	return {
 		push(text) {
-			const chunk = text.replace(/\r\n?/g, '\n');
+			let raw = (pendingCR ? '\r' : '') + text;
+			pendingCR = raw.endsWith('\r');
+			if (pendingCR) raw = raw.slice(0, -1);
+			const chunk = raw.replace(/\r\n?/g, '\n');
 			if (!chunk) return;
 			parts.push(chunk);
 			// A blank line can only end here if this read contains a newline.
@@ -48,6 +53,8 @@ export function createSSEParser(onEvent) {
 		},
 		/** Dispatch a trailing event that was not followed by a blank line. */
 		flush() {
+			if (pendingCR) parts.push('\n');
+			pendingCR = false;
 			const buffer = parts.join('');
 			if (buffer.trim()) dispatch(buffer);
 			parts = [];
