@@ -69,6 +69,25 @@ async def close_shared_clients() -> None:
 # =============================================================================
 
 
+def _content_text(content) -> str:
+    """Text of a message/delta content: str, None, or a list of content blocks.
+
+    Reasoning models (e.g. Mistral zai-glm, some OpenAI-compatible hosts)
+    return lists of blocks or an empty content; only text blocks are kept.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content:
+        kind = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+        text = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
+        if kind in (None, "text") and isinstance(text, str):
+            parts.append(text)
+    return "".join(parts)
+
+
 @dataclass
 class LLMUsage:
     """Provider-agnostic token usage."""
@@ -447,8 +466,9 @@ class MistralProvider(LLMProvider):
         total_usage = LLMUsage()
         async for event in response:
             chunk = event.data
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            text = _content_text(chunk.choices[0].delta.content) if chunk.choices else ""
+            if text:
+                yield text
 
             # Capture usage from the final chunk
             if chunk.usage:
@@ -477,7 +497,7 @@ class MistralProvider(LLMProvider):
 
         usage = response.usage
         return CompletionResult(
-            content=response.choices[0].message.content,
+            content=_content_text(response.choices[0].message.content),
             usage=LLMUsage(
                 input_tokens=usage.prompt_tokens or 0 if usage else 0,
                 output_tokens=usage.completion_tokens or 0 if usage else 0,
@@ -545,8 +565,9 @@ class OpenAICompatibleProvider(LLMProvider):
 
         total_usage = LLMUsage()
         async for chunk in response:
-            if chunk.choices and chunk.choices[0].delta.content:
-                yield chunk.choices[0].delta.content
+            text = _content_text(chunk.choices[0].delta.content) if chunk.choices else ""
+            if text:
+                yield text
 
             if chunk.usage:
                 total_usage = LLMUsage(
@@ -580,7 +601,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
         usage = response.usage
         return CompletionResult(
-            content=response.choices[0].message.content,
+            content=_content_text(response.choices[0].message.content),
             usage=LLMUsage(
                 input_tokens=usage.prompt_tokens or 0 if usage else 0,
                 output_tokens=usage.completion_tokens or 0 if usage else 0,
@@ -616,7 +637,7 @@ class OpenAICompatibleProvider(LLMProvider):
 
         usage = response.usage
         return CompletionResult(
-            content=response.choices[0].message.content,
+            content=_content_text(response.choices[0].message.content),
             usage=LLMUsage(
                 input_tokens=usage.prompt_tokens or 0 if usage else 0,
                 output_tokens=usage.completion_tokens or 0 if usage else 0,
