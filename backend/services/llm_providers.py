@@ -148,8 +148,13 @@ class LLMProvider(ABC):
     # (used as the fallback model list when no live discovery is possible).
     MODELS: dict[str, str] = {}
 
+    # Optional cheaper model for the mechanical (dice) decision. None: use MODEL_MAIN.
+    MODEL_MECHANICAL: str | None = None
+
     def model_name(self, purpose: str) -> str:
         """Return model ID for a given purpose. Default: MODEL_MAIN for all."""
+        if purpose == "mechanical" and self.MODEL_MECHANICAL:
+            return self.MODEL_MECHANICAL
         return self.MODEL_MAIN
 
     async def list_models(self) -> list[dict]:
@@ -195,6 +200,7 @@ class AnthropicProvider(LLMProvider):
     """Anthropic Claude provider."""
 
     MODEL_MAIN = "claude-sonnet-4-6"
+    MODEL_MECHANICAL = "claude-haiku-4-5"
     STRUCTURED_OUTPUT = StructuredOutputMode.TOOL_USE
 
     MODELS: dict[str, str] = {

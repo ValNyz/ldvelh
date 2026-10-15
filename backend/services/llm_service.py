@@ -311,11 +311,15 @@ class LLMService:
         provider_name: str = "anthropic",
         api_key: str | None = None,
         model: str | None = None,
+        purpose: str = "extraction",
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> dict | None:
-        """Heavy extraction call."""
+        """JSON-in-text call (extraction by default; also used by the mechanical step)."""
         return await self._extract(
-            system_prompt, user_message, "extraction", provider_name,
-            self.settings.max_tokens_extraction, api_key=api_key, model=model,
+            system_prompt, user_message, purpose, provider_name,
+            max_tokens or self.settings.max_tokens_extraction,
+            api_key=api_key, model=model, temperature=temperature,
         )
 
     async def extract_structured(
@@ -460,6 +464,7 @@ class LLMService:
         max_tokens: int,
         api_key: str | None = None,
         model: str | None = None,
+        temperature: float | None = None,
     ) -> dict | None:
         """Shared extraction logic."""
         provider = self._get_provider(provider_name, api_key=api_key, model=model)
@@ -467,7 +472,10 @@ class LLMService:
             result = await provider.complete(
                 system_prompt=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
-                temperature=self.settings.temperature_extraction,
+                temperature=(
+                    temperature if temperature is not None
+                    else self.settings.temperature_extraction
+                ),
                 max_tokens=max_tokens,
             )
             model = provider.model_name(purpose)

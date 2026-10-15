@@ -1,0 +1,16 @@
+{
+  "llm_calls": [
+    "mechanical",
+    "narration",
+    "resolver"
+  ],
+  "sse": [
+    "warning",
+    "chunk*",
+    "done",
+    "saved"
+  ],
+  "warnings": [
+    "Jet de dés indisponible pour ce tour : le modèle n'a pas renvoyé de décision exploitable."
+  ]
+}

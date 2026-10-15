@@ -59,6 +59,21 @@ async def test_c04_engine_turn_with_test(harness, engine, monkeypatch):
     assert_snapshot(f"c04_engine_turn[{engine}]", snap)
 
 
+@pytest.mark.parametrize("engine", ["fate_core", "d6"])
+async def test_c04b_mechanical_failure_warns_and_narrates(harness, engine):
+    """#10: an unusable mechanical answer sends a warning; the turn still narrates, no roll."""
+    game_id = await _engine_game(harness, engine)
+    harness.llm._responses["mechanical"] = "pas du JSON"
+    events = await harness.chat(game_id, "Je force la porte.")
+    await harness.drain()
+    warnings = [e for e in events if e["type"] == "warning"]
+    assert_snapshot(f"c04b_mechanical_failure[{engine}]", {
+        "sse": harness.summarize(events),
+        "warnings": [w.get("message") for w in warnings],
+        "llm_calls": harness.llm.purposes(),
+    })
+
+
 async def test_c05_fate_invocation_pending_then_resume(harness, monkeypatch):
     game_id = await _engine_game(harness, "fate_core")
     harness.llm._responses["mechanical"] = payloads.mechanical(
