@@ -2,7 +2,11 @@
 Tests for the entity resolver (context-propagation coreference resolution).
 """
 
+import json
 import pytest
+from llm.session import LLMSession
+from services.llm_providers import LLMUsage
+from tests.test_llm_session import FakeProvider
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.extraction.resolver import (
@@ -263,25 +267,21 @@ class TestResolveEntities:
             "new": [],
         }
 
-        with patch("services.extraction.resolver.get_llm_service") as mock_llm:
-            mock_service = MagicMock()
-            mock_service.extract_text = AsyncMock(return_value=llm_response)
-            mock_service._last_call_cost = {"cost_usd": 0.001}
-            mock_llm.return_value = mock_service
-
-            result, cost = await resolve_entities(
-                mock_pool,
-                "00000000-0000-0000-0000-000000000000",
-                previous_response="Le docteur [= Dr. Voss] vous accueille.",
-                previous_annotations=[[3, 10, "Dr. Voss", "character"]],
-                current_response="La médecin vous examine attentivement.",
-            )
+        session = LLMSession.from_provider(FakeProvider(text=json.dumps(llm_response), usage=LLMUsage(11, 3)))
+        result, cost = await resolve_entities(
+            mock_pool,
+            "00000000-0000-0000-0000-000000000000",
+            previous_response="Le docteur [= Dr. Voss] vous accueille.",
+            previous_annotations=[[3, 10, "Dr. Voss", "character"]],
+            current_response="La médecin vous examine attentivement.",
+            session=session,
+        )
 
         assert result is not None
         assert len(result.mappings) == 2
         assert result.get_canonical("le docteur") == "Dr. Voss"
         assert result.get_canonical("la médecin") == "Dr. Voss"
-        assert cost == {"cost_usd": 0.001}
+        assert cost["input_tokens"] == 11
 
     @pytest.mark.asyncio
     async def test_no_previous_annotations(self):
@@ -295,19 +295,15 @@ class TestResolveEntities:
             ],
         }
 
-        with patch("services.extraction.resolver.get_llm_service") as mock_llm:
-            mock_service = MagicMock()
-            mock_service.extract_text = AsyncMock(return_value=llm_response)
-            mock_service._last_call_cost = {"cost_usd": 0.001}
-            mock_llm.return_value = mock_service
-
-            result, cost = await resolve_entities(
-                mock_pool,
-                "00000000-0000-0000-0000-000000000000",
-                previous_response="Il fait beau.",
-                previous_annotations=None,
-                current_response="Le pilote arrive.",
-            )
+        session = LLMSession.from_provider(FakeProvider(text=json.dumps(llm_response), usage=LLMUsage(11, 3)))
+        result, cost = await resolve_entities(
+            mock_pool,
+            "00000000-0000-0000-0000-000000000000",
+            previous_response="Il fait beau.",
+            previous_annotations=None,
+            current_response="Le pilote arrive.",
+            session=session,
+        )
 
         assert result is not None
         assert len(result.mappings) == 1
@@ -318,18 +314,14 @@ class TestResolveEntities:
         """When LLM returns None, resolver returns None gracefully."""
         mock_pool = MagicMock()
 
-        with patch("services.extraction.resolver.get_llm_service") as mock_llm:
-            mock_service = MagicMock()
-            mock_service.extract_text = AsyncMock(return_value=None)
-            mock_service._last_call_cost = None
-            mock_llm.return_value = mock_service
-
-            result, cost = await resolve_entities(
-                mock_pool,
-                "00000000-0000-0000-0000-000000000000",
-                previous_response="Some text.",
-                previous_annotations=None,
-                current_response="More text.",
-            )
+        session = LLMSession.from_provider(FakeProvider(text='', usage=LLMUsage(11, 3)))
+        result, cost = await resolve_entities(
+            mock_pool,
+            "00000000-0000-0000-0000-000000000000",
+            previous_response="Some text.",
+            previous_annotations=None,
+            current_response="More text.",
+            session=session,
+        )
 
         assert result is None

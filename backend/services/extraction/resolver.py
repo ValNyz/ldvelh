@@ -18,10 +18,13 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from schema.extraction import EntityResolution
-from services.llm_service import get_llm_service
+from config import get_settings
+from llm.session import Purpose
 
 if TYPE_CHECKING:
     from asyncpg import Pool
+
+    from llm.session import LLMSession
 
 logger = logging.getLogger(__name__)
 
@@ -234,8 +237,7 @@ async def resolve_entities(
     previous_response: str,
     previous_annotations: list[list] | None,
     current_response: str,
-    provider_name: str = "anthropic",
-    api_key: str | None = None,
+    session: LLMSession,
 ) -> tuple[ResolutionMap | None, dict | None]:
     """Resolve entity mentions in the current narrator response.
 
@@ -251,15 +253,16 @@ async def resolve_entities(
     )
 
     # Call LLM with 2 messages — use the provider's default model
-    llm = get_llm_service()
-    raw = await llm.extract_text(
-        system_prompt=RESOLVER_SYSTEM_PROMPT,
-        user_message=f"MESSAGE 1 (previous, annotated):\n{annotated_prev}\n\n"
-                     f"MESSAGE 2 (current, to resolve):\n{current_response}",
-        provider_name=provider_name,
-        api_key=api_key,
+    settings = get_settings()
+    call = await session.complete_json(
+        Purpose.RESOLVER,
+        RESOLVER_SYSTEM_PROMPT,
+        f"MESSAGE 1 (previous, annotated):\n{annotated_prev}\n\n"
+        f"MESSAGE 2 (current, to resolve):\n{current_response}",
+        temperature=settings.temperature_extraction,
+        max_tokens=settings.max_tokens_extraction,
     )
-    cost = getattr(llm, "_last_call_cost", None)
+    raw, cost = call.value, call.cost
 
     if not raw:
         logger.warning("[RESOLVER] LLM returned empty response")

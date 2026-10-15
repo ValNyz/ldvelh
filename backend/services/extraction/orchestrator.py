@@ -14,6 +14,8 @@ from uuid import UUID
 
 import asyncpg
 
+from llm.session import LLMSession
+
 from kg.populator import KnowledgeGraphPopulator
 
 from .characters import CharactersExtractor
@@ -44,8 +46,7 @@ async def run_resolve_and_extract(
     game_id: UUID,
     trigger_cycle: int,
     triggers: list[str] | None = None,
-    provider_name: str = "anthropic",
-    api_key: str | None = None,
+    session: LLMSession | None = None,
     assistant_message_id: UUID | None = None,
     message_content: str | None = None,
     narrator_deltas: dict | None = None,
@@ -100,8 +101,7 @@ async def run_resolve_and_extract(
                         previous_response=prev_text,
                         previous_annotations=prev_annotations,
                         current_response=message_content,
-                        provider_name=provider_name,
-                        api_key=api_key,
+                        session=session,
                     )
 
                     if resolver_cost and isinstance(resolver_cost, dict):
@@ -153,7 +153,7 @@ async def run_resolve_and_extract(
 
             async def _run_phase(trigger_names):
                 tasks = [
-                    EXTRACTOR_MAP[t](pool, game_id, provider_name, api_key).run(
+                    EXTRACTOR_MAP[t](pool, game_id, session).run(
                         message_content=message_content,
                         narrator_deltas=narrator_deltas,
                         trigger_cycle=trigger_cycle,
@@ -259,8 +259,7 @@ async def run_triggered_extraction(
     game_id: UUID,
     trigger_cycle: int,
     triggers: list[str],
-    provider_name: str = "anthropic",
-    api_key: str | None = None,
+    session: LLMSession | None = None,
     assistant_message_id: UUID | None = None,
     message_content: str | None = None,
     narrator_deltas: dict | None = None,
@@ -268,8 +267,8 @@ async def run_triggered_extraction(
     """Backward-compatible wrapper."""
     return await run_resolve_and_extract(
         pool, game_id, trigger_cycle, triggers,
-        provider_name, api_key, assistant_message_id,
-        message_content, narrator_deltas,
+        session=session, assistant_message_id=assistant_message_id,
+        message_content=message_content, narrator_deltas=narrator_deltas,
     )
 
 

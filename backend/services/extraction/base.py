@@ -16,10 +16,12 @@ from uuid import UUID
 
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
-from services.llm_service import get_llm_service
+from config import get_settings
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
+
+    from llm.session import LLMSession
 
     from .resolver import ResolutionMap
 
@@ -33,17 +35,10 @@ class BaseExtractor(ABC):
     tool_name: str  # Tool name for LLM call
     tool_description: str  # Tool description for LLM call
 
-    def __init__(
-        self,
-        pool: Pool,
-        game_id: UUID,
-        provider_name: str = "anthropic",
-        api_key: str | None = None,
-    ):
+    def __init__(self, pool: Pool, game_id: UUID, session: "LLMSession"):
         self.pool = pool
         self.game_id = game_id
-        self.provider_name = provider_name
-        self.api_key = api_key
+        self.session = session
         self.reader = KnowledgeGraphReader(pool, game_id)
         self.populator = ExtractionPopulator(pool, game_id)
 
@@ -115,19 +110,18 @@ class BaseExtractor(ABC):
     async def _call_llm(
         self, system_prompt: str, user_prompt: str, schema: dict
     ) -> tuple[dict | None, dict | None]:
-        """Call the LLM service for structured extraction. Returns (result, cost)."""
-        llm = get_llm_service()
-        result = await llm.extract_structured(
+        """Structured extraction through the session. Returns (result, this call's cost)."""
+        settings = get_settings()
+        call = await self.session.extract_structured(
             system_prompt=system_prompt,
             user_message=user_prompt,
             tool_name=self.tool_name,
             tool_description=self.tool_description,
             schema=schema,
-            provider_name=self.provider_name,
-            api_key=self.api_key,
+            temperature=settings.temperature_extraction,
+            max_tokens=settings.max_tokens_extraction,
         )
-        cost = getattr(llm, "_last_call_cost", None)
-        return result, cost
+        return call.value, call.cost
 
     @abstractmethod
     async def _build_context(

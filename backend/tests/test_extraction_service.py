@@ -19,6 +19,7 @@ from schema.extraction import (
 from services.extraction.resolver import MentionMapping, ResolutionMap
 
 
+SESSION = MagicMock()  # the orchestrator is fully patched in these tests
 SAMPLE_GAME_ID = uuid4()
 SAMPLE_MSG_ID = uuid4()
 PREV_MSG_ID = uuid4()
@@ -163,7 +164,7 @@ class TestOrchestrator:
         pool, _ = _mock_pool()
         result = await run_triggered_extraction(
             pool, SAMPLE_GAME_ID, trigger_cycle=3,
-            triggers=["characters"], provider_name="anthropic", api_key="test",
+            triggers=["characters"], session=SESSION,
         )
 
         assert result["skipped"] is True
@@ -178,7 +179,7 @@ class TestOrchestrator:
         pool, _ = _mock_pool()
         result = await run_triggered_extraction(
             pool, SAMPLE_GAME_ID, trigger_cycle=3,
-            triggers=[], provider_name="anthropic", api_key="test",
+            triggers=[], session=SESSION,
         )
 
         # No extractors run, but resolver may run (returns result dict)
@@ -192,7 +193,7 @@ class TestOrchestrator:
         pool, _ = _mock_pool()
         result = await run_triggered_extraction(
             pool, SAMPLE_GAME_ID, trigger_cycle=3,
-            triggers=["nonexistent_type"], provider_name="anthropic", api_key="test",
+            triggers=["nonexistent_type"], session=SESSION,
         )
 
         # Should complete without error (no valid extractors to run)
@@ -216,7 +217,7 @@ class TestOrchestrator:
             pool, _ = _mock_pool()
             await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
-                triggers=["characters"], provider_name="anthropic", api_key="test",
+                triggers=["characters"], session=SESSION,
             )
 
         assert str(SAMPLE_GAME_ID) not in _extracting_games
@@ -249,7 +250,7 @@ class TestOrchestrator:
         ):
             await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
-                triggers=["characters"], provider_name="anthropic", api_key="test",
+                triggers=["characters"], session=SESSION,
                 assistant_message_id=SAMPLE_MSG_ID,
                 message_content="Le docteur vous examine.",
                 narrator_deltas={},
@@ -294,7 +295,7 @@ class TestOrchestrator:
             await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters", "locations"],
-                provider_name="anthropic", api_key="test",
+                session=SESSION,
                 assistant_message_id=SAMPLE_MSG_ID,
                 message_content="Le docteur vous examine.",
                 narrator_deltas={},
@@ -331,7 +332,7 @@ class TestOrchestrator:
         ):
             result = await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
-                triggers=["characters"], provider_name="anthropic", api_key="test",
+                triggers=["characters"], session=SESSION,
                 assistant_message_id=SAMPLE_MSG_ID,
                 message_content="Le docteur vous examine.",
                 narrator_deltas={},
@@ -369,7 +370,7 @@ class TestOrchestrator:
         ):
             result = await run_triggered_extraction(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
-                triggers=["characters"], provider_name="anthropic", api_key="test",
+                triggers=["characters"], session=SESSION,
                 assistant_message_id=SAMPLE_MSG_ID,
                 message_content="Le docteur vous examine.",
                 narrator_deltas={},
