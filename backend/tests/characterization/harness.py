@@ -120,9 +120,9 @@ def spy_narration(monkeypatch) -> list[dict]:
     calls: list[dict] = []
     original = llm_service.LLMService.stream_narration
 
-    async def spy(self, system_prompt, messages, *args, **kwargs):
+    async def spy(self, session, system_prompt, messages, *args, **kwargs):
         calls.append({"system": system_prompt, "messages": messages})
-        return await original(self, system_prompt, messages, *args, **kwargs)
+        return await original(self, session, system_prompt, messages, *args, **kwargs)
 
     monkeypatch.setattr(llm_service.LLMService, "stream_narration", spy)
     return calls

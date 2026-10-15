@@ -428,6 +428,10 @@ async def _handle_chat(
             )
             return
 
+        from llm.session import LLMSession, Purpose
+
+        session = LLMSession(provider_name, user_api_key, request.model)
+
         game_session = server_state.get("game", {})
         current_cycle = game_session.get("current_cycle", 1)
         current_time = game_session.get("time", "08h00")
@@ -500,7 +504,7 @@ async def _handle_chat(
                 genre=genre,
             )
 
-            async def on_init_complete(parsed, display_text, raw_json):
+            async def on_init_complete(parsed, display_text, raw_json, cost):
                 logger.debug(f"[DEBUG] raw_json length: {len(raw_json)}")
                 logger.debug(f"[DEBUG] raw_json ends with: ...{raw_json[-100:]}")
                 if not parsed:
@@ -534,7 +538,7 @@ async def _handle_chat(
                     # Load canonical state (same shape as light mode)
                     state = await game_service.load_game_state(game_id)
 
-                    init_cost = getattr(llm_service, "_last_call_cost", None)
+                    init_cost = cost
                     payload = SSEDonePayload(
                         game_state=SSEGameState(
                             game=state["game"],
@@ -601,15 +605,13 @@ async def _handle_chat(
                     await sse_writer.send_error(str(e), recoverable=True)
 
             await llm_service.stream_narration(
+                session,
                 system_prompt=prompt["system"],
                 messages=[{"role": "user", "content": prompt["user"]}],
                 sse_writer=sse_writer,
                 is_init_mode=True,
                 temperature=1.0,
                 on_complete=on_init_complete,
-                provider_name=provider_name,
-                api_key=user_api_key,
-                model=request.model,
             )
 
         # =====================================================================
@@ -771,9 +773,9 @@ async def _handle_chat(
 
             # Build multi-turn messages array (history + context prompt)
             # Wrap assistant history in JSON for providers that need it
-            from services.llm_providers import get_provider
-            provider = get_provider(provider_name, api_key=user_api_key)
-            json_history = getattr(provider, "FORCE_JSON", False)
+            json_history = getattr(
+                session.provider_for(Purpose.NARRATION), "FORCE_JSON", False
+            )
             llm_messages = await game_service.build_llm_messages(
                 game_id, current_cycle, context_prompt,
                 json_history=json_history,
@@ -790,7 +792,7 @@ async def _handle_chat(
                     content = content[0]["text"] if content else ""
                 logger.info(f"[CHAT] === MESSAGE [{i}] ({msg['role']}) ===\n{content}")
 
-            async def on_light_complete(parsed, display_text, raw_json):
+            async def on_light_complete(parsed, display_text, raw_json, cost):
                 t0 = time.perf_counter()
                 if not parsed:
                     await sse_writer.send_error(
@@ -866,7 +868,7 @@ async def _handle_chat(
                     )
 
                     # 5. Build structured payload
-                    narration_cost = getattr(llm_service, "_last_call_cost", None)
+                    narration_cost = cost
                     mech_cost = (
                         mechanical_result.cost if mechanical_result else None
                     )
@@ -1034,14 +1036,12 @@ async def _handle_chat(
                     await populator.lock_engine(lock_conn)
 
             await llm_service.stream_narration(
+                session,
                 system_prompt=system_prompt,
                 messages=llm_messages,
                 sse_writer=sse_writer,
                 is_init_mode=False,
                 on_complete=on_light_complete,
-                provider_name=provider_name,
-                api_key=user_api_key,
-                model=request.model,
             )
 
     except Exception as e:

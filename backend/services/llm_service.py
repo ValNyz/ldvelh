@@ -13,6 +13,7 @@ import re
 
 from api.streaming import SSEWriter, build_display_text, extract_narrative_from_partial
 from config import get_settings
+from llm.session import LLMSession, Purpose
 from llm.usage import call_cost, get_usage_ledger
 from services.llm_providers import (
     LLMProvider,
@@ -74,37 +75,23 @@ class LLMService:
 
     async def stream_narration(
         self,
+        session: LLMSession,
         system_prompt: str,
         messages: list[dict],
         sse_writer: SSEWriter,
         is_init_mode: bool = False,
         temperature: float | None = None,
-        on_complete: Callable[[dict | None, str | None, str], Awaitable[None]]
+        on_complete: Callable[[dict | None, str | None, str, dict | None], Awaitable[None]]
         | None = None,
         on_narrative_ready: Callable[[str], Awaitable[None]] | None = None,
-        provider_name: str = "anthropic",
-        api_key: str | None = None,
-        model: str | None = None,
     ) -> None:
-        """
-        Stream a narrative response from the LLM.
-
-        Args:
-            system_prompt: System prompt
-            messages: Messages array (multi-turn conversation + context prompt)
-            sse_writer: SSE writer for streaming
-            temperature: Temperature float to pass to the LLM
-            is_init_mode: True for World Builder mode
-            on_complete: Callback on completion with (parsed, display_text, raw_json)
-            on_narrative_ready: Callback when narrative_text is complete
-            provider_name: LLM provider to use ('anthropic' or 'mistral')
-        """
-        provider = self._get_provider(provider_name, api_key=api_key, model=model)
+        """Stream a narrative (or world-gen) response; on_complete gets this call's cost."""
         settings = self.settings
         max_tokens = (
             settings.max_tokens_init if is_init_mode else settings.max_tokens_narration
         )
         temp = settings.temperature if temperature is None else temperature
+        purpose = Purpose.WORLD_GEN if is_init_mode else Purpose.NARRATION
 
         full_json = ""
         last_sent_length = 0
@@ -112,18 +99,8 @@ class LLMService:
         narrative_callback_fired = False
 
         try:
-            stream_usage: LLMUsage | None = None
-            async for item in provider.stream(
-                system_prompt=system_prompt,
-                messages=messages,
-                temperature=temp,
-                max_tokens=max_tokens,
-            ):
-                if isinstance(item, LLMUsage):
-                    stream_usage = item
-                    continue
-
-                # item is a text delta
+            stream = session.stream(purpose, system_prompt, messages, temp, max_tokens)
+            async for item in stream:
                 full_json += item
 
                 if is_init_mode:
@@ -144,14 +121,6 @@ class LLMService:
                         ):
                             narrative_callback_fired = True
                             await on_narrative_ready(displayable)
-
-            # Record cost
-            purpose = "world_gen" if is_init_mode else "narration"
-            model = provider.model_name(purpose)
-            if stream_usage:
-                self._last_call_cost = self.cost_tracker.record(
-                    purpose, provider.provider_name, model, stream_usage
-                )
 
             if is_init_mode and len(full_json) > last_progress_length:
                 await sse_writer.send_progress(full_json)
@@ -175,12 +144,12 @@ class LLMService:
                 )
 
             if on_complete:
-                await on_complete(parsed, display_text, full_json)
+                await on_complete(parsed, display_text, full_json, stream.cost)
 
         except Exception as e:
-            logger.error(f"[LLM] API error ({provider_name}): {e}")
+            logger.error(f"[LLM] API error ({session.provider_name}): {e}")
             await sse_writer.send_error(
-                f"LLM API error ({provider_name}): {e}", recoverable=True
+                f"LLM API error ({session.provider_name}): {e}", recoverable=True
             )
             raise
 

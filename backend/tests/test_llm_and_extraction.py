@@ -32,6 +32,7 @@ from services.llm_providers import (
     _CLASSES,
     _providers,
 )
+from llm.session import LLMSession
 from llm.usage import UsageLedger, call_cost
 from services.llm_service import (
     LLMService,
@@ -587,18 +588,19 @@ class TestLLMServiceStreamNarration:
         sse_writer = AsyncMock()
         on_complete = AsyncMock()
 
-        with patch.object(service, "_get_provider", return_value=mock_provider):
-            await service.stream_narration(
-                system_prompt="sys",
-                messages=[{"role": "user", "content": "test"}],
-                sse_writer=sse_writer,
-                on_complete=on_complete,
-            )
+        session = LLMSession.from_provider(mock_provider)
+        await service.stream_narration(
+            session,
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "test"}],
+            sse_writer=sse_writer,
+            on_complete=on_complete,
+        )
 
         # on_complete should have been called
         on_complete.assert_awaited_once()
         call_args = on_complete.call_args
-        parsed, display_text, raw_json = call_args[0]
+        parsed, display_text, raw_json, cost = call_args[0]
         assert parsed is not None
         assert parsed["narrative_text"].startswith("Hello world")
 
@@ -617,13 +619,14 @@ class TestLLMServiceStreamNarration:
 
         sse_writer = AsyncMock()
 
-        with patch.object(service, "_get_provider", return_value=mock_provider):
-            await service.stream_narration(
-                system_prompt="sys",
-                messages=[],
-                sse_writer=sse_writer,
-                is_init_mode=True,
-            )
+        session = LLMSession.from_provider(mock_provider)
+        await service.stream_narration(
+            session,
+            system_prompt="sys",
+            messages=[],
+            sse_writer=sse_writer,
+            is_init_mode=True,
+        )
 
         # In init mode, send_progress should be used
         assert sse_writer.send_progress.await_count >= 1
@@ -639,16 +642,21 @@ class TestLLMServiceStreamNarration:
 
         mock_provider = _mock_provider()
         mock_provider.stream = mock_stream
+        seen = {}
 
-        with patch.object(service, "_get_provider", return_value=mock_provider):
-            await service.stream_narration(
-                system_prompt="sys",
-                messages=[],
-                sse_writer=AsyncMock(),
-            )
+        async def on_complete(parsed, display_text, raw_json, cost):
+            seen["cost"] = cost
 
-        assert hasattr(service, "_last_call_cost")
-        assert service._last_call_cost["input_tokens"] == 500
+        session = LLMSession.from_provider(mock_provider)
+        await service.stream_narration(
+            session,
+            system_prompt="sys",
+            messages=[],
+            sse_writer=AsyncMock(),
+            on_complete=on_complete,
+        )
+
+        assert seen["cost"]["input_tokens"] == 500
 
     @pytest.mark.asyncio
     async def test_stream_narration_api_error(self, service):
@@ -663,13 +671,14 @@ class TestLLMServiceStreamNarration:
 
         sse_writer = AsyncMock()
 
-        with patch.object(service, "_get_provider", return_value=mock_provider):
-            with pytest.raises(RuntimeError, match="API down"):
-                await service.stream_narration(
-                    system_prompt="sys",
-                    messages=[],
-                    sse_writer=sse_writer,
-                )
+        session = LLMSession.from_provider(mock_provider)
+        with pytest.raises(RuntimeError, match="API down"):
+            await service.stream_narration(
+                session,
+                system_prompt="sys",
+                messages=[],
+                sse_writer=sse_writer,
+            )
 
         sse_writer.send_error.assert_awaited_once()
 
@@ -692,13 +701,14 @@ class TestLLMServiceStreamNarration:
 
         on_narrative_ready = AsyncMock()
 
-        with patch.object(service, "_get_provider", return_value=mock_provider):
-            await service.stream_narration(
-                system_prompt="sys",
-                messages=[],
-                sse_writer=AsyncMock(),
-                on_narrative_ready=on_narrative_ready,
-            )
+        session = LLMSession.from_provider(mock_provider)
+        await service.stream_narration(
+            session,
+            system_prompt="sys",
+            messages=[],
+            sse_writer=AsyncMock(),
+            on_narrative_ready=on_narrative_ready,
+        )
 
         # The callback should fire once when narrative_text field is complete
         on_narrative_ready.assert_awaited_once()
@@ -717,16 +727,17 @@ class TestLLMServiceStreamNarration:
 
         on_complete = AsyncMock()
 
-        with patch.object(service, "_get_provider", return_value=mock_provider):
-            await service.stream_narration(
-                system_prompt="sys",
-                messages=[],
-                sse_writer=AsyncMock(),
-                on_complete=on_complete,
-            )
+        session = LLMSession.from_provider(mock_provider)
+        await service.stream_narration(
+            session,
+            system_prompt="sys",
+            messages=[],
+            sse_writer=AsyncMock(),
+            on_complete=on_complete,
+        )
 
         call_args = on_complete.call_args[0]
-        parsed, display_text, raw_json = call_args
+        parsed, display_text, raw_json, cost = call_args
         # parsed may be None or repaired; display_text should exist
         assert display_text is not None
 
