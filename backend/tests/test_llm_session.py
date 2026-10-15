@@ -113,10 +113,10 @@ def test_caps_come_from_the_narration_provider():
 
 
 def test_model_per_purpose_matches_before_p2():
-    session = LLMSession("anthropic", api_key="k", user_model="claude-sonnet-4-6")
-    assert session.model_for(Purpose.NARRATION) == "claude-sonnet-4-6"
-    assert session.model_for(Purpose.MECHANICAL) == "claude-haiku-4-5"
-    assert session.model_for(Purpose.RESOLVER) == "claude-sonnet-4-6"  # provider default
+    session = LLMSession("anthropic", api_key="k", user_model="claude-sonnet-5-5")
+    assert session.model_for(Purpose.NARRATION) == "claude-sonnet-5-5"
+    assert session.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
+    assert session.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"  # provider default
     mistral = LLMSession("mistral", api_key="k", user_model="mistral-small-latest")
     assert mistral.model_for(Purpose.MECHANICAL) == "mistral-small-latest"
     assert mistral.model_for(Purpose.DIRECTOR) == "mistral-large-latest"  # provider default

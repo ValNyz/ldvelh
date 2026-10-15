@@ -32,10 +32,10 @@ def test_raw_key_is_never_a_cache_key():
 
 
 def test_shared_client_keeps_models_apart():
-    sonnet = get_provider("anthropic", api_key="k1", model="claude-sonnet-4-6")
-    haiku = get_provider("anthropic", api_key="k1", model="claude-haiku-4-5")
+    sonnet = get_provider("anthropic", api_key="k1", model="claude-sonnet-5-5")
+    haiku = get_provider("anthropic", api_key="k1", model="claude-haiku-5-5")
     assert sonnet.client is haiku.client
-    assert (sonnet.MODEL_MAIN, haiku.MODEL_MAIN) == ("claude-sonnet-4-6", "claude-haiku-4-5")
+    assert (sonnet.MODEL_MAIN, haiku.MODEL_MAIN) == ("claude-sonnet-5-5", "claude-haiku-5-5")
 
 
 def test_cache_is_bounded(monkeypatch):
