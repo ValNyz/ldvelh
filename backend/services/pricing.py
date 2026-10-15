@@ -89,7 +89,17 @@ def _normalize_rate(value: float | None) -> float:
     return value * 1_000_000
 
 
-_PRICING: dict[str, ModelPricing] = _load()
+# Hand-curated (USD per million tokens) from https://platform.claude.com/docs/en/about-claude/pricing
+# (2026-10). The vendored litellm table does not list the Claude 5 family yet;
+# these entries win over it. Haiku 5.5: prompts up to 100k tokens (ours are).
+_MANUAL_PRICING: dict[str, ModelPricing] = {
+    "claude-sonnet-5-5": ModelPricing(input=2.0, output=10.0, cache_write=2.5, cache_read=0.10),
+    "claude-opus-5-5": ModelPricing(input=4.0, output=20.0, cache_write=5.0, cache_read=0.20),
+    "claude-haiku-5-5": ModelPricing(input=0.10, output=0.50, cache_write=0.125, cache_read=0.01),
+    "claude-fable-5-1": ModelPricing(input=10.0, output=50.0, cache_write=12.5, cache_read=0.25),
+}
+
+_PRICING: dict[str, ModelPricing] = {**_load(), **_MANUAL_PRICING}
 
 # Pricing registered at runtime by providers that ship pricing inline in
 # their /v1/models response (e.g. Nous Research). Keyed by "{provider}/{model}".
