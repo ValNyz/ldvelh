@@ -14,7 +14,7 @@ import re
 from api.streaming import SSEWriter, build_display_text, extract_narrative_from_partial
 from config import get_settings
 from llm.session import LLMSession, Purpose
-from llm.usage import call_cost, get_usage_ledger
+from llm.usage import call_cost
 from services.llm_providers import LLMUsage
 from utils import parse_json_response
 
@@ -53,7 +53,6 @@ class LLMService:
 
     def __init__(self):
         self.settings = get_settings()
-        self.cost_tracker = get_usage_ledger()
 
     # =========================================================================
     # STREAMING NARRATION

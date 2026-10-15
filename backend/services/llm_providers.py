@@ -64,7 +64,6 @@ async def close_shared_clients() -> None:
             logger.warning(f"[LLM] Failed to close client: {e}")
 
 
-
 # =============================================================================
 # SHARED DATA TYPES
 # =============================================================================
@@ -808,7 +807,6 @@ def get_provider_catalog() -> dict:
 
 # Live model-list cache: (provider, key_hash) -> (models, expires_at_epoch).
 # Single-process in-memory; refresh window controls staleness.
-import hashlib
 import time
 
 _MODEL_CACHE: dict[tuple[str, str], tuple[list[dict], float]] = {}

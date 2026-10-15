@@ -30,7 +30,7 @@ async def test_c02_arrival(harness):
     StructuredOutputMode.TEXT,
 ], ids=["tool_use", "json_schema", "text"])
 async def test_c03_light_turn(harness, world_game, llm_mode):
-    # The mode only changes how extractors call the LLM (LLMService.extract_structured:
+    # The mode only changes how extractors call the LLM (LLMSession.extract_structured:
     # tool_use / json_schema / plain text). A new-character resolution forces one extractor to run.
     harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
     harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW

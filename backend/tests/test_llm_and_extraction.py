@@ -474,7 +474,7 @@ class TestComputeCost:
         assert abs(result - round(expected, 6)) < 1e-9
 
 
-class TestCostTracker:
+class TestUsageLedger:
     """Tests for UsageLedger.record and UsageLedger.get_summary."""
 
     def test_record_returns_snapshot(self):

@@ -7,7 +7,7 @@ import pytest
 from llm.session import LLMSession
 from services.llm_providers import LLMUsage
 from tests.test_llm_session import FakeProvider
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from services.extraction.resolver import (
     MentionMapping,

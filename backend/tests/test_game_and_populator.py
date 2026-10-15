@@ -15,6 +15,8 @@ from uuid import UUID
 
 import pytest
 
+from unittest.mock import MagicMock
+
 from helpers import auth_headers
 from prompts.examples import WORLD_GENERATION_EXAMPLE
 
@@ -3099,6 +3101,7 @@ class TestExtractionOrchestratorIntegration:
             trigger_cycle=1,
             triggers=[],
             message_content="Le soleil se couche.",
+            session=MagicMock(),
         )
 
         assert isinstance(result, dict)
@@ -3127,6 +3130,7 @@ class TestExtractionOrchestratorIntegration:
                 trigger_cycle=1,
                 triggers=["characters"],
                 message_content="Test",
+                session=MagicMock(),
             )
             assert result.get("skipped") is True
             assert result.get("reason") == "concurrent"
@@ -3155,6 +3159,7 @@ class TestExtractionOrchestratorIntegration:
             game_id=game_id,
             trigger_cycle=1,
             triggers=[],
+            session=MagicMock(),
         )
 
         assert key not in _extracting_games

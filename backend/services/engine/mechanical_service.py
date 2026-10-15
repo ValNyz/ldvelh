@@ -65,7 +65,8 @@ async def run_mechanical_step(
     if not parsed:
         logger.error(f"[MECHANICAL] No usable decision from "
                      f"{session.provider_name}/{session.model_for(Purpose.MECHANICAL)}")
-        raise MechanicalStepUnavailable(session.provider_name)
+        raise MechanicalStepUnavailable(
+            f"{session.provider_name}/{session.model_for(Purpose.MECHANICAL)}")
 
     # Parse the decision
     try:

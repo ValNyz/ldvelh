@@ -17,7 +17,7 @@ NARRATION = (_FIXTURES / "narration.json").read_text(encoding="utf-8")
 # schema.director.DirectorOutput (the smoke test model_validate()s both).
 RESOLVER_EMPTY = json.dumps({"existing": [], "new": []})
 # Resolver reporting one genuinely new character: makes the orchestrator add the
-# "characters" extractor, so extract_structured runs (mode-dependent code path).
+# "characters" extractor, so LLMSession.extract_structured runs (mode-dependent code path).
 NEW_CHARACTER_NAME = "Mira Kessler"
 RESOLVER_NEW_CHARACTER = json.dumps({
     "existing": [],
