@@ -127,3 +127,23 @@ def test_session_has_no_request_lifecycle():
     # it must not own or close clients.
     session = LLMSession("anthropic", api_key="k")
     assert not hasattr(session, "close") and not hasattr(session, "__aexit__")
+
+
+class _ToolFailsProvider(FakeProvider):
+    def __init__(self, error, **kw):
+        super().__init__(**kw)
+        self.error = error
+
+    async def complete_with_tools(self, *a, **kw):
+        self.calls.append("tools")
+        raise self.error
+
+
+@pytest.mark.parametrize("error", [NotImplementedError("no tool_use"), RuntimeError("API error")])
+async def test_tool_use_failure_falls_back_to_text(error):
+    provider = _ToolFailsProvider(error, text='{"facts": []}')
+    ledger = UsageLedger()
+    call = await LLMSession.from_provider(provider, ledger).extract_structured(
+        "sys", "user", "t", "d", {}, 0.3, 100)
+    assert provider.calls == ["tools", "complete"]
+    assert call.value == {"facts": []} and call.cost["input_tokens"] == 10
