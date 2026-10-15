@@ -262,7 +262,9 @@ async def list_providers(
         key = await _resolve_user_api_key(pool, user["id"], name)
         if key:
             user_keys[name] = key
-    return await get_provider_catalog_async(user_keys=user_keys)
+    from repos.llm_models import load_catalog
+
+    return await get_provider_catalog_async(user_keys=user_keys, catalog=await load_catalog(pool))
 
 
 # =============================================================================
@@ -434,7 +436,10 @@ async def _handle_chat(
 
         from llm.session import LLMSession, Purpose
 
-        session = LLMSession(provider_name, user_api_key, request.model)
+        from repos.llm_models import load_catalog
+
+        session = LLMSession(provider_name, user_api_key, request.model,
+                             catalog=await load_catalog(pool))
 
         current_cycle = snapshot.current_cycle
         current_time = snapshot.current_time

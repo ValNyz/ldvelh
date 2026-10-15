@@ -948,7 +948,8 @@ def _enrich_with_pricing(
     return enriched
 
 
-async def get_provider_catalog_async(user_keys: dict[str, str] | None = None) -> dict:
+async def get_provider_catalog_async(user_keys: dict[str, str] | None = None,
+                                     catalog=None) -> dict:
     """Return providers with live-fetched model lists where possible.
 
     For each provider:
@@ -964,6 +965,7 @@ async def get_provider_catalog_async(user_keys: dict[str, str] | None = None) ->
     model whose cost can't be computed.
     """
     user_keys = user_keys or {}
+    model_catalog = catalog
     catalog: dict = {}
     for name, cls in _CLASSES.items():
         entry = {
@@ -971,6 +973,22 @@ async def get_provider_catalog_async(user_keys: dict[str, str] | None = None) ->
             "default_model": cls.MODEL_MAIN,
             "structured_output": cls.STRUCTURED_OUTPUT.value,
         }
+
+        enabled = model_catalog.enabled(name) if model_catalog is not None else []
+        if enabled and (name == "anthropic" or user_keys.get(name)):
+            # DB catalog drives the list; unpriced models are still dropped.
+            from services.pricing import lookup_pricing
+            models = []
+            for e in enabled:
+                price = e.prices or lookup_pricing(e.model_id, name)
+                if price.input == 0 and price.output == 0:
+                    continue
+                models.append({"id": e.model_id, "label": e.label,
+                               "input_price": price.input, "output_price": price.output})
+            entry["models"] = models
+            entry["default_model"] = model_catalog.default_model(name, "narration") or cls.MODEL_MAIN
+            catalog[name] = entry
+            continue
 
         raw_models: list[dict] = []
         if name == "anthropic":

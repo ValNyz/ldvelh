@@ -17,8 +17,10 @@ from services.llm_providers import (
     LLMProvider,
     LLMUsage,
     StructuredOutputMode,
+    _CLASSES,
     get_provider,
 )
+from repos.llm_models import ModelCatalog
 from utils import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -76,7 +78,9 @@ class LLMSession:
     """Provider, models and usage for one game request. Holds no request resources."""
 
     def __init__(self, provider_name: str, api_key: str | None,
-                 user_model: str | None = None, ledger: UsageLedger | None = None):
+                 user_model: str | None = None, ledger: UsageLedger | None = None,
+                 catalog: ModelCatalog | None = None):
+        self.catalog = catalog
         self.provider_name = provider_name
         self._api_key = api_key
         self.user_model = user_model
@@ -92,7 +96,28 @@ class LLMSession:
 
     # -- model selection (unchanged from before P2, see the plan) -------------
 
+    def _catalog_active(self) -> bool:
+        return self.catalog is not None and bool(self.catalog.enabled(self.provider_name))
+
     def _model_argument(self, purpose: Purpose) -> str | None:
+        cat, name = self.catalog, self.provider_name
+        if self._catalog_active():
+            if purpose in (Purpose.NARRATION, Purpose.WORLD_GEN):
+                entry = cat.entry(name, self.user_model) if self.user_model else None
+                if entry is not None and entry.status == "enabled":
+                    return self.user_model
+                return cat.default_model(name, "narration") or self.user_model
+            if purpose is Purpose.MECHANICAL:
+                chosen = cat.default_model(name, "mechanical")
+                if chosen:
+                    return chosen
+            else:
+                # Other purposes use the provider default unless it is not enabled.
+                main = _CLASSES[name].MODEL_MAIN
+                entry = cat.entry(name, main)
+                if entry is None or entry.status != "enabled":
+                    return cat.default_model(name, "narration")
+                return None
         if purpose in (Purpose.NARRATION, Purpose.WORLD_GEN):
             return self.user_model
         if purpose is Purpose.MECHANICAL:
@@ -104,9 +129,12 @@ class LLMSession:
 
     def provider_for(self, purpose: Purpose) -> LLMProvider:
         if purpose not in self._providers:
+            model = self._model_argument(purpose)
+            profile = None
+            if self.catalog is not None and model:
+                profile = self.catalog.profile(self.provider_name, model)
             self._providers[purpose] = get_provider(
-                self.provider_name, api_key=self._api_key,
-                model=self._model_argument(purpose),
+                self.provider_name, api_key=self._api_key, model=model, profile=profile,
             )
         return self._providers[purpose]
 
