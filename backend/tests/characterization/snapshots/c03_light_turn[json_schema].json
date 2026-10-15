@@ -7,7 +7,7 @@
     "chronology": 1,
     "companions": 1,
     "conversations": 1,
-    "director_plans": 3,
+    "director_plans": 1,
     "entity_registry": 14,
     "events": 1,
     "extraction_logs": 2,
@@ -29,7 +29,6 @@
   },
   "done_display_text": "Le **Quart de Cycle** est à moitié vide à cette heure. Quelques habitués, le nez dans leur terminal. Personne ne lève la tête quand tu entres.\n\nOssek est au comptoir, occupé à nettoyer la machine à café avec une concentration excessive. Iel ne t'a pas vu, ou fait semblant.",
   "llm_calls": [
-    "director",
     "extract:extract_characters",
     "narration",
     "resolver"

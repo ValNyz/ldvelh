@@ -13,7 +13,7 @@
     "chronology": 1,
     "companions": 1,
     "conversations": 1,
-    "director_plans": 3,
+    "director_plans": 1,
     "entity_registry": 14,
     "events": 1,
     "extraction_logs": 2,
@@ -34,7 +34,6 @@
     "traits_narrative": 0
   },
   "llm_calls": [
-    "director",
     "extract:extract_characters",
     "narration",
     "resolver"

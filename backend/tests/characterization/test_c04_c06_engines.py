@@ -116,26 +116,26 @@ async def test_c06_fate_compel(harness, result, start_fp):
     })
 
 
-@pytest.mark.xfail(strict=True, reason="#9: genre_id missing from load_game_state; first-light branch only reached when the arrival location is unresolved")
-async def test_c18_dark_fantasy_arrival_has_no_ai_companion_text(harness, monkeypatch):
-    """The first-light branch (api/routes.py: world_created and no current location) is only
-    reached in production when the arrival location does not resolve, because real world
-    generation sets current_location_id. The setup below forces that state explicitly."""
+async def test_c18_dark_fantasy_arrival_uses_genre_arrival_prompt(harness, monkeypatch):
+    """#9: the arrival turn of a real game sends the genre's arrival_prompt, not the
+    protocol token nor the SF-only "IA personnelle" fallback."""
     narration_calls = spy_narration(monkeypatch)
+    # Preset genres carry an arrival_prompt in production (baseline migration);
+    # the test seed does not, so give dark_fantasy one before the game starts.
+    async with harness.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE genres SET arrival_prompt = $1 WHERE slug = 'dark_fantasy'",
+            "{protagonist_name} arrive a {world_name}, une lanterne a la main.")
     game_id = await harness.create_game("none")
     await harness.chat(game_id, "__INIT__", engine="none",
                        world_config={"genre": "dark_fantasy", "difficulty": "moderate"})
     await harness.drain()
-    # Reach the first-light branch (api/routes.py: world_created and no current location);
-    # the scripted world sets a start location at init, which would skip that branch.
-    # The genre carries its own arrival text, as the preset genres do in production.
-    async with harness.pool.acquire() as conn:
-        await conn.execute("UPDATE games SET current_location_id = NULL WHERE id = $1", game_id)
-        await conn.execute(
-            "UPDATE genres SET arrival_prompt = $1 WHERE slug = 'dark_fantasy'",
-            "Tu arrives a {world_name}, une lanterne a la main.")
     narration_calls.clear()
     await harness.chat(game_id, "__ARRIVEE__")
     await harness.drain()
     assert narration_calls, "spy captured no narration call"
-    assert "IA personnelle" not in str(narration_calls[-1]["messages"])
+    sent = str(narration_calls[-1]["messages"])
+    assert "une lanterne a la main" in sent
+    assert "{world_name}" not in sent and "{protagonist_name}" not in sent
+    assert "__ARRIVEE__" not in sent
+    assert "IA personnelle" not in sent

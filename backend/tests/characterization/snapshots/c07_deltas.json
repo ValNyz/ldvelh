@@ -15,7 +15,6 @@
     }
   ],
   "llm_calls": [
-    "director",
     "extract:extract_inventory",
     "narration",
     "resolver"

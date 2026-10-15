@@ -360,6 +360,29 @@ async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):
         await _handle_chat(**kwargs)
 
 
+DEFAULT_ARRIVAL_MESSAGE = "Je viens d'arriver."
+
+
+async def _build_arrival_message(pool: asyncpg.Pool, game_id: UUID) -> str:
+    """Player message for the arrival turn, from the game's genre arrival_prompt."""
+    from kg.reader import KnowledgeGraphReader
+
+    reader = KnowledgeGraphReader(pool, game_id)
+    async with pool.acquire() as conn:
+        game = await reader.get_game(conn)
+        if not game or not game.get("genre_id"):
+            return DEFAULT_ARRIVAL_MESSAGE
+        genre = await reader.get_genre(conn, game["genre_id"])
+        if not genre or not genre.get("arrival_prompt"):
+            return DEFAULT_ARRIVAL_MESSAGE
+        protagonist = await reader.get_protagonist(conn)
+    return (
+        genre["arrival_prompt"]
+        .replace("{world_name}", game.get("world_name") or "")
+        .replace("{protagonist_name}", (protagonist or {}).get("name") or "")
+    )
+
+
 async def _handle_chat(
     request: ChatRequest,
     sse_writer: SSEWriter,
@@ -591,24 +614,11 @@ async def _handle_chat(
             mode_label = "FIRST_LIGHT" if is_first_light else "LIGHT"
             logger.info(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
 
-            # Si first_light, utiliser l'événement d'arrivée comme contexte initial
-            if is_first_light and message.startswith("__"):
-                # Genre-aware arrival prompt
-                genre_arrival = None
-                genre_id = game_session.get("genre_id")
-                if genre_id:
-                    from kg.reader import KnowledgeGraphReader
-                    reader = KnowledgeGraphReader(pool, game_id)
-                    async with pool.acquire() as conn:
-                        g = await reader.get_genre(conn, genre_id)
-                        if g and g.get("arrival_prompt"):
-                            world_name = game_session.get("world_name", "")
-                            genre_arrival = g["arrival_prompt"].replace(
-                                "{world_name}", world_name
-                            ).replace(
-                                "{protagonist_name}", game_session.get("protagonist_name", "")
-                            )
-                message = genre_arrival or "Je viens d'arriver. Mon IA personnelle commente."
+            # Protocol token (__ARRIVEE__): replace it with the genre's arrival text.
+            # The raw game row is read here because the normalized game state
+            # does not carry genre_id / world_name (#9).
+            if message.startswith("__"):
+                message = await _build_arrival_message(pool, game_id)
 
             async with pool.acquire() as conn:
                 builder = ContextBuilder(pool, game_id)
@@ -895,7 +905,9 @@ async def _handle_chat(
 
                     _, assistant_msg_id = await game_service.save_messages(
                         game_id=game_id,
-                        user_message=message,
+                        # Keep the protocol token (e.g. __ARRIVEE__) so the chat
+                        # history hides it, as before the arrival text substitution.
+                        user_message=request.message,
                         assistant_message=display_text,
                         cycle=process_result["cycle"],
                         time=process_result.get("time"),
@@ -955,12 +967,18 @@ async def _handle_chat(
                     try:
                         from services.director_service import should_run_director, run_director
 
-                        game_for_dir = await game_service.load_game_state(game_id)
-                        g = game_for_dir.get("game", {})
+                        from services.director_service import load_director_schedule
+
+                        async with pool.acquire() as conn:
+                            last_cycle, last_time, duration = await load_director_schedule(
+                                conn, game_id
+                            )
                         if should_run_director(
                             process_result["time"],
-                            g.get("last_director_time"),
-                            g.get("game_duration", "medium"),
+                            last_time,
+                            duration,
+                            current_cycle=process_result["cycle"],
+                            last_cycle=last_cycle,
                         ):
                             asyncio.create_task(
                                 run_director(

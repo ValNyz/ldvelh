@@ -7,7 +7,7 @@
     "chronology": 1,
     "companions": 1,
     "conversations": 1,
-    "director_plans": 3,
+    "director_plans": 1,
     "entity_registry": 14,
     "events": 1,
     "extraction_logs": 2,
@@ -35,7 +35,7 @@
     "chronology": 1,
     "companions": 1,
     "conversations": 1,
-    "director_plans": 3,
+    "director_plans": 1,
     "entity_registry": 14,
     "events": 1,
     "extraction_logs": 2,
@@ -63,7 +63,7 @@
     "chronology": 1,
     "companions": 1,
     "conversations": 1,
-    "director_plans": 2,
+    "director_plans": 1,
     "entity_registry": 13,
     "events": 1,
     "extraction_logs": 1,
@@ -119,10 +119,6 @@
       3,
       4
     ],
-    "director_plans": [
-      2,
-      3
-    ],
     "entity_registry": [
       13,
       14
@@ -160,10 +156,6 @@
     "characters": [
       3,
       4
-    ],
-    "director_plans": [
-      2,
-      3
     ],
     "entity_registry": [
       13,
