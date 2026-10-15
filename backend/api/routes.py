@@ -10,7 +10,7 @@ import asyncio
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, BackgroundTasks, Body, Depends
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from prompts.narrator_prompt import (
     build_narrator_system_prompt,
     build_narrator_context_prompt,
@@ -39,7 +39,7 @@ from config import Settings
 from prompts.world_generation_prompt import get_full_generation_prompt
 from services.context_builder import ContextBuilder
 from services.extraction import run_resolve_and_extract
-from services.game_service import GameService
+from services.game_service import GameService, RollbackRejected
 from services.llm_service import get_llm_service
 
 logger = logging.getLogger(__name__)
@@ -284,9 +284,12 @@ async def rollback_game(
     lock = _get_game_lock(game_id)
     async with lock:
         msg_id = UUID(request.messageId) if request.messageId else None
-        result = await service.rollback_to_message(
-            game_id, message_id=msg_id, keep_until_index=request.fromIndex
-        )
+        try:
+            result = await service.rollback_to_message(
+                game_id, message_id=msg_id, keep_until_index=request.fromIndex
+            )
+        except RollbackRejected as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
         new_state = await service.load_game_state(game_id)
         new_messages = await service.load_chat_messages(game_id)
 

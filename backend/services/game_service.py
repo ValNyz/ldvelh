@@ -31,6 +31,10 @@ from fastapi import HTTPException
 logger = logging.getLogger(__name__)
 
 
+class RollbackRejected(ValueError):
+    """The requested rollback would remove the arrival scene (#11)."""
+
+
 class GameService:
     """Service principal pour la gestion des parties"""
 
@@ -833,9 +837,12 @@ class GameService:
             if not messages_to_delete:
                 return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
 
-            target_cycle = (
-                messages[keep_until_index - 1]["cycle"] if keep_until_index > 0 else 0
-            )
+            # The arrival pair (protocol token + first narration) is never rolled back:
+            # doing so would target cycle 0 and wipe the initial world (#11).
+            if keep_until_index < 2:
+                raise RollbackRejected("Cannot roll back the arrival scene")
+
+            target_cycle = messages[keep_until_index - 1]["cycle"]
 
             # Reverse credit deltas from messages being deleted
             credit_reversal = 0
@@ -849,59 +856,59 @@ class GameService:
                         if cd and isinstance(cd, dict):
                             credit_reversal -= cd.get("amount", 0)
 
-            if credit_reversal != 0:
-                await conn.execute(
-                    "UPDATE protagonists SET credits = credits + $1"
-                    " WHERE game_id = $2",
-                    credit_reversal, game_id,
-                )
-
-            # Delete messages
-            ids_to_delete = [m["id"] for m in messages_to_delete]
-            await conn.execute(
-                "DELETE FROM messages WHERE id = ANY($1)",
-                ids_to_delete,
-            )
-
-            # Rollback KG
-            rollback_result = await populator.rollback_to_cycle(conn, target_cycle)
-
             # Restore full game state from last remaining assistant message
             restore_date = None
             restore_time = None
             restore_location_id = None
             engine_snapshot = None
-            if keep_until_index > 0:
-                for i in range(keep_until_index - 1, -1, -1):
-                    m = messages[i]
-                    if m["role"] == "assistant":
-                        restore_date = m.get("game_date")
-                        restore_time = m.get("time")
-                        restore_location_id = m.get("location_id")
-                        engine_snapshot = m.get("engine_snapshot")
-                        break
+            for i in range(keep_until_index - 1, -1, -1):
+                m = messages[i]
+                if m["role"] == "assistant":
+                    restore_date = m.get("game_date")
+                    restore_time = m.get("time")
+                    restore_location_id = m.get("location_id")
+                    engine_snapshot = m.get("engine_snapshot")
+                    break
 
-            # Explicit UPDATE to reset all state fields (including NULLs)
-            await conn.execute(
-                """UPDATE games
-                   SET current_cycle = $2,
-                       "current_date" = $3,
-                       "current_time" = $4,
-                       current_location_id = $5,
-                       last_extraction_time = NULL,
-                       updated_at = NOW()
-                   WHERE id = $1""",
-                game_id, target_cycle, restore_date,
-                restore_time, restore_location_id,
-            )
+            # All-or-nothing: a failure part-way must not leave messages deleted
+            # and credits refunded while the KG still holds the later cycle (#11).
+            async with conn.transaction():
+                if credit_reversal != 0:
+                    await conn.execute(
+                        "UPDATE protagonists SET credits = credits + $1"
+                        " WHERE game_id = $2",
+                        credit_reversal, game_id,
+                    )
 
-            # Restore engine state from snapshot
-            if engine_snapshot:
-                game = await reader.get_game(conn)
-                engine_type = game.get("engine", "none") if game else "none"
-                if engine_type != "none":
-                    engine = get_engine(engine_type)
-                    await engine.restore_snapshot(conn, game_id, engine_snapshot)
+                ids_to_delete = [m["id"] for m in messages_to_delete]
+                await conn.execute(
+                    "DELETE FROM messages WHERE id = ANY($1)",
+                    ids_to_delete,
+                )
+
+                # Reset game state (current location included) before the KG delete,
+                # so the game no longer points at locations about to be removed.
+                await conn.execute(
+                    """UPDATE games
+                       SET current_cycle = $2,
+                           "current_date" = $3,
+                           "current_time" = $4,
+                           current_location_id = $5,
+                           last_extraction_time = NULL,
+                           updated_at = NOW()
+                       WHERE id = $1""",
+                    game_id, target_cycle, restore_date,
+                    restore_time, restore_location_id,
+                )
+
+                rollback_result = await populator.rollback_to_cycle(conn, target_cycle)
+
+                if engine_snapshot:
+                    game = await reader.get_game(conn)
+                    engine_type = game.get("engine", "none") if game else "none"
+                    if engine_type != "none":
+                        engine = get_engine(engine_type)
+                        await engine.restore_snapshot(conn, game_id, engine_snapshot)
 
         return {
             "deleted": len(messages_to_delete),
