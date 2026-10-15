@@ -1,4 +1,4 @@
-# FEATURES.md - feature to guarding-test map (F-01..F-27)
+# FEATURES.md - feature to guarding-test map (F-01..F-28)
 
 This is the "no feature loss" checklist from the stabilization roadmap (section 2 and 5).
 Every refactor PR must: (1) list the F-xx it touches in its description, (2) keep every
@@ -35,6 +35,7 @@ behavior, bugs included; a known bug is not fixed by phase 0, it is annotated in
 | F-25 | Compteur de coût de session et coût par message (toggle debug) | `tests/characterization/test_c20_tooltips_cost.py::test_c21_cost_recorded_on_message_and_session`, `tests/characterization/test_c20_tooltips_cost.py::test_c21_cost_recorded_on_message_and_session` is the app-path guard (message cost in DB, `done` payload, `/session/cost`); `tests/test_usage_ledger.py` and `tests/test_llm_and_extraction.py::TestUsageLedger::test_get_summary_grouped_by_purpose` and `tests/test_sse_payload.py::TestSSEDonePayload::test_light_mode` only check the tracker and the Pydantic payload shape | Observation, no issue yet: the C-03 snapshot does not assert cost (the roadmap pointed there); C-21 does. C-21 registers dynamic pricing (3.0 in / 15.0 out USD per million) so `cost_usd` is 0.00105 and the session total grows. Fixed #65: the ledger records the real provider per call, so `/session/cost` prices each call under its own provider (the C-21 anthropic pricing patch is gone) |
 | F-26 | Fiche personnage et stats moteur dans l'UI, modale d'invocation | MANUAL: smoke Playwright Firefox, voir roadmap section 5.4 | — |
 | F-27 | Landing page et pages auth | MANUAL: smoke Playwright Firefox, voir roadmap section 5.4 | — |
+| F-28 | Catalogue de modèles (`llm_models`, rafraîchissement planifié, visible seulement si `enabled`) | `tests/test_model_catalog.py`, `tests/test_catalog_session.py`, `tests/test_refresh_model_catalog.py` | #70 |
 
 Other guards that are not tied to one F-xx: `tests/characterization/test_c19_legacy.py::test_c19_legacy_game_loads_and_plays`
 (pre-refactor saved game still loads and plays). Limit, keep it in the PR body: the legacy fixture is replayed into a schema built by ALL current migrations, so C-19 cannot catch a data-transforming migration; that needs the migrate-over harness (old schema, load fixture, run the new migration), deferred to P5,
