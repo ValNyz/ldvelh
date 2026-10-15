@@ -55,3 +55,15 @@ async def test_close_shared_clients_closes_and_empties():
     llm_providers.shared_client("anthropic", "k", FakeClient)
     await llm_providers.close_shared_clients()
     assert len(closed) == 1 and not llm_providers._client_cache
+
+
+async def test_close_shared_clients_falls_back_to_aexit():
+    exited = []
+
+    class AexitOnlyClient:  # e.g. the Mistral SDK client
+        async def __aexit__(self, *exc):
+            exited.append(exc)
+
+    llm_providers.shared_client("mistral", "k", AexitOnlyClient)
+    await llm_providers.close_shared_clients()
+    assert exited == [(None, None, None)] and not llm_providers._client_cache

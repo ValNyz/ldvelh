@@ -176,8 +176,8 @@ class LLMSession:
                     schema_name=tool_name, schema=schema,
                     temperature=temperature, max_tokens=max_tokens,
                 )
-                return LLMCall(json.loads(result.content),
-                               self._record(purpose, provider, result.usage))
+                cost = self._record(purpose, provider, result.usage)  # billed even if unparsable
+                return LLMCall(json.loads(result.content), cost)
         except NotImplementedError:
             logger.info(f"[LLM] {self.provider_name} has no {mode.value} support, using text")
         except Exception as e:

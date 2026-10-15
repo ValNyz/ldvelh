@@ -147,3 +147,36 @@ async def test_tool_use_failure_falls_back_to_text(error):
         "sys", "user", "t", "d", {}, 0.3, 100)
     assert provider.calls == ["tools", "complete"]
     assert call.value == {"facts": []} and call.cost["input_tokens"] == 10
+
+
+class _SchemaProvider(FakeProvider):
+    STRUCTURED_OUTPUT = StructuredOutputMode.JSON_SCHEMA
+
+    def __init__(self, schema_text, **kw):
+        super().__init__(**kw)
+        self.schema_text = schema_text
+
+    async def complete_with_schema(self, system_prompt, messages, schema_name, schema,
+                                   temperature, max_tokens):
+        self.calls.append("schema")
+        return CompletionResult(content=self.schema_text, usage=self.usage)
+
+
+async def test_json_schema_success_returns_value_and_cost():
+    ledger = UsageLedger()
+    provider = _SchemaProvider('{"facts": [1]}')
+    call = await LLMSession.from_provider(provider, ledger).extract_structured(
+        "sys", "user", "t", "d", {}, 0.3, 100)
+    assert provider.calls == ["schema"]
+    assert call.value == {"facts": [1]} and call.cost["input_tokens"] == 10
+    assert ledger.get_summary()["purposes"]["extraction"]["calls"] == 1
+
+
+async def test_json_schema_invalid_json_is_still_recorded_then_text_fallback():
+    ledger = UsageLedger()
+    provider = _SchemaProvider("not json", text='{"ok": true}')
+    call = await LLMSession.from_provider(provider, ledger).extract_structured(
+        "sys", "user", "t", "d", {}, 0.3, 100)
+    assert provider.calls == ["schema", "complete"]
+    assert call.value == {"ok": True}
+    assert ledger.get_summary()["purposes"]["extraction"]["calls"] == 2
