@@ -199,20 +199,46 @@ class LLMProvider(ABC):
 class AnthropicProvider(LLMProvider):
     """Anthropic Claude provider."""
 
-    MODEL_MAIN = "claude-sonnet-4-6"
-    MODEL_MECHANICAL = "claude-haiku-4-5"
+    MODEL_MAIN = "claude-sonnet-5-5"
+    MODEL_MECHANICAL = "claude-haiku-5-5"
     STRUCTURED_OUTPUT = StructuredOutputMode.TOOL_USE
 
     MODELS: dict[str, str] = {
-        "claude-sonnet-4-6": "Sonnet 4.6",
-        "claude-haiku-4-5": "Haiku 4.5",
+        "claude-sonnet-5-5": "Sonnet 5.5",
+        "claude-opus-5-5": "Opus 5.5",
+        "claude-haiku-5-5": "Haiku 5.5",
+        "claude-fable-5-1": "Fable 5.1",
     }
+
+    # Claude 5 request rules (Anthropic model docs): non-default sampling
+    # parameters are rejected, forced tool_choice is rejected, responses can
+    # start with thinking blocks, and thinking counts toward max_tokens.
+    # Per-model thinking: Sonnet 5.5 can skip up-front thinking ("between_tools"),
+    # Haiku 5.5 can disable it; Opus 5.5 and Fable 5.1 always think, so they get
+    # extra output room on top of the caller's budget.
+    _THINKING: dict[str, dict] = {
+        "claude-sonnet-5-5": {"type": "between_tools"},
+        "claude-haiku-5-5": {"type": "disabled"},
+    }
+    _ALWAYS_THINKING = frozenset({"claude-opus-5-5", "claude-fable-5-1"})
+    THINKING_HEADROOM = 16_000
 
     def __init__(self, api_key: str | None = None, model: str | None = None):
         if model and model in self.MODELS:
             self.MODEL_MAIN = model
         key = api_key or get_settings().anthropic_api_key
         self.client = anthropic.AsyncAnthropic(api_key=key)
+
+    def _request_options(self, max_tokens: int) -> dict:
+        """Model, output budget and thinking setting for one request (no sampling params)."""
+        options: dict = {"model": self.MODEL_MAIN, "max_tokens": max_tokens}
+        if self.MODEL_MAIN in self._ALWAYS_THINKING:
+            options["max_tokens"] = max_tokens + self.THINKING_HEADROOM
+        thinking = self._THINKING.get(self.MODEL_MAIN)
+        if thinking:
+            # Sent as extra_body so older SDK versions do not reject the field.
+            options["extra_body"] = {"thinking": thinking}
+        return options
 
     async def stream(
         self,
@@ -221,10 +247,9 @@ class AnthropicProvider(LLMProvider):
         temperature: float,
         max_tokens: int,
     ) -> AsyncIterator[str | LLMUsage]:
+        # temperature is accepted for interface compatibility but not sent (rejected by Claude 5)
         async with self.client.messages.stream(
-            model=self.MODEL_MAIN,
-            max_tokens=max_tokens,
-            temperature=temperature,
+            **self._request_options(max_tokens),
             system=[
                 {
                     "type": "text",
@@ -235,6 +260,7 @@ class AnthropicProvider(LLMProvider):
             messages=messages,
         ) as stream:
             async for event in stream:
+                # Only text deltas: thinking deltas carry `.thinking`, not `.text`
                 if hasattr(event, "delta") and hasattr(event.delta, "text"):
                     yield event.delta.text
 
@@ -259,15 +285,15 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int,
     ) -> CompletionResult:
         response = await self.client.messages.create(
-            model=self.MODEL_MAIN,
-            max_tokens=max_tokens,
-            temperature=temperature,
+            **self._request_options(max_tokens),
             system=system_prompt,
             messages=messages,
         )
         usage = response.usage
+        # The reply can start with thinking blocks: read the first text block
+        text = next((b.text for b in response.content if b.type == "text"), "")
         return CompletionResult(
-            content=response.content[0].text,
+            content=text,
             usage=LLMUsage(
                 input_tokens=getattr(usage, "input_tokens", 0),
                 output_tokens=getattr(usage, "output_tokens", 0),
@@ -289,14 +315,15 @@ class AnthropicProvider(LLMProvider):
         temperature: float,
         max_tokens: int,
     ) -> ToolResult:
+        # Claude 5 rejects a forced tool_choice: offer the single tool with "auto".
+        # If the model answers in text instead, the ValueError below triggers the
+        # caller's text fallback.
         response = await self.client.messages.create(
-            model=self.MODEL_MAIN,
-            max_tokens=max_tokens,
-            temperature=temperature,
+            **self._request_options(max_tokens),
             system=system_prompt,
             messages=messages,
             tools=tools,
-            tool_choice=tool_choice,
+            tool_choice={"type": "auto"},
         )
         usage = response.usage
 

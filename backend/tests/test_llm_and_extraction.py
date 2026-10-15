@@ -354,26 +354,26 @@ class TestAnthropicProvider:
         p = AnthropicProvider()
         assert p.provider_name == "anthropic"
         assert p.supports_cache_control is True
-        assert p.MODEL_MAIN == "claude-sonnet-4-6"
+        assert p.MODEL_MAIN == "claude-sonnet-5-5"
 
     @patch("services.llm_providers.get_settings")
     def test_init_custom_model(self, mock_settings):
         mock_settings.return_value = MagicMock(anthropic_api_key="key")
-        p = AnthropicProvider(model="claude-haiku-4-5")
-        assert p.MODEL_MAIN == "claude-haiku-4-5"
+        p = AnthropicProvider(model="claude-haiku-5-5")
+        assert p.MODEL_MAIN == "claude-haiku-5-5"
 
     @patch("services.llm_providers.get_settings")
     def test_init_unknown_model_ignored(self, mock_settings):
         mock_settings.return_value = MagicMock(anthropic_api_key="key")
         p = AnthropicProvider(model="nonexistent-model")
-        assert p.MODEL_MAIN == "claude-sonnet-4-6"  # Unchanged
+        assert p.MODEL_MAIN == "claude-sonnet-5-5"  # Unchanged
 
     @patch("services.llm_providers.get_settings")
     def test_model_name_returns_main(self, mock_settings):
         mock_settings.return_value = MagicMock(anthropic_api_key="key")
         p = AnthropicProvider()
-        assert p.model_name("narration") == "claude-sonnet-4-6"
-        assert p.model_name("extraction") == "claude-sonnet-4-6"
+        assert p.model_name("narration") == "claude-sonnet-5-5"
+        assert p.model_name("extraction") == "claude-sonnet-5-5"
 
 
 class TestMistralProvider:

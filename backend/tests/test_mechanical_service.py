@@ -12,9 +12,9 @@ from services.llm_providers import AnthropicProvider, MistralProvider, get_provi
 
 class TestMechanicalModelName:
     def test_anthropic_uses_haiku_for_mechanical(self):
-        provider = AnthropicProvider(api_key="k", model="claude-sonnet-4-6")
-        assert provider.model_name("mechanical") == "claude-haiku-4-5"
-        assert provider.model_name("narration") == "claude-sonnet-4-6"
+        provider = AnthropicProvider(api_key="k", model="claude-sonnet-5-5")
+        assert provider.model_name("mechanical") == "claude-haiku-5-5"
+        assert provider.model_name("narration") == "claude-sonnet-5-5"
 
     def test_other_providers_fall_back_to_main_model(self):
         provider = MistralProvider(api_key="k", model="mistral-small-latest")
@@ -57,9 +57,9 @@ class TestRunMechanicalStep:
         await run_mechanical_step(
             engine=get_engine("d6"), engine_stats={}, player_message="Je saute",
             context_summary="", world_difficulty="moderate", llm_service=service,
-            provider_name="anthropic", api_key="k", model="claude-sonnet-4-6",
+            provider_name="anthropic", api_key="k", model="claude-sonnet-5-5",
         )
-        assert service.extract_text.await_args.kwargs["model"] == "claude-haiku-4-5"
+        assert service.extract_text.await_args.kwargs["model"] == "claude-haiku-5-5"
 
     @pytest.mark.asyncio
     async def test_failed_call_raises_unavailable_instead_of_silent_skip(self):
