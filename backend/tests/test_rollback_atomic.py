@@ -31,6 +31,16 @@ async def _two_cycles_with_stub_location(client, test_user, test_pool):
         cycle=2, time="08h00", location_ref="Dock 9", game_date="Mardi 19 Juillet 2847",
         narrator_deltas={"credit_delta": {"amount": -30, "description": "billet de navette"}},
     )
+    # Extractors stamp facts with the cycle before the day transition, so a cycle-1
+    # fact can point at the cycle-2 stub location (second FK path of #11).
+    async with test_pool.acquire() as conn:
+        fact_type = await conn.fetchval("SELECT type FROM facts WHERE game_id = $1 LIMIT 1", game_id)
+        await conn.execute(
+            """INSERT INTO facts (game_id, cycle, type, description, location_id)
+               SELECT $1, 1, $2, 'Le joueur réserve une place pour Dock 9.', id
+               FROM locations WHERE game_id = $1 AND name = 'Dock 9'""",
+            game_id, fact_type or "action",
+        )
     return game_id, service, arrival_loc
 
 
@@ -64,6 +74,10 @@ class TestAtomicRollback:
         assert after["location"] == arrival_loc
         assert after["dock9"] == 0
         assert after["credits"] == before["credits"] + 30
+        async with test_pool.acquire() as conn:
+            fact_location = await conn.fetchval(
+                "SELECT location_id FROM facts WHERE game_id = $1 AND description LIKE '%Dock 9%'", game_id)
+        assert fact_location is None  # fact kept, its deleted location cleared
 
     @pytest.mark.asyncio
     async def test_failure_midway_leaves_everything_unchanged(self, client, test_user, test_pool, monkeypatch):
