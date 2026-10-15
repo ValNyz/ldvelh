@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from schema import NarrationOutput, WorldGeneration
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
 from services.engine import get_engine
-from services.engine.mechanical_service import run_mechanical_step
+from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
@@ -691,16 +691,25 @@ async def _handle_chat(
                 await sse_writer.send_roll_result(updated_roll.model_dump())
 
             elif engine.needs_mechanical_step() and context.engine_stats:
-                mechanical_result = await run_mechanical_step(
-                    engine=engine,
-                    engine_stats=context.engine_stats,
-                    player_message=message,
-                    context_summary="",  # TODO: build short context summary
-                    world_difficulty="moderate",  # TODO: from world_config
-                    llm_service=llm_service,
-                    provider_name=provider_name,
-                    api_key=user_api_key,
-                )
+                try:
+                    mechanical_result = await run_mechanical_step(
+                        engine=engine,
+                        engine_stats=context.engine_stats,
+                        player_message=message,
+                        context_summary="",  # TODO: build short context summary
+                        world_difficulty="moderate",  # TODO: from world_config
+                        llm_service=llm_service,
+                        provider_name=provider_name,
+                        api_key=user_api_key,
+                        model=request.model,
+                    )
+                except MechanicalStepUnavailable:
+                    # #10: tell the player instead of silently narrating without dice
+                    mechanical_result = None
+                    await sse_writer.send_warning(
+                        "Jet de dés indisponible pour ce tour : le modèle n'a pas "
+                        "renvoyé de décision exploitable."
+                    )
                 # Check if Fate Core invocation is available
                 if (
                     mechanical_result
