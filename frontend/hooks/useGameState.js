@@ -16,6 +16,8 @@ export function useGameState() {
 	const [loading, setLoading] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [error, setError] = useState(null);
+	// Non-blocking notice for the current turn (e.g. dice unavailable, #10)
+	const [warning, setWarning] = useState(null);
 
 	/**
 	 * Update gameState with smart merge.
@@ -47,6 +49,7 @@ export function useGameState() {
 	}, []);
 
 	const clearError = useCallback(() => setError(null), []);
+	const clearWarning = useCallback(() => setWarning(null), []);
 
 	const resetGame = useCallback(() => {
 		setGameId(null);
@@ -54,6 +57,7 @@ export function useGameState() {
 		setGameStateRaw(null);
 		setMessages([]);
 		setError(null);
+		setWarning(null);
 	}, []);
 
 	return {
@@ -65,6 +69,7 @@ export function useGameState() {
 		loading,
 		saving,
 		error,
+		warning,
 
 		// Setters
 		setGameId,
@@ -75,9 +80,11 @@ export function useGameState() {
 		setLoading,
 		setSaving,
 		setError,
+		setWarning,
 
 		// Actions
 		clearError,
+		clearWarning,
 		resetGame,
 		normalizeGameState
 	};

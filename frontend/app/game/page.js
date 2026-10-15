@@ -239,6 +239,8 @@ export default function Home() {
 						loading={gs.loading}
 						saving={gs.saving}
 						error={gs.error}
+						warning={gs.warning}
+						onClearWarning={gs.clearWarning}
 						fontSize={prefs.fontSize}
 						editingIndex={orch.editingIndex}
 						onEdit={orch.handleEdit}

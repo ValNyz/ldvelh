@@ -7,7 +7,7 @@ import { createSSEParser } from '../lib/sse.mjs';
 /**
  * Hook pour gérer le streaming SSE
  */
-export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus }) {
+export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus, onWarning }) {
 	const abortControllerRef = useRef(null);
 	const [rawJson, setRawJson] = useState('');
 
@@ -86,6 +86,7 @@ export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSave
 
 					case 'warning':
 						console.warn('[Stream] Warning:', data.message);
+						onWarning?.(data.message);
 						break;
 
 					default:
