@@ -69,28 +69,6 @@ def should_run_director(
     return elapsed >= interval
 
 
-async def load_director_schedule(conn, game_id: UUID) -> tuple[int | None, str | None, str]:
-    """Return (last_plan_cycle, last_plan_time, game_duration) from the DB.
-
-    Cycle and time come from the same latest plan row, so a rollback (which
-    deletes later plans) keeps them consistent. The frontend-normalized game
-    state drops these fields, hence the direct read (#9).
-    """
-    row = await conn.fetchrow(
-        """SELECT g.game_duration, dp.cycle AS last_cycle, dp.ig_time AS last_time
-           FROM games g
-           LEFT JOIN LATERAL (
-               SELECT cycle, ig_time FROM director_plans
-               WHERE game_id = g.id ORDER BY created_at DESC LIMIT 1
-           ) dp ON true
-           WHERE g.id = $1""",
-        game_id,
-    )
-    if not row:
-        return None, None, "medium"
-    return row["last_cycle"], row["last_time"], row["game_duration"] or "medium"
-
-
 async def _apply_arc_update(conn, game_id, arc_update, cycle):
     """Apply a single arc update from the Director."""
     action = arc_update.action.lower()

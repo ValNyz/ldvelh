@@ -409,26 +409,6 @@ class TestDirectorGuards:
         assert result is None
 
 
-class TestLoadDirectorSchedule:
-    @pytest.mark.asyncio
-    async def test_reads_raw_game_row_and_latest_plan_cycle(self, test_pool, test_user):
-        from services.director_service import load_director_schedule
-        from services.game_service import GameService
-
-        game_id = await GameService(test_pool).create_game(test_user["id"])
-        async with test_pool.acquire() as conn:
-            assert await load_director_schedule(conn, game_id) == (None, None, "medium")
-            await conn.execute(
-                "UPDATE games SET last_director_time = '08h00', game_duration = 'short' WHERE id = $1", game_id
-            )
-            await conn.execute(
-                """INSERT INTO director_plans (game_id, cycle, ig_time, tension_level, narrator_guidance)
-                   VALUES ($1, 2, '08h00', 3, 'g')""",
-                game_id,
-            )
-            assert await load_director_schedule(conn, game_id) == (2, "08h00", "short")
-
-
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_director_cost_is_recorded(test_pool, test_user):

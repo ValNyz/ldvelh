@@ -368,23 +368,21 @@ ARRIVAL_TOKEN = "__ARRIVEE__"
 DEFAULT_ARRIVAL_MESSAGE = "Je viens d'arriver."
 
 
-async def _build_arrival_message(pool: asyncpg.Pool, game_id: UUID) -> str:
+async def _build_arrival_message(pool: asyncpg.Pool, snapshot) -> str:
     """Player message for the arrival turn, from the game's genre arrival_prompt."""
     from kg.reader import KnowledgeGraphReader
 
-    reader = KnowledgeGraphReader(pool, game_id)
+    if not snapshot.genre_id:
+        return DEFAULT_ARRIVAL_MESSAGE
+    reader = KnowledgeGraphReader(pool, snapshot.id)
     async with pool.acquire() as conn:
-        game = await reader.get_game(conn)
-        if not game or not game.get("genre_id"):
-            return DEFAULT_ARRIVAL_MESSAGE
-        genre = await reader.get_genre(conn, game["genre_id"])
-        if not genre or not genre.get("arrival_prompt"):
-            return DEFAULT_ARRIVAL_MESSAGE
-        protagonist = await reader.get_protagonist(conn)
+        genre = await reader.get_genre(conn, snapshot.genre_id)
+    if not genre or not genre.get("arrival_prompt"):
+        return DEFAULT_ARRIVAL_MESSAGE
     return (
         genre["arrival_prompt"]
-        .replace("{world_name}", game.get("world_name") or "")
-        .replace("{protagonist_name}", (protagonist or {}).get("name") or "")
+        .replace("{world_name}", snapshot.world_name or "")
+        .replace("{protagonist_name}", snapshot.protagonist_name or "")
     )
 
 
@@ -407,9 +405,14 @@ async def _handle_chat(
         # =====================================================================
         # CHARGER L'ÉTAT DEPUIS LA DB (via GameService)
         # =====================================================================
-        server_state = await game_service.load_game_state(game_id)
+        from repos.games import get_snapshot
 
-        is_init_mode = not server_state.get("world_created", False)
+        async with pool.acquire() as snap_conn:
+            snapshot = await get_snapshot(snap_conn, game_id)
+        if snapshot is None:
+            raise ValueError(f"Partie {game_id} introuvable")
+
+        is_init_mode = not snapshot.world_created
 
         # Resolve provider: use request.provider + user's encrypted API key
         provider_name = request.provider or "anthropic"
@@ -432,16 +435,16 @@ async def _handle_chat(
 
         session = LLMSession(provider_name, user_api_key, request.model)
 
-        game_session = server_state.get("game", {})
-        current_cycle = game_session.get("current_cycle", 1)
-        current_time = game_session.get("time", "08h00")
-        current_location = game_session.get("current_location", "")
+        current_cycle = snapshot.current_cycle
+        current_time = snapshot.current_time
+        # The old DTO dropped None values, so a missing location read as "".
+        current_location = snapshot.current_location_name or ""
 
         # Engine setup
-        engine_type = game_session.get("engine", "none")
+        engine_type = snapshot.engine
         engine = get_engine(engine_type)
 
-        is_first_light = server_state.get("world_created") and not current_location
+        is_first_light = snapshot.world_created and not current_location
 
         # =====================================================================
         # MODE INIT (World Builder)
@@ -462,7 +465,7 @@ async def _handle_chat(
 
             # Load genre from DB (from game or world_config)
             genre = None
-            genre_id = game_session.get("genre_id")
+            genre_id = snapshot.genre_id
             if not genre_id and init_world_config:
                 # Genre slug might be in world_config from wizard
                 genre_slug = init_world_config.get("genre")
@@ -625,7 +628,7 @@ async def _handle_chat(
             # does not carry genre_id / world_name (#9).
             is_arrival_turn = request.message == ARRIVAL_TOKEN
             if is_arrival_turn:
-                message = await _build_arrival_message(pool, game_id)
+                message = await _build_arrival_message(pool, snapshot)
 
             async with pool.acquire() as conn:
                 builder = ContextBuilder(pool, game_id)
@@ -985,18 +988,12 @@ async def _handle_chat(
                     try:
                         from services.director_service import should_run_director, run_director
 
-                        from services.director_service import load_director_schedule
-
-                        async with pool.acquire() as conn:
-                            last_cycle, last_time, duration = await load_director_schedule(
-                                conn, game_id
-                            )
                         if should_run_director(
                             process_result["time"],
-                            last_time,
-                            duration,
+                            snapshot.director.last_time,
+                            snapshot.director.game_duration,
                             current_cycle=process_result["cycle"],
-                            last_cycle=last_cycle,
+                            last_cycle=snapshot.director.last_cycle,
                         ):
                             asyncio.create_task(
                                 run_director(
@@ -1025,7 +1022,7 @@ async def _handle_chat(
                     await sse_writer.send_error(str(e), recoverable=True)
 
             # Lock engine on first non-init message
-            if engine_type != "none" and not game_session.get("engine_locked"):
+            if engine_type != "none" and not snapshot.engine_locked:
                 async with pool.acquire() as lock_conn:
                     populator = game_service._get_populator(game_id)
                     await populator.lock_engine(lock_conn)
