@@ -569,19 +569,60 @@ class GameService:
     # Number of past cycles to include in conversation history
     HISTORY_CYCLES = 2
 
+    # Bound the narrator history so a long in-game day cannot grow the prompt
+    # without limit (#21). Tokens are estimated as len(text) // 4.
+    HISTORY_MAX_MESSAGES = 30
+    HISTORY_TOKEN_BUDGET = 12_000
+
+    @classmethod
+    def _trim_history(cls, messages: list[dict]) -> list[dict]:
+        """Most recent messages within both budgets, starting on a user message."""
+        kept: list[dict] = []
+        tokens = 0
+        for msg in reversed(messages):
+            cost = len(msg["content"]) // 4
+            if len(kept) >= cls.HISTORY_MAX_MESSAGES or tokens + cost > cls.HISTORY_TOKEN_BUDGET:
+                break
+            kept.append(msg)
+            tokens += cost
+        kept.reverse()
+        while kept and kept[0]["role"] != "user":
+            kept.pop(0)
+        return kept
+
+    @staticmethod
+    def _apply_cache_breakpoints(messages: list[dict], enabled: bool,
+                                 prev_cycle_idx: int) -> list[dict]:
+        """Anthropic-only: mark the end of cycle N-1 and the last history message."""
+        if not enabled or not messages:
+            return messages
+        marks = {len(messages) - 1}
+        if 0 <= prev_cycle_idx < len(messages):
+            marks.add(prev_cycle_idx)
+        return [
+            {"role": m["role"], "content": [{
+                "type": "text", "text": m["content"], "cache_control": {"type": "ephemeral"},
+            }]} if i in marks else m
+            for i, m in enumerate(messages)
+        ]
+
     async def build_llm_messages(
         self,
         game_id: UUID,
         current_cycle: int,
         context_prompt: str,
         json_history: bool = False,
+        cache_control: bool = False,
     ) -> list[dict]:
         """
         Build the messages array for the LLM API.
 
         Structure:
-        - Past messages from last 2 cycles (user=raw input, assistant=display_text)
-        - cache_control on last message of cycle N-1 (stable prefix)
+        - Past messages from last 2 cycles (user=raw input, assistant=display_text),
+          bounded to HISTORY_MAX_MESSAGES / HISTORY_TOKEN_BUDGET and starting on
+          a user message
+        - Only if cache_control=True (provider supports it): cache breakpoints on
+          the last message of cycle N-1 and on the last history message
         - Final user message = context_prompt (world state + player action)
 
         If json_history=True, wrap assistant messages in a JSON envelope
@@ -596,7 +637,6 @@ class GameService:
             )
 
         messages: list[dict] = []
-        last_prev_cycle_idx = -1
 
         for row in rows:
             content = row["content"]
@@ -620,25 +660,17 @@ class GameService:
                     content = json.dumps(
                         {"narrative_text": content}, ensure_ascii=False
                     )
-            msg = {"role": row["role"], "content": content}
-            messages.append(msg)
+            messages.append(
+                {"role": row["role"], "content": content, "_cycle": row["cycle"]}
+            )
 
-            if row["cycle"] < current_cycle:
-                last_prev_cycle_idx = len(messages) - 1
-
-        # Apply cache_control on last message of cycle N-1 (stable prefix)
-        if last_prev_cycle_idx >= 0:
-            msg = messages[last_prev_cycle_idx]
-            messages[last_prev_cycle_idx] = {
-                "role": msg["role"],
-                "content": [
-                    {
-                        "type": "text",
-                        "text": msg["content"],
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-            }
+        messages = self._trim_history(messages)
+        prev_cycle_idx = max(
+            (i for i, m in enumerate(messages) if m.get("_cycle", current_cycle) < current_cycle),
+            default=-1,
+        )
+        messages = [{"role": m["role"], "content": m["content"]} for m in messages]
+        messages = self._apply_cache_breakpoints(messages, cache_control, prev_cycle_idx)
 
         # Context prompt as final user message
         messages.append({"role": "user", "content": context_prompt})

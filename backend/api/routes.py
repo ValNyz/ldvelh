@@ -775,6 +775,7 @@ async def _handle_chat(
             llm_messages = await game_service.build_llm_messages(
                 game_id, current_cycle, context_prompt,
                 json_history=json_history,
+                cache_control=session.caps.cache_control,
             )
             logger.info(
                 f"[CHAT] Multi-turn: {len(llm_messages)} messages "
