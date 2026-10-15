@@ -23,7 +23,6 @@ from schema.narration import (
     NPCLightSummary,
     OrganizationSummary,
 )
-from schema import ArcDomain
 
 from kg.reader import KnowledgeGraphReader
 from services.engine import get_engine
@@ -377,7 +376,7 @@ class ContextBuilder:
             arcs = npc_arcs.get(npc_name, [])
             npc.active_arcs = [
                 ArcSummary(
-                    domain=ArcDomain(a.get("domain", "personal")),
+                    domain=a.get("domain"),
                     title=a.get("title", ""),
                     situation_brief=(a.get("description") or "")[:100],
                     intensity=a.get("intensity", 3),

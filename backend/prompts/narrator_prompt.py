@@ -609,7 +609,7 @@ def _append_npc_section(lines: list[str], context: "NarrationContext") -> None:
         if present_npc and present_npc.active_arcs:
             for arc in present_npc.active_arcs:
                 npc_lines.append(
-                    f"  Arc [{arc.domain.value}] {arc.title} (intensité {arc.intensity}/5)"
+                    f"  Arc [{arc.domain}] {arc.title} (intensité {arc.intensity}/5)"
                 )
                 if arc.situation_brief:
                     npc_lines.append(f"    → {arc.situation_brief}")
@@ -640,7 +640,7 @@ def _append_npc_section(lines: list[str], context: "NarrationContext") -> None:
         if npc.active_arcs:
             for arc in npc.active_arcs:
                 npc_lines.append(
-                    f"  Arc [{arc.domain.value}] {arc.title} (intensité {arc.intensity}/5)"
+                    f"  Arc [{arc.domain}] {arc.title} (intensité {arc.intensity}/5)"
                 )
                 if arc.situation_brief:
                     npc_lines.append(f"    → {arc.situation_brief}")
