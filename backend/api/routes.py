@@ -711,10 +711,7 @@ async def _handle_chat(
                         player_message=message,
                         context_summary="",  # TODO: build short context summary
                         world_difficulty="moderate",  # TODO: from world_config
-                        llm_service=llm_service,
-                        provider_name=provider_name,
-                        api_key=user_api_key,
-                        model=request.model,
+                        session=session,
                     )
                 except MechanicalStepUnavailable:
                     # #10: tell the player instead of silently narrating without dice

@@ -7,15 +7,13 @@ The model comes from the provider (cheap model where it has one, e.g. Haiku).
 import logging
 
 from config import get_settings
+from llm.session import LLMSession, Purpose
 from prompts.mechanical_prompt import (
     build_mechanical_context,
     get_mechanical_system_prompt,
 )
 from schema.engine import MechanicalDecision, MechanicalResult
 from services.engine.base import BaseEngine
-from services.llm_providers import get_provider
-from services.llm_service import LLMService
-from utils import parse_json_response
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +28,7 @@ async def run_mechanical_step(
     player_message: str,
     context_summary: str,
     world_difficulty: str,
-    llm_service: LLMService,
-    provider_name: str = "anthropic",
-    api_key: str | None = None,
-    model: str | None = None,
+    session: LLMSession,
 ) -> MechanicalResult | None:
     """Run the mechanical LLM step. Returns None if the engine has no mechanical step.
 
@@ -60,28 +55,17 @@ async def run_mechanical_step(
 
     logger.info(f"[MECHANICAL] Running mechanical step for engine={engine_type}")
 
-    # The user's model selects the provider tier; the provider maps it to its
-    # mechanical model (Haiku on Anthropic, the main model elsewhere).
-    mechanical_model = get_provider(provider_name, api_key=api_key, model=model).model_name(
-        "mechanical"
-    )
     settings = get_settings()
-    parsed = await llm_service.extract_text(
-        system_prompt=system_prompt,
-        user_message=user_message,
-        provider_name=provider_name,
-        api_key=api_key,
-        model=mechanical_model,
-        purpose="mechanical",
-        max_tokens=settings.max_tokens_mechanical,
+    call = await session.complete_json(
+        Purpose.MECHANICAL, system_prompt, user_message,
         temperature=settings.temperature_mechanical,
+        max_tokens=settings.max_tokens_mechanical,
     )
-
+    parsed = call.value
     if not parsed:
-        logger.error(
-            f"[MECHANICAL] No usable decision from {provider_name}/{mechanical_model}"
-        )
-        raise MechanicalStepUnavailable(f"{provider_name}/{mechanical_model}")
+        logger.error(f"[MECHANICAL] No usable decision from "
+                     f"{session.provider_name}/{session.model_for(Purpose.MECHANICAL)}")
+        raise MechanicalStepUnavailable(session.provider_name)
 
     # Parse the decision
     try:
@@ -91,7 +75,7 @@ async def run_mechanical_step(
         raise MechanicalStepUnavailable(str(e)) from e
 
     # Get cost from last call
-    cost = getattr(llm_service, "_last_call_cost", None)
+    cost = call.cost
 
     if not decision.requires_test:
         logger.info(f"[MECHANICAL] No test needed: {decision.reason}")
