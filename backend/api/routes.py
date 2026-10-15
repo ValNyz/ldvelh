@@ -585,8 +585,7 @@ async def _handle_chat(
                                 game_id=game_id,
                                 current_cycle=1,
                                 current_time="08h00",
-                                provider_name=provider_name,
-                                api_key=user_api_key,
+                                session=session,
                                 sse_writer=sse_writer,
                             ),
                             timeout=30.0,
@@ -1004,8 +1003,7 @@ async def _handle_chat(
                                     game_id=game_id,
                                     current_cycle=process_result["cycle"],
                                     current_time=process_result["time"],
-                                    provider_name=provider_name,
-                                    api_key=user_api_key,
+                                    session=session,
                                 )
                             )
                             logger.info(

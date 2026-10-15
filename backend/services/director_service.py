@@ -10,13 +10,13 @@ from uuid import UUID
 import asyncpg
 
 from kg.reader import KnowledgeGraphReader
+from llm.session import LLMSession, Purpose
 from prompts.director_prompt import (
     DIRECTOR_INTERVAL,
     DIRECTOR_SYSTEM_PROMPT,
     build_director_user_prompt,
 )
 from schema.director import DirectorOutput
-from services.llm_providers import get_provider
 from utils.json_utils import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -170,8 +170,7 @@ async def run_director(
     game_id: UUID,
     current_cycle: int,
     current_time: str,
-    provider_name: str = "anthropic",
-    api_key: str | None = None,
+    session: LLMSession,
     sse_writer=None,
 ) -> dict | None:
     """Run the Director LLM and store its plan.
@@ -298,7 +297,6 @@ async def run_director(
             ("long_term_vision", "Vision globale"),
         ]
 
-        provider = get_provider(provider_name, api_key=api_key)
         messages = [{"role": "user", "content": user_prompt}]
 
         if sse_writer:
@@ -309,31 +307,25 @@ async def run_director(
             await sse_writer.send_status("director", "Tension narrative")
             sent_labels.add("Tension narrative")
 
-            async for chunk_or_usage in provider.stream(
-                system_prompt=DIRECTOR_SYSTEM_PROMPT,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=2000,
-            ):
-                if isinstance(chunk_or_usage, str):
-                    full_json += chunk_or_usage
-                    # When a key appears, send the label for THAT key (it's now being generated)
-                    for key, label in SUBSTEPS:
-                        if label not in sent_labels and f'"{key}"' in full_json:
-                            sent_labels.add(label)
-                            await sse_writer.send_status("director", label)
-                            logger.info(f"[DIRECTOR] Sub-step: {label}")
+            stream = session.stream(
+                Purpose.DIRECTOR, DIRECTOR_SYSTEM_PROMPT, messages, temperature=0.7, max_tokens=2000
+            )
+            async for chunk in stream:
+                full_json += chunk
+                # When a key appears, send the label for THAT key (it's now being generated)
+                for key, label in SUBSTEPS:
+                    if label not in sent_labels and f'"{key}"' in full_json:
+                        sent_labels.add(label)
+                        await sse_writer.send_status("director", label)
+                        logger.info(f"[DIRECTOR] Sub-step: {label}")
 
             raw_result = parse_json_response(full_json)
         else:
             # Non-streaming mode (fire-and-forget per-message trigger)
-            result = await provider.complete(
-                system_prompt=DIRECTOR_SYSTEM_PROMPT,
-                messages=messages,
-                temperature=0.7,
-                max_tokens=2000,
+            call = await session.complete_text(
+                Purpose.DIRECTOR, DIRECTOR_SYSTEM_PROMPT, messages, temperature=0.7, max_tokens=2000
             )
-            raw_result = parse_json_response(result.content) if result else None
+            raw_result = parse_json_response(call.value) if call.value else None
 
         if not raw_result:
             logger.warning("[DIRECTOR] LLM returned empty result")

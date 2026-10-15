@@ -7,6 +7,12 @@ import pytest
 
 from services.director_service import should_run_director, _parse_ig_hours
 from schema.director import DirectorOutput, PlannedEvent
+from llm.session import LLMSession
+
+
+def _session(text):
+    from tests.test_llm_session import FakeProvider
+    return LLMSession.from_provider(FakeProvider(text=text))
 
 
 # =============================================================================
@@ -149,20 +155,15 @@ async def test_director_stores_plan(test_pool, test_user):
         "long_term_vision": "Saboteur reveal at cycle 10.",
     }
 
-    mock_content = json.dumps(mock_result)
-    mock_completion = AsyncMock()
-    mock_completion.content = mock_content
-    mock_provider = AsyncMock()
-    mock_provider.complete = AsyncMock(return_value=mock_completion)
-
-    with patch("services.director_service.get_provider", return_value=mock_provider):
-        from services.director_service import run_director
-        result = await run_director(
-            pool=test_pool,
-            game_id=game_id,
-            current_cycle=1,
-            current_time="08h00",
-        )
+    session = _session(json.dumps(mock_result))
+    from services.director_service import run_director
+    result = await run_director(
+        pool=test_pool,
+        game_id=game_id,
+        current_cycle=1,
+        current_time="08h00",
+        session=session,
+    )
 
     assert result is not None
     assert result["tension_level"] == 3
@@ -224,20 +225,15 @@ async def test_director_plan_read_by_context_builder(test_pool, test_user):
         "long_term_vision": "Build toward confrontation.",
     }
 
-    mock_content = json.dumps(mock_result)
-    mock_completion = AsyncMock()
-    mock_completion.content = mock_content
-    mock_provider = AsyncMock()
-    mock_provider.complete = AsyncMock(return_value=mock_completion)
-
-    with patch("services.director_service.get_provider", return_value=mock_provider):
-        from services.director_service import run_director
-        await run_director(
-            pool=test_pool,
-            game_id=game_id,
-            current_cycle=1,
-            current_time="08h00",
-        )
+    session = _session(json.dumps(mock_result))
+    from services.director_service import run_director
+    await run_director(
+        pool=test_pool,
+        game_id=game_id,
+        current_cycle=1,
+        current_time="08h00",
+        session=session,
+    )
 
     # Now read it back via context_builder's _load_director_plan
     builder = ContextBuilder(test_pool, game_id)
@@ -307,19 +303,15 @@ async def test_director_handles_empty_llm_result(test_pool, test_user):
     world_gen = WorldGeneration.model_validate(world_gen_data)
     await service.process_init(game_id, world_gen)
 
-    mock_completion = AsyncMock()
-    mock_completion.content = ""
-    mock_provider = AsyncMock()
-    mock_provider.complete = AsyncMock(return_value=mock_completion)
-
-    with patch("services.director_service.get_provider", return_value=mock_provider):
-        from services.director_service import run_director
-        result = await run_director(
-            pool=test_pool,
-            game_id=game_id,
-            current_cycle=1,
-            current_time="08h00",
-        )
+    session = _session("")
+    from services.director_service import run_director
+    result = await run_director(
+        pool=test_pool,
+        game_id=game_id,
+        current_cycle=1,
+        current_time="08h00",
+        session=session,
+    )
 
     assert result is None
 
@@ -386,24 +378,24 @@ class TestDirectorGuards:
         game_id = await service.create_game(test_user["id"])
         await service.process_init(game_id, WorldGeneration.model_validate(json.loads(WORLD_GENERATION_EXAMPLE)))
 
+        from tests.test_llm_session import FakeProvider
+
         gate = asyncio.Event()
-        completion = AsyncMock()
-        completion.content = json.dumps({"tension_level": 3, "narrator_guidance": "g"})
 
-        async def slow_complete(**kwargs):
-            await gate.wait()
-            return completion
+        class GatedProvider(FakeProvider):
+            async def complete(self, *args, **kwargs):
+                await gate.wait()
+                return await FakeProvider.complete(self, *args, **kwargs)
 
-        provider = AsyncMock()
-        provider.complete = AsyncMock(side_effect=slow_complete)
-        with patch("services.director_service.get_provider", return_value=provider):
-            first = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00"))
-            second = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00"))
-            await asyncio.sleep(0.2)
-            gate.set()
-            results = await asyncio.gather(first, second)
+        provider = GatedProvider(text=json.dumps({"tension_level": 3, "narrator_guidance": "g"}))
+        session = LLMSession.from_provider(provider)
+        first = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
+        second = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
+        await asyncio.sleep(0.2)
+        gate.set()
+        results = await asyncio.gather(first, second)
 
-        assert provider.complete.await_count == 1
+        assert provider.calls.count("complete") == 1
         assert sum(r is not None for r in results) == 1
 
     @pytest.mark.asyncio
@@ -413,7 +405,7 @@ class TestDirectorGuards:
 
         game_id = await GameService(test_pool).create_game(test_user["id"])
         with patch("services.director_service.KnowledgeGraphReader.get_game", side_effect=RuntimeError("db down")):
-            result = await run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00")
+            result = await run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=_session("{}"))
         assert result is None
 
 
@@ -435,3 +427,24 @@ class TestLoadDirectorSchedule:
                 game_id,
             )
             assert await load_director_schedule(conn, game_id) == (2, "08h00", "short")
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_director_cost_is_recorded(test_pool, test_user):
+    from llm.usage import UsageLedger
+    from services.director_service import run_director
+    from services.game_service import GameService
+    from schema import WorldGeneration
+    from prompts.examples import WORLD_GENERATION_EXAMPLE
+    from tests.test_llm_session import FakeProvider
+
+    service = GameService(test_pool)
+    game_id = await service.create_game(test_user["id"])
+    await service.process_init(game_id, WorldGeneration.model_validate(json.loads(WORLD_GENERATION_EXAMPLE)))
+    ledger = UsageLedger()
+    session = LLMSession.from_provider(
+        FakeProvider(text=json.dumps({"tension_level": 3, "narrator_guidance": "g"})), ledger)
+    assert await run_director(pool=test_pool, game_id=game_id, current_cycle=1,
+                              current_time="08h00", session=session) is not None
+    assert ledger.get_summary()["purposes"]["director"]["calls"] == 1
