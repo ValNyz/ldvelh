@@ -570,24 +570,40 @@ class GameService:
     HISTORY_CYCLES = 2
 
     # Bound the narrator history so a long in-game day cannot grow the prompt
-    # without limit (#21). Tokens are estimated as len(text) // 4.
-    HISTORY_MAX_MESSAGES = 30
-    HISTORY_TOKEN_BUDGET = 12_000
+    # without limit (#21): at most 80 messages / ~30k tokens (estimated as
+    # len(text) // 4). Truncation drops whole blocks of HISTORY_TRIM_BLOCK
+    # messages from the oldest end, so the kept prefix stays identical for many
+    # consecutive turns and the provider's history cache keeps hitting.
+    HISTORY_MAX_MESSAGES = 80
+    HISTORY_TOKEN_BUDGET = 30_000
+    HISTORY_TRIM_BLOCK = 20
 
     @classmethod
     def _trim_history(cls, messages: list[dict]) -> list[dict]:
-        """Most recent messages within both budgets, starting on a user message."""
-        kept: list[dict] = []
-        tokens = 0
-        for msg in reversed(messages):
-            cost = len(msg["content"]) // 4
-            if len(kept) >= cls.HISTORY_MAX_MESSAGES or tokens + cost > cls.HISTORY_TOKEN_BUDGET:
-                break
-            kept.append(msg)
-            tokens += cost
-        kept.reverse()
+        """Drop the oldest messages in blocks until both budgets fit; start on a user message."""
+        costs = [len(m["content"]) // 4 for m in messages]
+        total = sum(costs)
+        start = 0
+        while start < len(messages) and (
+            len(messages) - start > cls.HISTORY_MAX_MESSAGES
+            or total > cls.HISTORY_TOKEN_BUDGET
+        ):
+            end = min(start + cls.HISTORY_TRIM_BLOCK, len(messages))
+            total -= sum(costs[start:end])
+            start = end
+        if start >= len(messages) > 0:
+            # Messages so large that no block-aligned cut fits: cut message by message.
+            start = 0
+            while start < len(messages) - 1 and sum(costs[start:]) > cls.HISTORY_TOKEN_BUDGET:
+                start += 1
+        kept = messages[start:]
         while kept and kept[0]["role"] != "user":
-            kept.pop(0)
+            kept = kept[1:]
+        if len(kept) < len(messages):
+            logger.info(
+                f"[History] truncated: dropped {len(messages) - len(kept)}, "
+                f"kept {len(kept)}, ~{sum(len(m['content']) // 4 for m in kept)} tokens"
+            )
         return kept
 
     @staticmethod
@@ -619,7 +635,7 @@ class GameService:
 
         Structure:
         - Past messages from last 2 cycles (user=raw input, assistant=display_text),
-          bounded to HISTORY_MAX_MESSAGES / HISTORY_TOKEN_BUDGET and starting on
+          bounded to 80 messages / ~30k tokens (trimmed by blocks of 20) and starting on
           a user message
         - Only if cache_control=True (provider supports it): cache breakpoints on
           the last message of cycle N-1 and on the last history message

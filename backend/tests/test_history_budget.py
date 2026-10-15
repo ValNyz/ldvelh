@@ -17,8 +17,23 @@ def test_trim_history_caps_message_count_and_starts_on_user():
     assert kept[0]["role"] == "user" and kept[-1]["content"].startswith("a99")
 
 
+def test_history_caps_are_the_documented_ones():
+    assert GameService.HISTORY_MAX_MESSAGES == 80
+    assert GameService.HISTORY_TOKEN_BUDGET == 30_000
+    assert GameService.HISTORY_TRIM_BLOCK == 20
+
+
+def test_trimmed_prefix_is_stable_across_consecutive_turns():
+    cap_pairs = GameService.HISTORY_MAX_MESSAGES // 2
+    first = [GameService._trim_history(_pairs(n))[0]["content"]
+             for n in range(cap_pairs + 1, cap_pairs + 8)]
+    # Cut is aligned in blocks: the window start does not move on every turn.
+    assert len(set(first)) < len(first)
+    assert first[0] == first[1]
+
+
 def test_trim_history_respects_token_budget():
-    kept = GameService._trim_history(_pairs(20, size=8_000))  # ~2k tokens per message
+    kept = GameService._trim_history(_pairs(40, size=8_000))  # ~2k tokens per message
     assert sum(len(m["content"]) // 4 for m in kept) <= GameService.HISTORY_TOKEN_BUDGET
     assert kept and kept[0]["role"] == "user"
 
