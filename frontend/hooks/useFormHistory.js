@@ -6,7 +6,7 @@ import { changeKey, createHistory, push, redo, redoMeta, undo, undoMeta } from '
 /**
  * Form state with undo / redo (see lib/game/formHistory.mjs).
  * set(updater, { key, meta }): key defaults to the one field that changed, so
- * typing merges; pass key: null to make the change its own entry (AI fill).
+ * successive edits of one field merge; pass key: null to make the change its own entry (AI fill).
  */
 export function useFormHistory(initial) {
 	const [history, setHistory] = useState(() => createHistory(initial));

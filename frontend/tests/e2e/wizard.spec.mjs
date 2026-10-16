@@ -141,15 +141,20 @@ test('AI fill error is shown and leaves the form untouched', async ({ page }) =>
 	await page.screenshot({ path: `${SHOTS}/5-enhance-error.png`, fullPage: true, animations: "disabled" });
 });
 
-test('typing is one undo step per field, not per keystroke', async ({ page }) => {
+test('edits of one field are one undo step until another field changes', async ({ page }) => {
 	await mockApi(page);
 	await openWizard(page);
 	await page.getByRole('button', { name: 'Suivant' }).click();
 	await loreField(page).pressSequentially('abc', { delay: 50 });
+	await page.waitForTimeout(1500); // a pause does not split the entry
+	await loreField(page).pressSequentially(' def', { delay: 50 });
 	await page.getByRole('button', { name: /Brutal/ }).click();
+	await loreField(page).pressSequentially(' ghi', { delay: 50 });
+	await page.keyboard.press('Control+Z'); // the text typed after the click
+	await expect(loreField(page)).toHaveValue('abc def');
 	await page.keyboard.press('Control+Z'); // difficulty back
 	await expect(page.getByRole('button', { name: /Brutal/ })).not.toHaveClass(/border-primary/);
-	await expect(loreField(page)).toHaveValue('abc');
-	await page.keyboard.press('Control+Z'); // the whole word
+	await expect(loreField(page)).toHaveValue('abc def');
+	await page.keyboard.press('Control+Z'); // everything typed before, pause included
 	await expect(loreField(page)).toHaveValue('');
 });
