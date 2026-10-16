@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import EngineSelectionStep from './EngineSelectionStep';
 import WorldConfigStep from './WorldConfigStep';
 import CharacterCreationStep from './CharacterCreationStep';
@@ -9,6 +9,9 @@ import { worldApi } from '../../../lib/api';
 import { D6_ATTRIBUTES, getD6Skills, getFateSkills } from '../../../lib/game/engineConfig';
 import { d6SkillsForSubmit } from '../../../lib/game/d6.mjs';
 import { TEXT_PAUSE_MS } from '../../../lib/game/formHistory.mjs';
+import {
+	baseOf, isAiValue, markSuggestions, rememberFill, withoutSuggestions,
+} from '../../../lib/game/enhanceBase.mjs';
 
 const STEPS = ['engine', 'world', 'character'];
 const STEP_LABELS = ['Moteur', 'Monde', 'Personnage'];
@@ -33,6 +36,8 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 	const { engine, worldConfig, characterData, manualEntities } = form.state;
 	const [enhancing, setEnhancing] = useState(null); // scope being enhanced
 	const [enhanceError, setEnhanceError] = useState(null);
+	// AI fills per scope ({ base, result }), so a re-roll starts from the player's own state.
+	const fills = useRef({ world: [], character: [] });
 
 	const { set: setForm, seal: sealHistory } = form;
 	// One entry per visit of a field (sealed when it loses focus); the long texts
@@ -82,6 +87,11 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 	const handleEnhance = useCallback(async (scope) => {
 		setEnhancing(scope);
 		setEnhanceError(null);
+		// Sent: the player's own state (AI results replaced by their base, unedited
+		// AI suggestions left out), so each click is a new version, never a drift.
+		const sentWorld = scope === 'world' ? baseOf(fills.current.world, worldConfig) : worldConfig;
+		const sentEntities = scope === 'world' ? withoutSuggestions(manualEntities) : manualEntities;
+		const sentCharacter = scope === 'character' ? baseOf(fills.current.character, characterData) : characterData;
 		try {
 			const result = await worldApi.enhance({
 				scope,
@@ -89,14 +99,22 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 				provider: preferences?.activeProvider || 'anthropic',
 				model: preferences?.activeModel || null,
 				current: {
-					world_config: worldConfig,
-					character_data: characterData,
-					manual_entities: manualEntities,
+					world_config: sentWorld,
+					character_data: sentCharacter,
+					manual_entities: sentEntities,
 				},
 			});
-			const patch = scope === 'world'
-				? { worldConfig: result.world_config, manualEntities: result.manual_entities }
-				: { characterData: result.character_data };
+			let patch;
+			if (scope === 'world') {
+				fills.current.world = rememberFill(fills.current.world, sentWorld, result.world_config);
+				patch = {
+					worldConfig: result.world_config,
+					manualEntities: markSuggestions(result.manual_entities, sentEntities),
+				};
+			} else {
+				fills.current.character = rememberFill(fills.current.character, sentCharacter, result.character_data);
+				patch = { characterData: result.character_data };
+			}
 			setForm(f => ({ ...f, ...patch }), { key: null, meta: step });
 		} catch (e) {
 			setEnhanceError(e.message || 'Erreur inconnue');
@@ -105,8 +123,16 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 		}
 	}, [engine, worldConfig, characterData, manualEntities, preferences, setForm, step]);
 
+	// Button mode: invent (empty text), new version (text written by the AI), enhance.
+	const enhanceMode = (scope) => {
+		const [key, value] = scope === 'world' ? ['lore', worldConfig.lore] : ['description', characterData.description];
+		if (!value?.trim()) return 'invent';
+		return isAiValue(fills.current[scope], key, value) ? 'reroll' : 'enhance';
+	};
+
 	const enhanceProps = (scope) => ({
 		onEnhance: () => handleEnhance(scope),
+		enhanceMode: enhanceMode(scope),
 		enhancing: enhancing === scope,
 		enhanceError: enhancing ? null : enhanceError,
 	});
@@ -128,15 +154,13 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 		} else {
 			// Final step — create game
 			// Filter out empty manual entities
+			// (the AI's "suggested" flag stays in the wizard)
 			const filteredEntities = {};
-			if (manualEntities.npcs?.length) {
-				filteredEntities.npcs = manualEntities.npcs.filter(e => e.name.trim());
-			}
-			if (manualEntities.locations?.length) {
-				filteredEntities.locations = manualEntities.locations.filter(e => e.name.trim());
-			}
-			if (manualEntities.organizations?.length) {
-				filteredEntities.organizations = manualEntities.organizations.filter(e => e.name.trim());
+			for (const kind of ['npcs', 'locations', 'organizations']) {
+				const items = (manualEntities[kind] || [])
+					.filter(e => e.name.trim())
+					.map(({ name, description }) => ({ name, description }));
+				if (items.length) filteredEntities[kind] = items;
 			}
 			const hasEntities = Object.keys(filteredEntities).length > 0;
 

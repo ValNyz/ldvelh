@@ -1,15 +1,17 @@
 """
 LDVELH - World creation helpers
-POST /world/enhance: the player's short text enriches a whole wizard step (one LLM call).
+POST /world/enhance: the player's short text enriches a whole wizard step (one LLM call);
+an empty text has the step invented from the form's other choices.
 - scope "world": the "Contexte libre" (lore) fills the world step;
 - scope "character": the character description fills the character step.
 """
 
+import json
 import logging
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from api import routes
 from api.dependencies import get_current_user, get_pool
@@ -17,7 +19,7 @@ from llm.session import LLMSession
 from repos.llm_models import load_catalog
 from services.llm_providers import _CLASSES
 from services.world_enhance import (
-    ENGINES, SCOPES, WorldEnhanceFailed, enhance, source_text,
+    ENGINES, SCOPES, WorldEnhanceFailed, enhance,
 )
 from utils.rate_limit import RateLimiter
 
@@ -29,12 +31,26 @@ router = APIRouter(tags=["world"])
 enhance_limiter = RateLimiter(max_requests=10, window_seconds=60)
 
 
+# Far above what the wizard produces: an oversized form is refused before any LLM call.
+MAX_FORM_CHARS = 20_000
+MAX_ENTITIES_PER_KIND = 20
+
+
 class WizardState(BaseModel):
     """The wizard form as it stands (same shape as the /chat init fields)."""
 
     world_config: dict | None = None
     character_data: dict | None = None
     manual_entities: dict | None = None
+
+    @model_validator(mode="after")
+    def _bounded(self):
+        if len(json.dumps(self.model_dump(), ensure_ascii=False)) > MAX_FORM_CHARS:
+            raise ValueError(f"form larger than {MAX_FORM_CHARS} characters")
+        for kind, items in (self.manual_entities or {}).items():
+            if isinstance(items, list) and len(items) > MAX_ENTITIES_PER_KIND:
+                raise ValueError(f"more than {MAX_ENTITIES_PER_KIND} {kind}")
+        return self
 
 
 class WorldEnhanceRequest(BaseModel):
@@ -58,10 +74,6 @@ async def world_enhance(
     current = request.current.model_dump()
     if request.scope not in SCOPES:
         raise HTTPException(status_code=400, detail=f"Étape inconnue : {request.scope}")
-    if not source_text(request.scope, current):
-        field = "Contexte libre" if request.scope == "world" else "Description"
-        raise HTTPException(status_code=400,
-                            detail=f"Écris d'abord quelques mots dans « {field} ».")
 
     if request.engine not in ENGINES:
         raise HTTPException(status_code=400, detail=f"Moteur inconnu : {request.engine}")

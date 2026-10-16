@@ -343,7 +343,7 @@ function D6Skills({ data, onChange, genre, attrPips }) {
 // MAIN DISPATCH
 // ============================================================================
 
-export default function CharacterCreationStep({ engine, genre, data, onChange, onEnhance, enhancing, enhanceError }) {
+export default function CharacterCreationStep({ engine, genre, data, onChange, onEnhance, enhancing, enhanceError, enhanceMode }) {
 	return (
 		<div className="space-y-6">
 			<h2 className="text-xl font-semibold text-white">Création du personnage</h2>
@@ -356,6 +356,7 @@ export default function CharacterCreationStep({ engine, genre, data, onChange, o
 					<textarea
 						value={data.description || ''}
 						onChange={(e) => onChange({ ...data, description: e.target.value })}
+						maxLength={2000}
 						placeholder="Quelques mots suffisent : « ancienne pilote de course, dettes de jeu, ne fait confiance à personne »…"
 						rows={3}
 						className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
@@ -365,8 +366,11 @@ export default function CharacterCreationStep({ engine, genre, data, onChange, o
 							onEnhance={onEnhance}
 							enhancing={enhancing}
 							error={enhanceError}
-							disabled={!data.description?.trim()}
-							hint="Enrichit la description et remplit le reste de la fiche."
+							mode={enhanceMode}
+							hint={{
+								invent: 'Invente un personnage adapté au monde.',
+								reroll: 'Une autre version, à partir de ton texte et de tes choix.',
+							}[enhanceMode] || 'Enrichit la description et remplit le reste de la fiche.'}
 						/>
 					) : (
 						<p className="text-xs text-on-surface-variant/40 mt-1">Optionnel — le MJ inventera ce que tu ne précises pas</p>

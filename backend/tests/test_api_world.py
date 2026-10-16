@@ -67,12 +67,23 @@ async def test_enhance_character_scope(client, test_user, seeded_genres, world_l
     assert "world_config" not in resp.json()
 
 
-async def test_enhance_needs_text_in_the_step(client, test_user, world_llm):
-    h = auth_headers(test_user["token"])
-    resp = await client.post("/api/world/enhance", headers=h,
+async def test_enhance_with_empty_text_invents(client, test_user, seeded_genres, world_llm):
+    world_llm._responses["world_enhance"] = json.dumps(CHARACTER_OUTPUT)
+    resp = await client.post("/api/world/enhance", headers=auth_headers(test_user["token"]),
                              json=_body(scope="character", current={"character_data": {}}))
-    assert resp.status_code == 400
-    assert "Description" in resp.json()["detail"]
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["character_data"]["name"] == "Nyx"
+    assert world_llm.purposes() == ["world_enhance"]
+
+
+@pytest.mark.parametrize("current", [
+    {"world_config": {"lore": "x" * 50_000}},
+    {"manual_entities": {"npcs": [{"name": f"P{i}", "description": ""} for i in range(500)]}},
+])
+async def test_enhance_rejects_oversized_input(client, test_user, world_llm, current):
+    resp = await client.post("/api/world/enhance", headers=auth_headers(test_user["token"]),
+                             json=_body(current=current))
+    assert resp.status_code == 422
     assert world_llm.calls == []
 
 

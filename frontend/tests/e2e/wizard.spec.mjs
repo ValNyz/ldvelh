@@ -29,7 +29,8 @@ const CHARACTER_FILL = {
 
 const loreField = (page) => page.getByPlaceholder(/cyberpunk sous une pluie éternelle/);
 const descriptionField = (page) => page.getByPlaceholder(/ancienne pilote de course/);
-const enhanceButton = (page) => page.getByRole('button', { name: /Enrichir avec l'IA/ });
+const enhanceButton = (page) => page.getByRole('button', { name: /avec l'IA|Nouvelle version/ });
+const suggestions = (page) => page.getByLabel("Suggéré par l'IA");
 const undoButton = (page) => page.getByRole('button', { name: /Défaire/ });
 const redoButton = (page) => page.getByRole('button', { name: /Refaire/ });
 
@@ -49,10 +50,11 @@ test('AI fill, undo / redo across steps, D6 skills and the creation payload', as
 	await page.getByRole('button', { name: /Système D6/ }).click();
 	await page.getByRole('button', { name: 'Suivant' }).click();
 
-	// Step 2: world — the button needs text in "Contexte libre"
+	// Step 2: world — empty "Contexte libre" invents, typed text is enriched
 	await expect(page.getByRole('heading', { name: 'Configuration du monde' })).toBeVisible();
-	await expect(enhanceButton(page)).toBeDisabled();
+	await expect(enhanceButton(page)).toHaveText(/Inventer avec l'IA/);
 	await loreField(page).fill('cyberpunk sous la pluie, une corpo traque les hackers');
+	await expect(enhanceButton(page)).toHaveText(/Enrichir avec l'IA/);
 	await page.screenshot({ path: `${SHOTS}/1-world-typed.png`, fullPage: true, animations: "disabled" });
 	await enhanceButton(page).click();
 
@@ -60,6 +62,8 @@ test('AI fill, undo / redo across steps, D6 skills and the creation payload', as
 	await expect(page.getByRole('button', { name: /Cyberpunk/ })).toHaveClass(/bg-primary/);
 	await expect(page.locator('input[value="Rook"]')).toBeVisible(); // entities section opened
 	await expect(page.locator('input[value="Helix Corp"]')).toBeVisible();
+	await expect(suggestions(page)).toHaveCount(3);
+	await expect(enhanceButton(page)).toHaveText(/Nouvelle version/);
 	await page.screenshot({ path: `${SHOTS}/2-world-filled.png`, fullPage: true, animations: "disabled" });
 
 	const worldCall = api.calls.find(c => c.path === '/world/enhance');
@@ -160,4 +164,44 @@ test('one undo step per visit of a field, long texts cut at pauses', async ({ pa
 	await expect(loreField(page)).toHaveValue('abc');
 	await page.keyboard.press('Control+Z');
 	await expect(loreField(page)).toHaveValue('');
+});
+
+test('empty text invents, a new version starts from the player state, suggestions marked', async ({ page }) => {
+	let n = 0;
+	const api = await mockApi(page, {
+		'POST /world/enhance': (body) => {
+			if (body.scope === 'character') return CHARACTER_FILL;
+			n += 1;
+			return { ...WORLD_FILL, world_config: { ...WORLD_FILL.world_config, lore: `Version ${n}` } };
+		},
+	});
+	await openWizard(page);
+	await page.getByRole('button', { name: 'Suivant' }).click();
+
+	// Empty text: invented from the other choices
+	await enhanceButton(page).click();
+	await expect(loreField(page)).toHaveValue('Version 1');
+	await expect(suggestions(page)).toHaveCount(3);
+
+	// The player makes one suggestion theirs, then asks for a new version
+	await page.locator('input[value="Fixer qui doit trop de faveurs."]').fill('Mon fixer.');
+	await expect(suggestions(page)).toHaveCount(2);
+	await enhanceButton(page).click();
+	await expect(loreField(page)).toHaveValue('Version 2');
+
+	const [first, second] = api.calls.filter(c => c.path === '/world/enhance').map(c => c.body.current);
+	expect(first.world_config).toMatchObject({ lore: '', genre: 'sci_fi' });
+	// Sent the player's state: no AI lore or genre, only the edited entity
+	expect(second.world_config).toMatchObject({ lore: '', genre: 'sci_fi' });
+	expect(second.manual_entities.npcs.map(e => e.name)).toEqual(['Rook']);
+	expect(second.manual_entities.locations).toEqual([]);
+	await page.screenshot({ path: `${SHOTS}/6-world-new-version.png`, fullPage: true, animations: "disabled" });
+
+	// Character step: empty description invents too
+	await page.getByRole('button', { name: 'Suivant' }).click();
+	await expect(enhanceButton(page)).toHaveText(/Inventer avec l'IA/);
+	await enhanceButton(page).click();
+	await expect(page.getByPlaceholder('Valentin')).toHaveValue('Nyx');
+	const charCall = api.calls.filter(c => c.path === '/world/enhance').at(-1).body;
+	expect(charCall.current.character_data.description ?? '').toBe('');
 });

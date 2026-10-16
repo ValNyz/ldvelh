@@ -9,7 +9,6 @@ from llm.usage import UsageLedger
 from prompts.world_enhance_prompt import build_user_message
 from services.engine.engine_data import D6_ATTRIBUTES
 from services.world_enhance import (
-    NothingToEnhance,
     WorldEnhanceFailed,
     enhance,
     normalize_character,
@@ -256,12 +255,21 @@ async def test_enhance_runs_one_call_and_returns_its_cost(scope, output, key):
     assert cost is not None
 
 
-async def test_enhance_needs_the_source_text():
-    provider = ScriptedLLMProvider({})
+@pytest.mark.parametrize("scope", ["world", "character"])
+async def test_enhance_with_an_empty_text_invents_the_step(scope):
+    output = WORLD_OUTPUT if scope == "world" else CHARACTER_OUTPUT
+    provider = ScriptedLLMProvider({"world_enhance": json.dumps(output)})
     session = LLMSession.from_provider(provider, UsageLedger())
-    with pytest.raises(NothingToEnhance):
-        await enhance(session, "character", "none", GENRES, {"world_config": {"lore": "x"}})
-    assert provider.calls == []
+    result, _ = await enhance(session, scope, "none", GENRES, {"world_config": {"genre": "sci_fi"}})
+    assert provider.purposes() == ["world_enhance"]
+    assert result
+
+
+def test_user_message_flags_an_empty_text():
+    msg = build_user_message("world", "  ", "none", GENRES, {"world_config": {"genre": "sci_fi"}})
+    assert "(vide : invente" in msg
+    msg = build_user_message("character", "", "none", GENRES, {})
+    assert "(vide : invente" in msg
 
 
 async def test_enhance_raises_on_unusable_output():

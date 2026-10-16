@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../../../lib/api';
 import { DIFFICULTIES } from '../../../lib/game/engineConfig';
 import EnhanceButton from './EnhanceButton';
+import { isSuggestion } from '../../../lib/game/enhanceBase.mjs';
 
 const GENRE_ICONS = {
 	sci_fi: '🚀',
@@ -13,7 +14,7 @@ const GENRE_ICONS = {
 };
 
 export default function WorldConfigStep({
-	config, onChange, manualEntities, onManualEntitiesChange, onEnhance, enhancing, enhanceError,
+	config, onChange, manualEntities, onManualEntitiesChange, onEnhance, enhancing, enhanceError, enhanceMode,
 }) {
 	const update = (key, val) => onChange({ ...config, [key]: val });
 	const hasEntities = !!(manualEntities?.npcs?.length || manualEntities?.locations?.length || manualEntities?.organizations?.length);
@@ -47,6 +48,7 @@ export default function WorldConfigStep({
 				<textarea
 					value={config.lore || ''}
 					onChange={(e) => update('lore', e.target.value)}
+					maxLength={3000}
 					placeholder="Quelques mots suffisent : « cyberpunk sous une pluie éternelle, une corpo traque les hackers »…"
 					className="w-full h-24 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
 				/>
@@ -55,8 +57,11 @@ export default function WorldConfigStep({
 						onEnhance={onEnhance}
 						enhancing={enhancing}
 						error={enhanceError}
-						disabled={!config.lore?.trim()}
-						hint="Enrichit le contexte et remplit genre, difficulté, durée et entités."
+						mode={enhanceMode}
+						hint={{
+							invent: 'Invente un monde à partir de tes choix ci-dessous.',
+							reroll: 'Une autre version, à partir de ton texte et de tes choix.',
+						}[enhanceMode] || 'Enrichit le contexte et remplit genre, difficulté, durée et entités.'}
 					/>
 				)}
 			</div>
@@ -219,12 +224,18 @@ function EntityList({ label, placeholder, descPlaceholder, items, onChange }) {
 					{items.map((item, i) => (
 						<div key={i} className="flex gap-2 items-start">
 							<div className="flex-1 space-y-1">
-								<input
-									value={item.name}
-									onChange={(e) => updateItem(i, 'name', e.target.value)}
-									placeholder={placeholder}
-									className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary/50"
-								/>
+								<div className="relative">
+									<input
+										value={item.name}
+										onChange={(e) => updateItem(i, 'name', e.target.value)}
+										placeholder={placeholder}
+										className="w-full px-2.5 py-1.5 pr-8 bg-gray-800 border border-gray-700 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary/50"
+									/>
+									{/* AI suggestion until the player edits it */}
+									{isSuggestion(item) && (
+										<span className="absolute right-2 top-1/2 -translate-y-1/2 text-sm pointer-events-none" title="Suggéré par l'IA" aria-label="Suggéré par l'IA" role="img">✨</span>
+									)}
+								</div>
 								<input
 									value={item.description}
 									onChange={(e) => updateItem(i, 'description', e.target.value)}

@@ -1,6 +1,7 @@
 """
 LDVELH - World Enhance
-One LLM call that fills the creation wizard from the player's quick description.
+One LLM call that fills the creation wizard from the player's quick description,
+or invents the step from the form's other choices when the description is empty.
 
 The LLM output is never trusted as is: every field is validated against the
 wizard's allowed values, and anything missing or invalid falls back to what the
@@ -43,10 +44,6 @@ FATE_PYRAMID_LEVELS = [lvl for lvl in sorted(FATE_DEFAULT_PYRAMID, reverse=True)
 
 class WorldEnhanceFailed(Exception):
     """The LLM call failed or returned no usable JSON."""
-
-
-class NothingToEnhance(ValueError):
-    """The scope's source text (lore or character description) is empty."""
 
 
 def _text(value, limit: int) -> str:
@@ -283,13 +280,11 @@ async def enhance(
     current: dict,
 ) -> tuple[dict, dict | None]:
     """Run the LLM call for one scope; returns (the scope's wizard fields, cost).
+    An empty source text asks the LLM to invent the step from the form's choices.
 
-    Raises NothingToEnhance when the source text is empty, WorldEnhanceFailed when
-    the call gives no usable JSON.
+    Raises WorldEnhanceFailed when the call gives no usable JSON.
     """
     text = source_text(scope, current)
-    if not text:
-        raise NothingToEnhance(scope)
     settings = get_settings()
     call = await session.complete_json(
         Purpose.WORLD_GEN,

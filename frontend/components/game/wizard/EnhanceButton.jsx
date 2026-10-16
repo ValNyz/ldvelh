@@ -1,17 +1,24 @@
 'use client';
 
+const LABELS = {
+	invent: "Inventer avec l'IA",
+	reroll: 'Nouvelle version',
+	enhance: "Enrichir avec l'IA",
+};
+
 /**
  * "Enrichir avec l'IA": the text of the field above enriches the whole step
- * (POST /world/enhance). Undoable like any other change.
+ * (POST /world/enhance); empty, the step is invented from the other choices;
+ * on an AI text, a new version from the player's own text. Undoable like any change.
  */
-export default function EnhanceButton({ onEnhance, enhancing, error, disabled, hint }) {
+export default function EnhanceButton({ onEnhance, enhancing, error, mode = 'enhance', hint }) {
 	return (
 		<div className="mt-2 space-y-1">
 			<div className="flex items-center gap-3">
 				<button
 					type="button"
 					onClick={onEnhance}
-					disabled={disabled || enhancing}
+					disabled={enhancing}
 					className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary/15 border border-primary/40 text-primary hover:bg-primary/25 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1.5"
 				>
 					{enhancing ? (
@@ -23,7 +30,7 @@ export default function EnhanceButton({ onEnhance, enhancing, error, disabled, h
 							L&apos;IA remplit…
 						</>
 					) : (
-						<>✨ Enrichir avec l&apos;IA</>
+						<>✨ {LABELS[mode]}</>
 					)}
 				</button>
 				<span className="text-xs text-gray-500">{hint}</span>

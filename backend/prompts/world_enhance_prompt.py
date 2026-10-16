@@ -20,6 +20,8 @@ _ROLE = """Tu es l'**assistant de création de partie** d'un jeu de rôle textue
 
 Le joueur a écrit quelques mots dans le formulaire de création. Tu enrichis son texte et tu
 remplis le reste de l'étape à partir de lui : choix précis, évocateurs, cohérents, en français.
+Si son texte est vide, tu inventes l'étape entière à partir des autres choix du formulaire,
+avec une idée originale (évite les clichés du genre).
 """
 
 WORLD_SYSTEM_PROMPT = _ROLE + """
@@ -30,9 +32,10 @@ Le texte du joueur est le champ CONTEXTE LIBRE.
 ## RÈGLES
 
 1. **Le texte du joueur fait foi.** Garde toutes ses idées, noms et détails ; ne les contredis pas.
-2. **lore** : réécris-le en l'enrichissant, 4 à 8 phrases d'ambiance et de contexte (époque,
+2. **lore** : réécris-le en l'enrichissant (texte vide : invente une prémisse), 4 à 8 phrases d'ambiance et de contexte (époque,
    lieux, tensions, ton), sans raconter l'intrigue ni décider du personnage.
-3. **genre** : UNIQUEMENT un slug de GENRES DISPONIBLES, le plus proche du texte.
+3. **genre** : UNIQUEMENT un slug de GENRES DISPONIBLES, le plus proche du texte ; texte vide :
+   garde le genre actuel.
 4. **difficulty** : "easy" | "moderate" | "hard" | "brutal" ; **duration** : "short" | "medium" |
    "long". Déduis-les du ton du texte ; s'il ne dit rien, garde les valeurs actuelles.
    **hardcore** : true seulement si le texte demande la mort permanente, sinon la valeur actuelle.
@@ -69,7 +72,8 @@ Le texte du joueur est la DESCRIPTION du personnage. Le MONDE est donné pour la
    garde la valeur actuelle.
 4. **occupation** : quelques mots, cohérente avec le monde ; garde l'actuelle si le texte ne la
    contredit pas.
-5. **description** : réécris le texte en l'enrichissant, 3 à 5 phrases (apparence, caractère,
+5. **description** : réécris le texte en l'enrichissant (texte vide : invente un personnage
+   adapté au monde), 3 à 5 phrases (apparence, caractère,
    passé, ce qui le pousse à agir).
 6. **engine** : uniquement la section du MOTEUR demandé, cohérente avec la description et le
    monde ; compétences prises UNIQUEMENT dans les listes autorisées. Les compétences actuelles
@@ -85,6 +89,8 @@ Réponds UNIQUEMENT avec un objet JSON :
 }
 ```
 """
+
+EMPTY_TEXT = "(vide : invente à partir des autres choix)"
 
 SYSTEM_PROMPTS = {"world": WORLD_SYSTEM_PROMPT, "character": CHARACTER_SYSTEM_PROMPT}
 
@@ -125,7 +131,7 @@ def build_user_message(scope: str, source_text: str, engine: str, genres: list[d
     if scope == "world":
         return "\n".join([
             "## CONTEXTE LIBRE (texte du joueur)",
-            source_text.strip(),
+            source_text.strip() or EMPTY_TEXT,
             "",
             "## GENRES DISPONIBLES",
             *[f"- {g['slug']} : {g['label']}" for g in genres],
@@ -141,7 +147,7 @@ def build_user_message(scope: str, source_text: str, engine: str, genres: list[d
                  if k in ("name", "gender", "occupation", "skills")}
     return "\n".join([
         "## DESCRIPTION DU PERSONNAGE (texte du joueur)",
-        source_text.strip(),
+        source_text.strip() or EMPTY_TEXT,
         "",
         "## MONDE",
         f"Genre : {genre_label}",
