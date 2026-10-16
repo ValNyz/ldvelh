@@ -8,6 +8,7 @@ import { useFormHistory } from '../../../hooks/useFormHistory';
 import { worldApi } from '../../../lib/api';
 import { D6_ATTRIBUTES, getD6Skills, getFateSkills } from '../../../lib/game/engineConfig';
 import { d6SkillsForSubmit } from '../../../lib/game/d6.mjs';
+import { TEXT_PAUSE_MS } from '../../../lib/game/formHistory.mjs';
 
 const STEPS = ['engine', 'world', 'character'];
 const STEP_LABELS = ['Moteur', 'Monde', 'Personnage'];
@@ -33,9 +34,14 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 	const [enhancing, setEnhancing] = useState(null); // scope being enhanced
 	const [enhanceError, setEnhanceError] = useState(null);
 
-	const { set: setForm } = form;
+	const { set: setForm, seal: sealHistory } = form;
+	// One entry per visit of a field (sealed when it loses focus); the long texts
+	// (lore, description) are also cut at pauses, like a text editor.
 	const setSlice = useCallback(
-		(slice) => (value) => setForm(f => ({ ...f, [slice]: value }), { meta: step }),
+		(slice) => (value) => setForm(f => ({ ...f, [slice]: value }), {
+			meta: step,
+			pauseMs: document.activeElement?.tagName === 'TEXTAREA' ? TEXT_PAUSE_MS : null,
+		}),
 		[setForm, step],
 	);
 	const setEngine = setSlice('engine');
@@ -199,7 +205,7 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 						</HistoryButton>
 					</div>
 					{/* Disabled while the AI fills the step, so its result does not overwrite new edits */}
-					<fieldset disabled={!!enhancing} className="space-y-6 min-w-0">
+					<fieldset disabled={!!enhancing} onBlur={(e) => isTextField(e.target) && sealHistory()} className="space-y-6 min-w-0">
 						{step === 0 && (
 							<EngineSelectionStep value={engine} onChange={setEngine} />
 						)}
@@ -272,6 +278,11 @@ function characterForSubmit(engine, genre, data) {
 		return { ...data, skills: Object.fromEntries(Object.entries(data.skills).filter(([name]) => allowed.has(name))) };
 	}
 	return data;
+}
+
+// Typing fields: leaving one ends its entry. Buttons do not ("−" then "+" on one skill merges).
+function isTextField(el) {
+	return el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['button', 'checkbox', 'radio'].includes(el.type));
 }
 
 function HistoryButton({ label, disabled, onClick, children }) {

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-	HISTORY_LIMIT, changeKey, createHistory, push, redo, redoMeta, undo, undoMeta,
+	HISTORY_LIMIT, changeKey, createHistory, push, redo, redoMeta, seal, undo, undoMeta,
 } from '../lib/game/formHistory.mjs';
 
 test('undo and redo walk the entries', () => {
@@ -39,6 +39,23 @@ test('consecutive edits of the same field merge, whatever the pause', () => {
 	h = push(h, 'y', { key: null });
 	h = push(h, 'z', { key: null });
 	assert.equal(h.past.length, 5, 'null key (AI fill) never merges');
+});
+
+test('seal ends the entry: leaving the field and coming back is a new entry', () => {
+	let h = push(createHistory(''), 'a', { key: 'lore' });
+	h = push(seal(h), 'ab', { key: 'lore' });
+	assert.equal(h.past.length, 2);
+	assert.equal(seal(createHistory('')).lastKey, null);
+});
+
+test('with pauseMs, a pause cuts a long text into several entries', () => {
+	let h = createHistory('');
+	h = push(h, 'Une', { key: 'lore', pauseMs: 2000, at: 0 });
+	h = push(h, 'Une pilote', { key: 'lore', pauseMs: 2000, at: 1500 });
+	assert.equal(h.past.length, 1);
+	h = push(h, 'Une pilote. Elle', { key: 'lore', pauseMs: 2000, at: 5000 });
+	assert.equal(h.past.length, 2);
+	assert.equal(undo(h).present, 'Une pilote');
 });
 
 test('a merged edit that comes back to its start leaves no entry', () => {

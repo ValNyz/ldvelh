@@ -1,14 +1,18 @@
 /**
  * LDVELH - Form history (undo / redo)
  * Pure functions over { past, present, future }: every change, by the player or
- * by the AI, is one entry; consecutive edits of the same field (typing, repeated
- * clicks on one skill) are merged into one entry until another field changes.
+ * by the AI, is one entry. Consecutive edits of the same field (typing, repeated
+ * clicks on one skill) are merged into one entry until another field changes or
+ * seal() is called (the field loses focus). Long texts are also cut at pauses
+ * (pauseMs), like a text editor, so a description written in several goes is
+ * undone one go at a time.
  */
 
 export const HISTORY_LIMIT = 100;
+export const TEXT_PAUSE_MS = 2000;
 
 export function createHistory(present) {
-	return { past: [], present, future: [], lastKey: null };
+	return { past: [], present, future: [], lastKey: null, lastAt: 0 };
 }
 
 /**
@@ -17,19 +21,27 @@ export function createHistory(present) {
  * @param {*} next - new present (ignored if identical to the current one)
  * @param {object} [opts]
  * @param {string|null} [opts.key] - field being edited; the same key as the previous change merges
+ * @param {number|null} [opts.pauseMs] - when set, a pause this long starts a new entry
+ * @param {number} [opts.at] - timestamp (ms)
  * @param {*} [opts.meta] - stored with the entry it creates (e.g. the wizard step)
  */
-export function push(h, next, { key = null, meta = null } = {}) {
+export function push(h, next, { key = null, meta = null, pauseMs = null, at = Date.now() } = {}) {
 	if (Object.is(next, h.present)) return h;
-	const merge = key !== null && key === h.lastKey && h.past.length > 0;
+	const merge = key !== null && key === h.lastKey && h.past.length > 0
+		&& (pauseMs === null || at - h.lastAt < pauseMs);
 	if (merge && sameState(next, h.past[h.past.length - 1].state)) {
 		// The merged edit came back to where it started (e.g. "+" then "-"): no entry left.
-		return { past: h.past.slice(0, -1), present: next, future: [], lastKey: null };
+		return { past: h.past.slice(0, -1), present: next, future: [], lastKey: null, lastAt: 0 };
 	}
 	const past = merge
 		? h.past
 		: [...h.past, { state: h.present, meta }].slice(-HISTORY_LIMIT);
-	return { past, present: next, future: [], lastKey: key };
+	return { past, present: next, future: [], lastKey: key, lastAt: at };
+}
+
+/** End the current entry: the next change starts a new one, even on the same field. */
+export function seal(h) {
+	return h.lastKey === null ? h : { ...h, lastKey: null };
 }
 
 /** Step back; returns the same object when there is nothing to undo. */
