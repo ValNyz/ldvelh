@@ -16,7 +16,7 @@ status=0
 npm run test:e2e || status=$?
 if [ -d test-results ]; then   # absent when the run produced no artifacts; a failed copy must still fail the script
   cp -r test-results /out/ || { echo "copy of test-results to /out failed" >&2; exit 1; }
-  chmod -R a+rwX /out/test-results
+  chmod -R a+rwX /out/test-results || { echo "chmod of /out/test-results failed" >&2; exit 1; }
 fi
 exit $status
 '

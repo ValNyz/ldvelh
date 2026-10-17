@@ -2,6 +2,8 @@
 
 import ast
 import re
+
+import pytest
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent.parent
@@ -110,3 +112,17 @@ def test_handle_chat_is_thin():
     tree = ast.parse((BACKEND / "api/routes.py").read_text(encoding="utf-8"))
     func = next(f for f in _outermost_functions(tree) if f.name == "_handle_chat")
     assert func.end_lineno - func.lineno + 1 < 80
+
+
+@pytest.mark.parametrize("text, is_sql", [
+    ("SELECT 1", True),
+    ("  select * from t", True),
+    ("WITH x AS (SELECT 1) SELECT * FROM x", True),
+    ("WITH RECURSIVE r(n) AS (SELECT 1) SELECT n FROM r", True),
+    ("-- c\nSELECT 1", True),
+    ("/* c */ DELETE FROM t", True),
+    ("hello world", False),
+    ("with great power", False),
+])
+def test_sql_regex(text, is_sql):
+    assert bool(_SQL_RE.match(text)) == is_sql
