@@ -80,8 +80,14 @@ class LLMSession:
 
     def __init__(self, provider_name: str, api_key: str | None,
                  user_model: str | None = None, ledger: UsageLedger | None = None,
-                 catalog: ModelCatalog | None = None, user_id: UUID | None = None):
-        self.user_id = user_id
+                 catalog: ModelCatalog | None = None, *, user_id: UUID):
+        # A request session is always a user's: its usage is attributed to the account.
+        self._setup(provider_name, api_key, user_model, ledger, catalog, user_id)
+
+    def _setup(self, provider_name: str, api_key: str | None, user_model: str | None,
+               ledger: UsageLedger | None, catalog: ModelCatalog | None,
+               user_id: UUID | None) -> None:
+        self.user_id = user_id  # None only for from_provider() sessions (tests)
         self.catalog = catalog
         self.provider_name = provider_name
         self._api_key = api_key
@@ -91,8 +97,13 @@ class LLMSession:
 
     @classmethod
     def from_provider(cls, provider: LLMProvider, ledger: UsageLedger | None = None) -> "LLMSession":
-        """Session that uses one given provider instance for every purpose (tests)."""
-        session = cls(provider.provider_name, api_key=None, ledger=ledger)
+        """Session that uses one given provider instance for every purpose (tests).
+
+        Not a user's request: its usage is recorded without a user.
+        """
+        session = cls.__new__(cls)
+        session._setup(provider.provider_name, api_key=None, user_model=None, ledger=ledger,
+                       catalog=None, user_id=None)
         session._providers = {purpose: provider for purpose in Purpose}
         return session
 

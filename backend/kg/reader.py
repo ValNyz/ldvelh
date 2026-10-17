@@ -678,20 +678,6 @@ class KnowledgeGraphReader:
     # NARRATIVE SEEDS
     # =========================================================================
 
-    async def get_genre(self, conn: Connection, genre_id) -> dict | None:
-        """Get genre config by ID."""
-        if not genre_id:
-            return None
-        row = await conn.fetchrow(
-            """SELECT id, slug, label, tone_style, friction_flavor,
-                      atmosphere_guidelines, world_type, location_types,
-                      npc_archetypes, arrival_prompt, world_gen_example,
-                      forbidden_ai_names
-               FROM genres WHERE id = $1""",
-            genre_id,
-        )
-        return dict(row) if row else None
-
     async def get_active_seeds(
         self, conn: Connection, limit: int = 15
     ) -> list[dict]:

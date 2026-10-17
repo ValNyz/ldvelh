@@ -157,10 +157,10 @@ class TestApplyNarratorDeltas:
 
         result = await apply_deltas(test_pool, game_id, narration, 1)
 
-        assert result.credit["amount"] == -25
-        assert result.credit["new_balance"] == credits_before - 25
-        assert result.credit["applied"] is True
-        assert result.credit["description"] == "repas au terminal"
+        assert result.credit.amount == -25
+        assert result.credit.new_balance == credits_before - 25
+        assert result.credit.applied is True
+        assert result.credit.description == "repas au terminal"
         state_after = await service.load_game_state(game_id)
         assert state_after["player"]["credits"] == credits_before - 25
 

@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from uuid import UUID
 
 from domain.errors import TurnError
+from domain.turn import InvocationOffer
 from schema.engine import EngineType, MechanicalDecision, RollResult
 from .base import BaseEngine, normalize_name
 
@@ -439,6 +440,18 @@ class FateCoreEngine(BaseEngine):
             complication=False,
             details=details,
         )
+
+    def available_invocations(self, engine_stats: dict | None) -> InvocationOffer:
+        return InvocationOffer(aspects=aspect_names(engine_stats),
+                               fate_points=(engine_stats or {}).get("fate_points", 0))
+
+    def invocation_offer(self, roll: RollResult,
+                         engine_stats: dict | None) -> InvocationOffer | None:
+        """A failed roll waits for an invocation while fate points and aspects remain."""
+        if roll.outcome != "failure":
+            return None
+        offer = self.available_invocations(engine_stats)
+        return offer if offer.fate_points > 0 and offer.aspects else None
 
     def apply_invocation(self, roll: RollResult, invoked: Sequence[str],
                          aspects: Sequence[str], fate_points: int) -> RollResult:

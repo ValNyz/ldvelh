@@ -1,6 +1,6 @@
 """What a turn receives (TurnRequest) and what every step shares (TurnContext)."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 import asyncpg
@@ -9,6 +9,7 @@ from domain.game import GameSnapshot
 from llm.session import LLMSession
 from pipeline.ports import EventSink
 from services.engine.base import BaseEngine
+from services.game_service import GameService
 
 
 @dataclass(frozen=True)
@@ -24,7 +25,7 @@ class InitParams:
 @dataclass(frozen=True)
 class TurnRequest:
     game_id: UUID
-    user_id: UUID | None
+    user_id: UUID
     message: str
     roll_id: UUID | None = None
     invoked_aspects: tuple[str, ...] = ()
@@ -40,3 +41,8 @@ class TurnContext:
     pool: asyncpg.Pool
     engine: BaseEngine
     ref: str
+    # Built once per turn from the pool: game state and narrator history reads.
+    games: GameService = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.games = GameService(self.pool)

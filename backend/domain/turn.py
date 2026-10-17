@@ -16,11 +16,30 @@ class NarrationState:
 
 
 @dataclass(frozen=True)
+class AppliedCredit:
+    """What the ledger did with the narrator's credit delta."""
+
+    amount: int
+    description: str
+    applied: bool
+    new_balance: int | None
+    error: str | None
+
+
+@dataclass(frozen=True)
 class AppliedDeltas:
     """Narrator deltas applied on the spot (credit transaction, Fate compel)."""
 
-    credit: dict | None  # {"amount", "description", "applied", "new_balance", "error"}
-    compel: dict | None
+    credit: AppliedCredit | None
+    compel: dict | None  # {"result", "aspect", "fp_change", "new_fp"}
+
+
+@dataclass(frozen=True)
+class InvocationOffer:
+    """What the player may spend to improve a roll: invocable aspects and fate points."""
+
+    aspects: list[str]
+    fate_points: int
 
 
 @dataclass(frozen=True)

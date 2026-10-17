@@ -7,7 +7,6 @@ from dataclasses import replace
 from pydantic import ValidationError
 
 from domain.game import GameSnapshot
-from kg.reader import KnowledgeGraphReader
 from pipeline import narration_stream
 from pipeline.narration_stream import NarrationStream
 from pipeline.context import InitParams, TurnContext
@@ -28,7 +27,6 @@ from schema.sse_payload import (
 )
 from services.director_service import run_director
 from services.engine import get_engine
-from services.game_service import GameService
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +38,7 @@ WORLD_GEN_FAILED = "Échec de génération du monde. Réessaie."
 async def resolve_genre(conn, snapshot: GameSnapshot, init: InitParams) -> dict | None:
     """The game's genre, else the wizard slug's genre, then stored on the game."""
     if snapshot.genre_id:
-        return await KnowledgeGraphReader(None, snapshot.id).get_genre(conn, snapshot.genre_id)
+        return await games_repo.get_genre(conn, snapshot.genre_id)
     slug = (init.world_config or {}).get("genre")
     if not slug:
         return None
@@ -105,14 +103,13 @@ def _validate_world(parsed: dict | None, raw: str) -> WorldGeneration:
         raise TurnError("world_gen_failed", WORLD_GEN_FAILED) from exc
 
 
-async def _setup_engine(ctx: TurnContext, game_service: GameService, init: InitParams) -> None:
+async def _setup_engine(ctx: TurnContext, init: InitParams) -> None:
     """Store engine + world_config and create the engine character."""
     if not init.engine or init.engine == "none":
         return
     game_id = ctx.request.game_id
     async with ctx.pool.acquire() as conn:
-        populator = game_service._get_populator(game_id)
-        await populator.set_engine(conn, init.engine, init.world_config)
+        await games_repo.set_engine(conn, game_id, init.engine, init.world_config)
         await get_engine(init.engine).create_character(conn, game_id, init.character_data or {})
 
 
@@ -149,22 +146,21 @@ async def run_init(ctx: TurnContext) -> None:
     )
     world_gen = _validate_world(result.parsed, result.raw)
 
-    game_service = GameService(ctx.pool)
-    init_result = await game_service.process_init(game_id, world_gen)
+    init_result = await ctx.games.process_init(game_id, world_gen)
     # World saved (one transaction): what follows completes even if the client leaves (#20).
     # A failure from here on must not invite a resend (the world would be generated twice).
     await finish_despite_cancel(
-        finish_saved(_after_world_saved(ctx, game_service, init, init_result, result),
+        finish_saved(_after_world_saved(ctx, init, init_result, result),
                      ref=ctx.ref),
         ref=ctx.ref)
 
 
-async def _after_world_saved(ctx: TurnContext, game_service: GameService, init: InitParams,
-                             init_result: dict, result: NarrationStream) -> None:
+async def _after_world_saved(ctx: TurnContext, init: InitParams, init_result: dict,
+                             result: NarrationStream) -> None:
     """Engine setup, done payload, duration and initial Director, once the world is saved."""
     game_id = ctx.request.game_id
-    await _setup_engine(ctx, game_service, init)
-    state = await game_service.load_game_state(game_id)
+    await _setup_engine(ctx, init)
+    state = await ctx.games.load_game_state(game_id)
     payload = build_world_payload(state, init_result, init, result.parsed, result.cost)
 
     async with ctx.pool.acquire() as conn:

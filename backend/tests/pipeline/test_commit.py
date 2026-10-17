@@ -2,7 +2,7 @@
 
 import json
 from types import SimpleNamespace
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -49,7 +49,7 @@ async def test_failure_mid_commit_rolls_back_everything(harness, fate_game, monk
     })
     narrated = Narrated(narration=narration, display_text=narration.narrative_text, cost=None)
     ctx = TurnContext(
-        request=TurnRequest(game_id=game_id, user_id=None, message="Je saute."),
+        request=TurnRequest(game_id=game_id, user_id=uuid4(), message="Je saute."),
         snapshot=snapshot, session=None, sink=_NullSink(), pool=pool,
         engine=get_engine("fate_core"), ref="test",
     )
@@ -61,8 +61,8 @@ async def test_failure_mid_commit_rolls_back_everything(harness, fate_game, monk
     # have all been written when it fails, so every assertion below can catch a leak.
     monkeypatch.setattr(turns, "lock_engine", boom)
     with pytest.raises(RuntimeError):
-        await commit_turn(ctx, Prepared(player_input="Je saute.", is_arrival=False,
-                                        context=None), arbitration, narrated)
+        await commit_turn(ctx, Prepared(player_input="Je saute.", player_message="Je saute.",
+                                        is_arrival=False, context=None), arbitration, narrated)
 
     assert await engine_state(pool, game_id) == before
 

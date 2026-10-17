@@ -1,5 +1,7 @@
 """LLMSession and /api/providers driven by the llm_models catalog (#70)."""
 
+from uuid import uuid4
+
 import pytest
 
 from llm.profile import ModelProfile
@@ -7,6 +9,8 @@ from llm.session import LLMSession, Purpose
 from repos.llm_models import CatalogEntry, ModelCatalog, invalidate_catalog_cache
 from services.pricing import ModelPricing
 from tests.helpers import auth_headers, insert_llm_model
+
+USER = uuid4()
 
 
 @pytest.fixture(autouse=True)
@@ -23,15 +27,15 @@ def _e(model_id, status="enabled", roles=("narration",), rank=1, profile=None, p
 
 def test_disabled_user_model_falls_back_to_role_default():
     cat = ModelCatalog([_e("big", roles=("narration",)), _e("off", status="pending", rank=0)])
-    s = LLMSession("mistral", "k", user_model="off", catalog=cat)
+    s = LLMSession("mistral", "k", user_model="off", catalog=cat, user_id=USER)
     assert s.model_for(Purpose.NARRATION) == "big"
-    ok = LLMSession("mistral", "k", user_model="big", catalog=cat)
+    ok = LLMSession("mistral", "k", user_model="big", catalog=cat, user_id=USER)
     assert ok.model_for(Purpose.WORLD_GEN) == "big"
 
 
 def test_mechanical_role_from_catalog():
     cat = ModelCatalog([_e("big"), _e("small", roles=("mechanical",), rank=2)])
-    s = LLMSession("mistral", "k", user_model="big", catalog=cat)
+    s = LLMSession("mistral", "k", user_model="big", catalog=cat, user_id=USER)
     assert s.model_for(Purpose.MECHANICAL) == "small"
     # unlisted purposes: provider default not enabled -> narration default
     assert s.model_for(Purpose.DIRECTOR) == "big"
@@ -40,17 +44,17 @@ def test_mechanical_role_from_catalog():
 def test_profile_comes_from_catalog():
     prof = ModelProfile(send_temperature=False)
     cat = ModelCatalog([_e("big", profile=prof)])
-    s = LLMSession("mistral", "k", user_model="big", catalog=cat)
+    s = LLMSession("mistral", "k", user_model="big", catalog=cat, user_id=USER)
     assert s.provider_for(Purpose.NARRATION).profile == prof
 
 
 @pytest.mark.parametrize("catalog", [None, ModelCatalog([])])
 def test_empty_catalog_falls_back_to_provider_constants(catalog):
-    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=catalog)
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=catalog, user_id=USER)
     assert s.model_for(Purpose.NARRATION) == "claude-sonnet-5-5"
     assert s.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
     assert s.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"
-    m = LLMSession("mistral", "k", user_model="mistral-small-latest", catalog=catalog)
+    m = LLMSession("mistral", "k", user_model="mistral-small-latest", catalog=catalog, user_id=USER)
     assert m.model_for(Purpose.MECHANICAL) == "mistral-small-latest"
     assert m.model_for(Purpose.DIRECTOR) == "mistral-large-latest"
 
@@ -102,7 +106,7 @@ async def test_providers_endpoint_survives_catalog_db_error(client, test_user, m
 
 def test_other_provider_only_catalog_keeps_old_path():
     cat = ModelCatalog([_e("big")])  # mistral rows only
-    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat)
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat, user_id=USER)
     assert s.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
     assert s.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"
 
@@ -114,7 +118,7 @@ def _a(model_id, profile=None, roles=("narration",), status="enabled", rank=1):
 def test_admin_profile_reaches_default_model_purposes():
     prof = ModelProfile(send_temperature=False, thinking_headroom=7)
     cat = ModelCatalog([_a("claude-sonnet-5-5", prof)])
-    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat)
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat, user_id=USER)
     assert s.provider_for(Purpose.EXTRACTION).profile == prof
     assert s.provider_for(Purpose.RESOLVER).profile == prof
 
@@ -126,15 +130,15 @@ def test_enabled_entry_without_profile_passes_none(monkeypatch):
     monkeypatch.setattr(sess, "get_provider",
                         lambda *a, **kw: (seen.append(kw.get("profile", "absent")), real(*a, **kw))[1])
     cat = ModelCatalog([_a("claude-sonnet-5-5")])
-    LLMSession("anthropic", "k", catalog=cat).provider_for(Purpose.NARRATION)
+    LLMSession("anthropic", "k", catalog=cat, user_id=USER).provider_for(Purpose.NARRATION)
     assert seen[-1] is None
 
 
 def test_user_model_not_enabled_is_dropped_without_narration_holder():
     cat = ModelCatalog([_e("big", roles=("mechanical",)), _e("off", status="pending")])
-    s = LLMSession("mistral", "k", user_model="off", catalog=cat)
+    s = LLMSession("mistral", "k", user_model="off", catalog=cat, user_id=USER)
     assert s.model_for(Purpose.NARRATION) == "mistral-large-latest"  # provider default
-    ok = LLMSession("mistral", "k", user_model="big", catalog=cat)
+    ok = LLMSession("mistral", "k", user_model="big", catalog=cat, user_id=USER)
     assert ok.model_for(Purpose.NARRATION) == "big"
 
 
@@ -166,5 +170,5 @@ def test_anthropic_mechanical_follows_catalog_model():
         == "claude-haiku-5-5"
     cat = ModelCatalog([CatalogEntry("anthropic", "claude-sonnet-5-5", "S", "enabled",
                                      ("narration", "mechanical"), 1, None, prof)])
-    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat)
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat, user_id=USER)
     assert s.model_for(Purpose.MECHANICAL) == "claude-sonnet-5-5"

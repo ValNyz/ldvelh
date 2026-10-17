@@ -25,6 +25,7 @@ from schema.narration import (
 )
 
 from kg.reader import KnowledgeGraphReader
+from repos import games as games_repo
 from services.engine import get_engine
 from utils.json_utils import parse_json
 
@@ -57,7 +58,7 @@ class ContextBuilder:
         game = await self.reader.get_game(conn) or {}
 
         # Genre info
-        genre = await self.reader.get_genre(conn, game.get("genre_id"))
+        genre = await games_repo.get_genre(conn, game.get("genre_id"))
 
         # Engine info
         engine_type = game.get("engine", "none")

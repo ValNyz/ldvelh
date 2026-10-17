@@ -53,6 +53,21 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
     )
 
 
+async def get_genre(conn, genre_id: UUID | None) -> dict | None:
+    """Return the genre config by id, or None (no id or unknown genre)."""
+    if not genre_id:
+        return None
+    row = await conn.fetchrow(
+        """SELECT id, slug, label, tone_style, friction_flavor,
+                  atmosphere_guidelines, world_type, location_types,
+                  npc_archetypes, arrival_prompt, world_gen_example,
+                  forbidden_ai_names
+           FROM genres WHERE id = $1""",
+        genre_id,
+    )
+    return dict(row) if row else None
+
+
 async def get_genre_by_slug(conn, slug: str) -> dict | None:
     """Return the genre row for a slug, or None."""
     row = await conn.fetchrow("SELECT * FROM genres WHERE slug = $1 LIMIT 1", slug)
@@ -65,3 +80,12 @@ async def set_game_genre(conn, game_id: UUID, genre_id: UUID) -> None:
 
 async def set_game_duration(conn, game_id: UUID, duration: str) -> None:
     await conn.execute("UPDATE games SET game_duration = $2 WHERE id = $1", game_id, duration)
+
+
+async def set_engine(conn, game_id: UUID, engine_type: str, world_config: dict | None) -> None:
+    """Set the engine type and world config on the game."""
+    await conn.execute(
+        """UPDATE games SET engine = $1, world_config = $2, updated_at = NOW()
+           WHERE id = $3""",
+        engine_type, world_config, game_id,
+    )

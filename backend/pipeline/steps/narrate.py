@@ -12,7 +12,6 @@ from pipeline.steps.load import Prepared
 from prompts.narrator_prompt import build_narrator_context_prompt, build_narrator_system_prompt
 from schema import NarrationOutput
 from schema.narration import NarrationInvalid, parse_narration
-from services.game_service import GameService
 
 logger = logging.getLogger(__name__)
 
@@ -56,21 +55,17 @@ def _validate(ctx: TurnContext, parsed: dict | None) -> NarrationOutput:
 
 async def narrate(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration) -> Narrated:
     engine_type = ctx.snapshot.engine
-    game_service = GameService(ctx.pool)
 
     # Build engine + genre-aware prompts
     system_prompt = build_narrator_system_prompt(engine_type, genre=prepared.context.genre)
-    context = prepared.context
-    if arbitration.player_message:
-        # Resumed roll: narrate the stored action, whatever the resume request carried (#32).
-        context = context.model_copy(update={"player_input": arbitration.player_message})
-    context_prompt = build_narrator_context_prompt(context, engine_type, arbitration.mechanical)
+    context_prompt = build_narrator_context_prompt(prepared.context, engine_type,
+                                                   arbitration.mechanical)
     logger.debug(f"[CHAT] context prompt: {len(context_prompt)} chars")
 
     # Multi-turn messages (history + context prompt); assistant history wrapped
     # in JSON for providers that need it.
     json_history = getattr(ctx.session.provider_for(Purpose.NARRATION), "FORCE_JSON", False)
-    llm_messages = await game_service.build_llm_messages(
+    llm_messages = await ctx.games.build_llm_messages(
         ctx.request.game_id, ctx.snapshot.current_cycle, context_prompt,
         json_history=json_history,
         cache_control=ctx.session.caps.cache_control,

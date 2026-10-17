@@ -1258,21 +1258,6 @@ class KnowledgeGraphPopulator:
     # ENGINE
     # =========================================================================
 
-    async def set_engine(
-        self,
-        conn: Connection,
-        engine_type: str,
-        world_config: dict | None = None,
-    ) -> None:
-        """Set the engine type and world config on the game."""
-        await conn.execute(
-            """UPDATE games SET engine = $1, world_config = $2, updated_at = NOW()
-               WHERE id = $3""",
-            engine_type,
-            world_config,
-            self.game_id,
-        )
-
     async def lock_engine(self, conn: Connection) -> None:
         """Lock the engine (immutable after first message)."""
         await conn.execute(

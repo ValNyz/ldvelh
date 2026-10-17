@@ -23,7 +23,7 @@ def _ctx() -> TurnContext:
     game_id = uuid4()
     snapshot = GameSnapshot(id=game_id, world_created=True, current_cycle=1,
                             current_time="08h00", current_location_name="Bar")
-    return TurnContext(request=TurnRequest(game_id=game_id, user_id=None, message="Je regarde."),
+    return TurnContext(request=TurnRequest(game_id=game_id, user_id=uuid4(), message="Je regarde."),
                        snapshot=snapshot, session=_Session(), sink=None, pool=None, engine=None,
                        ref="test")
 

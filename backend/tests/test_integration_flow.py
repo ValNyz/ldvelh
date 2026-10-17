@@ -154,7 +154,7 @@ async def test_process_narration_and_save(client, test_user, test_pool, world_ge
 
     # Apply deltas (credits + entity reveals)
     delta_result = await apply_deltas(test_pool, game_id, narration, result.cycle)
-    assert delta_result.credit["amount"] == -15
+    assert delta_result.credit.amount == -15
 
     # Save messages
     user_id, assistant_id = await save_pair(

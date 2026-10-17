@@ -1,6 +1,7 @@
 """LLMSession: per-purpose provider/model, explicit per-call cost, structured dispatch."""
 
 import asyncio
+from uuid import uuid4
 
 import pytest
 
@@ -9,6 +10,8 @@ from llm.usage import UsageLedger
 from services.llm_providers import (
     CompletionResult, LLMProvider, LLMUsage, StructuredOutputMode, ToolResult,
 )
+
+USER = uuid4()
 
 
 class FakeProvider(LLMProvider):
@@ -113,19 +116,27 @@ def test_caps_come_from_the_narration_provider():
 
 
 def test_model_per_purpose_matches_before_p2():
-    session = LLMSession("anthropic", api_key="k", user_model="claude-sonnet-5-5")
+    session = LLMSession("anthropic", api_key="k", user_model="claude-sonnet-5-5", user_id=USER)
     assert session.model_for(Purpose.NARRATION) == "claude-sonnet-5-5"
     assert session.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
     assert session.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"  # provider default
-    mistral = LLMSession("mistral", api_key="k", user_model="mistral-small-latest")
+    mistral = LLMSession("mistral", api_key="k", user_model="mistral-small-latest", user_id=USER)
     assert mistral.model_for(Purpose.MECHANICAL) == "mistral-small-latest"
     assert mistral.model_for(Purpose.DIRECTOR) == "mistral-large-latest"  # provider default
+
+
+def test_a_request_session_belongs_to_a_user():
+    # Usage is attributed to the account (#78): only from_provider (tests) has no user.
+    with pytest.raises(TypeError):
+        LLMSession("anthropic", api_key="k")
+    assert LLMSession("anthropic", api_key="k", user_id=USER).user_id == USER
+    assert LLMSession.from_provider(FakeProvider()).user_id is None
 
 
 def test_session_has_no_request_lifecycle():
     # Background tasks keep using the session after the SSE response ends:
     # it must not own or close clients.
-    session = LLMSession("anthropic", api_key="k")
+    session = LLMSession("anthropic", api_key="k", user_id=USER)
     assert not hasattr(session, "close") and not hasattr(session, "__aexit__")
 
 

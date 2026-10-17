@@ -9,6 +9,7 @@ import unicodedata
 from abc import ABC, abstractmethod
 from uuid import UUID
 
+from domain.turn import InvocationOffer
 from schema.engine import EngineType, MechanicalDecision, RollResult
 
 
@@ -102,6 +103,21 @@ class BaseEngine(ABC):
     def roll_dice(self, decision: MechanicalDecision) -> RollResult:
         """Execute a dice roll based on the mechanical decision."""
         ...
+
+    def available_invocations(self, engine_stats: dict | None) -> InvocationOffer:
+        """Aspects the character may invoke and fate points to spend on them.
+
+        Default: nothing (engines without aspect invocation).
+        """
+        return InvocationOffer(aspects=[], fate_points=0)
+
+    def invocation_offer(self, roll: RollResult,
+                         engine_stats: dict | None) -> InvocationOffer | None:
+        """What the player may spend on this roll before it is narrated, or None.
+
+        An offer pauses the turn until the player chooses (#32). Default: never.
+        """
+        return None
 
     @abstractmethod
     def build_narrator_addon(self, roll_result: RollResult | None) -> str:

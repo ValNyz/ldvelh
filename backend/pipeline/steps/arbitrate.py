@@ -3,9 +3,10 @@
 The roll is only computed and announced here (roll_result): its effects are
 applied by the commit step, in the turn's transaction (#16).
 
-HALT means the turn stops here: the player may invoke aspects on a failed Fate
-roll (roll_pending sent, the turn resumes later with its roll_id). While a roll
-waits, any other message gets the same roll_pending again: it cannot be dodged (#32).
+HALT means the turn stops here: the engine offered an invocation on the roll (a
+failed Fate roll: roll_pending sent, the turn resumes later with its roll_id).
+While a roll waits, any other message gets the same roll_pending again: it cannot
+be dodged (#32).
 """
 
 from dataclasses import dataclass
@@ -17,7 +18,6 @@ from pipeline.context import TurnContext
 from pipeline.steps.load import Prepared
 from repos import turns
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
-from services.engine.fate_core import aspect_names
 from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
 
 
@@ -25,8 +25,6 @@ from services.engine.mechanical_service import MechanicalStepUnavailable, run_me
 class Arbitration:
     mechanical: MechanicalResult | None
     resumed_roll_id: UUID | None
-    # Resumed roll: the stored action, narrated and saved instead of the received message.
-    player_message: str | None = None
 
 
 HALT = object()
@@ -51,26 +49,23 @@ async def _resume_roll(ctx: TurnContext, pending: PendingRoll | None) -> Arbitra
     )
     # Stress + fate point deduction and the roll claim happen at commit.
     await ctx.sink.send_roll_result(roll.model_dump())
-    return Arbitration(mechanical=mechanical, resumed_roll_id=pending.id,
-                       player_message=pending.player_message)
+    return Arbitration(mechanical=mechanical, resumed_roll_id=pending.id)
 
 
 async def _offer_invocation(ctx: TurnContext, prepared: Prepared,
                             mechanical: MechanicalResult) -> bool:
-    """On a failed Fate roll with fate points and aspects, store it and pause the turn."""
-    stats = prepared.context.engine_stats
-    fate_points = stats.get("fate_points", 0)
-    aspects = aspect_names(stats)
-    if not (fate_points > 0 and aspects):
+    """When the engine offers an invocation on the roll, store it and pause the turn."""
+    offer = ctx.engine.invocation_offer(mechanical.roll, prepared.context.engine_stats)
+    if offer is None:
         return False
     async with ctx.pool.acquire() as conn:
         roll_id = await turns.store_pending_roll(
-            conn, ctx.request.game_id, mechanical.roll, ctx.request.message,
+            conn, ctx.request.game_id, mechanical.roll, prepared.player_message,
             ctx.snapshot.current_cycle,
         )
     pending = PendingRoll(id=roll_id, roll=mechanical.roll.model_dump(),
-                          player_message=ctx.request.message, aspects=aspects,
-                          fate_points=fate_points)
+                          player_message=prepared.player_message, aspects=offer.aspects,
+                          fate_points=offer.fate_points)
     await ctx.sink.send_roll_pending(pending.offer())
     return True
 
@@ -97,8 +92,7 @@ async def _roll_dice(ctx: TurnContext, prepared: Prepared):
     if not (mechanical and mechanical.roll):
         return Arbitration(mechanical=mechanical, resumed_roll_id=None)
 
-    if (ctx.snapshot.engine == "fate_core" and mechanical.roll.outcome == "failure"
-            and await _offer_invocation(ctx, prepared, mechanical)):
+    if await _offer_invocation(ctx, prepared, mechanical):
         return HALT
 
     await ctx.sink.send_roll_result(mechanical.roll.model_dump())

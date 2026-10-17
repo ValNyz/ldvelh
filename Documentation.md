@@ -336,13 +336,13 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 
 **Layers.** `api/` (routes, `SSEWriter`) talks HTTP and SSE only. `pipeline/` orchestrates a turn and knows nothing of FastAPI or SQL: it sends events through the `EventSink` port (`pipeline/ports.py`) that `SSEWriter` satisfies. SQL lives in `repos/` (`games.py`, `turns.py`, `users.py`); pure types in `domain/`. `tests/test_architecture.py` enforces these dependency rules and that `_handle_chat` stays under 80 lines.
 
-**Adapter.** `_handle_chat` loads the game snapshot, resolves the API key, builds an `LLMSession` and a `TurnContext`, then calls `run_turn` (or `run_init` when the world is not created). Any exception is caught there once and sent by `report_error`.
+**Adapter.** `_handle_chat` loads the game snapshot, resolves the API key, builds an `LLMSession` and a `TurnContext`, then calls `run_turn` (or `run_init` when the world is not created). Any exception is caught there once and sent by `report_error`. The session belongs to the authenticated user (usage is attributed to them). `TurnContext` builds one `GameService` per turn (`ctx.games`: game state, narrator history); steps read genres and set the engine through `repos/games.py`.
 
 **Steps** (each a module in `pipeline/steps/`, run in order by `run_turn`):
 
 | Step | Role |
 |------|------|
-| `load` | Player input, context from the DB, pending roll (step 1 below) |
+| `load` | Pending roll, player input (the stored action on a resume), context from the DB (step 1 below) |
 | `arbitrate` | Mechanical step, dice, pending Fate roll (step 2); may return `HALT` and end the turn |
 | `narrate` | Narrator prompts and message history, streams the narration, parses it leniently (steps 3, 4, 5) |
 | `commit` | Writes everything of the turn in one transaction (step 6) |
@@ -374,6 +374,8 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 **Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Once the commit has started, the commit itself, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work. Likewise, once `done` is queued on the writer, a disconnect no longer cancels the turn, and everything after the commit is shielded.
 
 **Step 1: Load context**
+
+The pending roll is loaded first: on a resume (`roll_id` of the pending roll), the stored action is the turn's input from the start, for the context, the narrator and the saved user message, whatever the request carried. Otherwise the received message is used (`__ARRIVEE__` is narrated as the genre's arrival text and saved as the token).
 
 ```python
 builder = ContextBuilder(pool, game_id)
@@ -426,7 +428,7 @@ mechanical = await run_mechanical_step(engine, engine_stats, player_message,
 4. Keeps the roll effects for the commit (they are applied there, in the turn transaction, only if the turn is saved)
 5. Sends `SSEEvent.ROLL_RESULT` to frontend for dice display (before the narration)
 
-**Fate Core special case:** If roll outcome is failure and player has fate_points > 0 and aspects, the pipeline **pauses**:
+**Invocation pause (Fate Core):** `arbitrate` asks the engine `engine.invocation_offer(roll, engine_stats)`; Fate Core offers one when the roll failed and the player has fate_points > 0 and aspects (other engines never do). On an offer the pipeline **pauses**:
 - Stores the roll in `mechanic_rolls` with `status = 'pending'` (migration `20261017000000`: `pending` / `resolved` / `expired`) and the player's message (at most one per game)
 - Sends `SSEEvent.ROLL_PENDING` with `{roll_id, roll, aspects, fate_points}`
 - Returns `HALT`: the stream closes, nothing else is committed
@@ -536,6 +538,8 @@ All engine-specific logic goes through the `BaseEngine` interface.
 | `restore_snapshot(conn, game_id, snapshot)` | async | Restore from snapshot |
 | `needs_mechanical_step()` | sync | Whether this engine uses dice |
 | `roll_dice(decision)` | sync | Execute dice roll |
+| `available_invocations(engine_stats)` | sync | Aspects the player may invoke and fate points (default: none) |
+| `invocation_offer(roll, engine_stats)` | sync | What the player may spend on this roll before narration, or `None` (default); an offer pauses the turn |
 | `build_narrator_addon(roll_result)` | sync | Extra text for narrator |
 | `get_gauge_policy()` | sync | `"none"` or `"engine"` |
 | `get_system_prompt_addon()` | sync | Engine-specific narrator rules |

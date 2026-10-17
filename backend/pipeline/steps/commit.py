@@ -35,8 +35,8 @@ def _stored_credit(applied: AppliedDeltas | None) -> dict | None:
     credit = applied.credit if applied else None
     if not credit:
         return None
-    return {"amount": credit["amount"], "description": credit["description"],
-            "applied": credit["applied"], "error": credit["error"]}
+    return {"amount": credit.amount, "description": credit.description,
+            "applied": credit.applied, "error": credit.error}
 
 
 def _stored_deltas(narration: NarrationOutput, applied: AppliedDeltas | None,
@@ -98,8 +98,8 @@ async def commit_turn(ctx: TurnContext, prepared: Prepared, arbitration: Arbitra
             engine_snapshot = await ctx.engine.snapshot_state(conn, game_id)
         _, assistant_msg_id = await turns.save_turn_messages(
             conn, game_id,
-            # Keep the protocol token (e.g. __ARRIVEE__) so the chat history hides it.
-            user_message=arbitration.player_message or ctx.request.message,
+            # Protocol token kept (chat history hides it), stored action on a resume.
+            user_message=prepared.player_message,
             assistant_message=narrated.display_text,
             state=state, narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot,
         )

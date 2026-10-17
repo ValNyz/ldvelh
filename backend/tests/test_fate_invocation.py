@@ -3,6 +3,7 @@
 import pytest
 
 from domain.errors import TurnError
+from domain.turn import InvocationOffer
 from schema.engine import RollResult
 from services.engine import get_engine
 from services.engine.fate_core import aspect_names, outcome_for_shifts
@@ -82,3 +83,36 @@ def test_aspect_names_accepts_strings_and_dicts():
 def test_invoked_aspects_take_the_sheet_spelling():
     result = _invoke(_failed_roll(), ["pilote dechu", "DETTE ENVERS LA GUILDE"])
     assert result.details["invoked_aspects"] == ["Pilote déchu", "Dette envers la Guilde"]
+
+
+# -- engine contract: when a failed roll may wait for an invocation (#78) -------------
+
+SHEET = {"aspects": ASPECTS, "fate_points": 2}
+
+
+def test_fate_offers_invocation_on_a_failed_roll():
+    offer = get_engine("fate_core").invocation_offer(_failed_roll(), SHEET)
+    assert offer == InvocationOffer(aspects=ASPECTS, fate_points=2)
+
+
+@pytest.mark.parametrize("roll, sheet", [
+    (_failed_roll(skill_total=3, difficulty=2), SHEET),     # success
+    (_failed_roll(), {"aspects": ASPECTS, "fate_points": 0}),
+    (_failed_roll(), {"aspects": [], "fate_points": 2}),
+    (_failed_roll(), None),
+])
+def test_fate_offers_nothing_without_failure_points_or_aspects(roll, sheet):
+    assert get_engine("fate_core").invocation_offer(roll, sheet) is None
+
+
+@pytest.mark.parametrize("engine", ["d6", "narrative", "none"])
+def test_other_engines_never_offer_invocation(engine):
+    assert get_engine(engine).invocation_offer(_failed_roll(), SHEET) is None
+    assert get_engine(engine).available_invocations(SHEET) == InvocationOffer(aspects=[],
+                                                                               fate_points=0)
+
+
+def test_fate_available_invocations_read_the_sheet():
+    engine = get_engine("fate_core")
+    assert engine.available_invocations(SHEET) == InvocationOffer(aspects=ASPECTS, fate_points=2)
+    assert engine.available_invocations(None) == InvocationOffer(aspects=[], fate_points=0)

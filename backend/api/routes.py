@@ -298,7 +298,7 @@ async def chat(
 
 
 def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
-               user_id: UUID | None) -> SSEWriter:
+               user_id: UUID) -> SSEWriter:
     """Start the turn task (or the busy-game rejection) and attach it to a new writer.
 
     Closing the stream cancels the task: nothing is committed and the game lock is
@@ -347,14 +347,13 @@ async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):
             del _game_writers[key]
 
 
-async def _api_key_or_raise(pool: asyncpg.Pool, user_id: UUID | None, provider_name: str) -> str:
+async def _api_key_or_raise(pool: asyncpg.Pool, user_id: UUID, provider_name: str) -> str:
     """The user's API key for the provider; none ⇒ non-recoverable TurnError (C-14)."""
     user_api_key = None
-    if user_id:
-        try:
-            user_api_key = await _resolve_user_api_key(pool, user_id, provider_name)
-        except Exception as e:
-            logger.warning(f"[CHAT] Failed to resolve user API key: {e}")
+    try:
+        user_api_key = await _resolve_user_api_key(pool, user_id, provider_name)
+    except Exception as e:
+        logger.warning(f"[CHAT] Failed to resolve user API key: {e}")
     if not user_api_key:
         raise TurnError(
             "no_api_key",
@@ -365,7 +364,7 @@ async def _api_key_or_raise(pool: asyncpg.Pool, user_id: UUID | None, provider_n
     return user_api_key
 
 
-def _turn_request(request: ChatRequest, user_id: UUID | None) -> TurnRequest:
+def _turn_request(request: ChatRequest, user_id: UUID) -> TurnRequest:
     return TurnRequest(
         game_id=request.gameId,
         user_id=user_id,
@@ -386,7 +385,7 @@ async def _handle_chat(
     sink: SSEWriter,
     pool: asyncpg.Pool,
     settings: Settings,
-    user_id: UUID | None = None,
+    user_id: UUID,
 ) -> None:
     """Thin adapter: snapshot, API key, session, then the init or narration pipeline."""
     provider_name = request.provider or "anthropic"

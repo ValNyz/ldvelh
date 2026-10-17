@@ -7,7 +7,7 @@ in one transaction, so a failure anywhere leaves nothing behind (#20).
 import logging
 from uuid import UUID
 
-from domain.turn import AppliedDeltas, NarrationState
+from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
 from schema.engine import RollResult
@@ -129,8 +129,8 @@ async def apply_narrator_deltas(conn, game_id: UUID, narration: NarrationOutput,
         applied, new_balance, error = await populator.credit_transaction(
             conn, cd.amount, cycle, cd.description
         )
-        credit = {"amount": cd.amount, "description": cd.description, "applied": applied,
-                  "new_balance": new_balance, "error": error}
+        credit = AppliedCredit(amount=cd.amount, description=cd.description, applied=applied,
+                               new_balance=new_balance, error=error)
 
     for reveal in narration.entity_reveals:
         if reveal.entity_type == "character":

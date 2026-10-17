@@ -7,7 +7,6 @@ from pipeline.steps.commit import Committed
 from pipeline.steps.narrate import Narrated
 from schema.engine import MechanicalResult
 from schema.sse_payload import SSEDonePayload, SSEGameState, SSEMeta, SSEUIHints
-from services.game_service import GameService
 
 
 def _merged_game(game: dict, state: NarrationState) -> dict:
@@ -48,7 +47,7 @@ def build_done_payload(client_state: dict, committed: Committed, engine_type: st
 
 async def respond(ctx: TurnContext, narrated: Narrated, arbitration: Arbitration,
                   committed: Committed) -> None:
-    state = await GameService(ctx.pool).load_game_state(ctx.request.game_id)
+    state = await ctx.games.load_game_state(ctx.request.game_id)
     payload = build_done_payload(state, committed, ctx.snapshot.engine, narrated,
                                  arbitration.mechanical)
     await ctx.sink.send_done(narrated.display_text, payload.model_dump(exclude_none=True))

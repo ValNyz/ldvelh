@@ -19,6 +19,7 @@ from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration
 from services.engine import get_engine
 from services.pending_roll import load_pending_roll
+from repos import games as games_repo
 from repos import turns
 from schema.sse_payload import (
     AISummary,
@@ -89,7 +90,7 @@ class GameService:
         async with self.pool.acquire() as conn:
             game_id = await populator.create_game(conn, "Nouvelle partie", user_id=user_id)
             if engine and engine != "none":
-                await populator.set_engine(conn, engine, world_config=None)
+                await games_repo.set_engine(conn, game_id, engine, world_config=None)
             return game_id
 
     async def delete_game(self, game_id: UUID) -> None:
