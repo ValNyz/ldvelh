@@ -760,7 +760,7 @@ All API requests include `Authorization: Bearer {token}` header. On 401 response
 | `/auth/me` | GET | Return current user (requires auth) |
 | `/auth/refresh` | POST | Issue fresh JWT |
 | `/auth/verify` | GET | Verify email via token (24h expiry) |
-| `/auth/resend-verification` | POST | Resend verification email |
+| `/auth/resend-verification` | POST | Resend verification email (3 per 10 min per player) |
 | `/auth/change-password` | POST | Verify current + update password |
 | `/auth/profile` | PATCH | Update display name |
 | `/auth/preferences` | GET | Load user preferences (API keys masked) |
@@ -770,6 +770,7 @@ All API requests include `Authorization: Bearer {token}` header. On 401 response
 
 - Password hashing: bcrypt
 - JWT: signed with `JWT_SECRET`, expiry configurable via `jwt_expiry_hours`. At startup `main.py` runs `startup_checks.check_startup_config`: the backend refuses to start, even with `DEBUG=true`, when `JWT_SECRET` is under 32 characters, has outer whitespace, uses fewer than 8 distinct characters, contains `change-me` or is a value published in the repo, or when `ENCRYPTION_KEY` is set but has outer whitespace or is not a valid (unpublished) Fernet key; an empty `ENCRYPTION_KEY` is refused outside debug mode. `config.py` has no JWT default (empty, hence refused)
+- Rate limits (`utils/rate_limit.py`, in memory, sliding window, idle keys purged once per window): login/register 5/min per IP, `/world/enhance` 10/min per IP, `/chat` 10/min per player and 30/min per IP, resend-verification 3 per 10 min per player. Over the limit: 429 `{"detail": "Trop de requêtes. Réessaie dans N s.", "code": "rate_limited"}` with `Retry-After`; the chat client shows that French text (or its own when a 429 has another body). The client IP is the TCP peer, or with `TRUSTED_PROXY_HOPS=N` the N-th `X-Forwarded-For` entry from the right (the one the outermost trusted proxy appended): client-supplied entries on the left are ignored, so varying the header no longer resets a limit (#82).
 - Email verification tokens: 24h expiry, stored in `users.verification_token`
 
 ### Preferences

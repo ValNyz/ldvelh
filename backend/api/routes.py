@@ -8,7 +8,7 @@ import asyncio
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
 from services.engine import get_engine
 
@@ -24,6 +24,7 @@ from services.game_service import GameService, RollbackRejected
 from pipeline import init_flow, turn
 from pipeline.context import InitParams, TurnContext, TurnRequest
 from pipeline.errors import TurnError, report_error
+from utils.rate_limit import RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -287,14 +288,22 @@ def _get_game_lock(game_id: UUID) -> asyncio.Lock:
     return _game_locks[key]
 
 
+# Each turn costs LLM calls (#82): per player, and per client IP across accounts.
+chat_user_limiter = RateLimiter(max_requests=10, window_seconds=60)
+chat_ip_limiter = RateLimiter(max_requests=30, window_seconds=60)
+
+
 @router.post("/chat")
 async def chat(
     request: ChatRequest,
+    raw_request: Request,
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings_dep),
 ):
     """Main chat endpoint with SSE streaming (with ownership check)."""
+    chat_ip_limiter.check(raw_request)
+    chat_user_limiter.hit(f"user:{user['id']}")
     # Verify ownership before starting the stream
     service = GameService(pool)
     await service.verify_ownership(request.gameId, user["id"])

@@ -15,13 +15,16 @@ from api.dependencies import get_pool, get_current_user
 from config import get_settings
 from services import auth_service
 from utils.crypto import encrypt_value, decrypt_value, mask_api_key
-from utils.rate_limit import auth_limiter
+from utils.rate_limit import RateLimiter, auth_limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 ALLOWED_PROVIDERS = {"anthropic", "mistral", "wandb", "nebius", "nous"}
+
+# Each resend sends an email (#82).
+resend_limiter = RateLimiter(max_requests=3, window_seconds=600)
 
 
 # =============================================================================
@@ -251,6 +254,7 @@ async def resend_verification(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     """Resend the verification email for the current user."""
+    resend_limiter.hit(f"user:{user['id']}")
     async with pool.acquire() as conn:
         sent = await auth_service.resend_verification(conn, user["id"])
 

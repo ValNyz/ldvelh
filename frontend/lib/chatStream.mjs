@@ -17,6 +17,7 @@ import { createSSEParser } from './sse.mjs';
 
 export const STREAM_INTERRUPTED = 'La connexion a été interrompue avant la fin de la réponse. Tu peux réessayer.';
 export const SESSION_EXPIRED = 'Session expirée : reconnecte-toi.';
+export const RATE_LIMITED = 'Trop de requêtes. Attends un peu avant de réessayer.';
 
 const TERMINAL = new Set(['done', 'error', 'roll_pending']);
 
@@ -101,8 +102,12 @@ async function readEvents(stream, emit) {
 }
 
 // FastAPI errors are { detail } (string, or a list for 422); ours may be { error }.
+// A 429 shows the backend's French text ({ detail, code: 'rate_limited' }), else ours.
 async function errorMessage(res) {
 	const data = await res.json().catch(() => null);
+	if (res.status === 429) {
+		return data?.code === 'rate_limited' && typeof data.detail === 'string' ? data.detail : RATE_LIMITED;
+	}
 	const detail = data?.error || data?.detail;
 	if (typeof detail === 'string') return detail;
 	if (Array.isArray(detail) && detail[0]?.msg) return `Requête invalide : ${detail[0].msg}`;

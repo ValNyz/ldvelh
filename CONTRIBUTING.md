@@ -95,6 +95,7 @@ psql -U your_user -d your_db -f schema.sql
 | `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` | Dev account seeded in debug mode | `dev@ldvelh.local` / `devpassword` |
 | `LOG_PROMPTS` | Log narrator prompts and JSON (DEBUG level) | `false` |
 | `CORS_ORIGINS` | Allowed origins | `http://localhost:3000` |
+| `TRUSTED_PROXY_HOPS` | Reverse proxies in front of the backend that append to `X-Forwarded-For`; the client IP used by the rate limits is the entry the outermost one added. `0` ignores the header (TCP peer) | `0`; `docker-compose.yml`: `1` (Traefik); override: `0` |
 
 ## Running tests
 
@@ -148,6 +149,7 @@ Coolify deploys `docker-compose.yml` alone (no override). Environment to set in 
 - `DB_PASSWORD` (required): must be the password the existing `pgdata` volume was created with. Postgres only reads it when the volume is first initialised; if Coolify never set it, production has been running with the old default `ldvelh`, so set exactly that (or first change the password in Postgres with `ALTER USER ldvelh PASSWORD '...'`, then update the variable). It is interpolated into `DATABASE_URL`, so use URL-safe characters only (letters, digits, `-`, `_`, `.`, `~`; `openssl rand -hex 24` fits).
 - `ENCRYPTION_KEY` (required): a Fernet key. Players' saved API keys are encrypted with it: once set, never change or lose it, or those keys become unreadable (players must enter them again).
 - `SERVICE_URL_FRONTEND` (Coolify magic variable), `CORS_ORIGINS` (the production origin), `NEXT_PUBLIC_API_URL` (build arg: set it empty for same-origin `/api`, or to the backend URL; unset falls back to `http://localhost:8000`).
+- `TRUSTED_PROXY_HOPS`: number of reverse proxies between the internet and the backend; the compose default `1` fits Coolify (one Traefik). Add one per extra proxy that appends to `X-Forwarded-For` (e.g. `2` behind Cloudflare in proxy mode). Too high lets a client choose its rate-limit key by sending the header; too low (`0` behind Traefik) puts every player behind Traefik's address, so one player's failed logins throttle everyone. The backend port must stay unpublished, so that only the proxy reaches it.
 - Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`.
 - Leave `DEBUG` unset (`false`), and do not set `DEV_USER_*`.
 

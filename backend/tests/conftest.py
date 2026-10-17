@@ -380,11 +380,9 @@ async def client(test_pool, monkeypatch):
 
     monkeypatch.setattr(auth_service, "send_verification_email", _noop_send)
 
-    # Reset rate limiter between tests
-    from utils.rate_limit import auth_limiter
-    auth_limiter._hits.clear()
-    from api.world import enhance_limiter
-    enhance_limiter._hits.clear()
+    # Reset every rate limiter between tests
+    from utils.rate_limit import reset_all_limiters
+    reset_all_limiters()
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),

@@ -1,47 +1,97 @@
 """
-LDVELH - Simple in-memory rate limiter for auth endpoints.
+LDVELH - Simple in-memory rate limiter (auth, world enhance, chat).
 
-Uses a dict of {ip: [timestamps]} with sliding window.
-Sufficient for single-server deployment.
+Sliding window of timestamps per key (client IP or user). Sufficient for a
+single-server deployment; idle keys are purged once per window.
 """
 
 import time
-from collections import defaultdict
+from collections.abc import Callable
 
-from fastapi import Request, HTTPException
+from fastapi import HTTPException, Request
+
+from config import get_settings
+
+RATE_LIMITED_CODE = "rate_limited"
+
+
+class RateLimited(HTTPException):
+    """429 with a French message; api.http_errors adds `code: rate_limited` to the body."""
+
+    code = RATE_LIMITED_CODE
+
+    def __init__(self, retry_after: int):
+        super().__init__(
+            status_code=429,
+            detail=f"Trop de requêtes. Réessaie dans {retry_after} s.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def client_ip(request: Request, hops: int) -> str:
+    """Client address as seen by the outermost of `hops` trusted reverse proxies.
+
+    Each proxy appends the address it received the request from to X-Forwarded-For,
+    so entries left of the ones the trusted proxies added are client-supplied and
+    ignored. With hops=0 (no proxy) the header is ignored altogether.
+    """
+    peer = request.client.host if request.client else "unknown"
+    if hops <= 0:
+        return peer
+    forwarded = [part.strip()
+                 for header in request.headers.getlist("x-forwarded-for")
+                 for part in header.split(",") if part.strip()]
+    if len(forwarded) >= hops:
+        return forwarded[-hops]
+    return forwarded[0] if forwarded else peer
 
 
 class RateLimiter:
-    """Sliding-window rate limiter keyed by client IP."""
+    """Sliding-window rate limiter keyed by an arbitrary string."""
 
-    def __init__(self, max_requests: int = 5, window_seconds: int = 60):
+    def __init__(self, max_requests: int = 5, window_seconds: int = 60,
+                 clock: Callable[[], float] = time.monotonic):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
-        self._hits: dict[str, list[float]] = defaultdict(list)
+        self._clock = clock
+        self._hits: dict[str, list[float]] = {}
+        self._last_purge = clock()
+        _LIMITERS.append(self)
 
-    def _client_ip(self, request: Request) -> str:
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        return request.client.host if request.client else "unknown"
+    def hit(self, key: str) -> None:
+        """Count one request for `key`; raise RateLimited if over the limit."""
+        now = self._clock()
+        cutoff = now - self.window_seconds
+        self._purge_idle(now, cutoff)
+        hits = [t for t in self._hits.get(key, ()) if t > cutoff]
+        if len(hits) >= self.max_requests:
+            self._hits[key] = hits
+            raise RateLimited(self.window_seconds)
+        hits.append(now)
+        self._hits[key] = hits
 
     def check(self, request: Request) -> None:
-        """Raise 429 if rate limit exceeded."""
-        ip = self._client_ip(request)
-        now = time.monotonic()
-        cutoff = now - self.window_seconds
+        """Count one request for the client IP (behind TRUSTED_PROXY_HOPS proxies)."""
+        self.hit(client_ip(request, get_settings().trusted_proxy_hops))
 
-        # Prune old entries
-        hits = self._hits[ip]
-        self._hits[ip] = [t for t in hits if t > cutoff]
+    def reset(self) -> None:
+        self._hits.clear()
 
-        if len(self._hits[ip]) >= self.max_requests:
-            raise HTTPException(
-                status_code=429,
-                detail=f"Too many requests. Try again in {self.window_seconds}s.",
-            )
+    def _purge_idle(self, now: float, cutoff: float) -> None:
+        """Drop keys with no hit in the last window, at most once per window."""
+        if now - self._last_purge < self.window_seconds:
+            return
+        self._last_purge = now
+        self._hits = {key: hits for key, hits in self._hits.items() if hits and hits[-1] > cutoff}
 
-        self._hits[ip].append(now)
+
+_LIMITERS: list[RateLimiter] = []
+
+
+def reset_all_limiters() -> None:
+    """Forget every hit of every limiter (tests)."""
+    for limiter in _LIMITERS:
+        limiter.reset()
 
 
 # Shared instance: 5 auth attempts per 60s per IP
