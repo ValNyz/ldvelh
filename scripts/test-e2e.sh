@@ -5,7 +5,8 @@ set -euo pipefail
 
 REPO="$(git rev-parse --show-toplevel)"
 OUT="${E2E_OUT:-/tmp/ldvelh-e2e}"
-rm -rf "$OUT" && mkdir -p "$OUT"
+mkdir -p "$OUT"
+rm -rf "$OUT/test-results"  # only the subdirectory this script owns
 
 docker run --rm --ipc=host -v "$REPO/frontend":/src:ro -v "$OUT":/out \
   mcr.microsoft.com/playwright:v1.48.2-jammy bash -c '
