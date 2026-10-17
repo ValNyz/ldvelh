@@ -15,6 +15,6 @@ npm ci --silent
 status=0
 npm run test:e2e || status=$?
 cp -r test-results /out/ 2>/dev/null || true
-chmod -R a+rwX /out
+chmod -R a+rwX /out/test-results 2>/dev/null || true
 exit $status
 '
