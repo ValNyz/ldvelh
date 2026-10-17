@@ -100,7 +100,7 @@ async def world_enhance(
         raise HTTPException(status_code=500, detail="Aucun genre disponible")
 
     session = LLMSession(request.provider, api_key, request.model,
-                         catalog=await load_catalog(pool))
+                         catalog=await load_catalog(pool), user_id=user["id"])
     try:
         result, cost = await enhance(session, request.scope, request.engine, genres, current)
     except WorldEnhanceFailed:

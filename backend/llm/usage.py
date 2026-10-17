@@ -6,6 +6,7 @@ a background extraction) cannot overwrite each other's cost.
 
 import logging
 from dataclasses import dataclass
+from uuid import UUID
 
 from services.llm_providers import LLMUsage
 from services.pricing import lookup_pricing
@@ -52,14 +53,15 @@ class _Totals:
 
 
 class UsageLedger:
-    """Process-wide usage totals, keyed by (purpose, provider, model)."""
+    """Process-wide usage totals, keyed by (user, purpose, provider, model)."""
 
     def __init__(self):
-        self._totals: dict[tuple[str, str, str], _Totals] = {}
+        self._totals: dict[tuple[UUID | None, str, str, str], _Totals] = {}
 
-    def record(self, purpose: str, provider_name: str, model: str, usage: LLMUsage) -> dict:
+    def record(self, purpose: str, provider_name: str, model: str, usage: LLMUsage,
+               user_id: UUID | None = None) -> dict:
         cost = call_cost(usage, provider_name, model)
-        t = self._totals.setdefault((purpose, provider_name, model), _Totals())
+        t = self._totals.setdefault((user_id, purpose, provider_name, model), _Totals())
         t.input_tokens += usage.input_tokens
         t.output_tokens += usage.output_tokens
         t.cache_creation_input_tokens += usage.cache_creation_input_tokens
@@ -80,10 +82,13 @@ class UsageLedger:
             "provider": provider_name,
         }
 
-    def get_summary(self) -> dict:
+    def get_summary(self, user_id: UUID | None = None) -> dict:
+        """Totals for one user's calls; every call when user_id is None (internal use, tests)."""
         purposes: dict[str, dict] = {}
         total = 0.0
-        for (purpose, _provider, model), t in self._totals.items():
+        for (uid, purpose, _provider, model), t in self._totals.items():
+            if user_id is not None and uid != user_id:
+                continue
             total += t.cost_usd
             entry = purposes.setdefault(purpose, {"models": {}, "cost_usd": 0.0, "calls": 0})
             m = entry["models"].setdefault(model, {

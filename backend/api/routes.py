@@ -204,10 +204,10 @@ async def get_world_data(
 
 @router.get("/session/cost")
 async def session_cost(user: dict = Depends(get_current_user)):
-    """Return accumulated token usage and cost for this server session."""
+    """Return accumulated token usage and cost for the requesting user."""
     from llm.usage import get_usage_ledger
 
-    return get_usage_ledger().get_summary()
+    return get_usage_ledger().get_summary(user["id"])
 
 
 @router.get("/providers")
@@ -397,7 +397,7 @@ async def _handle_chat(
             raise TurnError("game_not_found", "Partie introuvable.", recoverable=False)
         api_key = await _api_key_or_raise(pool, user_id, provider_name)
         session = LLMSession(provider_name, api_key, request.model,
-                             catalog=await load_catalog(pool))
+                             catalog=await load_catalog(pool), user_id=user_id)
         ctx = TurnContext(
             request=_turn_request(request, user_id),
             snapshot=snapshot,

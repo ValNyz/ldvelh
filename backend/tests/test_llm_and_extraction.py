@@ -487,7 +487,7 @@ class TestUsageLedger:
         tracker.record("narration", "anthropic", "claude-sonnet-4-6", usage)
         tracker.record("narration", "anthropic", "claude-sonnet-4-6", usage)
 
-        accumulated = tracker._totals[("narration", "anthropic", "claude-sonnet-4-6")]
+        accumulated = tracker._totals[(None, "narration", "anthropic", "claude-sonnet-4-6")]
         assert accumulated.input_tokens == 200
         assert accumulated.output_tokens == 100
         assert accumulated.calls == 2

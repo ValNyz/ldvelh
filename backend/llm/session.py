@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from llm.usage import UsageLedger, get_usage_ledger
 from services.llm_providers import (
@@ -79,7 +80,8 @@ class LLMSession:
 
     def __init__(self, provider_name: str, api_key: str | None,
                  user_model: str | None = None, ledger: UsageLedger | None = None,
-                 catalog: ModelCatalog | None = None):
+                 catalog: ModelCatalog | None = None, user_id: UUID | None = None):
+        self.user_id = user_id
         self.catalog = catalog
         self.provider_name = provider_name
         self._api_key = api_key
@@ -152,7 +154,8 @@ class LLMSession:
 
     def _record(self, purpose: Purpose, provider: LLMProvider, usage: LLMUsage) -> dict:
         return self.ledger.record(purpose.value, provider.provider_name,
-                                  provider.model_name(purpose.value), usage)
+                                  provider.model_name(purpose.value), usage,
+                                  user_id=self.user_id)
 
     # -- calls ----------------------------------------------------------------
 

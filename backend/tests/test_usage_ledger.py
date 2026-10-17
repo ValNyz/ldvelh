@@ -35,3 +35,18 @@ def test_call_cost_matches_record(monkeypatch):
     usage = LLMUsage(input_tokens=100, output_tokens=50)
     assert UsageLedger().record("director", "anthropic", "claude-x", usage)["cost_usd"] == round(
         call_cost(usage, "anthropic", "claude-x"), 6)
+
+
+def test_summary_filters_by_user(monkeypatch):
+    from uuid import uuid4
+    _price(monkeypatch, "mistral", "m-large", 2.0, 6.0)
+    ledger = UsageLedger()
+    a, b = uuid4(), uuid4()
+    ledger.record("narration", "mistral", "m-large", LLMUsage(input_tokens=1_000_000), user_id=a)
+    ledger.record("director", "mistral", "m-large", LLMUsage(input_tokens=3_000_000), user_id=b)
+    assert ledger.get_summary(a)["total_cost_usd"] == 2.0
+    assert list(ledger.get_summary(a)["purposes"]) == ["narration"]
+    assert ledger.get_summary(b)["total_cost_usd"] == 6.0
+    assert list(ledger.get_summary(b)["purposes"]) == ["director"]
+    assert ledger.get_summary()["total_cost_usd"] == 8.0
+    assert ledger.get_summary(uuid4())["total_cost_usd"] == 0.0
