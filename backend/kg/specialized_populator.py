@@ -51,117 +51,127 @@ class WorldPopulator(KnowledgeGraphPopulator):
     async def populate(
         self, world_gen, user_id: UUID | None = None,
         finalize: Callable[[Connection], Awaitable[None]] | None = None,
+        conn: Connection | None = None,
     ) -> UUID:
         """Main entry point — creates game and populates everything.
 
         `finalize(conn)` runs last, in the same transaction (the caller's own writes).
+        `conn`: a connection the caller already holds (and releases), else one from the pool.
         """
+        if conn is not None:
+            return await self._populate_in(conn, world_gen, user_id, finalize)
+        async with self.pool.acquire() as own_conn:
+            return await self._populate_in(own_conn, world_gen, user_id, finalize)
 
-        async with self.pool.acquire() as conn:
-            async with conn.transaction():
-                # 1. Create game or rename existing
-                if self.game_id:
-                    await self.rename_game(conn, world_gen.world.name)
-                else:
-                    await self.create_game(
-                        conn, world_gen.world.name, user_id
+    async def _populate_in(
+        self, conn: Connection, world_gen, user_id: UUID | None,
+        finalize: Callable[[Connection], Awaitable[None]] | None,
+    ) -> UUID:
+        """The whole world in one transaction on `conn`."""
+        async with conn.transaction():
+            # 1. Create game or rename existing
+            if self.game_id:
+                await self.rename_game(conn, world_gen.world.name)
+            else:
+                await self.create_game(
+                    conn, world_gen.world.name, user_id
+                )
+
+            # 2. Store world metadata on games table
+            await self.set_world_data(
+                conn,
+                world_gen.world,
+                seed_words=world_gen.generation_seed_words,
+            )
+
+            # 3. Create station as top-level location
+            await self._create_station_location(conn, world_gen.world)
+
+            # 4. Create protagonist
+            await self.create_protagonist(conn, world_gen.protagonist)
+
+            # 5. Create companion
+            await self.create_companion(
+                conn, world_gen.companion
+            )
+
+            # 6. Create organizations (HQ refs resolved later)
+            for org in world_gen.organizations:
+                await self.create_organization(conn, org)
+
+            # 7. Create locations (parent refs resolved later)
+            for loc in world_gen.locations:
+                await self.create_location(conn, loc)
+
+            # 8. Resolve FK refs now that all entities exist
+            await self._resolve_location_parents(conn, world_gen.locations)
+            await self._resolve_org_headquarters(conn, world_gen.organizations)
+            await self._resolve_protagonist_refs(conn, world_gen.protagonist)
+
+            # 9. Create characters (with workplace/residence FKs)
+            for char in world_gen.characters:
+                wp_id = await self._resolve_location_id(
+                    conn, char.workplace_ref
+                )
+                res_id = await self._resolve_location_id(
+                    conn, char.residence_ref
+                )
+                await self.create_character(
+                    conn, char, cycle=1,
+                    workplace_id=wp_id, residence_id=res_id,
+                )
+
+            # 10. Create objects + inventory entries
+            for obj in world_gen.inventory:
+                obj_row_id = await self.create_object(conn, obj)
+                if obj_row_id:
+                    await self.add_to_inventory(
+                        conn, obj_row_id,
+                        quantity=obj.quantity, cycle=1, origin="initial",
                     )
 
-                # 2. Store world metadata on games table
-                await self.set_world_data(
-                    conn,
-                    world_gen.world,
-                    seed_words=world_gen.generation_seed_words,
-                )
+            # 11. Load registry (entity_registry IDs for relations/arcs)
+            await self.load_registry(conn)
 
-                # 3. Create station as top-level location
-                await self._create_station_location(conn, world_gen.world)
-
-                # 4. Create protagonist
-                await self.create_protagonist(conn, world_gen.protagonist)
-
-                # 5. Create companion
-                await self.create_companion(
-                    conn, world_gen.companion
-                )
-
-                # 6. Create organizations (HQ refs resolved later)
-                for org in world_gen.organizations:
-                    await self.create_organization(conn, org)
-
-                # 7. Create locations (parent refs resolved later)
-                for loc in world_gen.locations:
-                    await self.create_location(conn, loc)
-
-                # 8. Resolve FK refs now that all entities exist
-                await self._resolve_location_parents(conn, world_gen.locations)
-                await self._resolve_org_headquarters(conn, world_gen.organizations)
-                await self._resolve_protagonist_refs(conn, world_gen.protagonist)
-
-                # 9. Create characters (with workplace/residence FKs)
-                for char in world_gen.characters:
-                    wp_id = await self._resolve_location_id(
-                        conn, char.workplace_ref
-                    )
-                    res_id = await self._resolve_location_id(
-                        conn, char.residence_ref
-                    )
-                    await self.create_character(
-                        conn, char, cycle=1,
-                        workplace_id=wp_id, residence_id=res_id,
+            # 12. Create all explicit relations
+            for rel in world_gen.initial_relations:
+                result = await self.create_relation(conn, rel)
+                if result is None:
+                    logger.warning(
+                        f"[POPULATE] Failed relation: "
+                        f"{rel.source_ref} --{rel.relation_type.value}"
+                        f"--> {rel.target_ref}"
                     )
 
-                # 10. Create objects + inventory entries
-                for obj in world_gen.inventory:
-                    obj_row_id = await self.create_object(conn, obj)
-                    if obj_row_id:
-                        await self.add_to_inventory(
-                            conn, obj_row_id,
-                            quantity=obj.quantity, cycle=1, origin="initial",
-                        )
+            # 13. Create narrative arcs
+            for arc in world_gen.narrative_arcs:
+                await self.create_narrative_arc(conn, arc)
 
-                # 11. Load registry (entity_registry IDs for relations/arcs)
-                await self.load_registry(conn)
+            # 14. Store arrival event
+            await self._store_arrival_event(conn, world_gen.arrival_event)
 
-                # 12. Create all explicit relations
-                for rel in world_gen.initial_relations:
-                    result = await self.create_relation(conn, rel)
-                    if result is None:
-                        logger.warning(
-                            f"[POPULATE] Failed relation: "
-                            f"{rel.source_ref} --{rel.relation_type.value}"
-                            f"--> {rel.target_ref}"
-                        )
+            # 15. Set initial game state
+            arrival_loc_id = await self._resolve_location_id(
+                conn, world_gen.arrival_event.arrival_location_ref
+            )
+            await self.update_game_state(
+                conn,
+                cycle=1,
+                date=world_gen.arrival_event.arrival_date,
+                time=world_gen.arrival_event.time,
+                location_id=arrival_loc_id,
+            )
 
-                # 13. Create narrative arcs
-                for arc in world_gen.narrative_arcs:
-                    await self.create_narrative_arc(conn, arc)
+            # 16. Metadata
+            await self._store_generation_meta(conn, world_gen)
 
-                # 14. Store arrival event
-                await self._store_arrival_event(conn, world_gen.arrival_event)
+            # 17. Caller's writes (engine, character, duration): all or nothing
+            if finalize is not None:
+                await finalize(conn)
 
-                # 15. Set initial game state
-                arrival_loc_id = await self._resolve_location_id(
-                    conn, world_gen.arrival_event.arrival_location_ref
-                )
-                await self.update_game_state(
-                    conn,
-                    cycle=1,
-                    date=world_gen.arrival_event.arrival_date,
-                    time=world_gen.arrival_event.time,
-                    location_id=arrival_loc_id,
-                )
-
-                # 16. Metadata
-                await self._store_generation_meta(conn, world_gen)
-
-                # 17. Caller's writes (engine, character, duration): all or nothing
-                if finalize is not None:
-                    await finalize(conn)
-
-                logger.info(
-                    f"World populated: {len(self.registry._by_name)} entities"
-                )
+            logger.info(
+                f"World populated: {len(self.registry._by_name)} entities"
+            )
 
         return self.game_id
 

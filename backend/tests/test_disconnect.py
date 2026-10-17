@@ -546,3 +546,44 @@ async def test_arrival_waits_for_the_initial_director_left_running_by_a_disconne
     assert plans == 1
     prompt = json.dumps(narrations[0], ensure_ascii=False)  # system + context messages
     assert "Rythme calme, laisser le joueur explorer." in prompt
+
+
+async def test_disconnect_during_world_save_commits_and_starts_the_director(
+        harness, test_user, monkeypatch):
+    """A cancel during the world-save transaction: the world is committed and its Director runs."""
+    from kg.specialized_populator import WorldPopulator
+
+    game_id = UUID(await harness.create_game("fate_core"))
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_meta = WorldPopulator._store_generation_meta
+
+    async def gated_meta(self, conn, world_gen):
+        entered.set()
+        await release.wait()
+        return await original_meta(self, conn, world_gen)
+
+    monkeypatch.setattr(WorldPopulator, "_store_generation_meta", gated_meta)
+    request = routes.ChatRequest(
+        message="__INIT__", gameId=game_id, engine="fate_core",
+        world_config={"genre": "sci_fi", "difficulty": "moderate", "duration": "short"},
+        character_data=payloads.CHARACTER_DATA["fate_core"])
+    writer = routes.start_chat(request, harness.pool, get_settings(), test_user["id"])
+    stream = writer.iterate()
+    await asyncio.wait_for(anext(stream), TIMEOUT)
+    await asyncio.wait_for(entered.wait(), TIMEOUT)  # the world-save transaction is open
+    await stream.aclose()
+    await asyncio.sleep(0.01)
+    release.set()
+
+    await asyncio.wait({writer._task}, timeout=TIMEOUT)
+    assert writer._task.cancelled()
+    assert routes._get_game_lock(game_id).locked() is False
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+    async with harness.pool.acquire() as conn:
+        snapshot = await get_snapshot(conn, game_id)
+        fate_rows = await conn.fetchval(
+            "SELECT count(*) FROM character_fate WHERE game_id = $1", game_id)
+        plans = await conn.fetchval(
+            "SELECT count(*) FROM director_plans WHERE game_id = $1", game_id)
+    assert (snapshot.world_created, snapshot.engine, fate_rows) == (True, "fate_core", 1)
+    assert plans == 1

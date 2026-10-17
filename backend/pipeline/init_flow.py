@@ -13,6 +13,7 @@ from pipeline import director_runs, narration_stream
 from pipeline.narration_stream import NarrationStream
 from pipeline.context import InitParams, TurnContext
 from pipeline.errors import TurnError, finish_saved
+from pipeline.uncancellable import finish_despite_cancel
 from prompts.world_generation_prompt import get_full_generation_prompt
 from repos import games as games_repo
 from schema import WorldGeneration
@@ -158,12 +159,14 @@ async def run_init(ctx: TurnContext) -> None:
     )
     world_gen = _validate_world(result.parsed, result.raw)
 
-    # One transaction: world, engine, character and duration are saved together or not at
-    # all (#79). No await between the save and the Director start: a saved world always
-    # gets its initial Director, even if the client leaves right then (#20).
-    init_result = await ctx.games.process_init(game_id, world_gen,
-                                               finalize=_engine_and_duration(init, game_id))
-    director = _start_initial_director(ctx)
+    # Waiting for a connection stays cancellable; once it is held, the world save (one
+    # transaction: world, engine, character, duration) and the initial Director start
+    # complete even if the client leaves, COMMIT included (#20, #79).
+    # Invariant: no await between acquire() and finish_despite_cancel(), which creates the
+    # shielded task synchronously: that task owns `conn` and always releases it.
+    conn = await ctx.pool.acquire()
+    init_result, director = await finish_despite_cancel(
+        _save_world(ctx, conn, init, world_gen), ref=ctx.ref)
     # A connected client sees the Director's status, then done and saved. A client gone
     # meanwhile cancels only this wait: the Director (up to 30 s) finishes in the
     # background and the game lock is released at once (#79).
@@ -172,6 +175,18 @@ async def run_init(ctx: TurnContext) -> None:
     # Saved: a failure from here on must not invite a resend (the world would be generated
     # twice).
     await finish_saved(_send_world_done(ctx, init, init_result, result), ref=ctx.ref)
+
+
+async def _save_world(ctx: TurnContext, conn, init: InitParams,
+                      world_gen: WorldGeneration) -> tuple[dict, asyncio.Task | None]:
+    """Save the world on `conn` (then released), then start its initial Director."""
+    game_id = ctx.request.game_id
+    try:
+        init_result = await ctx.games.process_init(
+            game_id, world_gen, finalize=_engine_and_duration(init, game_id), conn=conn)
+    finally:
+        await ctx.pool.release(conn)
+    return init_result, _start_initial_director(ctx)
 
 
 async def _send_world_done(ctx: TurnContext, init: InitParams, init_result: dict,

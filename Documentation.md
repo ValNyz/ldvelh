@@ -244,10 +244,10 @@ INIT mode is detected when the game snapshot has `world_created == False`.
 
 3. **Completion** (in `run_init`, once the stream ends):
    - Validates JSON as `WorldGeneration` Pydantic model
-   - Calls `game_service.process_init(game_id, world_gen, finalize=...)` which calls `WorldPopulator.populate()`; the engine + world config, the engine character (if engine != "none") and the game duration are written by `finalize` in the same transaction: the world is saved whole or not at all (#79)
+   - Calls `game_service.process_init(game_id, world_gen, finalize=...)` which calls `WorldPopulator.populate()`; the engine + world config, the engine character (if engine != "none") and the game duration are written by `finalize` in the same transaction: the world is saved whole or not at all (#79). As in `run_turn`, the connection is acquired first (a cancellable wait), then the transaction and the initial Director start run under `finish_despite_cancel`: a disconnect once the save has started, COMMIT included, never leaves a saved world without its initial Director
    - Starts the initial Director (30 s timeout) right after the save, as its own task registered in `pipeline/director_runs.py`, and waits for it, so a connected client gets its `status` events first
    - Loads canonical state, builds `SSEDonePayload` with `world_info`, sends `SSEEvent.DONE` then `SSEEvent.SAVED`
-   - A client gone after the world is saved: the Director finishes in the background and the game lock is released without waiting for it. The game's next turn (the arrival) waits for that Director, at most for what is left of its 30 s, so its context has the plan; a scheduled Director is never started while another one runs for the game (#79)
+   - A client gone after the world is saved: the Director finishes in the background and the game lock is released without waiting for it. The game's next turn (the arrival) waits for that Director, at most for what is left of its 30 s, so its context has the plan; it holds the game lock meanwhile (by design: only the first turn after a disconnect during world generation can wait, and never longer than the Director's own timeout); a scheduled Director is never started while another one runs for the game (#79)
 
 #### 2.6 Backend: WorldPopulator.populate()
 

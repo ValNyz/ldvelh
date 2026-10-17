@@ -374,13 +374,14 @@ class GameService:
 
     async def process_init(self, game_id: UUID, world_gen: WorldGeneration,
                            finalize: Callable[[asyncpg.Connection], Awaitable[None]] | None = None,
-                           ) -> dict:
+                           conn: asyncpg.Connection | None = None) -> dict:
         """Peuple le Knowledge Graph avec la génération du monde.
 
         `finalize(conn)` runs in the same transaction, after the world (atomic save).
+        `conn`: a connection the caller already holds (and releases), else one from the pool.
         """
         populator = WorldPopulator(self.pool, game_id)
-        await populator.populate(world_gen, finalize=finalize)
+        await populator.populate(world_gen, finalize=finalize, conn=conn)
 
         arrival = world_gen.arrival_event
 
