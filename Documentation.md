@@ -37,11 +37,22 @@
 ldvelh/
 ├── backend/
 │   ├── api/
-│   │   ├── routes.py          # Main endpoints, _handle_chat core flow
+│   │   ├── routes.py          # Endpoints; _handle_chat is a thin adapter (lock, session, error report)
 │   │   ├── streaming.py       # SSEWriter, SSE event types
 │   │   ├── auth.py            # Auth endpoints (register, login, verify)
 │   │   ├── tooltips.py        # Tooltip endpoints
 │   │   └── dependencies.py    # FastAPI dependency injection
+│   ├── pipeline/              # Turn pipeline (no FastAPI, no SQL)
+│   │   ├── turn.py            # run_turn: load → arbitrate → narrate → commit → respond → schedule
+│   │   ├── init_flow.py       # World generation turn (INIT)
+│   │   ├── context.py         # TurnContext, TurnRequest, InitParams
+│   │   ├── narration_stream.py# Provider stream, lenient narration parsing
+│   │   ├── errors.py          # report_error: exception → one French TurnError
+│   │   ├── ports.py           # EventSink protocol (SSEWriter satisfies it)
+│   │   ├── uncancellable.py   # finish_despite_cancel (post-commit part)
+│   │   └── steps/             # load, arbitrate, narrate, commit, respond, schedule
+│   ├── domain/                # Pure types: turn.py (PendingRoll, AppliedDeltas, NarrationState), errors.py (TurnError), game.py
+│   ├── repos/                 # SQL: games.py, turns.py (the turn transaction), users.py, llm_models.py
 │   ├── services/
 │   │   ├── game_service.py    # Game CRUD, state loading, messages, rollback
 │   │   ├── llm_service.py     # Claude API integration, streaming
@@ -216,9 +227,9 @@ GameService.create_game(user_id, engine)
 
 #### 2.5 Backend: POST /chat (INIT mode)
 
-**File:** `backend/api/routes.py` — `_handle_chat()`
+**Files:** `backend/api/routes.py` — `_handle_chat()` (adapter), `backend/pipeline/init_flow.py` — `run_init()`
 
-INIT mode is detected when `server_state.get("world_created") == False`.
+INIT mode is detected when the game snapshot has `world_created == False`.
 
 1. **Build prompt**: `get_full_generation_prompt(mandatory_npcs, theme_preferences, engine, world_config, character_data, manual_entities)`
    - **File:** `backend/prompts/world_generation_prompt.py`
@@ -231,7 +242,7 @@ INIT mode is detected when `server_state.get("world_created") == False`.
    - Sends `SSEEvent.PROGRESS` every ~500 characters with the partial raw JSON
    - Frontend uses partial JSON to show real-time progress bar
 
-3. **on_init_complete callback**: fires when LLM finishes
+3. **Completion** (in `run_init`, once the stream ends):
    - Validates JSON as `WorldGeneration` Pydantic model
    - Calls `game_service.process_init(game_id, world_gen)` which calls `WorldPopulator.populate()`
    - Sets engine + creates engine character if engine != "none"
@@ -293,17 +304,14 @@ On completion (`worldData` is set via `onDone`):
 
 ```
 User types message
-  → POST /chat (LIGHT mode)
-    → Load context from DB (ContextBuilder)
-      → Mechanical step (if engine requires dice)
-        → Build narrator prompt (system + context)
-          → Stream narration from LLM
-            → SSE chunks to frontend
-              → on_light_complete:
-                → Apply narrator deltas (credits, entity reveals)
-                → Save messages to DB
-                → Trigger extraction (fire-and-forget)
-                → SSE done + saved events
+  → POST /chat → routes._handle_chat (snapshot, API key, LLMSession, TurnContext)
+    → pipeline.turn.run_turn
+      → load       context from DB (ContextBuilder), prompts, history
+      → arbitrate  mechanical step and dice (Fate Core may pause: roll_pending)
+      → narrate    stream narration from the LLM, SSE chunks, lenient parsing
+      → commit     ONE transaction: roll effects, state, deltas, messages
+      → respond    SSE done + saved
+      → schedule   extraction and Director (fire-and-forget)
 ```
 
 ### Step-by-step
@@ -321,11 +329,49 @@ User types message
 6. startStream('/chat', {gameId, message, gameState, provider, model})
 ```
 
-#### 3.2 Backend: _handle_chat (LIGHT mode)
+#### 3.2 Backend: the turn pipeline (LIGHT mode)
 
-**File:** `backend/api/routes.py` — `_handle_chat()`
+**Files:** `backend/api/routes.py` (adapter), `backend/pipeline/turn.py` (`run_turn`), `backend/pipeline/steps/*.py`
 
-LIGHT mode is the default when `world_created == True`.
+LIGHT mode is the default when `world_created == True` (the first turn after world generation is a FIRST_LIGHT turn through the same pipeline).
+
+**Layers.** `api/` (routes, `SSEWriter`) talks HTTP and SSE only. `pipeline/` orchestrates a turn and knows nothing of FastAPI or SQL: it sends events through the `EventSink` port (`pipeline/ports.py`) that `SSEWriter` satisfies. SQL lives in `repos/` (`games.py`, `turns.py`, `users.py`); pure types in `domain/`. `tests/test_architecture.py` enforces these dependency rules and that `_handle_chat` stays under 80 lines.
+
+**Adapter.** `_handle_chat` loads the game snapshot, resolves the API key, builds an `LLMSession` and a `TurnContext`, then calls `run_turn` (or `run_init` when the world is not created). Any exception is caught there once and sent by `report_error`.
+
+**Steps** (each a module in `pipeline/steps/`, run in order by `run_turn`):
+
+| Step | Role |
+|------|------|
+| `load` | Context from the DB, narrator prompts, message history (steps 1, 3, 4 below) |
+| `arbitrate` | Mechanical step, dice, pending Fate roll (step 2); may return `HALT` and end the turn |
+| `narrate` | Streams the narration, parses it leniently (step 5) |
+| `commit` | Writes everything of the turn in one transaction (step 6) |
+| `respond` | Sends `done` then `saved` |
+| `schedule` | Starts extraction and the Director in the background |
+
+**Transaction.** The roll is *computed* before the narration (the narrator needs it) but *applied* at commit. `commit_turn` writes roll effects (stress, fate points), narration state, narrator deltas, engine snapshot, both messages, the roll log (or the claim of the resumed pending roll) and the engine lock in a single transaction (`repos/turns.py`). A failure or a cancellation anywhere before it leaves nothing behind (#16, #20). Credit deltas are stored as the ledger applied them (`applied`, `error`), not as the narrator asked (#33); a refused debit is reported to the narrator on the next turn.
+
+**Lenient narration parsing.** An optional field that is invalid (for example a malformed `day_transition` object) is ignored instead of discarding the turn; `day_transition` accepts `true`, a string or a partial object. A narration that cannot be used at all raises `narration_invalid`.
+
+**Errors.** A failure during a turn produces exactly one `error` event, in French, with a `code` and a `ref` (the stream id, also in the logs as `[TURN:<ref>]`); SQL, Pydantic or SDK text is never sent (#45).
+
+| Code | Meaning |
+|------|---------|
+| `provider_auth` | Provider rejected the API key (not recoverable) |
+| `provider_rate_limit` | Provider rate limit (429) |
+| `provider_error` | Any other provider failure |
+| `narration_invalid` | The narration could not be parsed or validated |
+| `internal` | Unexpected error; the message gives the `ref` to report |
+| `world_gen_failed` | World generation failed (INIT) |
+| `game_not_found` | No such game |
+| `no_api_key` | No API key for the chosen provider |
+| `invalid_invocation` | Aspect invocation refused (unknown or duplicate aspect, more than the fate points) |
+| `roll_not_pending` | The roll to resume is not pending (already resolved or expired) |
+
+**Logging.** One INFO line per completed turn: `[TURN] game= engine= provider= model= history= in= out= cache_read= cost= ms=`. Prompts and narrator JSON are logged at DEBUG only, and only when `LOG_PROMPTS=true`.
+
+**Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Once the turn is committed, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work.
 
 **Step 1: Load context**
 
@@ -360,7 +406,7 @@ Loads from DB via `KnowledgeGraphReader`:
 
 Returns a `NarrationContext` object with all this data.
 
-**Step 2: Mechanical step (engine-aware)**
+**Step 2: Mechanical step (engine-aware), `arbitrate`**
 
 If `engine.needs_mechanical_step()` returns True (Fate Core or D6):
 
@@ -376,16 +422,16 @@ mechanical_result = await run_mechanical_step(engine, context, message, provider
    {"requires_test": true, "skill": "Athlétisme", "skill_value": 3, "difficulty": 4, "reason": "..."}
    ```
 3. If `requires_test`: calls `engine.roll_dice(decision)` → returns `RollResult`
-4. Applies roll result to DB via `engine.apply_roll_result()`
-5. Sends `SSEEvent.ROLL_RESULT` to frontend for dice display
+4. Keeps the roll effects for the commit (they are applied there, in the turn transaction, only if the turn is saved)
+5. Sends `SSEEvent.ROLL_RESULT` to frontend for dice display (before the narration)
 
 **Fate Core special case:** If roll outcome is failure and player has fate_points > 0 and aspects, the pipeline **pauses**:
-- Stores the roll in `mechanic_rolls` with `status = 'pending'` and the player's message (at most one per game)
+- Stores the roll in `mechanic_rolls` with `status = 'pending'` (migration `20261017000000`: `pending` / `resolved` / `expired`) and the player's message (at most one per game)
 - Sends `SSEEvent.ROLL_PENDING` with `{roll_id, roll, aspects, fate_points}`
-- Closes the SSE stream and returns
+- Returns `HALT`: the stream closes, nothing else is committed
 - Frontend shows aspect invocation modal → player selects aspects
 - Frontend sends new `POST /chat` with `roll_id + invoked_aspects`
-- Backend validates the invocation (known aspects, enough fate points), applies +2/aspect to the original roll, recalculates outcome and narrates the stored message; the commit claims the roll (`status = 'resolved'`) once
+- Backend validates the invocation (known aspects, no duplicates, enough fate points; otherwise `invalid_invocation`), applies +2/aspect to the original roll, recalculates outcome and narrates the stored message; the commit claims the roll (`status = 'resolved'`) once, a second resume gets `roll_not_pending`
 - Any other `POST /chat` while the roll waits gets the same `roll_pending` again, and `GET /games/{id}` returns it as `state.pending_roll` (with `player_message`) so the modal and the waiting action come back after a reload; a rollback expires it
 
 **Step 3: Build narrator prompts**
@@ -428,26 +474,20 @@ Context prompt: markdown sections built from `NarrationContext`:
 
 **Step 5: Stream narration**
 
-**File:** `backend/services/llm_service.py` — `stream_narration()`
+**Files:** `backend/pipeline/steps/narrate.py`, `backend/pipeline/narration_stream.py`
 
 - Calls `provider.stream(system_prompt, messages, temperature, max_tokens)`
 - For LIGHT mode: extracts displayable narrative text in real-time
 - Sends `SSEEvent.CHUNK` for each text delta
 - On completion: parses full JSON response, calls `on_complete` callback
 
-**Step 6: on_light_complete**
+**Step 6: commit, respond, schedule**
 
-**File:** `backend/api/routes.py`
+**Files:** `backend/pipeline/steps/commit.py`, `respond.py`, `schedule.py`; SQL in `backend/repos/turns.py`
 
-1. **Validate output** as `NarrationOutput` Pydantic model
-2. **Process game state**: `game_service.process_light()` — updates cycle, time, location, NPCs present
-3. **Apply narrator deltas**: `game_service.apply_narrator_deltas()` — credit transactions, entity reveals (mark characters known, locations accessible)
-4. **Store info requests**: saves narrator's `info_requests` list for next turn's context prefetch
-5. **Build client state**: loads fresh state from DB, normalizes for frontend
-6. **Send SSE done**: `SSEEvent.DONE` with display text + full game state + cost
-7. **Save messages**: user message + assistant message to DB (with narrator_deltas and engine snapshot)
-8. **Trigger extraction**: if `extraction_triggers` is non-empty, fires `asyncio.create_task(run_triggered_extraction(...))` — fire-and-forget
-9. **Send SSE saved**: `SSEEvent.SAVED` confirms DB write is complete
+1. **Commit** (one transaction): roll effects, game state (cycle, time, location, NPCs present), narrator deltas (credit transactions, entity reveals), stored `info_requests` for the next turn's prefetch, engine snapshot, user and assistant messages (with narrator_deltas), roll log or claim of the resumed roll
+2. **Respond**: `SSEEvent.DONE` with display text, fresh normalized game state and cost, then `SSEEvent.SAVED`
+3. **Schedule**: resolver and, if `extraction_triggers` is non-empty, extractors, plus the Director when its interval has elapsed, all as fire-and-forget tasks
 
 #### 3.3 Frontend: Receiving Events
 
@@ -839,14 +879,14 @@ GameState:
 | `extracting` | `{displayText}` | Narration done, extraction starting |
 | `done` | `{displayText, state}` | Final result with full game state |
 | `saved` | `{}` | DB save confirmed |
-| `error` | `{error, details, recoverable}` | Error occurred |
+| `error` | `{error, details, recoverable, code, ref}` | Error occurred; `code` and `ref` on turn errors (see 3.2) |
 | `warning` | `{message, details}` | Non-fatal warning |
 | `roll_result` | `{roll}` | Dice roll result for display |
 | `roll_pending` | `{roll_id, roll, aspects, fate_points}` | Fate Core invocation pause |
 
 ### SSEWriter
 
-Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `send_progress`, `send_done`, etc.) and consumed by `iterate()` which yields `data: {json}\n\n` lines. Includes 60-second keepalive timeout.
+Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `send_progress`, `send_done`, etc.) and consumed by `iterate()` which yields `data: {json}\n\n` lines. Includes 60-second keepalive timeout. `attach(task)` ties the turn task to the writer; when the client closes the stream, `disconnected` becomes true and the task is cancelled (see 3.2, Disconnect).
 
 ### Frontend Handling
 

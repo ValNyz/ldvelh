@@ -17,8 +17,11 @@ Frontend (Next.js)  ←→  Backend (FastAPI)  ←→  PostgreSQL
 
 ```
 backend/
-├── api/            # FastAPI routes (auth, game, chat)
+├── api/            # FastAPI routes (auth, game, chat), SSEWriter
+├── domain/         # Pure types (turn, errors, game), no I/O
 ├── kg/             # Knowledge graph (populator, reader)
+├── pipeline/       # Turn pipeline: steps/{load,arbitrate,narrate,commit,respond,schedule}, init_flow
+├── repos/          # SQL (games, turns, users, llm_models)
 ├── prompts/        # LLM prompt templates
 ├── schema/         # Pydantic models
 ├── services/       # Business logic (game, LLM, extraction, auth)
@@ -69,6 +72,7 @@ psql -U your_user -d your_db -f schema.sql
 | `ENCRYPTION_KEY` | Fernet key for stored API keys | — |
 | `REGISTRATION_ENABLED` | Enable/disable registration | `true` |
 | `DEBUG` | Debug mode (seeds dev user) | `false` |
+| `LOG_PROMPTS` | Log narrator prompts and JSON (DEBUG level) | `false` |
 | `CORS_ORIGINS` | Allowed origins | `http://localhost:3000` |
 
 ## Running tests
@@ -100,9 +104,23 @@ npm run test:e2e    # builds the static export and drives it in Chromium against
 
 The e2e tests (`frontend/tests/e2e/`) answer every `/api` call from `mockApi.mjs`, so they need neither the backend nor an LLM key. Screenshots of the key screens land in `frontend/test-results/screens/`.
 
+## Architecture rules and lint
+
+`backend/tests/test_architecture.py` enforces the dependency rule (`domain` imports no other layer; `pipeline` never imports `api`; `services`, `repos`, `kg`, `llm`, `schema` and `prompts` import neither `api` nor `pipeline`; no SQL in `api/routes.py`) and that `_handle_chat` stays under 80 lines. A violation fails the suite, so add new code in the right layer rather than editing the test.
+
+`pipeline/` and `api/routes.py` are also linted for complexity (McCabe 15 at most) and unused imports, with the same command as CI (ruff 0.8.4):
+
+```bash
+cd backend && pip install ruff==0.8.4
+ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipeline/ api/routes.py
+```
+
+Errors reaching the player come from `pipeline/errors.py` (one French message, a `code`, a `ref`); never send raw exception text, and use `logger.exception` rather than `traceback.print_exc`. Prompts are logged only with `LOG_PROMPTS=true`.
+
 ## CI
 
 GitHub Actions runs on every push to `main`/`dev`/`test`:
 - **Unit tests** with coverage (uploaded to Codecov)
-- **Integration tests** against a Postgres 16 service container
+- **Integration tests** against a Postgres service container
+- **Lint** of `pipeline/` and `api/routes.py` (ruff C901, F401)
 - **Frontend**: lint, unit tests, build, then the Playwright e2e tests (results uploaded as the `e2e-results` artifact)
