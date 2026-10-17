@@ -66,7 +66,7 @@ async def save_pair(pool, game_id, user_message, assistant_message, *, cycle=1, 
     async with pool.acquire() as conn:
         return await turns.save_turn_messages(
             conn, game_id, user_message=user_message, assistant_message=assistant_message,
-            state=state, narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot,
+            state=state, narrator_deltas=narrator_deltas or {}, engine_snapshot=engine_snapshot,
         )
 
 

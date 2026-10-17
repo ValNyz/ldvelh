@@ -73,9 +73,9 @@ async def test_providers_catalog_lists_only_enabled_models():
 
 async def test_providers_endpoint_lists_only_enabled_models(client, test_user, llm_table):
     await insert_llm_model(llm_table, "claude-sonnet-5-5", provider="anthropic", label="S",
-                  roles=["narration"], rank=1, inp=3, out=15)
+                           roles=["narration"], rank=1, inp=3, out=15)
     await insert_llm_model(llm_table, "claude-opus-5-5", provider="anthropic", label="O",
-                  status="pending", rank=2, inp=5, out=25)
+                           status="pending", rank=2, inp=5, out=25)
     r = await client.get("/api/providers", headers=auth_headers(test_user["token"]))
     a = r.json()["providers"]["anthropic"]
     assert [m["id"] for m in a["models"]] == ["claude-sonnet-5-5"]

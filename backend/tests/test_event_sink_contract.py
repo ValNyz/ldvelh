@@ -13,7 +13,7 @@ PORT_METHODS = sorted(
 )
 
 
-def _shape(func) -> list[tuple[str, object, inspect._ParameterKind]]:
+def _shape(func) -> list[tuple]:
     """Parameter names, defaults and kinds; annotations are left to the type checker."""
     return [(p.name, p.default, p.kind) for p in inspect.signature(func).parameters.values()]
 

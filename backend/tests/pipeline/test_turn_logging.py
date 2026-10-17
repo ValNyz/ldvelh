@@ -90,4 +90,3 @@ async def test_no_summary_line_when_the_turn_halts(harness, fate_game, turn_logs
     await harness.drain()
     assert "roll_pending" in harness.summarize(events)
     assert _summary_lines(turn_logs) == []
-

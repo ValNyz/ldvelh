@@ -61,7 +61,7 @@ def test_profile_lookup():
 @pytest.mark.asyncio
 async def test_load_reads_rows(llm_table):
     await insert_llm_model(llm_table, "m1", rank=1, inp=3, out=15, cw=3.75, cr=0.3,
-                  profile={"send_temperature": False})
+                           profile={"send_temperature": False})
     await insert_llm_model(llm_table, "m2", inp=None, out=None)
     cat = await load_catalog(llm_table)
     m1, m2 = cat.entry("p", "m1"), cat.entry("p", "m2")
