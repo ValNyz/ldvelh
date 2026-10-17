@@ -71,7 +71,8 @@ def test_missing_narrative_text_is_invalid():
         parse_narration(data, **_KW)
 
 
-@pytest.mark.parametrize("shape", [False, None, 0, ""])
+@pytest.mark.parametrize("shape", [False, None, 0, 0.0, "", "null", "false", "none", "aucune",
+                                   "non", "no", " NULL ", "Aucune", "False"])
 def test_false_and_null_day_transition_mean_no_transition(shape):
     narration, dropped = parse_narration(_raw(day_transition=shape), **_KW)
     assert dropped == []

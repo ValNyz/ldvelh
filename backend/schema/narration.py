@@ -375,6 +375,10 @@ class EventHint(BaseModel):
     location: str | None = None  # Location name
 
 
+# A day_transition string meaning "no transition" (compared stripped, case-insensitive).
+_NO_TRANSITION_WORDS = frozenset({"", "null", "false", "none", "aucune", "non", "no"})
+
+
 class NarrationOutput(BaseModel):
     """Complete narrator LLM output"""
 
@@ -439,7 +443,9 @@ class NarrationOutput(BaseModel):
     @field_validator("day_transition", mode="before")
     @classmethod
     def _falsy_means_no_transition(cls, v):
-        if v is None or v is False or (isinstance(v, (int, str)) and not v):
+        if v is None or v is False or (isinstance(v, (int, float)) and not v):
+            return None
+        if isinstance(v, str) and v.strip().lower() in _NO_TRANSITION_WORDS:
             return None
         return v
 
