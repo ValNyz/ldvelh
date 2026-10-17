@@ -77,3 +77,8 @@ def test_aspect_names_accepts_strings_and_dicts():
     stats = {"aspects": ["Pilote", {"name": "Dette", "type": "trouble"}, {"text": "Réflexes"}, "", {}]}
     assert aspect_names(stats) == ["Pilote", "Dette", "Réflexes"]
     assert aspect_names({}) == []
+
+
+def test_invoked_aspects_take_the_sheet_spelling():
+    result = _invoke(_failed_roll(), ["pilote dechu", "DETTE ENVERS LA GUILDE"])
+    assert result.details["invoked_aspects"] == ["Pilote déchu", "Dette envers la Guilde"]

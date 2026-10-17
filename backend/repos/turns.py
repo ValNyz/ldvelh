@@ -225,3 +225,11 @@ async def claim_pending_roll(conn, game_id: UUID, roll_id: UUID, roll_details: d
         roll_id, game_id, roll_details, outcome, message_id,
     )
     return claimed is not None
+
+
+async def expire_pending_rolls(conn, game_id: UUID) -> None:
+    """A rollback discards the action a pending roll belongs to: it never comes back (#32)."""
+    await conn.execute(
+        "UPDATE mechanic_rolls SET status = 'expired' WHERE game_id = $1 AND status = 'pending'",
+        game_id,
+    )

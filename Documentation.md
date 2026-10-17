@@ -386,7 +386,7 @@ mechanical_result = await run_mechanical_step(engine, context, message, provider
 - Frontend shows aspect invocation modal → player selects aspects
 - Frontend sends new `POST /chat` with `roll_id + invoked_aspects`
 - Backend validates the invocation (known aspects, enough fate points), applies +2/aspect to the original roll, recalculates outcome and narrates the stored message; the commit claims the roll (`status = 'resolved'`) once
-- Any other `POST /chat` while the roll waits gets the same `roll_pending` again, and `GET /games/{id}` returns it as `state.pending_roll` so the modal comes back after a reload
+- Any other `POST /chat` while the roll waits gets the same `roll_pending` again, and `GET /games/{id}` returns it as `state.pending_roll` (with `player_message`) so the modal and the waiting action come back after a reload; a rollback expires it
 
 **Step 3: Build narrator prompts**
 

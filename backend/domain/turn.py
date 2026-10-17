@@ -36,4 +36,4 @@ class PendingRoll:
     def offer(self) -> dict:
         """What the player sees: the roll_pending event and the loaded game state."""
         return {"roll_id": str(self.id), "roll": self.roll, "aspects": list(self.aspects),
-                "fate_points": self.fate_points}
+                "fate_points": self.fate_points, "player_message": self.player_message}

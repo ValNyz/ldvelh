@@ -19,6 +19,7 @@ from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration
 from services.engine import get_engine
 from services.pending_roll import load_pending_roll
+from repos import turns
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
@@ -673,6 +674,7 @@ class GameService:
                 )
 
                 rollback_result = await populator.rollback_to_cycle(conn, target_cycle)
+                await turns.expire_pending_rolls(conn, game_id)
 
                 if engine_snapshot:
                     game = await reader.get_game(conn)

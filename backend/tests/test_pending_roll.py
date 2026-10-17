@@ -1,9 +1,12 @@
 """Pending Fate roll: resolved once, not dodgeable, restored on reload (#32)."""
 
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest_asyncio
 
+from pipeline import turn
+from repos import turns
 from services.engine import fate_core
 from tests.characterization import payloads
 from tests.characterization.conftest import harness, llm_mode, scripted_llm  # noqa: F401
@@ -21,6 +24,9 @@ async def pending(harness, monkeypatch):  # noqa: F811
     await harness.init_world(game_id, engine="fate_core",
                              character_data=payloads.CHARACTER_DATA["fate_core"])
     await harness.chat(game_id, "__ARRIVEE__")
+    await harness.drain()
+    # One plain turn first, so the paused turn can be rolled back (the arrival cannot).
+    await harness.chat(game_id, "Je regarde autour de moi.")
     await harness.drain()
     harness.llm._responses["mechanical"] = payloads.mechanical(
         requires_test=True, skill="Athlétisme", skill_value=0, difficulty=4)
@@ -126,3 +132,100 @@ async def test_overspend_is_rejected_and_fp_unchanged(harness, pending):  # noqa
     # The roll is still waiting: the player can choose again.
     r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
     assert r.json()["state"]["pending_roll"]["roll_id"] == event["roll_id"]
+
+
+async def test_loaded_pending_roll_carries_the_stored_action(harness, pending):  # noqa: F811
+    """The frontend shows the waiting action in the chat after a reload."""
+    game_id, event = pending
+    assert event["player_message"] == ACTION
+    r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
+    assert r.json()["state"]["pending_roll"]["player_message"] == ACTION
+
+
+async def test_resume_with_empty_message_saves_the_stored_action(harness, pending):  # noqa: F811
+    """After a reload the frontend has no last message: it resumes with message=""."""
+    game_id, event = pending
+    events = await harness.chat(game_id, "", roll_id=event["roll_id"],
+                                invoked_aspects=[HIGH_CONCEPT])
+    await harness.drain()
+    assert "done" in harness.summarize(events), events
+    user_messages = [m["content"] for m in await _messages(harness, game_id) if m["role"] == "user"]
+    assert user_messages[-1] == ACTION
+    assert "" not in user_messages
+
+
+async def test_invoked_aspects_are_stored_with_their_sheet_name(harness, pending):  # noqa: F811
+    game_id, event = pending
+    events = await harness.chat(game_id, ACTION, roll_id=event["roll_id"],
+                                invoked_aspects=["pilote dechu en quete de redemption"])
+    await harness.drain()
+    roll = next(e["roll"] for e in events if e["type"] == "roll_result")
+    assert roll["details"]["invoked_aspects"] == [HIGH_CONCEPT]
+    async with harness.pool.acquire() as conn:
+        stored = await conn.fetchval(
+            "SELECT roll_details FROM mechanic_rolls WHERE id = $1::uuid", event["roll_id"])
+    assert stored["details"]["invoked_aspects"] == [HIGH_CONCEPT]
+
+
+async def test_rollback_expires_the_pending_roll(harness, pending):  # noqa: F811
+    """R12: the modal of a rolled-back action does not come back; the next turn rolls anew."""
+    game_id, event = pending
+    r = await harness.client.post(f"/api/games/{game_id}/rollback", json={"fromIndex": 2},
+                                  headers=harness.headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["state"]["pending_roll"] is None
+    r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
+    assert r.json()["state"]["pending_roll"] is None
+    async with harness.pool.acquire() as conn:
+        status = await conn.fetchval(
+            "SELECT status FROM mechanic_rolls WHERE id = $1::uuid", event["roll_id"])
+    assert status == "expired"
+
+    harness.llm._responses["mechanical"] = payloads.mechanical(requires_test=False)
+    events = await harness.chat(game_id, "Je fais demi-tour.")
+    await harness.drain()
+    assert "done" in harness.summarize(events), harness.summarize(events)
+    assert "roll_pending" not in harness.summarize(events)
+    assert "mechanical" in harness.llm.purposes()
+
+
+async def test_claim_refused_at_commit_writes_nothing(harness, pending, monkeypatch):  # noqa: F811
+    """Defence in depth: a roll claimed by a concurrent turn fails this one, untouched."""
+    game_id, event = pending
+    before = len(await _messages(harness, game_id))
+
+    async def already_claimed(*args, **kwargs):
+        return False
+
+    monkeypatch.setattr(turns, "claim_pending_roll", already_claimed)
+    events = await harness.chat(game_id, ACTION, roll_id=event["roll_id"],
+                                invoked_aspects=[HIGH_CONCEPT])
+    await harness.drain()
+    assert [e.get("code") for e in _errors(events)] == ["roll_not_pending"], events
+    assert "done" not in harness.summarize(events)
+    assert await _fate_points(harness, game_id) == 3
+    assert len(await _messages(harness, game_id)) == before
+
+
+async def test_fate_points_spent_elsewhere_before_commit(harness, pending, monkeypatch):  # noqa: F811
+    """The guarded debit refuses the turn when the balance dropped after arbitrate."""
+    game_id, event = pending
+    before = len(await _messages(harness, game_id))
+    original = turn.commit_turn
+
+    async def drain_fate_points_then_commit(*args, **kwargs):
+        async with harness.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE character_fate SET fate_points = 0 WHERE game_id = $1", game_id)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(turn, "commit_turn", drain_fate_points_then_commit)
+    events = await harness.chat(game_id, ACTION, roll_id=event["roll_id"],
+                                invoked_aspects=[HIGH_CONCEPT])
+    await harness.drain()
+    assert [e.get("code") for e in _errors(events)] == ["invalid_invocation"], events
+    assert "done" not in harness.summarize(events)
+    assert await _fate_points(harness, game_id) == 0
+    assert len(await _messages(harness, game_id)) == before
+    async with harness.pool.acquire() as conn:
+        assert (await turns.get_pending_roll(conn, game_id))["id"] == UUID(event["roll_id"])

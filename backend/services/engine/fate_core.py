@@ -76,16 +76,18 @@ def aspect_names(engine_stats: dict) -> list[str]:
 
 
 def _known_invocations(invoked: Sequence[str], aspects: Sequence[str]) -> list[str]:
-    """Invoked aspects without duplicates (order kept); an unknown one is refused."""
-    known = {normalize_name(a) for a in aspects}
-    seen, unique = set(), []
+    """Invoked aspects as spelled on the sheet, without duplicates (order kept).
+
+    An unknown one is refused.
+    """
+    known = {normalize_name(a): a for a in aspects}
+    unique = []
     for name in invoked:
-        key = normalize_name(name)
-        if key not in known:
+        canonical = known.get(normalize_name(name))
+        if canonical is None:
             raise TurnError("invalid_invocation", f"Aspect inconnu : {name}.")
-        if key not in seen:
-            seen.add(key)
-            unique.append(name)
+        if canonical not in unique:
+            unique.append(canonical)
     return unique
 
 
