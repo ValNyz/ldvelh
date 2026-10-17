@@ -14,7 +14,9 @@ cp -r /src /w && cd /w && rm -rf node_modules
 npm ci --silent
 status=0
 npm run test:e2e || status=$?
-cp -r test-results /out/ 2>/dev/null || true
-chmod -R a+rwX /out/test-results 2>/dev/null || true
+if [ -d test-results ]; then   # absent when the run produced no artifacts; a failed copy must still fail the script
+  cp -r test-results /out/ || { echo "copy of test-results to /out failed" >&2; exit 1; }
+  chmod -R a+rwX /out/test-results
+fi
 exit $status
 '

@@ -23,7 +23,12 @@ docker network create "$NET" >/dev/null
 docker run -d --rm --name "$PG" --network "$NET" \
   -e POSTGRES_USER=test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=ldvelh_test \
   postgres:18 -c fsync=off >/dev/null
-until docker exec "$PG" pg_isready -U test >/dev/null 2>&1; do sleep 1; done
+ready=0
+for _ in $(seq 1 60); do
+  if docker exec "$PG" pg_isready -U test >/dev/null 2>&1; then ready=1; break; fi
+  sleep 1
+done
+if [ "$ready" -ne 1 ]; then echo "Postgres not ready after 60s" >&2; exit 1; fi
 sleep 2
 
 SNAP_ARGS=()
@@ -32,9 +37,10 @@ if [ "${UPDATE_SNAPSHOTS:-}" = "1" ]; then
              -v "$REPO/backend/tests/characterization/snapshots":/snapshots)
 fi
 
-docker run --rm --network "$NET" -e PG_HOST="$PG" "${SNAP_ARGS[@]}" -v "$REPO":/src:ro python:3.13-slim bash -c '
+docker run --rm --network "$NET" -e PG_HOST="$PG" ${SNAP_ARGS[@]+"${SNAP_ARGS[@]}"} -v "$REPO":/src:ro python:3.13-slim bash -c '
 set -euo pipefail
-cp -r /src /w && cd /w/backend
+mkdir /w && tar -C /src --exclude=.git --exclude=node_modules -cf - . | tar -C /w -xf -
+cd /w/backend
 apt-get update -qq >/dev/null && apt-get install -y -qq curl >/dev/null
 curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/download/v2.36.0/dbmate-linux-amd64
 echo "47e284b3d8cbad1ba5f090495aa05afd1bbd5f35e2ed5577aad06da74ce780ce  /usr/local/bin/dbmate" | sha256sum -c -

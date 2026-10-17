@@ -21,7 +21,12 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
 KNOWN_VIOLATIONS: set[tuple[str, str]] = set()
 SQL_IN_ROUTES_ALLOWED: set[str] = set()
 
-_SQL_RE = re.compile(r"^\s*(SELECT|INSERT|UPDATE|DELETE)\b", re.IGNORECASE)
+_SQL_LEADING_COMMENTS = r"(?:(?:--[^\n]*\n|/\*.*?\*/)\s*)*"   # `-- ...` and `/* ... */` before the statement
+_SQL_RE = re.compile(
+    r"^\s*" + _SQL_LEADING_COMMENTS
+    + r"(?:SELECT|INSERT|UPDATE|DELETE|WITH\s+(?:RECURSIVE\s+)?\w+\s*(?:\([^)]*\)\s*)?AS)\b",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _source_files():
@@ -77,14 +82,20 @@ def functions_with_sql(relative_path):
     tree = ast.parse((BACKEND / relative_path).read_text(encoding="utf-8"))
     names = set()
     for func in _outermost_functions(tree):
-        skipped = {id(n) for n in ast.walk(func) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                   for n in _docstring_nodes(n)}
+        skipped = {id(doc) for scope in ast.walk(func)
+                   if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef))
+                   for doc in _docstring_nodes(scope)}
         for child in ast.walk(func):
             if (isinstance(child, ast.Constant) and isinstance(child.value, str)
                     and id(child) not in skipped and _SQL_RE.match(child.value)):
                 names.add(func.name)
                 break
     return names
+
+
+def test_layer_rules_name_existing_packages():
+    missing = {layer for layer in LAYER_RULES if not (BACKEND / layer).is_dir()}
+    assert not missing, f"LAYER_RULES keys that are not backend directories (typo?): {sorted(missing)}"
 
 
 def test_layers_respect_the_dependency_rule():
