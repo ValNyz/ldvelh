@@ -178,7 +178,7 @@ async def run_resolve_and_extract(
                                   f"[EXTRACTION] {trigger} raised exception", ext_result,
                                   debug_detail=get_settings().log_prompts)
                     result["extractors"][trigger] = {
-                        "success": False, "error": str(ext_result)
+                        "success": False, "error": safe_text(ext_result)
                     }
                 else:
                     result["extractors"][trigger] = ext_result
@@ -250,7 +250,7 @@ async def run_resolve_and_extract(
     except Exception as e:
         log_exception(logger, logging.ERROR, "[EXTRACTION] Orchestrator failed", e,
                       debug_detail=get_settings().log_prompts)
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": safe_text(e)}
 
     finally:
         _extracting_games.discard(key)

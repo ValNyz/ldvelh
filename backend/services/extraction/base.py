@@ -92,7 +92,7 @@ class BaseExtractor(ABC):
                         conn, trigger_cycle, stats
                     )
                 except Exception as log_err:
-                    logger.warning(f"[{et.upper()}] Log failed: {log_err}")
+                    logger.warning(f"[{et.upper()}] Log failed: {safe_text(log_err)}")
 
             elapsed = (time.perf_counter() - t0) * 1000
             logger.info(
@@ -107,7 +107,7 @@ class BaseExtractor(ABC):
         except Exception as e:
             log_exception(logger, logging.ERROR, f"[{et.upper()}] Extraction failed", e,
                           debug_detail=get_settings().log_prompts)
-            return {"type": et, "success": False, "error": str(e)}
+            return {"type": et, "success": False, "error": safe_text(e)}
 
     async def _call_llm(
         self, system_prompt: str, user_prompt: str, schema: dict

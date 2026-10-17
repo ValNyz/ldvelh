@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from services.engine import get_engine
-from utils.log_safe import safe_repr
+from utils.log_safe import safe_repr, safe_text
 
 from .base import BaseExtractor
 
@@ -81,7 +81,7 @@ class ProgressionExtractor(BaseExtractor):
             )
         except Exception as e:
             logger.error(f"[PROGRESSION] apply_progression failed: {safe_repr(e)}")
-            changes = {"error": str(e)}
+            changes = {"error": safe_text(e)}
 
         stats = {
             "engine": self._engine_type,

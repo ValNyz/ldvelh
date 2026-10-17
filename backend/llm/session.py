@@ -23,7 +23,7 @@ from services.llm_providers import (
 )
 from repos.llm_models import ModelCatalog
 from utils import parse_json_response
-from utils.log_safe import safe_repr
+from utils.log_safe import safe_repr, safe_text
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +201,7 @@ class LLMSession:
                 temperature=temperature, max_tokens=max_tokens,
             )
         except Exception as e:
-            logger.error(f"[LLM] {purpose.value} call failed ({self.provider_name}): {e}")
+            logger.error(f"[LLM] {purpose.value} call failed ({self.provider_name}): {safe_text(e)}")
             return LLMCall(None, None)
         cost = self._record(purpose, provider, result.usage)
         return LLMCall(parse_json_response(result.content), cost)

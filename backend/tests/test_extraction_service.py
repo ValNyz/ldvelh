@@ -558,3 +558,29 @@ class TestExtractorErrorsDoNotLeakStory:
             stored = await conn.fetchval(
                 "SELECT errors FROM extraction_logs WHERE game_id = $1", game_id)
         assert stored and fragment not in " ".join(stored)
+
+
+async def test_progression_failure_keeps_story_out_of_stats_and_logs(caplog):
+    import logging
+
+    from pydantic import BaseModel, ValidationError
+
+    from services.extraction.progression import ProgressionExtractor
+
+    fragment = "Le dragon de verre murmure"
+
+    class _M(BaseModel):
+        x: int
+
+    class _Engine:
+        async def apply_progression(self, conn, game_id, raw):
+            _M.model_validate({"x": fragment})
+
+    extractor = ProgressionExtractor.__new__(ProgressionExtractor)
+    extractor._engine, extractor._engine_type, extractor.game_id = _Engine(), "fate_core", uuid4()
+    with caplog.at_level(logging.INFO):
+        stats = await extractor._populate(None, {}, 1)
+    assert "x: int_parsing" in stats["changes"]["error"]
+    formatter = logging.Formatter()
+    assert fragment not in stats["changes"]["error"]
+    assert fragment not in "\n".join(formatter.format(r) for r in caplog.records)
