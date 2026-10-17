@@ -75,9 +75,13 @@ async def stream_narration(session: LLMSession, sink: EventSink, *, system_promp
 
     parsed = parse_json_response(full_json)
     if parsed:
-        logger.info(f"[LLM] JSON generated:\n{json.dumps(parsed, indent=2, ensure_ascii=False)}")
+        if settings.log_prompts:
+            logger.debug(
+                f"[LLM] JSON generated:\n{json.dumps(parsed, indent=2, ensure_ascii=False)}")
     else:
-        logger.error(f"[LLM] JSON parse FAILED. Raw output ({len(full_json)} chars):\n{full_json}")
+        # Head and tail only: the raw output is story text.
+        logger.error(f"[LLM] JSON parse FAILED. Raw output ({len(full_json)} chars): "
+                     f"head={full_json[:500]!r} tail={full_json[-500:]!r}")
 
     display_text = None
     if not world_gen:

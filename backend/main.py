@@ -39,7 +39,7 @@ async def _seed_dev_user(pool: asyncpg.Pool, settings) -> None:
                VALUES ($1, $2, $3, true)""",
             email, pw_hash, "dev",
         )
-        logger.info(f"[STARTUP] Dev user created: {email} / {password}")
+        logger.info(f"[STARTUP] Dev user created: {email}")
 
 
 # Pool de connexions global

@@ -57,10 +57,11 @@ async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
     applied = None
     if narration.credit_delta or narration.entity_reveals or narration.compel_result:
         applied = await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
-        logger.info(f"[CHAT] Deltas applied: {json.dumps(asdict(applied), default=str)}")
+        logger.debug(f"[CHAT] Deltas applied: {json.dumps(asdict(applied), default=str)}")
     if narration.info_requests:
         await turns.store_info_requests(conn, game_id, narration.info_requests)
-        logger.info(f"[CHAT] Info requests stored: {narration.info_requests}")
+        logger.info(f"[CHAT] Info requests stored: {len(narration.info_requests)}")
+        logger.debug(f"[CHAT] Info requests: {narration.info_requests}")
     return state, applied
 
 

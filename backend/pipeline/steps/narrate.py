@@ -3,6 +3,7 @@
 import logging
 from dataclasses import dataclass
 
+from config import get_settings
 from llm.session import Purpose
 from pipeline import narration_stream
 from pipeline.context import TurnContext
@@ -21,19 +22,23 @@ class Narrated:
     narration: NarrationOutput
     display_text: str
     cost: dict | None
+    history: int = 0  # past messages sent to the narrator (context prompt excluded)
 
 
 def _log_llm_context(system_prompt: str, llm_messages: list[dict]) -> None:
-    logger.info(
+    """Prompts are story text: DEBUG only, and only when LOG_PROMPTS is on."""
+    if not get_settings().log_prompts:
+        return
+    logger.debug(
         f"[CHAT] Multi-turn: {len(llm_messages)} messages "
         f"({len(llm_messages) - 1} history + 1 context)"
     )
-    logger.info(f"[CHAT] === SYSTEM PROMPT ===\n{system_prompt}")
+    logger.debug(f"[CHAT] === SYSTEM PROMPT ===\n{system_prompt}")
     for i, msg in enumerate(llm_messages):
         content = msg["content"]
         if isinstance(content, list):
             content = content[0]["text"] if content else ""
-        logger.info(f"[CHAT] === MESSAGE [{i}] ({msg['role']}) ===\n{content}")
+        logger.debug(f"[CHAT] === MESSAGE [{i}] ({msg['role']}) ===\n{content}")
 
 
 def _validate(ctx: TurnContext, parsed: dict | None) -> NarrationOutput:
@@ -77,4 +82,5 @@ async def narrate(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration
         world_gen=False,
     )
     narration = _validate(ctx, result.parsed)
-    return Narrated(narration=narration, display_text=result.display_text, cost=result.cost)
+    return Narrated(narration=narration, display_text=result.display_text, cost=result.cost,
+                    history=len(llm_messages) - 1)

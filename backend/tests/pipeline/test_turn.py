@@ -9,6 +9,14 @@ from pipeline import turn
 from pipeline.context import TurnContext, TurnRequest
 from pipeline.errors import TurnError
 from pipeline.steps.arbitrate import HALT, Arbitration
+from pipeline.steps.narrate import Narrated
+
+
+class _Session:
+    provider_name = "scripted"
+
+    def model_for(self, purpose):
+        return "scripted-model"
 
 
 def _ctx() -> TurnContext:
@@ -16,7 +24,7 @@ def _ctx() -> TurnContext:
     snapshot = GameSnapshot(id=game_id, world_created=True, current_cycle=1,
                             current_time="08h00", current_location_name="Bar")
     return TurnContext(request=TurnRequest(game_id=game_id, user_id=None, message="Je regarde."),
-                       snapshot=snapshot, session=None, sink=None, pool=None, engine=None,
+                       snapshot=snapshot, session=_Session(), sink=None, pool=None, engine=None,
                        ref="test")
 
 
@@ -38,7 +46,7 @@ def steps(monkeypatch):
     spies = {
         "load_turn": _Spy(result=object()),
         "arbitrate": _Spy(result=Arbitration(mechanical=None, resumed_roll_id=None)),
-        "narrate": _Spy(result=object()),
+        "narrate": _Spy(result=Narrated(narration=None, display_text="", cost=None)),
         "commit_turn": _Spy(result=object()),
         "respond": _Spy(),
         "schedule_background": _Spy(),

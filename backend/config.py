@@ -74,6 +74,8 @@ class Settings(BaseSettings):
 
     # App
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    # Dump the narrator prompts and generated JSON at DEBUG (story text: off by default).
+    log_prompts: bool = os.getenv("LOG_PROMPTS", "false").lower() == "true"
 
     model_config = SettingsConfigDict(env_file=".env")
 
