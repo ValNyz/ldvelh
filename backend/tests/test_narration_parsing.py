@@ -29,8 +29,9 @@ def _raw(**extra) -> dict:
     (1, "Jour 2"),
     ("oui", "oui"),
     ([1], "Jour 2"),
+    ({}, "Jour 2"),
 ], ids=["true", "string", "date_only", "new_cycle_ignored", "new_cycle_text", "date_number",
-        "summary_list", "summary_dict", "one", "yes", "list"])
+        "summary_list", "summary_dict", "one", "yes", "list", "empty_dict"])
 async def test_day_transition_shapes_advance_one_day(
         client, test_user, test_pool, shape, expected_date):
     game_id, service, _ = await _setup_game_with_world(client, test_user, test_pool)

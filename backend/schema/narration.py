@@ -296,9 +296,11 @@ class DayTransition(BaseModel):
     def _accept_loose_shapes(cls, data):
         """Never fail: any odd shape still means "next day" (#16).
 
-        `true`, numbers and other truthy scalars give an empty transition, a bare
-        string is the new date, and in a dict `new_cycle` is kept only when numeric (the server ignores it) while
-        `new_date` and `night_summary` are coerced to str or None."""
+        A bare string is the new date and any other non-dict (`true`, numbers,
+        lists) is an empty transition. In a dict, `new_cycle` is kept only when
+        numeric (the server ignores it) and `new_date` / `night_summary` are
+        coerced to str, or None for containers.
+        """
         if isinstance(data, str):
             return {"new_date": data}
         if not isinstance(data, dict):
@@ -312,10 +314,13 @@ class DayTransition(BaseModel):
         cycle = data.get("new_cycle")
         if isinstance(cycle, str) and cycle.strip().lstrip("-").isdigit():
             cycle = int(cycle)
-        return {"new_cycle": cycle if isinstance(cycle, int) and not isinstance(cycle, bool)
-                else None,
-                "new_date": _text(data.get("new_date")),
-                "night_summary": _text(data.get("night_summary"))}
+        if not isinstance(cycle, int) or isinstance(cycle, bool):
+            cycle = None
+        return {
+            "new_cycle": cycle,
+            "new_date": _text(data.get("new_date")),
+            "night_summary": _text(data.get("night_summary")),
+        }
 
 
 class CreditDelta(BaseModel):
@@ -415,7 +420,9 @@ class NarrationOutput(BaseModel):
     @field_validator("day_transition", mode="before")
     @classmethod
     def _falsy_means_no_transition(cls, v):
-        return v if v else None
+        if v is None or v is False or (isinstance(v, (int, str)) and not v):
+            return None
+        return v
 
     # === SPACE ===
     current_location: EntityRef = Field(
