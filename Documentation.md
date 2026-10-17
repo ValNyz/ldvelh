@@ -886,7 +886,7 @@ GameState:
 
 ### SSEWriter
 
-Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `send_progress`, `send_done`, etc.) and consumed by `iterate()` which yields `data: {json}\n\n` lines. Includes 60-second keepalive timeout. `attach(task)` ties the turn task to the writer; when the client closes the stream, `disconnected` becomes true and the task is cancelled (see 3.2, Disconnect). If the stream itself fails server-side (e.g. an event that cannot be serialized), one `error` event is sent before the stream closes: `code: internal` with the stream `ref`, or `saved_display_failed` (not recoverable) once `done` was queued, then the turn is cancelled as on a disconnect (unless `done` was queued).
+Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `send_progress`, `send_done`, etc.) and consumed by `iterate()` which yields `data: {json}\n\n` lines. Includes 60-second keepalive timeout. `attach(task)` ties the turn task to the writer; when the client closes the stream, `disconnected` becomes true and the task is cancelled (see 3.2, Disconnect). If the stream itself fails server-side (e.g. an event that cannot be serialized), one `error` event is sent before the stream closes: `code: internal` with the stream `ref`, or `saved_display_failed` (not recoverable) once `done` was queued (worded for the world when that done was sent with `send_done(..., world=True)`, as world generation does, #80), then the turn is cancelled as on a disconnect (unless `done` was queued).
 
 ### Frontend Handling
 

@@ -137,15 +137,14 @@ def test_bad_elements_and_bad_field_are_reported_together():
     assert narration.credit_delta is None
 
 
-def test_fallback_drops_a_list_still_failing_after_element_pruning():
-    """The second pass replaces the element entries of a still-failing list by the field."""
-    from pydantic import ValidationError
 
-    from schema.narration import NarrationOutput, _drop_whole_lists
+def test_error_without_a_field_is_invalid():
+    """A model-level error (empty loc) names no optional field: nothing is salvaged."""
+    from pydantic_core import InitErrorDetails, PydanticCustomError, ValidationError
 
-    data = _raw(entity_reveals="Mira")
-    with pytest.raises(ValidationError) as failed:
-        NarrationOutput.model_validate(data)
-    dropped = _drop_whole_lists(data, failed.value, ["entity_reveals[1]", "inventory_hints[0]"])
-    assert dropped == ["inventory_hints[0]", "entity_reveals"]
-    assert "entity_reveals" not in data
+    from schema.narration import _drop_invalid_optionals
+
+    error = ValidationError.from_exception_data("NarrationOutput", [InitErrorDetails(
+        type=PydanticCustomError("model", "model-level failure"), loc=(), input={})])
+    with pytest.raises(NarrationInvalid):
+        _drop_invalid_optionals(_raw(), error)

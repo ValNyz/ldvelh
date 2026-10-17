@@ -541,12 +541,7 @@ def parse_narration(parsed: dict, *, current_time: str,
     try:
         return NarrationOutput.model_validate(data), dropped
     except ValidationError as second:
-        # Elements kept may still break a list-level rule: drop those lists whole.
-        dropped = _drop_whole_lists(data, second, dropped)
-    try:
-        return NarrationOutput.model_validate(data), dropped
-    except ValidationError as third:
-        raise NarrationInvalid(validation_summary(third)) from third
+        raise NarrationInvalid(validation_summary(second)) from second
 
 
 def _failing_fields(error: ValidationError) -> set[str]:
@@ -556,10 +551,12 @@ def _failing_fields(error: ValidationError) -> set[str]:
 def _drop_invalid_optionals(data: dict, error: ValidationError) -> list[str]:
     """Remove what fails from `data` in place: bad list elements, else the whole field.
 
-    Raises NarrationInvalid when a required field fails (nothing can be salvaged).
+    Raises NarrationInvalid when a required field fails, or an error has no field (a
+    model-level error): nothing can be salvaged.
     """
     failing = _failing_fields(error)
-    if failing - set(OPTIONAL_NARRATION_FIELDS) or not failing <= data.keys():
+    if (any(not err["loc"] for err in error.errors())
+            or failing - set(OPTIONAL_NARRATION_FIELDS) or not failing <= data.keys()):
         raise NarrationInvalid(validation_summary(error)) from error
     bad_items: dict[str, set[int]] = {}
     whole: set[str] = set()
@@ -581,13 +578,3 @@ def _drop_invalid_optionals(data: dict, error: ValidationError) -> list[str]:
             dropped.extend(f"{field}[{i}]" for i in sorted(bad))
     return dropped
 
-
-def _drop_whole_lists(data: dict, error: ValidationError, dropped: list[str]) -> list[str]:
-    """Second pass: the optional fields still failing are dropped whole."""
-    failing = _failing_fields(error)
-    if failing - set(OPTIONAL_NARRATION_FIELDS) or not failing <= data.keys():
-        raise NarrationInvalid(validation_summary(error)) from error
-    for field in failing:
-        del data[field]
-    kept = [d for d in dropped if d.split("[", 1)[0] not in failing]
-    return kept + sorted(failing)

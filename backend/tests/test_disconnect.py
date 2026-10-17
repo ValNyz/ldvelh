@@ -356,9 +356,9 @@ async def test_stream_error_after_done_reports_the_turn_as_saved():
 
 
 async def test_stream_error_after_world_done_reports_the_world_as_saved():
-    """#80: the world generation done (world_info) gets the world-specific message."""
+    """#80: the world generation's done (world=True) gets the world-specific message."""
     writer = SSEWriter()
-    await writer.send_done(None, {"game_state": {}, "world_info": {"npc_count": 1}})
+    await writer.send_done(None, {"game_state": {}}, world=True)
     await writer.send(SSEEvent.STATUS, {"bad": object()})
 
     lines = [line async for line in writer.iterate()]
@@ -366,6 +366,19 @@ async def test_stream_error_after_world_done_reports_the_world_as_saved():
     error = json.loads(lines[-1][6:])
     assert (error["code"], error["recoverable"]) == ("saved_display_failed", False)
     assert error["error"].startswith("Ton monde est enregistré")
+
+
+async def test_world_info_without_the_world_flag_keeps_the_action_wording():
+    """Only the explicit flag decides the wording, never the payload content."""
+    writer = SSEWriter()
+    await writer.send_done("Fin.", {"game_state": {}, "world_info": {"npc_count": 1}})
+    await writer.send(SSEEvent.STATUS, {"bad": object()})
+
+    lines = [line async for line in writer.iterate()]
+
+    error = json.loads(lines[-1][6:])
+    assert error["code"] == "saved_display_failed"
+    assert error["error"].startswith("Ton action est enregistrée")
 
 
 async def test_writer_entry_removed_when_cancelled_before_first_step(harness, fate_game, test_user):

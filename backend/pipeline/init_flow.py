@@ -197,5 +197,5 @@ async def _send_world_done(ctx: TurnContext, init: InitParams, init_result: dict
     """Done payload from the saved state, then done and saved."""
     state = await ctx.games.load_game_state(ctx.request.game_id)
     payload = build_world_payload(state, init_result, init, result.parsed, result.cost)
-    await ctx.sink.send_done(None, payload.model_dump(exclude_none=True))
+    await ctx.sink.send_done(None, payload.model_dump(exclude_none=True), world=True)
     await ctx.sink.send_saved()

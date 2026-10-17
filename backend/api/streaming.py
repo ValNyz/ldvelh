@@ -108,11 +108,10 @@ class SSEWriter:
         await self.send(SSEEvent.EXTRACTING, {"displayText": display_text})
 
     async def send_done(
-        self, display_text: str | None, state: dict | None = None
+        self, display_text: str | None, state: dict | None = None, *, world: bool = False
     ) -> None:
         """Envoie l'événement de fin avec le résultat"""
-        # Only the world generation's done carries world_info (SSEDonePayload).
-        self._world_done = bool(state and state.get("world_info"))
+        self._world_done = world  # world generation: a later failure names the world (#80)
         await self.send(SSEEvent.DONE, {"displayText": display_text, "state": state})
 
     async def send_saved(self) -> None:

@@ -49,7 +49,7 @@ def _validate(ctx: TurnContext, parsed: dict | None) -> NarrationOutput:
     )
     if dropped:
         # Logged only: nothing about dropped fields reaches the player.
-        logger.warning(f"[NARRATE] Dropped invalid optional fields: {dropped}")
+        logger.warning(f"[NARRATE] Dropped invalid optional fields/elements: {dropped}")
     return narration
 
 
