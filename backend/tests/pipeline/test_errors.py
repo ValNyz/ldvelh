@@ -80,3 +80,29 @@ async def test_report_error_sends_once_without_details():
     assert sent["code"] == "provider_error"
     assert sent["ref"] == "abc123"
     assert sent["recoverable"] is True
+
+
+async def test_turn_error_with_cause_logs_the_cause(caplog):
+    try:
+        try:
+            raise ValueError("bad world field")
+        except ValueError as cause:
+            raise TurnError("world_gen_failed", "Échec de génération du monde. Réessaie.") from cause
+    except TurnError as e:
+        error = e
+    sink = _RecordingSink()
+    with caplog.at_level("WARNING", logger="pipeline.errors"):
+        await report_error(sink, error, provider_name="anthropic", ref="abc")
+    record = next(r for r in caplog.records if "world_gen_failed" in r.getMessage())
+    assert record.exc_info and record.exc_info[1] is error
+    assert "bad world field" in caplog.text  # chained cause traceback is logged
+    assert sink.errors[0]["error"] == "Échec de génération du monde. Réessaie."
+
+
+async def test_turn_error_without_cause_logs_no_traceback(caplog):
+    sink = _RecordingSink()
+    with caplog.at_level("WARNING", logger="pipeline.errors"):
+        await report_error(sink, TurnError("no_api_key", "x", recoverable=False),
+                           provider_name="anthropic", ref="abc")
+    record = next(r for r in caplog.records if "no_api_key" in r.getMessage())
+    assert not record.exc_info

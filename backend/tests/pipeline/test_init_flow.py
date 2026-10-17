@@ -1,8 +1,10 @@
 """World generation (InitFlow): pure payload, unparsable world, genre from the wizard slug."""
 
+import json
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from domain.game import GameSnapshot
 from llm.session import LLMSession
@@ -82,6 +84,27 @@ async def test_unparsable_world_raises_world_gen_failed(test_pool, test_user):
                                     ctx.request.game_id)
     assert count == 0
     assert not [e for e in sink.events if e[0] in ("send_done", "send_error")]
+
+
+async def test_invalid_world_schema_raises_world_gen_failed(test_pool, test_user):
+    ctx, sink = await _ctx(test_pool, test_user, {"world_gen": json.dumps({"world": "pas un objet"})},
+                           _init())
+    with pytest.raises(TurnError) as exc:
+        await init_flow.run_init(ctx)
+    assert exc.value.code == "world_gen_failed"
+    assert exc.value.message == "Échec de génération du monde. Réessaie."
+    assert isinstance(exc.value.__cause__, ValidationError)
+    async with test_pool.acquire() as conn:
+        count = await conn.fetchval("SELECT COUNT(*) FROM locations WHERE game_id = $1",
+                                    ctx.request.game_id)
+    assert count == 0
+
+
+async def test_unparsable_world_logs_the_output_tail(test_pool, test_user, caplog):
+    ctx, _ = await _ctx(test_pool, test_user, {"world_gen": "pas du JSON"}, _init())
+    with caplog.at_level("WARNING", logger="pipeline.init_flow"), pytest.raises(TurnError):
+        await init_flow.run_init(ctx)
+    assert "length=11" in caplog.text and "pas du JSON" in caplog.text
 
 
 async def test_resolve_genre_from_wizard_slug_is_stored(test_pool, test_user, seeded_genres):

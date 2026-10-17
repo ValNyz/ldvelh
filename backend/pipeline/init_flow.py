@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from dataclasses import replace
 
 from pydantic import ValidationError
 
@@ -91,8 +92,9 @@ def build_world_payload(client_state: dict, init_result: dict, init: InitParams,
     )
 
 
-def _validate_world(parsed: dict | None) -> WorldGeneration:
+def _validate_world(parsed: dict | None, raw: str) -> WorldGeneration:
     if not parsed:
+        logger.warning(f"[INIT] Unparsable world: length={len(raw)}, tail={raw[-100:]!r}")
         raise TurnError("world_gen_failed", WORLD_GEN_FAILED)
     try:
         return WorldGeneration.model_validate(parsed)
@@ -129,10 +131,10 @@ async def run_init(ctx: TurnContext) -> None:
     """Generate the world. Catches nothing: the API adapter reports failures."""
     logger.info("[CHAT] Mode: INIT (World Builder)")
     game_id = ctx.request.game_id
-    base = ctx.request.init or InitParams(None, None, None, None)
+    base = ctx.request.init or InitParams(engine=None, world_config=None, character_data=None,
+                                          manual_entities=None)
     # Engine from the wizard, else the game's engine.
-    init = InitParams(engine=base.engine or ctx.snapshot.engine, world_config=base.world_config,
-                      character_data=base.character_data, manual_entities=base.manual_entities)
+    init = replace(base, engine=base.engine or ctx.snapshot.engine)
 
     async with ctx.pool.acquire() as conn:
         genre = await resolve_genre(conn, ctx.snapshot, init)
@@ -143,8 +145,7 @@ async def run_init(ctx: TurnContext) -> None:
         messages=[{"role": "user", "content": prompt["user"]}],
         world_gen=True, temperature=1.0,
     )
-    logger.debug(f"[INIT] raw_json length: {len(result.raw)}")
-    world_gen = _validate_world(result.parsed)
+    world_gen = _validate_world(result.parsed, result.raw)
 
     game_service = GameService(ctx.pool)
     init_result = await game_service.process_init(game_id, world_gen)

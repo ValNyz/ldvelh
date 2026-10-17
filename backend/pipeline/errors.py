@@ -48,7 +48,9 @@ async def report_error(sink: EventSink, exc: BaseException, *,
     """Log the failure, then send exactly one error event (details stay None)."""
     error = to_turn_error(exc, provider_name, ref)
     if isinstance(exc, TurnError):
-        logger.warning(f"[TURN:{ref}] {error.code}: {error.message}")
+        # A chained cause (e.g. a ValidationError) keeps its traceback in the log.
+        logger.warning(f"[TURN:{ref}] {error.code}: {error.message}",
+                       exc_info=exc if exc.__cause__ else None)
     else:
         logger.exception(f"[TURN:{ref}] {error.code}: {exc!r}", exc_info=exc)
     await sink.send_error(error.message, recoverable=error.recoverable, code=error.code, ref=ref)
