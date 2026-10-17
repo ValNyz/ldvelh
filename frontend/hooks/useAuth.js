@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { api } from '../lib/api';
+import { api, revokeSession } from '../lib/api';
 
 const TOKEN_KEY = 'ldvelh-auth-token';
 const USER_KEY = 'ldvelh-auth-user';
@@ -123,7 +123,9 @@ export function useAuth() {
 		}
 	}, []);
 
-	const logout = useCallback(() => {
+	// Revokes the token on the backend first (#83), then forgets it locally.
+	const logout = useCallback(async () => {
+		await revokeSession();
 		localStorage.removeItem(TOKEN_KEY);
 		localStorage.removeItem(USER_KEY);
 		setToken(null);

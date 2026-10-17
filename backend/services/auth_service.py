@@ -32,13 +32,30 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
-def create_token(user_id: UUID, email: str) -> str:
-    """Create a JWT token for the given user."""
+class InvalidSession(Exception):
+    """A decoded token that no longer opens a session (reason in the message, English)."""
+
+
+def create_token(user_id: UUID, email: str, *, version: int = 0,
+                 session_start: datetime | None = None) -> str:
+    """Create a JWT for the user's sessions of `version`.
+
+    `orig_iat` is when the session began (login, registration, password change): a
+    refresh keeps it, and no token of the session expires after orig_iat plus
+    jwt_session_max_hours (#83).
+    """
     settings = get_settings()
+    now = datetime.now(timezone.utc)
+    start = session_start or now
+    exp = min(now + timedelta(hours=settings.jwt_expiry_hours),
+              start + timedelta(hours=settings.jwt_session_max_hours))
     payload = {
         "sub": str(user_id),
         "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=settings.jwt_expiry_hours),
+        "ver": version,
+        "iat": now,
+        "orig_iat": int(start.timestamp()),
+        "exp": exp,
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
@@ -47,6 +64,43 @@ def decode_token(token: str) -> dict:
     """Decode and validate a JWT token. Raises jwt.PyJWTError on failure."""
     settings = get_settings()
     return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+
+
+def session_claims(payload: dict) -> tuple[UUID, int, datetime]:
+    """(user id, token version, session start) of a decoded token.
+
+    Raises InvalidSession for a token without them (issued before #83) or whose
+    session is older than the absolute lifetime. The version is checked against the
+    user row by the caller.
+    """
+    try:
+        user_id = UUID(payload["sub"])
+        version = int(payload["ver"])
+        start = datetime.fromtimestamp(int(payload["orig_iat"]), timezone.utc)
+    except (KeyError, TypeError, ValueError):
+        raise InvalidSession("Invalid token payload")
+    max_age = timedelta(hours=get_settings().jwt_session_max_hours)
+    if datetime.now(timezone.utc) >= start + max_age:
+        raise InvalidSession("Session expired")
+    return user_id, version, start
+
+
+async def revoke_sessions(conn, user_id: UUID) -> int:
+    """Invalidate every token issued so far to the user; return the new version."""
+    return await conn.fetchval(
+        "UPDATE users SET token_version = token_version + 1 WHERE id = $1 RETURNING token_version",
+        user_id,
+    )
+
+
+async def change_password(conn, user_id: UUID, email: str, new_password: str) -> str:
+    """Store the new password, revoke every session, return a token for a new one."""
+    version = await conn.fetchval(
+        """UPDATE users SET password_hash = $1, token_version = token_version + 1
+           WHERE id = $2 RETURNING token_version""",
+        hash_password(new_password), user_id,
+    )
+    return create_token(user_id, email, version=version)
 
 
 async def register(conn, email: str, password: str, display_name: str | None = None) -> dict:
@@ -67,7 +121,7 @@ async def register(conn, email: str, password: str, display_name: str | None = N
             """INSERT INTO users (email, password_hash, display_name,
                                   email_verification_token, email_verification_sent_at)
                VALUES ($1, $2, $3, $4, now())
-               RETURNING id, email, display_name, email_verified""",
+               RETURNING id, email, display_name, email_verified, token_version""",
             email, pw_hash, display_name, verification_token,
         )
     except Exception as e:
@@ -87,7 +141,7 @@ async def register(conn, email: str, password: str, display_name: str | None = N
         "display_name": row["display_name"],
         "email_verified": row["email_verified"],
     }
-    user["token"] = create_token(row["id"], row["email"])
+    user["token"] = create_token(row["id"], row["email"], version=row["token_version"])
     logger.info(f"[AUTH] User registered: {email}")
     return user
 
@@ -102,12 +156,14 @@ async def authenticate(conn, identifier: str, password: str) -> dict | None:
     # Try email first, then display_name
     if "@" in identifier:
         row = await conn.fetchrow(
-            "SELECT id, email, password_hash, display_name, email_verified FROM users WHERE email = $1",
+            """SELECT id, email, password_hash, display_name, email_verified, token_version
+               FROM users WHERE email = $1""",
             identifier.lower(),
         )
     else:
         row = await conn.fetchrow(
-            "SELECT id, email, password_hash, display_name, email_verified FROM users WHERE display_name = $1",
+            """SELECT id, email, password_hash, display_name, email_verified, token_version
+               FROM users WHERE display_name = $1""",
             identifier,
         )
     if not row:
@@ -122,7 +178,7 @@ async def authenticate(conn, identifier: str, password: str) -> dict | None:
         "display_name": row["display_name"],
         "email_verified": row["email_verified"],
     }
-    user["token"] = create_token(row["id"], row["email"])
+    user["token"] = create_token(row["id"], row["email"], version=row["token_version"])
     logger.info(f"[AUTH] User authenticated: {row['email']}")
     return user
 

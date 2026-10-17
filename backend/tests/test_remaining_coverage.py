@@ -1159,6 +1159,7 @@ class TestAuthServiceRegister:
             "email": "new@test.com",
             "display_name": "New User",
             "email_verified": False,
+            "token_version": 0,
         }
 
         with patch("services.auth_service.send_verification_email", new_callable=AsyncMock) as mock_send:
@@ -1223,6 +1224,7 @@ class TestAuthServiceAuthenticate:
             "password_hash": pw_hash,
             "display_name": "User",
             "email_verified": True,
+            "token_version": 0,
         }
 
         result = await authenticate(mock_conn, "user@test.com", "correct")
@@ -1244,6 +1246,7 @@ class TestAuthServiceAuthenticate:
             "password_hash": pw_hash,
             "display_name": "UserName",
             "email_verified": True,
+            "token_version": 0,
         }
 
         result = await authenticate(mock_conn, "UserName", "pass")

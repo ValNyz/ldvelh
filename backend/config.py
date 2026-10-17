@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     jwt_secret: str = ""  # JWT_SECRET, required: checked by startup_checks at startup
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 72
+    # Absolute session lifetime: refreshing never extends a session past this (#83).
+    jwt_session_max_hours: int = 168
     registration_enabled: bool = os.getenv("REGISTRATION_ENABLED", "true").lower() == "true"
     dev_user_email: str = os.getenv("DEV_USER_EMAIL", "dev@ldvelh.local")
     dev_user_password: str = os.getenv("DEV_USER_PASSWORD", "devpassword")

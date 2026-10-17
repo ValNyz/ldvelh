@@ -187,9 +187,25 @@ async def me(
 
 @router.post("/refresh")
 async def refresh_token(user: dict = Depends(get_current_user)):
-    """Issue a fresh JWT if the current token is still valid."""
-    token = auth_service.create_token(str(user["id"]), user["email"])
+    """Issue a fresh JWT for the same session if the current token is still valid.
+
+    The session start is kept, so refreshing never extends a session past
+    jwt_session_max_hours (#83).
+    """
+    token = auth_service.create_token(user["id"], user["email"], version=user["token_version"],
+                                      session_start=user["session_start"])
     return {"token": token}
+
+
+@router.post("/logout")
+async def logout(
+    user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """Revoke every token issued to the user so far (all devices) (#83)."""
+    async with pool.acquire() as conn:
+        await auth_service.revoke_sessions(conn, user["id"])
+    return {"success": True}
 
 
 @router.patch("/profile")
@@ -278,7 +294,7 @@ async def change_password(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    """Change the current user's password."""
+    """Change the current user's password and revoke the other sessions."""
     if request.new_password != request.new_password_confirm:
         raise HTTPException(status_code=400, detail="New passwords do not match")
     if len(request.new_password) < 6:
@@ -294,14 +310,12 @@ async def change_password(
     if not auth_service.verify_password(request.current_password, row["password_hash"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
 
-    new_hash = auth_service.hash_password(request.new_password)
+    # Every other session is revoked; this device continues with the returned token (#83).
     async with pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE users SET password_hash = $1 WHERE id = $2",
-            new_hash, user["id"],
-        )
+        token = await auth_service.change_password(
+            conn, user["id"], user["email"], request.new_password)
 
-    return {"success": True}
+    return {"success": True, "token": token}
 
 
 # =============================================================================

@@ -742,8 +742,9 @@ A refused rollback raises `RollbackRejected(reason)`; the route answers 400 with
 - **Login:** `login(identifier, password)` → `POST /auth/login` → stores JWT + user in localStorage
 - **Register:** `register(email, password, passwordConfirm, displayName)` → `POST /auth/register`
 - **Session restore:** on mount, reads localStorage → validates via `GET /auth/me` → refreshes token
-- **Token refresh:** every 30 minutes via `POST /auth/refresh`
-- **Logout:** clears localStorage
+- **Token refresh:** every 30 minutes via `POST /auth/refresh` (same session: never past the absolute lifetime, then the player logs in again)
+- **Logout:** `POST /auth/logout` (best effort, revokes the token on the backend), then clears localStorage
+- **Password change** (Settings): stores the token returned by `POST /auth/change-password`; the player's other sessions are revoked
 
 **File:** `frontend/lib/api.js`
 
@@ -758,10 +759,11 @@ All API requests include `Authorization: Bearer {token}` header. On 401 response
 | `/auth/register` | POST | Create user, hash password, send verification email |
 | `/auth/login` | POST | Authenticate by email or display_name, return JWT |
 | `/auth/me` | GET | Return current user (requires auth) |
-| `/auth/refresh` | POST | Issue fresh JWT |
+| `/auth/refresh` | POST | Issue a fresh JWT for the same session (keeps `orig_iat`) |
+| `/auth/logout` | POST | Revoke every token of the player (bumps `token_version`, all devices) |
 | `/auth/verify` | GET | Verify email via token (24h expiry) |
 | `/auth/resend-verification` | POST | Resend verification email (3 per 10 min per player) |
-| `/auth/change-password` | POST | Verify current + update password |
+| `/auth/change-password` | POST | Verify current + update password, revoke every session, return a new `token` for this one |
 | `/auth/profile` | PATCH | Update display name |
 | `/auth/preferences` | GET | Load user preferences (API keys masked) |
 | `/auth/preferences` | PATCH | Update preferences (API keys encrypted) |
@@ -769,8 +771,9 @@ All API requests include `Authorization: Bearer {token}` header. On 401 response
 **File:** `backend/services/auth_service.py`
 
 - Password hashing: bcrypt
-- JWT: signed with `JWT_SECRET`, expiry configurable via `jwt_expiry_hours`. At startup `main.py` runs `startup_checks.check_startup_config`: the backend refuses to start, even with `DEBUG=true`, when `JWT_SECRET` is under 32 characters, has outer whitespace, uses fewer than 8 distinct characters, contains `change-me` or is a value published in the repo, or when `ENCRYPTION_KEY` is set but has outer whitespace or is not a valid (unpublished) Fernet key; an empty `ENCRYPTION_KEY` is refused outside debug mode. `config.py` has no JWT default (empty, hence refused)
+- JWT: signed with `JWT_SECRET`, claims `sub`, `email`, `ver`, `iat`, `orig_iat`, `exp`. `exp` is `jwt_expiry_hours` (72 h) after issue, capped at `orig_iat` + `jwt_session_max_hours` (`JWT_SESSION_MAX_HOURS`, 168 h): `orig_iat` is the session start (login, registration, password change) and a refresh keeps it, so a stolen token cannot be refreshed forever (#83). `get_current_user` answers 401 when `ver` differs from `users.token_version` (`Session revoked`), when the session is older than the absolute lifetime (`Session expired`) or when a claim is missing (tokens issued before #83: players log in once again). `token_version` is incremented by a password change and by `POST /auth/logout`.
 - Rate limits (`utils/rate_limit.py`, in memory, sliding window, idle keys purged once per window): login/register 5/min per IP, `/world/enhance` 10/min per IP, `/chat` 10/min per player and 30/min per IP, resend-verification 3 per 10 min per player. Over the limit: 429 `{"detail": "Trop de requêtes. Réessaie dans N s.", "code": "rate_limited"}` with `Retry-After`; the chat client shows that French text (or its own when a 429 has another body). The client IP is the TCP peer, or with `TRUSTED_PROXY_HOPS=N` the N-th `X-Forwarded-For` entry from the right (the one the outermost trusted proxy appended): client-supplied entries on the left are ignored, so varying the header no longer resets a limit (#82).
+- At startup `main.py` runs `startup_checks.check_startup_config`: the backend refuses to start, even with `DEBUG=true`, when `JWT_SECRET` is under 32 characters, has outer whitespace, uses fewer than 8 distinct characters, contains `change-me` or is a value published in the repo, or when `ENCRYPTION_KEY` is set but has outer whitespace or is not a valid (unpublished) Fernet key; an empty `ENCRYPTION_KEY` is refused outside debug mode. `config.py` has no JWT default (empty, hence refused)
 - Email verification tokens: 24h expiry, stored in `users.verification_token`
 
 ### Preferences

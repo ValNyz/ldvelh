@@ -369,12 +369,14 @@ function AccountSection({ user }) {
 		}
 		setPwStatus('saving');
 		try {
-			const { api } = await import('../../lib/api');
-			await api.post('/auth/change-password', {
+			const { api, saveToken } = await import('../../lib/api');
+			const data = await api.post('/auth/change-password', {
 				current_password: currentPassword,
 				new_password: newPassword,
 				new_password_confirm: newPasswordConfirm,
 			});
+			// The other sessions are revoked; this one continues with the new token (#83).
+			if (data.token) saveToken(data.token);
 			setPwStatus('saved');
 			setCurrentPassword('');
 			setNewPassword('');

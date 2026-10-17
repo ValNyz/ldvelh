@@ -26,6 +26,21 @@ export function getAuthHeaders() {
 	return { 'Authorization': `Bearer ${token}` };
 }
 
+/** Store the session token the backend just issued (login, refresh, password change). */
+export function saveToken(token) {
+	localStorage.setItem('ldvelh-auth-token', token);
+}
+
+/**
+ * Revoke the session on the backend (every device of the player). Best effort:
+ * the caller clears the local session whatever the answer.
+ */
+export async function revokeSession() {
+	try {
+		await fetch(apiUrl('/auth/logout'), { method: 'POST', headers: getAuthHeaders() });
+	} catch { /* offline: the token still expires on its own */ }
+}
+
 /**
  * Refresh the session token once, shared by concurrent callers.
  * If the refresh fails, auth is cleared, the player is sent to the login page
@@ -41,7 +56,7 @@ export async function refreshSession() {
 		}).then(async (res) => {
 			if (!res.ok) throw new Error('Refresh failed');
 			const data = await res.json();
-			localStorage.setItem('ldvelh-auth-token', data.token);
+			saveToken(data.token);
 			return data.token;
 		}).finally(() => {
 			_refreshPromise = null;

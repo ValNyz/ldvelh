@@ -96,6 +96,7 @@ psql -U your_user -d your_db -f schema.sql
 | `LOG_PROMPTS` | Log narrator prompts and JSON (DEBUG level) | `false` |
 | `CORS_ORIGINS` | Allowed origins | `http://localhost:3000` |
 | `TRUSTED_PROXY_HOPS` | Reverse proxies in front of the backend that append to `X-Forwarded-For`; the client IP used by the rate limits is the entry the outermost one added. `0` ignores the header (TCP peer) | `0`; `docker-compose.yml`: `1` (Traefik); override: `0` |
+| `JWT_SESSION_MAX_HOURS` | Absolute session lifetime: a refresh never extends a session past it, then the player logs in again | `168` |
 
 ## Running tests
 
@@ -150,8 +151,10 @@ Coolify deploys `docker-compose.yml` alone (no override). Environment to set in 
 - `ENCRYPTION_KEY` (required): a Fernet key. Players' saved API keys are encrypted with it: once set, never change or lose it, or those keys become unreadable (players must enter them again).
 - `SERVICE_URL_FRONTEND` (Coolify magic variable), `CORS_ORIGINS` (the production origin), `NEXT_PUBLIC_API_URL` (build arg: set it empty for same-origin `/api`, or to the backend URL; unset falls back to `http://localhost:8000`).
 - `TRUSTED_PROXY_HOPS`: number of reverse proxies between the internet and the backend; the compose default `1` fits Coolify (one Traefik). Add one per extra proxy that appends to `X-Forwarded-For` (e.g. `2` behind Cloudflare in proxy mode). Too high lets a client choose its rate-limit key by sending the header; too low (`0` behind Traefik) puts every player behind Traefik's address, so one player's failed logins throttle everyone. The backend port must stay unpublished, so that only the proxy reaches it.
-- Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`.
+- Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`, `JWT_SESSION_MAX_HOURS` (default 168: players log in again once a week).
 - Leave `DEBUG` unset (`false`), and do not set `DEV_USER_*`.
+
+After the #83 deploy every player is logged out once (tokens without `ver`/`orig_iat` are refused).
 
 One-off check after this change (manual): debug mode used to seed `dev@ldvelh.local` with a known password. Make sure that account does not exist in the production database (`SELECT id FROM users WHERE email = 'dev@ldvelh.local';`) and delete it if it does.
 

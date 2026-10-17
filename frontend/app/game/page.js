@@ -178,7 +178,7 @@ function GameScreen({ user, logout }) {
 					onDiscardDraft={wizardSession.discard}
 					onDelete={orch.handleDeleteGame}
 					onSettings={openSettings}
-					onLogout={() => { logout(); window.location.href = '/login/'; }}
+					onLogout={async () => { await logout(); window.location.href = '/login/'; }}
 				/>
 			</>
 		);
