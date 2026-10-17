@@ -1,119 +1,67 @@
 'use client';
 
 import { useRef, useCallback, useState } from 'react';
-import { apiUrl, getAuthHeaders } from '../lib/api';
-import { createSSEParser } from '../lib/sse.mjs';
+import { apiUrl, getAuthHeaders, refreshSession } from '../lib/api';
+import { runChatStream } from '../lib/chatStream.mjs';
 
 /**
- * Hook pour gérer le streaming SSE
+ * /chat SSE stream for React: cancellation and dispatch of each event to its
+ * callback. The stream itself (HTTP errors, 401 refresh, terminal event
+ * guarantee) lives in lib/chatStream.mjs.
  */
-export function useStreaming({ onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus, onWarning }) {
+export function useStreaming({
+	onChunk, onProgress, onExtracting, onDone, onSaved, onSaveUnconfirmed, onError,
+	onRollResult, onRollPending, onStatus, onWarning,
+}) {
 	const abortControllerRef = useRef(null);
 	const [rawJson, setRawJson] = useState('');
 
 	const startStream = useCallback(async (url, body) => {
 		// Cancel any in-flight stream before starting a new one
-		if (abortControllerRef.current) {
-			abortControllerRef.current.abort();
-		}
-		abortControllerRef.current = new AbortController();
+		abortControllerRef.current?.abort();
+		const controller = new AbortController();
+		abortControllerRef.current = controller;
 		let fullJson = '';
 		setRawJson('');
 
+		const dispatch = (data) => {
+			switch (data.type) {
+				case 'chunk': onChunk?.(data.content); break;
+				case 'progress':
+					fullJson = data.rawJson || fullJson;
+					setRawJson(fullJson);
+					onProgress?.(fullJson);
+					break;
+				case 'extracting': onExtracting?.(data.displayText); break;
+				case 'done': onDone?.(data.displayText, data.state); break;
+				case 'saved': onSaved?.(); break;
+				case 'save_unconfirmed': onSaveUnconfirmed?.(); break;
+				case 'error': onError?.(data.error, data.details, { status: data.status, interrupted: !!data.interrupted }); break;
+				case 'roll_result': onRollResult?.(data.roll); break;
+				case 'roll_pending': onRollPending?.(data); break;
+				case 'status': onStatus?.(data); break;
+				case 'warning':
+					console.warn('[Stream] Warning:', data.message);
+					onWarning?.(data.message);
+					break;
+				default: break;
+			}
+		};
+
 		try {
-			// Utiliser apiUrl() pour construire l'URL complète du backend
-			const fullUrl = apiUrl(url);
-
-			const res = await fetch(fullUrl, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-				body: JSON.stringify(body),
-				signal: abortControllerRef.current.signal
+			const result = await runChatStream({
+				url: apiUrl(url),
+				body,
+				signal: controller.signal,
+				onEvent: dispatch,
+				getHeaders: getAuthHeaders,
+				refreshSession,
 			});
-
-			if (!res.headers.get('content-type')?.includes('text/event-stream')) {
-				const data = await res.json();
-				if (data.error) {
-					onError?.(data.error, data.details);
-					return { success: false };
-				}
-				onDone?.(data.displayText || data.content, data.state);
-				return { success: true, data };
-			}
-
-			const reader = res.body.getReader();
-			const decoder = new TextDecoder();
-			// Buffers partial events across reads (#14)
-			const parser = createSSEParser((data) => {
-				switch (data.type) {
-					case 'chunk':
-						onChunk?.(data.content);
-						break;
-
-					case 'progress':
-						fullJson = data.rawJson || fullJson;
-						setRawJson(fullJson);
-						onProgress?.(fullJson);
-						break;
-
-					case 'extracting':
-						onExtracting?.(data.displayText);
-						break;
-
-					case 'done':
-						onDone?.(data.displayText, data.state);
-						break;
-
-					case 'saved':
-						onSaved?.();
-						break;
-
-					case 'error':
-						onError?.(data.error, data.details);
-						break;
-
-					case 'roll_result':
-						onRollResult?.(data.roll);
-						break;
-
-					case 'roll_pending':
-						onRollPending?.(data);
-						break;
-
-					case 'status':
-						onStatus?.(data);
-						break;
-
-					case 'warning':
-						console.warn('[Stream] Warning:', data.message);
-						onWarning?.(data.message);
-						break;
-
-					default:
-						break;
-				}
-			});
-
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				parser.push(decoder.decode(value, { stream: true }));
-			}
-			parser.push(decoder.decode());
-			parser.flush();
-
-			return { success: true, fullJson };
-
-		} catch (e) {
-			if (e.name === 'AbortError') {
-				return { success: false, aborted: true, partialContent: fullJson };
-			}
-			onError?.(e.message);
-			return { success: false, error: e };
+			return { ...result, fullJson };
 		} finally {
-			abortControllerRef.current = null;
+			if (abortControllerRef.current === controller) abortControllerRef.current = null;
 		}
-	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onError, onRollResult, onRollPending, onStatus, onWarning]);
+	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onSaveUnconfirmed, onError, onRollResult, onRollPending, onStatus, onWarning]);
 
 	const cancel = useCallback(() => {
 		if (abortControllerRef.current) {

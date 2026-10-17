@@ -8,6 +8,7 @@ import { stateApi } from '../lib/api';
 const MESSAGES = {
 	NEW_GAME_NAME: 'Nouvelle partie',
 	CANCELLED_SUFFIX: '\n\n*(Annulé)*',
+	SAVE_UNCONFIRMED: "La sauvegarde de ce tour n'a pas été confirmée : recharge la partie si le dernier message manque.",
 };
 
 // Protocol tokens for special messages
@@ -39,6 +40,14 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const [invocationData, setInvocationData] = useState(null);
 	const sendingRef = useRef(false);
 	const pendingRollRef = useRef(null);
+
+	// The turn is over (answer, roll to invoke, error or cancel): the player can send again.
+	const endTurn = useCallback(({ saving = false } = {}) => {
+		sendingRef.current = false;
+		gs.setLoading(false);
+		gs.setSaving(saving);
+		setIsExtracting(false);
+	}, [gs]);
 
 	// =========================================================================
 	// STREAMING CALLBACKS
@@ -86,10 +95,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			});
 		},
 		onDone: (displayText, data) => {
-			sendingRef.current = false;
-			gs.setLoading(false);
-			gs.setSaving(true);
-			setIsExtracting(false);
+			endTurn({ saving: true }); // until 'saved'
 
 			// INIT mode: world_info present means world was just created
 			if (data?.world_info) {
@@ -136,11 +142,13 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			tooltips.refresh();
 			world.refresh();
 		},
+		onSaveUnconfirmed: () => {
+			gs.setSaving(false);
+			gs.setWarning(MESSAGES.SAVE_UNCONFIRMED);
+		},
 		onRollPending: (data) => {
 			// Fate Core: roll failed, player can invoke aspects
-			sendingRef.current = false;
-			gs.setLoading(false);
-			gs.setSaving(false);
+			endTurn();
 			setInvocationData({
 				rollId: data.roll_id,
 				roll: data.roll,
@@ -152,11 +160,8 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			gs.setWarning(message);
 		},
 		onError: (err, details) => {
-			sendingRef.current = false;
+			endTurn();
 			gs.setError({ message: err, details, recoverable: true });
-			gs.setLoading(false);
-			gs.setSaving(false);
-			setIsExtracting(false);
 		}
 	});
 
@@ -333,10 +338,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 	const handleCancel = useCallback(() => {
 		if (cancel()) {
-			sendingRef.current = false;
-			gs.setLoading(false);
-			gs.setSaving(false);
-			setIsExtracting(false);
+			endTurn();
 			gs.setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.streaming || last?.extracting) {
@@ -350,7 +352,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				return prev;
 			});
 		}
-	}, [cancel, gs]);
+	}, [cancel, endTurn, gs]);
 
 	const handleEdit = useCallback((index) => {
 		setEditingIndex(index);

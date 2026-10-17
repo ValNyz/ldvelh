@@ -27,13 +27,13 @@ export function getAuthHeaders() {
 }
 
 /**
- * Handle 401: attempt one token refresh, then retry the original request.
- * If refresh fails, clear auth and redirect to login.
+ * Refresh the session token once, shared by concurrent callers.
+ * If the refresh fails, auth is cleared, the player is sent to the login page
+ * and the returned promise rejects with "Session expired".
  */
 let _refreshPromise = null;
 
-async function attemptRefreshAndRetry(method, url, options) {
-	// Coalesce concurrent refresh attempts into one
+export async function refreshSession() {
 	if (!_refreshPromise) {
 		_refreshPromise = fetch(apiUrl('/auth/refresh'), {
 			method: 'POST',
@@ -49,9 +49,8 @@ async function attemptRefreshAndRetry(method, url, options) {
 	}
 
 	try {
-		await _refreshPromise;
+		return await _refreshPromise;
 	} catch {
-		// Refresh failed — clear auth and redirect
 		localStorage.removeItem('ldvelh-auth-token');
 		localStorage.removeItem('ldvelh-auth-user');
 		if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
@@ -59,8 +58,12 @@ async function attemptRefreshAndRetry(method, url, options) {
 		}
 		throw new Error('Session expired');
 	}
+}
 
-	// Retry original request with refreshed token
+/** Handle 401: refresh the token once, then retry the original request. */
+async function attemptRefreshAndRetry(method, url, options) {
+	await refreshSession();
+
 	const retryOptions = { ...options, headers: { ...options.headers, ...getAuthHeaders() } };
 	const res = await fetch(url, retryOptions);
 	if (!res.ok) {

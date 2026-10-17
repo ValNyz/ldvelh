@@ -450,9 +450,9 @@ Context prompt: markdown sections built from `NarrationContext`:
 
 #### 3.3 Frontend: Receiving Events
 
-**File:** `frontend/hooks/useStreaming.js` — `startStream()`
+**Files:** `frontend/lib/chatStream.mjs` (`runChatStream`, pure, tested by `npm test`) and `frontend/hooks/useStreaming.js` (`startStream()`: cancellation + dispatch)
 
-SSE events dispatched to callbacks in `useGameOrchestrator`:
+SSE events dispatched to callbacks in `useGameOrchestrator`. A stream that is not cancelled always ends with exactly one terminal event (`done`, `error` or `roll_pending`); the client synthesizes it when the server gives none, so the "turn in progress" state can never stay stuck (#35): HTTP error → `error` with `status` (FastAPI `detail` as message); stream closed without a terminal event or network failure → `error` with `interrupted: true` (recoverable, "Réessayer"); a 401 refreshes the session once (`refreshSession()` in `lib/api.js`, shared with the REST client) and retries, or sends to the login page. Every terminal callback ends the turn through one helper (`endTurn`).
 
 | SSE Event | Callback | UI Effect |
 |-----------|----------|-----------|
@@ -463,6 +463,7 @@ SSE events dispatched to callbacks in `useGameOrchestrator`:
 | `done` | `onDone` | Finalizes message (streaming: false), updates game state |
 | `saved` | `onSaved` | Stops saving spinner, refreshes tooltips + world sidebar |
 | `error` | `onError` | Shows error message |
+| `save_unconfirmed` (client-side) | `onSaveUnconfirmed` | `done` came but `saved` never did: stops the spinner, shows a warning |
 
 ---
 
@@ -850,12 +851,13 @@ Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `se
 
 **File:** `frontend/hooks/useStreaming.js`
 
-`startStream(url, body)`:
-1. POSTs to backend with JSON body
-2. If response is `text/event-stream`: reads via `ReadableStream` reader
-3. Parses `data: ` lines as JSON
-4. Dispatches to callbacks: `onChunk`, `onProgress`, `onExtracting`, `onDone`, `onSaved`, `onError`, `onRollResult`, `onRollPending`
-5. Returns `{success, fullJson}` or `{success: false, aborted}` on cancel
+`startStream(url, body)` runs `runChatStream` (`frontend/lib/chatStream.mjs`):
+1. POSTs to backend with JSON body; a 401 refreshes the session once and retries
+2. A non-2xx answer becomes one `error` event (`status`, FastAPI `detail`)
+3. If response is `text/event-stream`: reads via `ReadableStream` reader, parses `data: ` events (`lib/sse.mjs`, partial events buffered)
+4. No terminal event before the end → synthetic recoverable `error` (`interrupted: true`); `done` without `saved` → `save_unconfirmed`
+5. Dispatches to callbacks: `onChunk`, `onProgress`, `onExtracting`, `onDone`, `onSaved`, `onSaveUnconfirmed`, `onError(message, details, { status, interrupted })`, `onRollResult`, `onRollPending`
+6. Returns `{success, fullJson}`, `{success: false, interrupted}` or `{success: false, aborted}` on cancel
 
 Cancellation: `cancel()` aborts the `AbortController`, frontend updates message with "*(Annulé)*" suffix.
 

@@ -17,7 +17,8 @@ export const USER = {
 
 /**
  * @param {import('@playwright/test').Page} page
- * @param {Object} handlers - { 'POST /world/enhance': (body) => response, ... } override defaults
+ * @param {Object} handlers - { 'POST /world/enhance': (body) => response, ... } override defaults.
+ *   A response may be { __status, body } (HTTP error) or { __sse: [events] } (SSE stream).
  * @returns {{ calls: Array<{method: string, path: string, body: any}> }}
  */
 export async function mockApi(page, handlers = {}) {
@@ -48,6 +49,10 @@ export async function mockApi(page, handlers = {}) {
 			return route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
 		}
 		const result = await handler(body);
+		if (result && result.__sse) {
+			const events = result.__sse.map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
+			return route.fulfill({ status: 200, contentType: 'text/event-stream', body: events });
+		}
 		if (result && result.__status) {
 			return route.fulfill({ status: result.__status, contentType: 'application/json', body: JSON.stringify(result.body) });
 		}
