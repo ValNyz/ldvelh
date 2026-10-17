@@ -2,6 +2,7 @@
 
 import pytest
 
+from helpers import apply_deltas, apply_state, save_pair
 from schema import NarrationOutput
 from services.game_service import RollbackRejected
 from tests.test_game_and_populator import _make_narration_output, _setup_game_with_world
@@ -13,9 +14,9 @@ async def _two_cycles_with_stub_location(client, test_user, test_pool):
     arrival_loc = world_gen.arrival_event.arrival_location_ref
 
     first = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
-    await service.process_light(game_id, first, current_cycle=1)
-    await service.save_messages(
-        game_id, "Je regarde autour.", "Rien de neuf.", cycle=1,
+    await apply_state(test_pool, game_id, first, 1)
+    await save_pair(
+        test_pool, game_id, "Je regarde autour.", "Rien de neuf.", cycle=1,
         time="09h15", location_ref=arrival_loc, game_date="Lundi 18 Juillet 2847",
     )
 
@@ -24,10 +25,10 @@ async def _two_cycles_with_stub_location(client, test_user, test_pool):
         day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"},
         credit_delta={"amount": -30, "description": "billet de navette"},
     ))
-    await service.process_light(game_id, second, current_cycle=1)
-    await service.apply_narrator_deltas(game_id, second, 2)
-    _, _ = await service.save_messages(
-        game_id, "Je prends la navette vers Dock 9.", "La navette arrive au Dock 9.",
+    await apply_state(test_pool, game_id, second, 1)
+    await apply_deltas(test_pool, game_id, second, 2)
+    _, _ = await save_pair(
+        test_pool, game_id, "Je prends la navette vers Dock 9.", "La navette arrive au Dock 9.",
         cycle=2, time="08h00", location_ref="Dock 9", game_date="Mardi 19 Juillet 2847",
         narrator_deltas={"credit_delta": {"amount": -30, "description": "billet de navette"}},
     )

@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from uuid import UUID
 
+from repos import turns as turn_repo
 from schema import WorldGeneration, NarrationOutput
 from services.game_service import GameService
 
@@ -64,26 +65,23 @@ async def replay_game_dump(
             continue  # Skip failed turns
         narration = NarrationOutput.model_validate(narration_data)
 
-        # Process the narration (updates cycle, time, location)
-        result = await service.process_light(game_id, narration, current_cycle)
-        current_cycle = result["cycle"]
-        if result.get("time"):
-            current_time = result["time"]
-        if result.get("location"):
-            current_location = result["location"]
-
-        # Apply deltas (credits, entity reveals)
-        await service.apply_narrator_deltas(game_id, narration, current_cycle)
-
-        # Save messages
-        await service.save_messages(
-            game_id=game_id,
-            user_message=turn["user_message"],
-            assistant_message=narration.narrative_text,
-            cycle=current_cycle,
-            time=result.get("time"),
-            location_ref=result.get("location"),
-        )
+        # Process the narration (updates cycle, time, location), apply deltas
+        # (credits, entity reveals) and save the messages, as a turn commit does.
+        async with pool.acquire() as conn:
+            result = await turn_repo.apply_narration_state(conn, game_id, narration,
+                                                           current_cycle)
+            current_cycle = result.cycle
+            if result.time:
+                current_time = result.time
+            if result.location:
+                current_location = result.location
+            await turn_repo.apply_narrator_deltas(conn, game_id, narration, current_cycle)
+            await turn_repo.save_turn_messages(
+                conn, game_id,
+                user_message=turn["user_message"],
+                assistant_message=narration.narrative_text,
+                state=result, narrator_deltas=None, engine_snapshot=None,
+            )
 
         # Progress indicator every 10 turns
         if (i + 1) % 10 == 0 or (i + 1) == total:

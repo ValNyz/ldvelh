@@ -1,5 +1,6 @@
 """Respond step: the done payload, sent once the turn is saved, then saved."""
 
+from domain.turn import NarrationState
 from pipeline.context import TurnContext
 from pipeline.steps.arbitrate import Arbitration
 from pipeline.steps.commit import Committed
@@ -9,17 +10,17 @@ from schema.sse_payload import SSEDonePayload, SSEGameState, SSEMeta, SSEUIHints
 from services.game_service import GameService
 
 
-def _merged_game(game: dict, process_result: dict) -> dict:
+def _merged_game(game: dict, state: NarrationState) -> dict:
     """Client game state overridden by what this turn just committed."""
     merged = {
         **game,
-        "current_cycle": process_result["cycle"],
-        "time": process_result["time"],
-        "current_location": process_result["location"],
-        "npcs_present": process_result["npcs_present"],
+        "current_cycle": state.cycle,
+        "time": state.time,
+        "current_location": state.location,
+        "npcs_present": state.npcs_present,
     }
-    if process_result.get("date"):
-        merged["game_date"] = process_result["date"]
+    if state.date:
+        merged["game_date"] = state.date
     return merged
 
 

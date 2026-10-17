@@ -15,7 +15,7 @@ from uuid import UUID
 
 import pytest
 
-from helpers import auth_headers
+from helpers import apply_state, auth_headers, save_pair
 from prompts.examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
@@ -298,9 +298,9 @@ async def test_build_context_after_messages(
         "extraction_triggers": [],
     }
     narration = NarrationOutput.model_validate(narration_data)
-    await service.process_light(game_id, narration, current_cycle=1)
-    await service.save_messages(
-        game_id=game_id,
+    await apply_state(test_pool, game_id, narration, 1)
+    await save_pair(
+        test_pool, game_id=game_id,
         user_message="Je traverse le terminal",
         assistant_message=narration.narrative_text,
         cycle=1,

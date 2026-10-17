@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from helpers import auth_headers
+from helpers import apply_deltas, apply_state, auth_headers, log_roll, make_roll, save_pair
 from prompts.examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
@@ -147,23 +147,23 @@ async def test_process_narration_and_save(client, test_user, test_pool, world_ge
     narration = NarrationOutput.model_validate(narration_data)
 
     # Process narration (updates cycle, time, location)
-    result = await service.process_light(game_id, narration, current_cycle=1)
-    assert result["cycle"] == 1  # No day_transition, same cycle
-    assert result["time"] == "09h15"
-    assert result["location"] == arrival_loc
+    result = await apply_state(test_pool, game_id, narration, 1)
+    assert result.cycle == 1  # No day_transition, same cycle
+    assert result.time == "09h15"
+    assert result.location == arrival_loc
 
     # Apply deltas (credits + entity reveals)
-    delta_result = await service.apply_narrator_deltas(game_id, narration, result["cycle"])
-    assert delta_result["credits"]["amount"] == -15
+    delta_result = await apply_deltas(test_pool, game_id, narration, result.cycle)
+    assert delta_result.credit["amount"] == -15
 
     # Save messages
-    user_id, assistant_id = await service.save_messages(
-        game_id=game_id,
+    user_id, assistant_id = await save_pair(
+        test_pool, game_id=game_id,
         user_message="Je regarde autour de moi",
         assistant_message=narration.narrative_text,
-        cycle=result["cycle"],
-        time=result["time"],
-        location_ref=result["location"],
+        cycle=result.cycle,
+        time=result.time,
+        location_ref=result.location,
     )
     assert user_id is not None
     assert assistant_id is not None
@@ -204,8 +204,8 @@ async def test_narrator_deltas_update_stats(
     narration_data = _make_narration_output(arrival_loc)
     narration = NarrationOutput.model_validate(narration_data)
 
-    await service.process_light(game_id, narration, current_cycle=1)
-    await service.apply_narrator_deltas(game_id, narration, 1)
+    await apply_state(test_pool, game_id, narration, 1)
+    await apply_deltas(test_pool, game_id, narration, 1)
 
     # Check credit delta was applied
     state_after = await service.load_game_state(game_id)
@@ -239,9 +239,9 @@ async def test_rollback_deletes_messages(
     for i in range(2):
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await service.process_light(game_id, narration, current_cycle=1)
-        await service.save_messages(
-            game_id=game_id,
+        await apply_state(test_pool, game_id, narration, 1)
+        await save_pair(
+            test_pool, game_id=game_id,
             user_message=f"Action {i + 1}",
             assistant_message=narration.narrative_text,
             cycle=1,
@@ -280,9 +280,9 @@ async def test_rollback_via_api(client, test_user, test_pool, world_gen_data):
     for i in range(2):
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await service.process_light(game_id, narration, current_cycle=1)
-        await service.save_messages(
-            game_id=game_id,
+        await apply_state(test_pool, game_id, narration, 1)
+        await save_pair(
+            test_pool, game_id=game_id,
             user_message=f"Action {i + 1}",
             assistant_message=narration.narrative_text,
             cycle=1,
@@ -329,44 +329,25 @@ async def test_mechanic_roll_persists_and_loads(
     # Process narration
     narration_data = _make_narration_output(arrival_loc)
     narration = NarrationOutput.model_validate(narration_data)
-    result = await service.process_light(game_id, narration, current_cycle=1)
+    result = await apply_state(test_pool, game_id, narration, 1)
 
     # Save messages
-    _, assistant_id = await service.save_messages(
-        game_id=game_id,
+    _, assistant_id = await save_pair(
+        test_pool, game_id=game_id,
         user_message="Je tente de forcer la serrure",
         assistant_message=narration.narrative_text,
-        cycle=result["cycle"],
-        time=result["time"],
-        location_ref=result["location"],
+        cycle=result.cycle,
+        time=result.time,
+        location_ref=result.location,
     )
 
     # Log a Fate Core roll
-    roll = {
-        "dice": [-1, 1, 0, 1],
-        "total": 1,
-        "skill_total": 4,
-        "opposition_total": None,
-        "outcome": "success",
-        "shifts": 2,
-        "complication": False,
-        "details": {
-            "skill_name": "Cambriolage",
-            "skill_label": "Bon",
-            "difficulty": 2,
-            "difficulty_label": "Correct",
-        },
-    }
-    await service.log_mechanic_roll(
-        game_id=game_id,
-        message_id=assistant_id,
-        engine="fate_core",
-        skill_used="Cambriolage",
-        roll_details=roll,
-        outcome="success",
-        complication=False,
-        cycle=result["cycle"],
+    roll = make_roll(
+        [-1, 1, 0, 1], 1, "success", skill="Cambriolage", skill_total=4, shifts=2,
+        details={"skill_label": "Bon", "difficulty": 2, "difficulty_label": "Correct"},
     )
+    await log_roll(test_pool, game_id, roll, message_id=assistant_id, engine="fate_core",
+                   cycle=result.cycle)
 
     # Load and verify roll data is included
     messages = await service.load_chat_messages(game_id)
@@ -401,9 +382,9 @@ async def test_rollback_cleans_mechanic_rolls(
     for i in range(2):
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await service.process_light(game_id, narration, current_cycle=1)
-        _, aid = await service.save_messages(
-            game_id=game_id,
+        await apply_state(test_pool, game_id, narration, 1)
+        _, aid = await save_pair(
+            test_pool, game_id=game_id,
             user_message=f"Action {i + 1}",
             assistant_message=narration.narrative_text,
             cycle=1,
@@ -411,16 +392,9 @@ async def test_rollback_cleans_mechanic_rolls(
             location_ref=arrival_loc,
         )
         assistant_ids.append(aid)
-        await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=aid,
-            engine="d6",
-            skill_used=f"Skill{i}",
-            roll_details={"dice": [i + 1], "total": i + 1, "outcome": "success"},
-            outcome="success",
-            complication=False,
-            cycle=1,
-        )
+        await log_roll(test_pool, game_id,
+                       make_roll([i + 1], i + 1, "success", skill=f"Skill{i}"),
+                       message_id=aid, engine="d6")
 
     # Verify 2 rolls exist
     async with test_pool.acquire() as conn:

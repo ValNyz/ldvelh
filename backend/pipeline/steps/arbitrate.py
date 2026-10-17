@@ -1,5 +1,8 @@
 """Arbitrate step: the dice of the turn (resumed Fate roll or new mechanical step).
 
+The roll is only computed and announced here (roll_result): its effects are
+applied by the commit step, in the turn's transaction (#16).
+
 HALT means the turn stops here: the pending roll is missing, or the player may
 invoke aspects on a failed Fate roll (roll_pending sent, the turn resumes later).
 """
@@ -9,9 +12,9 @@ from uuid import UUID
 
 from pipeline.context import TurnContext
 from pipeline.steps.load import Prepared
+from repos import turns
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
 from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
-from services.game_service import GameService
 
 
 @dataclass(frozen=True)
@@ -46,9 +49,9 @@ def _resume_invocation(roll_data: dict, invoked: list[str]) -> None:
 
 async def _resume_roll(ctx: TurnContext):
     """Resume from a Fate Core aspect invocation, using the stored roll."""
-    game_service = GameService(ctx.pool)
     request = ctx.request
-    pending = await game_service.load_pending_roll(request.game_id, request.roll_id)
+    async with ctx.pool.acquire() as conn:
+        pending = await turns.load_pending_roll(conn, request.game_id, request.roll_id)
     if not pending:
         await ctx.sink.send_error("Pending roll not found", recoverable=True)
         return HALT
@@ -70,12 +73,7 @@ async def _resume_roll(ctx: TurnContext):
         roll=updated_roll,
     )
 
-    # Apply roll result (stress + fate point deduction)
-    async with ctx.pool.acquire() as apply_conn:
-        await ctx.engine.apply_roll_result(
-            apply_conn, request.game_id, updated_roll, ctx.snapshot.current_cycle,
-        )
-    await game_service.update_mechanic_roll(request.roll_id, roll_data, updated_roll.outcome)
+    # Stress + fate point deduction and the roll update happen at commit.
     await ctx.sink.send_roll_result(updated_roll.model_dump())
     return Arbitration(mechanical=mechanical, resumed_roll_id=request.roll_id)
 
@@ -89,16 +87,11 @@ async def _offer_invocation(ctx: TurnContext, prepared: Prepared,
     if not (fate_points > 0 and aspects):
         return False
     roll = mechanical.roll
-    roll_id = await GameService(ctx.pool).log_mechanic_roll(
-        game_id=ctx.request.game_id,
-        message_id=None,
-        engine=ctx.snapshot.engine,
-        skill_used=roll.details.get("skill_name"),
-        roll_details=roll.model_dump(),
-        outcome=roll.outcome,
-        complication=roll.complication,
-        cycle=ctx.snapshot.current_cycle,
-    )
+    async with ctx.pool.acquire() as conn:
+        roll_id = await turns.log_mechanic_roll(
+            conn, ctx.request.game_id, message_id=None, engine=ctx.snapshot.engine,
+            roll=roll, cycle=ctx.snapshot.current_cycle,
+        )
     await ctx.sink.send_roll_pending({
         "roll_id": str(roll_id),
         "roll": roll.model_dump(),
@@ -109,7 +102,7 @@ async def _offer_invocation(ctx: TurnContext, prepared: Prepared,
 
 
 async def _roll_dice(ctx: TurnContext, prepared: Prepared):
-    """Run the mechanical step, then apply and send the roll (or pause for invocation)."""
+    """Run the mechanical step, then send the roll (or pause for invocation)."""
     try:
         mechanical = await run_mechanical_step(
             engine=ctx.engine,
@@ -134,10 +127,6 @@ async def _roll_dice(ctx: TurnContext, prepared: Prepared):
             and await _offer_invocation(ctx, prepared, mechanical)):
         return HALT
 
-    async with ctx.pool.acquire() as apply_conn:
-        await ctx.engine.apply_roll_result(
-            apply_conn, ctx.request.game_id, mechanical.roll, ctx.snapshot.current_cycle,
-        )
     await ctx.sink.send_roll_result(mechanical.roll.model_dump())
     return Arbitration(mechanical=mechanical, resumed_roll_id=None)
 

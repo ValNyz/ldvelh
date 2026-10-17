@@ -2,14 +2,15 @@
 
 from uuid import uuid4
 
+from domain.turn import NarrationState
 from schema import NarrationOutput
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
 from pipeline.steps.commit import Committed
 from pipeline.steps.narrate import Narrated
 from pipeline.steps.respond import build_done_payload
 
-PROCESS_RESULT = {"cycle": 2, "time": "10h30", "location": "Dock 7",
-                  "npcs_present": ["Mira"], "date": "Jour 2"}
+STATE = NarrationState(cycle=2, time="10h30", location="Dock 7",
+                       npcs_present=["Mira"], date="Jour 2")
 
 
 def _client_state() -> dict:
@@ -19,7 +20,7 @@ def _client_state() -> dict:
 
 
 def _committed() -> Committed:
-    return Committed(state=dict(PROCESS_RESULT), assistant_message_id=uuid4(),
+    return Committed(state=STATE, assistant_message_id=uuid4(),
                      narrator_deltas={})
 
 

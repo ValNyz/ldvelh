@@ -1,24 +1,29 @@
-"""Commit step: every write of the turn, in the order of the legacy handler."""
+"""Commit step: every write of the turn in ONE transaction, dice effects included.
+
+Order: roll effects, narration state and deltas, engine snapshot and messages,
+roll log, engine lock. A failure anywhere rolls the whole turn back (#16, #20).
+"""
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from uuid import UUID
 
+from domain.turn import NarrationState
 from pipeline.context import TurnContext
 from pipeline.steps.arbitrate import Arbitration
 from pipeline.steps.load import Prepared
 from pipeline.steps.narrate import Narrated
+from repos import turns
 from schema.narration import NarrationOutput
 from schema.sse_payload import NarratorDeltasStored
-from services.game_service import GameService
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class Committed:
-    state: dict  # result of process_light: cycle, time, location, npcs_present, date
+    state: NarrationState
     assistant_message_id: UUID
     narrator_deltas: dict
 
@@ -33,79 +38,58 @@ def _stored_deltas(narration: NarrationOutput, cost: dict | None) -> dict:
     ).model_dump(exclude_none=True)
 
 
-async def _apply_narration(ctx: TurnContext, game_service: GameService,
-                           narration: NarrationOutput) -> dict:
+async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
+                           current_cycle: int) -> NarrationState:
     """Game state (cycle, time, location), narrator deltas, info requests."""
-    game_id = ctx.request.game_id
-    process_result = await game_service.process_light(
-        game_id, narration, ctx.snapshot.current_cycle
-    )
-    # Narrator deltas applied immediately (credits, entity reveals, compels)
+    state = await turns.apply_narration_state(conn, game_id, narration, current_cycle)
     if narration.credit_delta or narration.entity_reveals or narration.compel_result:
-        delta_result = await game_service.apply_narrator_deltas(
-            game_id, narration, process_result["cycle"]
-        )
-        logger.info(f"[CHAT] Deltas applied: {json.dumps(delta_result, default=str)}")
-    # Info requests for the next turn
+        applied = await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
+        logger.info(f"[CHAT] Deltas applied: {json.dumps(asdict(applied), default=str)}")
     if narration.info_requests:
-        await game_service.store_info_requests(game_id, narration.info_requests)
+        await turns.store_info_requests(conn, game_id, narration.info_requests)
         logger.info(f"[CHAT] Info requests stored: {narration.info_requests}")
-    return process_result
+    return state
 
 
-async def _log_roll(ctx: TurnContext, game_service: GameService, arbitration: Arbitration,
+async def _log_roll(conn, ctx: TurnContext, arbitration: Arbitration,
                     assistant_msg_id: UUID, cycle: int) -> None:
-    """Log the mechanical roll with its message reference."""
-    mechanical = arbitration.mechanical
-    if not (mechanical and mechanical.roll):
-        return
+    """Log the roll with its message, or link the resumed pending roll to it."""
+    roll = arbitration.mechanical.roll
     if arbitration.resumed_roll_id:
-        # Update the resumed pending roll with its message_id
-        await game_service.update_mechanic_roll(
-            arbitration.resumed_roll_id,
-            mechanical.roll.model_dump(),
-            mechanical.roll.outcome,
-            message_id=assistant_msg_id,
-        )
+        await turns.update_mechanic_roll(conn, arbitration.resumed_roll_id, roll.model_dump(),
+                                         roll.outcome, assistant_msg_id)
         return
-    await game_service.log_mechanic_roll(
-        game_id=ctx.request.game_id,
-        message_id=assistant_msg_id,
-        engine=ctx.snapshot.engine,
-        skill_used=mechanical.roll.details.get("skill_name"),
-        roll_details=mechanical.roll.model_dump(),
-        outcome=mechanical.roll.outcome,
-        complication=mechanical.roll.complication,
-        cycle=cycle,
-    )
+    await turns.log_mechanic_roll(conn, ctx.request.game_id, message_id=assistant_msg_id,
+                                  engine=ctx.snapshot.engine, roll=roll, cycle=cycle)
 
 
 async def commit_turn(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration,
                       narrated: Narrated) -> Committed:
-    game_service = GameService(ctx.pool)
     game_id = ctx.request.game_id
-    process_result = await _apply_narration(ctx, game_service, narrated.narration)
+    mechanical = arbitration.mechanical
+    roll = mechanical.roll if mechanical else None
     narrator_deltas = _stored_deltas(narrated.narration, narrated.cost)
 
-    # Snapshot engine state for rollback support
-    engine_snapshot = None
-    if ctx.snapshot.engine != "none":
-        async with ctx.pool.acquire() as snap_conn:
-            engine_snapshot = await ctx.engine.snapshot_state(snap_conn, game_id)
+    async with ctx.pool.acquire() as conn, conn.transaction():
+        if roll:
+            await ctx.engine.apply_roll_result(conn, game_id, roll, ctx.snapshot.current_cycle)
+        state = await _apply_narration(conn, game_id, narrated.narration,
+                                       ctx.snapshot.current_cycle)
+        # Engine state after this turn's roll, for rollback support
+        engine_snapshot = None
+        if ctx.snapshot.engine != "none":
+            engine_snapshot = await ctx.engine.snapshot_state(conn, game_id)
+        _, assistant_msg_id = await turns.save_turn_messages(
+            conn, game_id,
+            # Keep the protocol token (e.g. __ARRIVEE__) so the chat history hides it.
+            user_message=ctx.request.message,
+            assistant_message=narrated.display_text,
+            state=state, narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot,
+        )
+        if roll:
+            await _log_roll(conn, ctx, arbitration, assistant_msg_id, state.cycle)
+        if ctx.snapshot.engine != "none" and not ctx.snapshot.engine_locked:
+            await turns.lock_engine(conn, game_id)
 
-    _, assistant_msg_id = await game_service.save_messages(
-        game_id=game_id,
-        # Keep the protocol token (e.g. __ARRIVEE__) so the chat history hides it,
-        # as before the arrival text substitution.
-        user_message=ctx.request.message,
-        assistant_message=narrated.display_text,
-        cycle=process_result["cycle"],
-        time=process_result.get("time"),
-        game_date=process_result.get("date"),
-        location_ref=process_result["location"],
-        narrator_deltas=narrator_deltas,
-        engine_snapshot=engine_snapshot,
-    )
-    await _log_roll(ctx, game_service, arbitration, assistant_msg_id, process_result["cycle"])
-    return Committed(state=process_result, assistant_message_id=assistant_msg_id,
+    return Committed(state=state, assistant_message_id=assistant_msg_id,
                      narrator_deltas=narrator_deltas)

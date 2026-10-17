@@ -3,9 +3,9 @@ Integration tests for GameService and ExtractionPopulator.
 Uses the real test database — no LLM calls (mocked data).
 
 Covers:
-  - GameService: process_light, apply_narrator_deltas, save_messages,
-    rollback_to_message, load_chat_messages, load_game_state, load_world_info,
-    verify_ownership, store_info_requests, build_llm_messages
+  - GameService: rollback_to_message, load_chat_messages, load_game_state,
+    load_world_info, verify_ownership, build_llm_messages
+    (turn writes are set up through repos.turns, tested in test_repos_turns.py)
   - ExtractionPopulator: process_extraction with facts, entities, relations,
     arcs, events, objects, credit changes, inventory, ambient updates
 """
@@ -17,7 +17,7 @@ import pytest
 
 from unittest.mock import MagicMock
 
-from helpers import auth_headers
+from helpers import apply_deltas, apply_state, auth_headers, save_pair, store_requests
 from prompts.examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
@@ -88,795 +88,6 @@ async def _setup_game_with_world(client, test_user, test_pool):
 
 
 # =============================================================================
-# GAME SERVICE - process_light
-# =============================================================================
-
-
-class TestProcessLight:
-    """Tests for GameService.process_light()"""
-
-    @pytest.mark.asyncio
-    async def test_process_light_updates_cycle_time_location(
-        self, client, test_user, test_pool
-    ):
-        """process_light updates game cycle, time, and location in the DB."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-        arrival_loc = world_gen.arrival_event.arrival_location_ref
-
-        narration_data = _make_narration_output(arrival_loc)
-        narration = NarrationOutput.model_validate(narration_data)
-
-        result = await service.process_light(game_id, narration, current_cycle=1)
-
-        # No day_transition, so cycle stays at 1
-        assert result["cycle"] == 1
-        assert result["time"] == "09h15"
-        assert result["location"] == arrival_loc
-
-        # Verify DB reflects the update
-        state = await service.load_game_state(game_id)
-        assert state["game"]["time"] == "09h15"
-
-    @pytest.mark.asyncio
-    async def test_process_light_with_day_transition(
-        self, client, test_user, test_pool
-    ):
-        """process_light increments cycle and updates date on day_transition."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-        arrival_loc = world_gen.arrival_event.arrival_location_ref
-
-        narration_data = _make_day_transition_narration(arrival_loc)
-        narration = NarrationOutput.model_validate(narration_data)
-
-        result = await service.process_light(game_id, narration, current_cycle=1)
-
-        assert result["cycle"] == 2
-        assert result["date"] == "Mardi 19 Juillet 2847"
-        assert result["time"] == "23h45"
-
-        # Verify the DB was updated
-        state = await service.load_game_state(game_id)
-        assert state["game"]["current_cycle"] == 2
-        assert state["game"]["game_date"] == "Mardi 19 Juillet 2847"
-
-    @pytest.mark.asyncio
-    async def test_process_light_creates_stub_location(
-        self, client, test_user, test_pool
-    ):
-        """process_light creates a stub location if the narrated location doesn't exist."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Use a location name that does NOT exist in the world
-        unknown_loc = "Couloir Technique B-7"
-        narration_data = _make_narration_output(unknown_loc)
-        narration = NarrationOutput.model_validate(narration_data)
-
-        result = await service.process_light(game_id, narration, current_cycle=1)
-        assert result["location"] == unknown_loc
-
-        # Verify the stub location was created
-        async with test_pool.acquire() as conn:
-            loc_id = await conn.fetchval(
-                "SELECT id FROM locations WHERE game_id = $1 AND name = $2",
-                game_id,
-                unknown_loc,
-            )
-        assert loc_id is not None
-
-    @pytest.mark.asyncio
-    async def test_process_light_resolves_existing_location(
-        self, client, test_user, test_pool
-    ):
-        """process_light resolves location_id to an existing location."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Move to "Le Quart de Cycle" (exists in world)
-        narration_data = _make_narration_output("Le Quart de Cycle")
-        narration = NarrationOutput.model_validate(narration_data)
-
-        result = await service.process_light(game_id, narration, current_cycle=1)
-        assert result["location"] == "Le Quart de Cycle"
-
-        # Verify the location_id is set in the games table
-        async with test_pool.acquire() as conn:
-            loc_id = await conn.fetchval(
-                "SELECT current_location_id FROM games WHERE id = $1", game_id
-            )
-            loc_name = await conn.fetchval(
-                "SELECT name FROM locations WHERE id = $1", loc_id
-            )
-        assert loc_name == "Le Quart de Cycle"
-
-    @pytest.mark.asyncio
-    async def test_process_light_npc_resolution(
-        self, client, test_user, test_pool
-    ):
-        """process_light returns npcs_present from narration output."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        narration_data = _make_narration_output(
-            "Le Quart de Cycle", npcs_present=["Ossek"]
-        )
-        narration = NarrationOutput.model_validate(narration_data)
-
-        result = await service.process_light(game_id, narration, current_cycle=1)
-        assert result["npcs_present"] == ["Ossek"]
-
-    @pytest.mark.asyncio
-    async def test_process_light_clears_detail_requests_on_day_transition(
-        self, client, test_user, test_pool
-    ):
-        """On day_transition, process_light clears detail_requests."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-        arrival_loc = world_gen.arrival_event.arrival_location_ref
-
-        # Set some detail requests first
-        await service.store_info_requests(game_id, ["Ossek", "Justine Lépicier"])
-
-        # Verify they were stored
-        async with test_pool.acquire() as conn:
-            reqs = await conn.fetchval(
-                "SELECT detail_requests FROM games WHERE id = $1", game_id
-            )
-        assert len(reqs) == 2
-
-        # Process day transition
-        narration_data = _make_day_transition_narration(arrival_loc)
-        narration = NarrationOutput.model_validate(narration_data)
-        await service.process_light(game_id, narration, current_cycle=1)
-
-        # Detail requests should be cleared
-        async with test_pool.acquire() as conn:
-            reqs = await conn.fetchval(
-                "SELECT detail_requests FROM games WHERE id = $1", game_id
-            )
-        assert reqs == [] or reqs == "{}"
-
-
-# =============================================================================
-# GAME SERVICE - apply_narrator_deltas
-# =============================================================================
-
-
-class TestApplyNarratorDeltas:
-    """Tests for GameService.apply_narrator_deltas()"""
-
-    @pytest.mark.asyncio
-    async def test_no_deltas_returns_null_credits(self, client, test_user, test_pool):
-        """When no credit/entity deltas, result has credits=None."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        narration_data = _make_narration_output(
-            world_gen.arrival_event.arrival_location_ref,
-
-            credit_delta=None,
-        )
-        narration = NarrationOutput.model_validate(narration_data)
-
-        result = await service.apply_narrator_deltas(game_id, narration, cycle=1)
-
-        assert result["credits"] is None
-
-    @pytest.mark.asyncio
-    async def test_credit_delta_applied(self, client, test_user, test_pool):
-        """Credit delta modifies protagonist balance."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        state_before = await service.load_game_state(game_id)
-        credits_before = state_before["player"]["credits"]
-
-        narration_data = _make_narration_output(
-            world_gen.arrival_event.arrival_location_ref,
-
-            credit_delta={"amount": -25, "description": "repas au terminal"},
-        )
-        narration = NarrationOutput.model_validate(narration_data)
-
-        result = await service.apply_narrator_deltas(game_id, narration, cycle=1)
-
-        assert result["credits"]["amount"] == -25
-        assert result["credits"]["new_balance"] == credits_before - 25
-
-        state_after = await service.load_game_state(game_id)
-        assert state_after["player"]["credits"] == credits_before - 25
-
-    @pytest.mark.asyncio
-    async def test_entity_reveal_marks_character_known(
-        self, client, test_user, test_pool
-    ):
-        """entity_reveals in narration output marks a character as known."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Verify Ossek is initially not known
-        async with test_pool.acquire() as conn:
-            known = await conn.fetchval(
-                "SELECT known_by_protagonist FROM characters"
-                " WHERE game_id = $1 AND name = 'Ossek'",
-                game_id,
-            )
-        assert known is False
-
-        narration_data = _make_narration_output(
-            "Le Quart de Cycle",
-
-            credit_delta=None,
-            entity_reveals=[
-                {"entity_type": "character", "current_name": "Ossek", "real_name": None}
-            ],
-        )
-        narration = NarrationOutput.model_validate(narration_data)
-
-        await service.apply_narrator_deltas(game_id, narration, cycle=1)
-
-        # Verify Ossek is now known
-        async with test_pool.acquire() as conn:
-            known = await conn.fetchval(
-                "SELECT known_by_protagonist FROM characters"
-                " WHERE game_id = $1 AND name = 'Ossek'",
-                game_id,
-            )
-        assert known is True
-
-    @pytest.mark.asyncio
-    async def test_entity_reveal_location_accessible(
-        self, client, test_user, test_pool
-    ):
-        """Location entity_reveal marks location as accessible."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Mark a location as inaccessible first
-        async with test_pool.acquire() as conn:
-            await conn.execute(
-                "UPDATE locations SET accessible = false"
-                " WHERE game_id = $1 AND name = 'Serres Hydro-7'",
-                game_id,
-            )
-
-        narration_data = _make_narration_output(
-            "Le Quart de Cycle",
-
-            credit_delta=None,
-            entity_reveals=[
-                {"entity_type": "location", "current_name": "Serres Hydro-7"}
-            ],
-        )
-        narration = NarrationOutput.model_validate(narration_data)
-
-        await service.apply_narrator_deltas(game_id, narration, cycle=1)
-
-        async with test_pool.acquire() as conn:
-            accessible = await conn.fetchval(
-                "SELECT accessible FROM locations"
-                " WHERE game_id = $1 AND name = 'Serres Hydro-7'",
-                game_id,
-            )
-        assert accessible is True
-
-
-# =============================================================================
-# GAME SERVICE - save_messages & load_chat_messages
-# =============================================================================
-
-
-class TestMessages:
-    """Tests for save_messages and load_chat_messages."""
-
-    @pytest.mark.asyncio
-    async def test_save_and_load_messages(self, client, test_user, test_pool):
-        """save_messages persists user + assistant pair, load_chat_messages retrieves them."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        user_id, assistant_id = await service.save_messages(
-            game_id=game_id,
-            user_message="Je regarde autour de moi",
-            assistant_message="Tu observes le terminal. Rien de spécial.",
-            cycle=1,
-            time="09h15",
-            game_date="Lundi 18 Juillet 2847",
-            location_ref=world_gen.arrival_event.arrival_location_ref,
-        )
-
-        assert user_id is not None
-        assert assistant_id is not None
-
-        messages = await service.load_chat_messages(game_id)
-        assert len(messages) == 2
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "Je regarde autour de moi"
-        assert messages[1]["role"] == "assistant"
-        assert messages[1]["content"] == "Tu observes le terminal. Rien de spécial."
-        assert messages[0]["cycle"] == 1
-        assert messages[0]["time"] == "09h15"
-
-    @pytest.mark.asyncio
-    async def test_protocol_messages_filtered(self, client, test_user, test_pool):
-        """load_chat_messages filters out protocol messages like __ARRIVEE__."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Save a protocol message and a normal one
-        await service.save_messages(
-            game_id=game_id,
-            user_message="__ARRIVEE__",
-            assistant_message="Tu arrives sur la station...",
-            cycle=1,
-        )
-        await service.save_messages(
-            game_id=game_id,
-            user_message="Bonjour",
-            assistant_message="Le terminal est bruyant.",
-            cycle=1,
-        )
-
-        messages = await service.load_chat_messages(game_id)
-
-        # __ARRIVEE__ user message should be filtered, but assistant reply remains
-        user_messages = [m for m in messages if m["role"] == "user"]
-        assert len(user_messages) == 1
-        assert user_messages[0]["content"] == "Bonjour"
-
-        # Both assistant messages should be present
-        assistant_messages = [m for m in messages if m["role"] == "assistant"]
-        assert len(assistant_messages) == 2
-
-    @pytest.mark.asyncio
-    async def test_save_messages_with_narrator_deltas(
-        self, client, test_user, test_pool
-    ):
-        """save_messages stores narrator_deltas and load_chat_messages includes cost info."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        deltas = {
-            "extraction_triggers": ["characters", "narrative_arcs"],
-            "cost": {
-                "input_tokens": 1000,
-                "output_tokens": 500,
-                "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 0,
-                "model": "claude-sonnet-4-20250514",
-                "provider": "anthropic",
-            },
-        }
-
-        await service.save_messages(
-            game_id=game_id,
-            user_message="Je parle à Ossek",
-            assistant_message="Ossek te regarde avec mélancolie.",
-            cycle=1,
-            narrator_deltas=deltas,
-        )
-
-        messages = await service.load_chat_messages(game_id)
-        assistant_msg = [m for m in messages if m["role"] == "assistant"][0]
-        assert "cost" in assistant_msg
-        assert assistant_msg["cost"]["input_tokens"] == 1000
-
-    @pytest.mark.asyncio
-    async def test_load_chat_messages_includes_roll_data(
-        self, client, test_user, test_pool
-    ):
-        """load_chat_messages includes roll_details from mechanic_rolls join."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        _, assistant_id = await service.save_messages(
-            game_id=game_id,
-            user_message="Je tente d'escalader le mur",
-            assistant_message="Tu grimpes avec effort.",
-            cycle=1,
-        )
-
-        roll_details = {
-            "dice": [-1, 0, 1, 1],
-            "total": 1,
-            "skill_total": 4,
-            "opposition_total": None,
-            "outcome": "success",
-            "shifts": 2,
-            "complication": False,
-            "details": {"skill_name": "Athlétisme", "difficulty": 2},
-        }
-
-        await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=assistant_id,
-            engine="fate_core",
-            skill_used="Athlétisme",
-            roll_details=roll_details,
-            outcome="success",
-            complication=False,
-            cycle=1,
-        )
-
-        messages = await service.load_chat_messages(game_id)
-        assistant_msg = [m for m in messages if m["role"] == "assistant"][0]
-        assert "roll" in assistant_msg
-        assert assistant_msg["roll"]["outcome"] == "success"
-        assert assistant_msg["roll"]["dice"] == [-1, 0, 1, 1]
-        assert assistant_msg["roll"]["details"]["skill_name"] == "Athlétisme"
-
-    @pytest.mark.asyncio
-    async def test_load_chat_messages_no_roll_returns_no_roll_key(
-        self, client, test_user, test_pool
-    ):
-        """Messages without mechanic rolls should not have a 'roll' key."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        await service.save_messages(
-            game_id=game_id,
-            user_message="Bonjour",
-            assistant_message="Bienvenue.",
-            cycle=1,
-        )
-
-        messages = await service.load_chat_messages(game_id)
-        for msg in messages:
-            assert "roll" not in msg
-
-
-# =============================================================================
-# GAME SERVICE - log_mechanic_roll
-# =============================================================================
-
-
-class TestMechanicRolls:
-    """Tests for GameService.log_mechanic_roll() and DB persistence."""
-
-    @pytest.mark.asyncio
-    async def test_log_mechanic_roll_persists_to_db(
-        self, client, test_user, test_pool
-    ):
-        """log_mechanic_roll inserts a row in mechanic_rolls table."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        _, assistant_id = await service.save_messages(
-            game_id=game_id,
-            user_message="Je tire",
-            assistant_message="Le blaster fait mouche.",
-            cycle=1,
-        )
-
-        roll_details = {
-            "dice": [3, 5, 2, 6],
-            "total": 16,
-            "skill_total": 19,
-            "opposition_total": None,
-            "outcome": "success",
-            "shifts": 4,
-            "complication": False,
-            "details": {
-                "skill_name": "Blasters",
-                "dice_code": "4D",
-                "difficulty": 15,
-            },
-        }
-
-        await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=assistant_id,
-            engine="d6",
-            skill_used="Blasters",
-            roll_details=roll_details,
-            outcome="success",
-            complication=False,
-            cycle=1,
-        )
-
-        # Verify in DB
-        async with test_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id
-            )
-
-        assert row is not None
-        assert row["engine"] == "d6"
-        assert row["skill_used"] == "Blasters"
-        assert row["outcome"] == "success"
-        assert row["complication"] is False
-        assert row["cycle"] == 1
-        assert row["message_id"] == assistant_id
-        assert row["roll_details"]["dice"] == [3, 5, 2, 6]
-
-    @pytest.mark.asyncio
-    async def test_log_mechanic_roll_null_skill(
-        self, client, test_user, test_pool
-    ):
-        """log_mechanic_roll accepts null skill_used."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        _, assistant_id = await service.save_messages(
-            game_id=game_id,
-            user_message="Test",
-            assistant_message="Result.",
-            cycle=1,
-        )
-
-        await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=assistant_id,
-            engine="fate_core",
-            skill_used=None,
-            roll_details={"dice": [0, 0, 0, 0], "total": 0, "outcome": "tie"},
-            outcome="tie",
-            complication=False,
-            cycle=1,
-        )
-
-        async with test_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id
-            )
-
-        assert row is not None
-        assert row["skill_used"] is None
-        assert row["outcome"] == "tie"
-
-    @pytest.mark.asyncio
-    async def test_log_mechanic_roll_with_complication(
-        self, client, test_user, test_pool
-    ):
-        """log_mechanic_roll stores D6 wild die complications."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        _, assistant_id = await service.save_messages(
-            game_id=game_id,
-            user_message="Test",
-            assistant_message="Result.",
-            cycle=1,
-        )
-
-        await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=assistant_id,
-            engine="d6",
-            skill_used="Esquive",
-            roll_details={
-                "dice": [4, 1],
-                "total": 4,
-                "outcome": "failure",
-                "complication": True,
-                "details": {"wild_die_rolls": [1]},
-            },
-            outcome="failure",
-            complication=True,
-            cycle=2,
-        )
-
-        async with test_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id
-            )
-
-        assert row["complication"] is True
-        assert row["cycle"] == 2
-
-    @pytest.mark.asyncio
-    async def test_multiple_rolls_across_messages(
-        self, client, test_user, test_pool
-    ):
-        """Multiple rolls link to different assistant messages correctly."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Save two rounds
-        _, aid1 = await service.save_messages(
-            game_id=game_id,
-            user_message="Action 1",
-            assistant_message="Response 1",
-            cycle=1,
-        )
-        _, aid2 = await service.save_messages(
-            game_id=game_id,
-            user_message="Action 2",
-            assistant_message="Response 2",
-            cycle=1,
-        )
-
-        await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=aid1,
-            engine="fate_core",
-            skill_used="Combat",
-            roll_details={"dice": [1, 1, 0, -1], "total": 1, "outcome": "success"},
-            outcome="success",
-            complication=False,
-            cycle=1,
-        )
-        await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=aid2,
-            engine="fate_core",
-            skill_used="Discrétion",
-            roll_details={"dice": [-1, -1, 0, 0], "total": -2, "outcome": "failure"},
-            outcome="failure",
-            complication=False,
-            cycle=1,
-        )
-
-        messages = await service.load_chat_messages(game_id)
-        assistants = [m for m in messages if m["role"] == "assistant"]
-        assert len(assistants) == 2
-
-        # Each assistant message has its own roll
-        assert assistants[0]["roll"]["dice"] == [1, 1, 0, -1]
-        assert assistants[0]["roll"]["outcome"] == "success"
-        assert assistants[1]["roll"]["dice"] == [-1, -1, 0, 0]
-        assert assistants[1]["roll"]["outcome"] == "failure"
-
-    @pytest.mark.asyncio
-    async def test_log_mechanic_roll_returns_uuid(
-        self, client, test_user, test_pool
-    ):
-        """log_mechanic_roll returns the UUID of the inserted row."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-        roll_id = await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=None,
-            engine="fate_core",
-            skill_used="Combat",
-            roll_details={"dice": [0, 0, 0, 0], "total": 0},
-            outcome="failure",
-            complication=False,
-            cycle=1,
-        )
-        assert roll_id is not None
-        assert isinstance(roll_id, UUID)
-
-    @pytest.mark.asyncio
-    async def test_load_pending_roll(
-        self, client, test_user, test_pool
-    ):
-        """load_pending_roll retrieves a roll with no message_id."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-        roll_details = {
-            "dice": [-1, 0, 0, -1],
-            "total": -2,
-            "skill_total": 1,
-            "outcome": "failure",
-            "shifts": -3,
-            "details": {"skill_name": "Combat", "difficulty": 4},
-        }
-        roll_id = await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=None,
-            engine="fate_core",
-            skill_used="Combat",
-            roll_details=roll_details,
-            outcome="failure",
-            complication=False,
-            cycle=1,
-        )
-
-        pending = await service.load_pending_roll(game_id, roll_id)
-        assert pending is not None
-        assert pending["id"] == roll_id
-        assert pending["outcome"] == "failure"
-        assert pending["roll_details"]["skill_total"] == 1
-
-    @pytest.mark.asyncio
-    async def test_load_pending_roll_not_found_after_link(
-        self, client, test_user, test_pool
-    ):
-        """load_pending_roll returns None once message_id is set."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-        roll_id = await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=None,
-            engine="fate_core",
-            skill_used="Combat",
-            roll_details={"dice": [0], "total": 0},
-            outcome="failure",
-            complication=False,
-            cycle=1,
-        )
-
-        # Save a message and link the roll
-        _, aid = await service.save_messages(
-            game_id=game_id,
-            user_message="test",
-            assistant_message="response",
-            cycle=1,
-        )
-        await service.update_mechanic_roll(
-            roll_id, {"dice": [0], "total": 0}, "tie", message_id=aid
-        )
-
-        # Now pending search should return None (message_id is no longer NULL)
-        pending = await service.load_pending_roll(game_id, roll_id)
-        assert pending is None
-
-    @pytest.mark.asyncio
-    async def test_update_mechanic_roll(
-        self, client, test_user, test_pool
-    ):
-        """update_mechanic_roll updates outcome and details."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-        original = {"dice": [-1, 0, 0, -1], "total": -2, "outcome": "failure"}
-        roll_id = await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=None,
-            engine="fate_core",
-            skill_used="Combat",
-            roll_details=original,
-            outcome="failure",
-            complication=False,
-            cycle=1,
-        )
-
-        # Simulate invocation: update to success
-        updated = {**original, "outcome": "success", "details": {"invoked_aspects": ["A"]}}
-        await service.update_mechanic_roll(roll_id, updated, "success")
-
-        # Verify via pending load (still no message_id)
-        pending = await service.load_pending_roll(game_id, roll_id)
-        assert pending["outcome"] == "success"
-        assert pending["roll_details"]["details"]["invoked_aspects"] == ["A"]
-
-
-# =============================================================================
 # GAME SERVICE - rollback_to_message
 # =============================================================================
 
@@ -898,9 +109,9 @@ class TestRollback:
         for i in range(3):
             narration_data = _make_narration_output(arrival_loc)
             narration = NarrationOutput.model_validate(narration_data)
-            await service.process_light(game_id, narration, current_cycle=1)
-            await service.save_messages(
-                game_id=game_id,
+            await apply_state(test_pool, game_id, narration, 1)
+            await save_pair(
+                test_pool, game_id=game_id,
                 user_message=f"Action {i + 1}",
                 assistant_message=f"Response {i + 1}",
                 cycle=1,
@@ -933,9 +144,9 @@ class TestRollback:
         # First round: save with time/date/location
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await service.process_light(game_id, narration, current_cycle=1)
-        await service.save_messages(
-            game_id=game_id,
+        await apply_state(test_pool, game_id, narration, 1)
+        await save_pair(
+            test_pool, game_id=game_id,
             user_message="Premier tour",
             assistant_message="Première réponse",
             cycle=1,
@@ -950,9 +161,9 @@ class TestRollback:
             time={"new_time": "10h30", "ellipse": False},
         )
         narration2 = NarrationOutput.model_validate(narration_data2)
-        await service.process_light(game_id, narration2, current_cycle=1)
-        await service.save_messages(
-            game_id=game_id,
+        await apply_state(test_pool, game_id, narration2, 1)
+        await save_pair(
+            test_pool, game_id=game_id,
             user_message="Deuxième tour",
             assistant_message="Deuxième réponse",
             cycle=1,
@@ -1005,10 +216,10 @@ class TestRollback:
         narration1 = NarrationOutput.model_validate(_make_narration_output(
             arrival_loc, credit_delta={"amount": -50, "description": "achat"},
         ))
-        await service.process_light(game_id, narration1, current_cycle=1)
-        await service.apply_narrator_deltas(game_id, narration1, 1)
-        await service.save_messages(
-            game_id, "action1", "response1", cycle=1,
+        await apply_state(test_pool, game_id, narration1, 1)
+        await apply_deltas(test_pool, game_id, narration1, 1)
+        await save_pair(
+            test_pool, game_id, "action1", "response1", cycle=1,
             time="09h15", location_ref=arrival_loc,
             narrator_deltas={"credit_delta": {"amount": -50, "description": "achat"}},
         )
@@ -1017,10 +228,10 @@ class TestRollback:
         narration2 = NarrationOutput.model_validate(_make_narration_output(
             arrival_loc, credit_delta={"amount": -30, "description": "repas"},
         ))
-        await service.process_light(game_id, narration2, current_cycle=1)
-        await service.apply_narrator_deltas(game_id, narration2, 1)
-        await service.save_messages(
-            game_id, "action2", "response2", cycle=1,
+        await apply_state(test_pool, game_id, narration2, 1)
+        await apply_deltas(test_pool, game_id, narration2, 1)
+        await save_pair(
+            test_pool, game_id, "action2", "response2", cycle=1,
             time="10h00", location_ref=arrival_loc,
             narrator_deltas={"credit_delta": {"amount": -30, "description": "repas"}},
         )
@@ -1053,9 +264,9 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await service.process_light(game_id, narration, current_cycle=cycle)
-            await service.save_messages(
-                game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
+            await apply_state(test_pool, game_id, narration, cycle)
+            await save_pair(
+                test_pool, game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
                 time="09h00", location_ref=arrival_loc,
             )
 
@@ -1105,9 +316,9 @@ class TestRollback:
             narration = NarrationOutput.model_validate(_make_narration_output(
                 arrival_loc, time={"new_time": times[i], "ellipse": False},
             ))
-            await service.process_light(game_id, narration, current_cycle=cycle)
-            await service.save_messages(
-                game_id, f"Action cycle {cycle}", f"Response cycle {cycle}",
+            await apply_state(test_pool, game_id, narration, cycle)
+            await save_pair(
+                test_pool, game_id, f"Action cycle {cycle}", f"Response cycle {cycle}",
                 cycle=cycle, time=times[i], location_ref=arrival_loc,
             )
 
@@ -1151,9 +362,9 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await service.process_light(game_id, narration, current_cycle=cycle)
-            await service.save_messages(
-                game_id, f"Action {cycle}", f"Response {cycle}",
+            await apply_state(test_pool, game_id, narration, cycle)
+            await save_pair(
+                test_pool, game_id, f"Action {cycle}", f"Response {cycle}",
                 cycle=cycle, time="09h00", location_ref=arrival_loc,
             )
 
@@ -1164,9 +375,9 @@ class TestRollback:
         narration = NarrationOutput.model_validate(
             _make_narration_output(arrival_loc)
         )
-        await service.process_light(game_id, narration, current_cycle=1)
-        await service.save_messages(
-            game_id, "New action after rollback", "New response after rollback",
+        await apply_state(test_pool, game_id, narration, 1)
+        await save_pair(
+            test_pool, game_id, "New action after rollback", "New response after rollback",
             cycle=1, time="09h30", location_ref=arrival_loc,
         )
 
@@ -1194,9 +405,9 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await service.process_light(game_id, narration, current_cycle=cycle)
-            await service.save_messages(
-                game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
+            await apply_state(test_pool, game_id, narration, cycle)
+            await save_pair(
+                test_pool, game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
                 time="09h00", location_ref=arrival_loc,
             )
 
@@ -1240,9 +451,9 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await service.process_light(game_id, narration, current_cycle=1)
-            await service.save_messages(
-                game_id, f"Action {i + 1}", f"Response {i + 1}",
+            await apply_state(test_pool, game_id, narration, 1)
+            await save_pair(
+                test_pool, game_id, f"Action {i + 1}", f"Response {i + 1}",
                 cycle=1, time="09h15", location_ref=arrival_loc,
             )
 
@@ -1289,9 +500,9 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await service.process_light(game_id, narration, current_cycle=1)
-            await service.save_messages(
-                game_id, f"Action {i + 1}", f"Response {i + 1}",
+            await apply_state(test_pool, game_id, narration, 1)
+            await save_pair(
+                test_pool, game_id, f"Action {i + 1}", f"Response {i + 1}",
                 cycle=1, time="09h15", location_ref=arrival_loc,
             )
 
@@ -1337,9 +548,9 @@ class TestRollback:
         narration = NarrationOutput.model_validate(
             _make_narration_output(arrival_loc)
         )
-        await service.process_light(game_id, narration, current_cycle=1)
-        await service.save_messages(
-            game_id, "Test", "Response", cycle=1,
+        await apply_state(test_pool, game_id, narration, 1)
+        await save_pair(
+            test_pool, game_id, "Test", "Response", cycle=1,
             time="09h00", location_ref=arrival_loc,
         )
 
@@ -1490,39 +701,6 @@ class TestVerifyOwnership:
 
 
 # =============================================================================
-# GAME SERVICE - store_info_requests
-# =============================================================================
-
-
-class TestStoreInfoRequests:
-    """Tests for GameService.store_info_requests()"""
-
-    @pytest.mark.asyncio
-    async def test_store_and_retrieve_info_requests(
-        self, client, test_user, test_pool
-    ):
-        """store_info_requests persists entity names for next turn."""
-        from services.game_service import GameService
-
-        resp = await client.post(
-            "/api/games", headers=auth_headers(test_user["token"])
-        )
-        game_id = UUID(resp.json()["gameId"])
-        service = GameService(test_pool)
-
-        await service.store_info_requests(
-            game_id, ["Ossek", "Justine Lépicier"]
-        )
-
-        async with test_pool.acquire() as conn:
-            reqs = await conn.fetchval(
-                "SELECT detail_requests FROM games WHERE id = $1", game_id
-            )
-        assert "Ossek" in reqs
-        assert "Justine Lépicier" in reqs
-
-
-# =============================================================================
 # GAME SERVICE - build_llm_messages
 # =============================================================================
 
@@ -1543,8 +721,8 @@ class TestBuildLLMMessages:
         # Save two rounds of messages
         times = ["09h15", "09h45"]
         for i in range(2):
-            await service.save_messages(
-                game_id=game_id,
+            await save_pair(
+                test_pool, game_id=game_id,
                 user_message=f"Action {i + 1}",
                 assistant_message=f"Response {i + 1}",
                 cycle=1,
@@ -2872,7 +2050,7 @@ class TestContextBuilderMethods:
 
         # Store a detail request for a known entity
         npc_name = world_gen.characters[0].name
-        await service.store_info_requests(game_id, [npc_name])
+        await store_requests(test_pool,game_id, [npc_name])
 
         builder = ContextBuilder(test_pool, game_id)
         async with test_pool.acquire() as conn:
@@ -2995,87 +2173,6 @@ class TestContextBuilderTraitsFallback:
         npc = builder._row_to_npc_summary(row)
         assert npc.traits == []
         assert npc.name == "Silhouette"
-
-
-# =============================================================================
-# GAME SERVICE — update_mechanic_roll JSONB round-trip
-# =============================================================================
-
-
-class TestMechanicRollJsonbRoundTrip:
-    """Verify mechanic roll details survive DB round-trip as correct types."""
-
-    @pytest.mark.asyncio
-    async def test_roll_details_round_trip(self, client, test_user, test_pool):
-        """Roll details stored via json.dumps + ::jsonb should read back as dict."""
-        from schema import NarrationOutput
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Log a mechanic roll
-        roll_details = {
-            "dice": [3, 5],
-            "total": 8,
-            "skill": "Combat",
-            "difficulty": 6,
-            "shifts": 2,
-        }
-        roll_id = await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=None,
-            engine="fate_core",
-            skill_used="Combat",
-            roll_details=roll_details,
-            outcome="success",
-            complication=False,
-            cycle=1,
-        )
-
-        # Load it back
-        pending = await service.load_pending_roll(game_id, roll_id)
-        assert pending is not None
-        assert isinstance(pending["roll_details"], dict)
-        assert pending["roll_details"]["total"] == 8
-        assert pending["roll_details"]["dice"] == [3, 5]
-
-    @pytest.mark.asyncio
-    async def test_update_roll_details_round_trip(self, client, test_user, test_pool):
-        """Updated roll details should also round-trip correctly."""
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        roll_id = await service.log_mechanic_roll(
-            game_id=game_id,
-            message_id=None,
-            engine="fate_core",
-            skill_used="Empathie",
-            roll_details={"dice": [1, 2], "total": 3},
-            outcome="tie",
-            complication=False,
-            cycle=1,
-        )
-
-        # Update with aspect invocation
-        new_details = {
-            "dice": [1, 2],
-            "total": 5,
-            "aspect_invoked": "Ancien soldat",
-            "bonus": 2,
-        }
-        await service.update_mechanic_roll(roll_id, new_details, "success")
-
-        # Verify round-trip via direct DB read
-        async with test_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT roll_details, outcome FROM mechanic_rolls WHERE id = $1",
-                roll_id,
-            )
-        assert isinstance(row["roll_details"], dict)
-        assert row["roll_details"]["aspect_invoked"] == "Ancien soldat"
-        assert row["outcome"] == "success"
 
 
 # =============================================================================

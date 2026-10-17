@@ -36,14 +36,6 @@ def _log_llm_context(system_prompt: str, llm_messages: list[dict]) -> None:
         logger.info(f"[CHAT] === MESSAGE [{i}] ({msg['role']}) ===\n{content}")
 
 
-async def _lock_engine(ctx: TurnContext, game_service: GameService) -> None:
-    """Lock the engine on the first narration turn (before the stream, as before)."""
-    if ctx.snapshot.engine != "none" and not ctx.snapshot.engine_locked:
-        async with ctx.pool.acquire() as lock_conn:
-            populator = game_service._get_populator(ctx.request.game_id)
-            await populator.lock_engine(lock_conn)
-
-
 def _validate(ctx: TurnContext, parsed: dict | None) -> NarrationOutput:
     if not parsed:
         raise TurnError("narration_invalid",
@@ -76,8 +68,6 @@ async def narrate(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration
         cache_control=ctx.session.caps.cache_control,
     )
     _log_llm_context(system_prompt, llm_messages)
-
-    await _lock_engine(ctx, game_service)
 
     result = await narration_stream.stream_narration(
         ctx.session, ctx.sink, system_prompt=system_prompt, messages=llm_messages,

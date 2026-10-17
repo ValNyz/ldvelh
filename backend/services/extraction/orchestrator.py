@@ -4,7 +4,7 @@ LDVELH - Extraction Orchestrator
 Background task launched from routes.py every turn:
 1. Resolver: entity annotations (for tooltips)
 2. Extractors: entity/relation extraction (phase a: entities, phase b: arcs)
-3. Re-apply entity_reveals (fix race condition with apply_narrator_deltas)
+3. Re-apply entity_reveals (fix race condition with the narrator deltas applied at turn commit)
 """
 
 import asyncio

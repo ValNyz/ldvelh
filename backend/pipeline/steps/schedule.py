@@ -40,22 +40,22 @@ async def _schedule_director(ctx: TurnContext, committed: Committed) -> None:
     async with ctx.pool.acquire() as sched_conn:
         schedule = await get_director_schedule(sched_conn, ctx.request.game_id)
     if should_run_director(
-        state["time"],
+        state.time,
         schedule.last_time,
         schedule.game_duration,
-        current_cycle=state["cycle"],
+        current_cycle=state.cycle,
         last_cycle=schedule.last_cycle,
     ):
         asyncio.create_task(
             run_director(
                 pool=ctx.pool,
                 game_id=ctx.request.game_id,
-                current_cycle=state["cycle"],
-                current_time=state["time"],
+                current_cycle=state.cycle,
+                current_time=state.time,
                 session=ctx.session,
             )
         )
-        logger.info(f"[CHAT] Director triggered at {state['time']}")
+        logger.info(f"[CHAT] Director triggered at {state.time}")
 
 
 async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: Committed) -> None:

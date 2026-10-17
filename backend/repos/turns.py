@@ -1,0 +1,215 @@
+"""Turn repository: every write of a narration turn, on the caller's connection.
+
+No function opens its own connection or transaction: the commit step runs them all
+in one transaction, so a failure anywhere leaves nothing behind (#20).
+"""
+
+import logging
+from uuid import UUID
+
+from domain.turn import AppliedDeltas, NarrationState
+from kg.populator import KnowledgeGraphPopulator
+from kg.reader import KnowledgeGraphReader
+from schema.engine import RollResult
+from schema.narration import NarrationOutput
+from utils.json_utils import parse_json
+
+logger = logging.getLogger(__name__)
+
+
+def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
+    # Built without a pool: the methods used here only take `conn`.
+    return KnowledgeGraphPopulator(None, game_id)
+
+
+async def _resolve_location(conn, game_id: UUID, location: str, new_cycle: int) -> UUID | None:
+    """Id of the narrated location, created as a stub when unknown."""
+    location_id = await conn.fetchval(
+        "SELECT id FROM locations WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+        game_id, location,
+    )
+    if location_id:
+        old_loc = await KnowledgeGraphReader(None, game_id).get_current_location_name(conn)
+        if old_loc and old_loc.lower() != location.lower():
+            logger.info(f"[GAME] Location changed: '{old_loc}' → '{location}'")
+        return location_id
+    # Create a stub location (will be fully populated during extraction)
+    location_id = await conn.fetchval(
+        """INSERT INTO locations (game_id, name, created_cycle)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (game_id, name) DO NOTHING
+        RETURNING id""",
+        game_id, location, new_cycle,
+    )
+    if not location_id:
+        # Race condition: created between check and insert
+        location_id = await conn.fetchval(
+            "SELECT id FROM locations WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+            game_id, location,
+        )
+    logger.info(
+        f"[GAME] Created stub location '{location}' "
+        f"(cycle {new_cycle}), to be enriched during extraction"
+    )
+    return location_id
+
+
+async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
+                                current_cycle: int) -> NarrationState:
+    """Cycle, date, time and location from the narration; stub events and locations."""
+    new_cycle = current_cycle + 1 if narration.day_transition else current_cycle
+    new_time = narration.time.new_time if narration.time else ""
+    location = narration.current_location
+    populator = _populator(game_id)
+
+    current_date = await KnowledgeGraphReader(None, game_id).get_current_date(conn)
+    new_date = current_date
+    if narration.day_transition:
+        new_date = getattr(narration.day_transition, "new_date", current_date)
+
+    location_id = None
+    if location:
+        location_id = await _resolve_location(conn, game_id, location, new_cycle)
+
+    for evt in narration.events_mentioned:
+        await populator.create_stub_event(conn, evt, new_cycle)
+
+    await populator.update_game_state(
+        conn, cycle=new_cycle, date=new_date, time=new_time, location_id=location_id,
+    )
+    # Reset detail_requests on day transition (new cycle = fresh slate)
+    if narration.day_transition:
+        await populator.clear_detail_requests(conn)
+
+    return NarrationState(
+        cycle=new_cycle,
+        time=new_time,
+        location=location,
+        npcs_present=narration.npcs_present or [],
+        date=new_date,
+    )
+
+
+async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict | None:
+    """Fate Core compel: +1 fate point if accepted, -1 (floor 0) if refused."""
+    if narration.compel_result not in ("accepted", "refused"):
+        return None
+    try:
+        # Savepoint: a failed statement must not abort the turn's transaction.
+        async with conn.transaction():
+            fp = await conn.fetchval(
+                "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id)
+            if fp is None:
+                return None
+            accepted = narration.compel_result == "accepted"
+            new_fp = fp + 1 if accepted else max(0, fp - 1)
+            await conn.execute(
+                "UPDATE character_fate SET fate_points = $1 WHERE game_id = $2", new_fp, game_id)
+    except Exception as e:
+        logger.warning(f"[COMPEL] FP adjustment failed: {e}")
+        return None
+    return {
+        "result": narration.compel_result,
+        "aspect": narration.compel_aspect,
+        "fp_change": 1 if accepted else -1,
+        "new_fp": new_fp,
+    }
+
+
+async def apply_narrator_deltas(conn, game_id: UUID, narration: NarrationOutput,
+                                cycle: int) -> AppliedDeltas:
+    """Credit delta, entity reveals and compel, applied on the spot."""
+    populator = _populator(game_id)
+    credit = None
+    if narration.credit_delta:
+        cd = narration.credit_delta
+        applied, new_balance, error = await populator.credit_transaction(
+            conn, cd.amount, cycle, cd.description
+        )
+        credit = {"amount": cd.amount, "description": cd.description, "applied": applied,
+                  "new_balance": new_balance, "error": error}
+
+    for reveal in narration.entity_reveals:
+        if reveal.entity_type == "character":
+            await populator.mark_character_known(conn, reveal.current_name, reveal.real_name)
+        elif reveal.entity_type == "location":
+            await populator.mark_location_accessible(conn, reveal.current_name)
+
+    return AppliedDeltas(credit=credit, compel=await _apply_compel(conn, game_id, narration))
+
+
+async def store_info_requests(conn, game_id: UUID, requests: list[str]) -> None:
+    """Narrator info requests, loaded into the next turn's context."""
+    await conn.execute("UPDATE games SET detail_requests = $1 WHERE id = $2", requests, game_id)
+
+
+async def save_turn_messages(conn, game_id: UUID, *, user_message: str, assistant_message: str,
+                             state: NarrationState, narrator_deltas: dict,
+                             engine_snapshot: dict | None) -> tuple[UUID, UUID]:
+    """User + assistant message pair of the turn; returns (user_id, assistant_id)."""
+    populator = _populator(game_id)
+    conv_id = await populator.get_active_conversation(conn)
+    if not conv_id:
+        conv_id = await populator.create_conversation(conn, state.cycle)
+
+    max_seq = await conn.fetchval(
+        "SELECT COALESCE(MAX(sequence), 0) FROM messages WHERE conversation_id = $1", conv_id,
+    )
+    stamp = {"cycle": state.cycle, "time": state.time, "game_date": state.date,
+             "location_ref": state.location}
+    user_id = await populator.save_message(
+        conn, conv_id, "user", user_message, sequence=max_seq + 1, **stamp,
+    )
+    assistant_id = await populator.save_message(
+        conn, conv_id, "assistant", assistant_message, sequence=max_seq + 2, **stamp,
+        narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot,
+    )
+    return user_id, assistant_id
+
+
+async def lock_engine(conn, game_id: UUID) -> None:
+    """The engine is immutable once the first narration turn is saved."""
+    await _populator(game_id).lock_engine(conn)
+
+
+async def log_mechanic_roll(conn, game_id: UUID, *, message_id: UUID | None, engine: str,
+                            roll: RollResult, cycle: int | None) -> UUID:
+    """Log a roll (message_id None while it waits for an aspect invocation)."""
+    return await _populator(game_id).log_mechanic_roll(
+        conn, game_id, message_id, engine, roll.details.get("skill_name"),
+        roll.model_dump(), roll.outcome, roll.complication, cycle,
+    )
+
+
+async def load_pending_roll(conn, game_id: UUID, roll_id: UUID) -> dict | None:
+    """A roll still waiting for its message (aspect invocation resume)."""
+    row = await conn.fetchrow(
+        """SELECT id, roll_details, outcome, engine, skill_used, cycle
+        FROM mechanic_rolls
+        WHERE id = $1 AND game_id = $2 AND message_id IS NULL""",
+        roll_id, game_id,
+    )
+    if not row:
+        return None
+    details = row["roll_details"]
+    if isinstance(details, str):
+        details = parse_json(details)
+    return {
+        "id": row["id"],
+        "roll_details": details,
+        "outcome": row["outcome"],
+        "engine": row["engine"],
+        "skill_used": row["skill_used"],
+        "cycle": row["cycle"],
+    }
+
+
+async def update_mechanic_roll(conn, roll_id: UUID, roll_details: dict, outcome: str,
+                               message_id: UUID | None) -> None:
+    """Final details and outcome of a resumed roll, linked to its message."""
+    await conn.execute(
+        """UPDATE mechanic_rolls
+        SET roll_details = $1, outcome = $2, message_id = $3
+        WHERE id = $4""",
+        roll_details, outcome, message_id, roll_id,
+    )
