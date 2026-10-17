@@ -122,3 +122,16 @@ async def test_legacy_pending_rows_are_expired(test_pool, legacy_game):
             " WHERE game_id = $1::uuid ORDER BY created_at", game_id)
     assert [(r["status"], r["orphan"]) for r in rows] == [("resolved", False), ("expired", True)]
     assert rows[1]["id"] == LEGACY_PENDING_ROLL
+
+
+async def test_legacy_users_start_at_token_version_zero(client, test_pool, legacy_game):
+    """#83: users saved before token_version get version 0 and can sign in again."""
+    _, email = legacy_game
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval("SELECT token_version FROM users WHERE email = $1", email) == 0
+    login = await client.post("/api/auth/login",
+                              json={"identifier": email, "password": "testpassword"})
+    assert login.status_code == 200, login.text
+    me = await client.get("/api/auth/me",
+                          headers={"Authorization": f"Bearer {login.json()['token']}"})
+    assert me.status_code == 200

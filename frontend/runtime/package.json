@@ -1,0 +1,9 @@
+{
+  "name": "ldvelh-frontend-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runtime of the frontend image: the static server only (see frontend/Dockerfile). Its version is the image's single source of truth.",
+  "dependencies": {
+    "serve": "14.2.5"
+  }
+}

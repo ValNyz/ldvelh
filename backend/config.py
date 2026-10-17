@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     jwt_secret: str = ""  # JWT_SECRET, required: checked by startup_checks at startup
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 72
+    # Absolute session lifetime: refreshing never extends a session past this (#83).
+    jwt_session_max_hours: int = 168
     registration_enabled: bool = os.getenv("REGISTRATION_ENABLED", "true").lower() == "true"
     dev_user_email: str = os.getenv("DEV_USER_EMAIL", "dev@ldvelh.local")
     dev_user_password: str = os.getenv("DEV_USER_PASSWORD", "devpassword")
@@ -64,6 +66,10 @@ class Settings(BaseSettings):
     resend_api_key: str = os.getenv("RESEND_API_KEY", "")
     email_from: str = os.getenv("EMAIL_FROM", "noreply@yourdomain.com")
     frontend_url: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+    # Reverse proxies in front of the backend that append to X-Forwarded-For (Traefik
+    # on Coolify: 1). 0 ignores the header: the client IP is the TCP peer (#82).
+    trusted_proxy_hops: int = 0
 
     # CORS
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")

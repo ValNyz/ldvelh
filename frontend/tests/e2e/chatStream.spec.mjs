@@ -65,6 +65,15 @@ test('a stream cut short ends with a recoverable error, and Réessayer works', a
 	await expect(page.getByText('La porte grince.').last()).toBeVisible();
 });
 
+test('a 429 shows the French rate-limit message and the player can send again', async ({ page }) => {
+	const message = 'Trop de requêtes. Réessaie dans 60 s.';
+	await openGame(page, [{ __status: 429, body: { detail: message, code: 'rate_limited' } }, { __sse: ANSWER }]);
+	await send(page, 'J’ouvre la porte.');
+	await expect(page.getByText(message)).toBeVisible();
+	await expect(input(page)).toBeEnabled();
+	await page.screenshot({ path: test.info().outputPath('chat-rate-limited.png') });
+});
+
 test('a 401 refreshes the session once and the turn goes through', async ({ page }) => {
 	const api = await openGame(page, [{ __status: 401, body: { detail: 'Token expiré' } }, { __sse: ANSWER }]);
 	const refreshes = () => api.calls.filter(c => c.path === '/auth/refresh').length;

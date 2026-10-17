@@ -7,6 +7,7 @@ node_modules
 __pycache__/
 frontend/out/
 backend/.coverage
+backend/.coverage.*
 *.egg-info/
 .superpowers/
 frontend/images/

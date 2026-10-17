@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { STREAM_INTERRUPTED, SESSION_EXPIRED, runChatStream } from '../lib/chatStream.mjs';
+import { RATE_LIMITED, STREAM_INTERRUPTED, SESSION_EXPIRED, runChatStream } from '../lib/chatStream.mjs';
 
 const sse = (...events) => events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('');
 
@@ -77,6 +77,21 @@ test('HTTP errors become one error event with the status and FastAPI detail', as
 		assert.equal(events[0].error, message);
 		assert.equal(events[0].status, response.status);
 		assert.equal(result.success, false);
+	}
+});
+
+test('429: the backend French message, or ours when the body is not the rate_limited shape', async () => {
+	const french = 'Trop de requêtes. Réessaie dans 60 s.';
+	for (const [response, expected] of [
+		[jsonResponse(429, { detail: french, code: 'rate_limited' }), french],
+		[jsonResponse(429, { detail: 'Too Many Requests' }), RATE_LIMITED],
+		[new Response('Too Many Requests', { status: 429, statusText: 'Too Many Requests' }), RATE_LIMITED],
+	]) {
+		const { impl, calls } = fakeFetch(response);
+		const { result, events } = await run(impl, { refreshSession: async () => {} });
+		assert.deepEqual(events, [{ type: 'error', error: expected, status: 429 }]);
+		assert.equal(result.success, false);
+		assert.equal(calls.length, 1, 'no retry on 429');
 	}
 });
 

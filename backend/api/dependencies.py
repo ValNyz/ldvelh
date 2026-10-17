@@ -39,31 +39,34 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Missing or invalid token")
 
     token = authorization[7:]  # Strip "Bearer "
+    from services.auth_service import InvalidSession, decode_token, session_claims
     try:
-        from services.auth_service import decode_token
-        payload = decode_token(token)
+        user_id, version, session_start = session_claims(decode_token(token))
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
-
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
+    except InvalidSession as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, email, display_name, email_verified FROM users WHERE id = $1",
-            UUID(user_id),
+            """SELECT id, email, display_name, email_verified, token_version
+               FROM users WHERE id = $1""",
+            user_id,
         )
     if not row:
         raise HTTPException(status_code=401, detail="User not found")
+    if row["token_version"] != version:  # password changed or logged out since (#83)
+        raise HTTPException(status_code=401, detail="Session revoked")
 
     return {
         "id": row["id"],
         "email": row["email"],
         "display_name": row["display_name"],
         "email_verified": row["email_verified"],
+        "token_version": version,
+        "session_start": session_start,
     }
 
 

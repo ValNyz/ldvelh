@@ -95,6 +95,8 @@ psql -U your_user -d your_db -f schema.sql
 | `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` | Dev account seeded in debug mode | `dev@ldvelh.local` / `devpassword` |
 | `LOG_PROMPTS` | Log narrator prompts and JSON (DEBUG level) | `false` |
 | `CORS_ORIGINS` | Allowed origins | `http://localhost:3000` |
+| `TRUSTED_PROXY_HOPS` | Reverse proxies in front of the backend that append to `X-Forwarded-For`; the client IP used by the rate limits is the entry the outermost one added. `0` ignores the header (TCP peer) | `0`; `docker-compose.yml`: `1` (Traefik); override: `0` |
+| `JWT_SESSION_MAX_HOURS` | Absolute session lifetime: a refresh never extends a session past it, then the player logs in again | `168` |
 
 ## Running tests
 
@@ -148,8 +150,13 @@ Coolify deploys `docker-compose.yml` alone (no override). Environment to set in 
 - `DB_PASSWORD` (required): must be the password the existing `pgdata` volume was created with. Postgres only reads it when the volume is first initialised; if Coolify never set it, production has been running with the old default `ldvelh`, so set exactly that (or first change the password in Postgres with `ALTER USER ldvelh PASSWORD '...'`, then update the variable). It is interpolated into `DATABASE_URL`, so use URL-safe characters only (letters, digits, `-`, `_`, `.`, `~`; `openssl rand -hex 24` fits).
 - `ENCRYPTION_KEY` (required): a Fernet key. Players' saved API keys are encrypted with it: once set, never change or lose it, or those keys become unreadable (players must enter them again).
 - `SERVICE_URL_FRONTEND` (Coolify magic variable), `CORS_ORIGINS` (the production origin), `NEXT_PUBLIC_API_URL` (build arg: set it empty for same-origin `/api`, or to the backend URL; unset falls back to `http://localhost:8000`).
-- Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`.
+- `TRUSTED_PROXY_HOPS`: number of reverse proxies between the internet and the backend; the compose default `1` fits Coolify (one Traefik). Never set it above the real count: the extra entry is client-supplied, so a client could choose its rate-limit key (a chosen entry that is not an IP address falls back to the TCP peer). Too low (`0` behind Traefik) puts every player behind Traefik's address, so one player's failed logins throttle everyone. Behind Cloudflare in proxy mode, use `2`, but only after making Traefik trust the Cloudflare ranges (Coolify proxy configuration: `--entryPoints.https.forwardedHeaders.trustedIPs=<Cloudflare IPv4/IPv6 ranges>`, and the same for `http`): without it Traefik discards the `X-Forwarded-For` Cloudflare sends, the header holds only Cloudflare's address and every player shares it. The backend port must stay unpublished, so that only the proxy reaches it.
+- Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`, `JWT_SESSION_MAX_HOURS` (default 168: players log in again once a week).
 - Leave `DEBUG` unset (`false`), and do not set `DEV_USER_*`.
+
+Images: both run as an unprivileged user (backend `app`, uid 10001; frontend `node`, uid 1000). dbmate is pinned in one place, `db/dbmate-release.env` (version and the SHA-256 of the linux amd64 and arm64 binaries, from the GitHub release asset digests), and installed by `db/install-dbmate.sh` (download + `sha256sum -c`) in the backend image (`TARGETARCH`), CI and `scripts/test-backend.sh`: to upgrade, change that file only. `serve` comes from its own minimal manifest, `frontend/runtime/package.json` + committed `package-lock.json` (`npm ci --omit=dev` in the runner stage: serve and all its dependencies lock-pinned, without next/react); that manifest is the image's source of truth, and `tests/runtimeServe.test.mjs` checks the main lockfile (used by e2e and `npm start`) resolves the same version. To upgrade serve: change `runtime/package.json`, run `npm install --package-lock-only` in `frontend/runtime/`, and update the main `package.json`/lockfile to match. The backend image is built from the repo root: `/.dockerignore` keeps `.env` files, `backend/tests`, caches and the frontend out of it; it sets `PYTHONDONTWRITEBYTECODE=1` (the code is read-only for `app`). The backend has a compose healthcheck on `GET /health` (`docker compose ps` shows `healthy`; 30 s start period for the migrations run at boot).
+
+After the #83 deploy every player is logged out once (tokens without `ver`/`orig_iat` are refused).
 
 One-off check after this change (manual): debug mode used to seed `dev@ldvelh.local` with a known password. Make sure that account does not exist in the production database (`SELECT id FROM users WHERE email = 'dev@ldvelh.local';`) and delete it if it does.
 
@@ -160,3 +167,4 @@ GitHub Actions runs on every push to `main`/`dev`/`test`:
 - **Integration tests** against a Postgres service container
 - **Lint** of `pipeline/` and `api/routes.py` (ruff C901, F401)
 - **Frontend**: lint, unit tests, build, then the Playwright e2e tests (results uploaded as the `e2e-results` artifact)
+- **Docker images**: `docker build` of the backend (repo root context) and the frontend, run as non-root

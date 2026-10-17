@@ -42,9 +42,7 @@ set -euo pipefail
 mkdir /w && tar -C /src --exclude=.git --exclude=node_modules -cf - . | tar -C /w -xf -
 cd /w/backend
 apt-get update -qq >/dev/null && apt-get install -y -qq curl >/dev/null
-curl -fsSL -o /usr/local/bin/dbmate https://github.com/amacneil/dbmate/releases/download/v2.36.0/dbmate-linux-amd64
-echo "47e284b3d8cbad1ba5f090495aa05afd1bbd5f35e2ed5577aad06da74ce780ce  /usr/local/bin/dbmate" | sha256sum -c -
-chmod +x /usr/local/bin/dbmate
+/w/db/install-dbmate.sh /w/db/dbmate-release.env /usr/local/bin/dbmate
 pip install -q -r requirements.txt
 DATABASE_URL="postgresql://test:test@${PG_HOST}:5432/ldvelh_test?sslmode=disable" \
   dbmate --migrations-dir ../db/migrations --no-dump-schema up >/dev/null

@@ -22,7 +22,7 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
     "utils": {"fastapi", "starlette"},
 }
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
-LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request-IP rate limiter of the auth routes
+LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)
 KNOWN_VIOLATIONS: set[tuple[str, str]] = set()
 SQL_IN_ROUTES_ALLOWED: set[str] = set()
 

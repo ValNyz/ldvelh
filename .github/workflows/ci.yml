@@ -42,16 +42,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt pytest-cov
 
-      # Pinned + checksum-verified: an unpinned "latest" (v2.33.0+) silently
-      # switched the default to SSL and broke this step for months.
+      # Pinned + checksum-verified (db/dbmate-release.env): an unpinned "latest" (v2.33.0+)
+      # silently switched the default to SSL and broke this step for months.
       - name: Install dbmate
-        env:
-          DBMATE_VERSION: v2.36.0
-          DBMATE_SHA256: 47e284b3d8cbad1ba5f090495aa05afd1bbd5f35e2ed5577aad06da74ce780ce
-        run: |
-          curl -fsSL -o /usr/local/bin/dbmate "https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-amd64"
-          echo "${DBMATE_SHA256}  /usr/local/bin/dbmate" | sha256sum -c -
-          chmod +x /usr/local/bin/dbmate
+        run: ../db/install-dbmate.sh ../db/dbmate-release.env /usr/local/bin/dbmate
 
       # The CI Postgres service has no TLS: make sslmode explicit.
       - name: Apply DB migrations
@@ -125,3 +119,26 @@ jobs:
           name: e2e-results
           path: frontend/test-results/
           retention-days: 7
+
+  docker-images:
+    name: Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Catches Dockerfile breakage before a deploy; both images must run as non-root.
+      # A dummy backend/.env must stay out of the image (/.dockerignore), checked below.
+      - name: Build backend image (repo root context)
+        run: |
+          echo "JWT_SECRET=dummy-must-not-ship" > backend/.env
+          docker build -f backend/Dockerfile -t ldvelh-backend .
+          rm backend/.env
+      - name: Build frontend image
+        run: docker build -t ldvelh-frontend frontend
+      - name: Images run as non-root, without local secrets or tests
+        run: |
+          for image in ldvelh-backend ldvelh-frontend; do
+            uid="$(docker run --rm --entrypoint id "$image" -u)"
+            echo "$image uid=$uid"
+            test "$uid" != 0
+          done
+          docker run --rm --entrypoint sh ldvelh-backend -c 'test ! -e /app/.env && test ! -e /app/tests'

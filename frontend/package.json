@@ -7,7 +7,7 @@
     "build": "next build",
     "lint": "next lint --dir app --dir components --dir lib --dir hooks --max-warnings 25",
     "start": "serve out -l $PORT",
-    "test": "node --test tests/sse.test.mjs tests/formHistory.test.mjs tests/d6.test.mjs tests/enhanceBase.test.mjs tests/wizardDraft.test.mjs tests/chatStream.test.mjs tests/pendingRoll.test.mjs",
+    "test": "node --test tests/sse.test.mjs tests/formHistory.test.mjs tests/d6.test.mjs tests/enhanceBase.test.mjs tests/wizardDraft.test.mjs tests/chatStream.test.mjs tests/pendingRoll.test.mjs tests/runtimeServe.test.mjs",
     "test:e2e": "next build && playwright test"
   },
   "dependencies": {
@@ -17,7 +17,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^9.1.0",
-    "serve": "^14.2.4",
+    "serve": "14.2.5",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
