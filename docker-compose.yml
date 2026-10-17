@@ -1,7 +1,10 @@
 # In Coolify, set per-service domains in the UI:
 #   backend  -> https://<host>/api  (turn OFF "Strip Prefix")
 #   frontend -> https://<host>
-# Local dev port publishing lives in docker-compose.override.yml.
+# Fail-closed: JWT_SECRET and DB_PASSWORD must be set (the deploy fails otherwise)
+# and DEBUG defaults to false.
+# Local dev (ports, DEBUG=true, dev user) lives in docker-compose.override.yml,
+# created by scripts/dev-setup.sh from docker-compose.override.example.yml.
 
 services:
   db:
@@ -11,7 +14,7 @@ services:
     restart: on-failure:3
     environment:
       POSTGRES_USER: ldvelh
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ldvelh}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       POSTGRES_DB: ldvelh
       POSTGRES_SERVER_CN: db  # matches the service name used by clients
     volumes:
@@ -34,15 +37,13 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://ldvelh:${DB_PASSWORD:-ldvelh}@db:5432/ldvelh?sslmode=verify-ca&sslrootcert=/certs/rootCA.crt
+      DATABASE_URL: postgresql://ldvelh:${DB_PASSWORD:?DB_PASSWORD must be set}@db:5432/ldvelh?sslmode=verify-ca&sslrootcert=/certs/rootCA.crt
       FRONTEND_URL: ${SERVICE_URL_FRONTEND}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      DEBUG: ${DEBUG:-true}
-      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@ldvelh.local}
-      DEV_USER_PASSWORD: ${DEV_USER_PASSWORD:-devpassword}
+      DEBUG: ${DEBUG:-false}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (at least 32 random characters)}
     volumes:
       - db-certs:/certs:ro
 

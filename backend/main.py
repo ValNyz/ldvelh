@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
+from startup_checks import check_startup_config
 
 import logging
 
@@ -52,12 +53,7 @@ async def lifespan(app: FastAPI):
 
     settings = get_settings()
 
-    # Validate JWT_SECRET in production
-    if not settings.debug and settings.jwt_secret == "dev-secret-change-me-in-production!!":
-        raise RuntimeError(
-            "JWT_SECRET is still the default dev value. "
-            "Set the JWT_SECRET env variable before running in production."
-        )
+    check_startup_config(settings)  # weak JWT_SECRET / missing ENCRYPTION_KEY: refuse to start
 
     # Startup: créer le pool de connexions
     print("[STARTUP] Connexion à la base de données...")

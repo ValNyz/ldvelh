@@ -769,7 +769,7 @@ All API requests include `Authorization: Bearer {token}` header. On 401 response
 **File:** `backend/services/auth_service.py`
 
 - Password hashing: bcrypt
-- JWT: signed with `JWT_SECRET`, expiry configurable via `jwt_expiry_hours`
+- JWT: signed with `JWT_SECRET`, expiry configurable via `jwt_expiry_hours`. At startup `main.py` runs `startup_checks.check_startup_config`: the backend refuses to start when `JWT_SECRET` is shorter than 32 characters, contains `change-me` or equals a published default (even with `DEBUG=true`), or when `ENCRYPTION_KEY` is empty outside debug mode
 - Email verification tokens: 24h expiry, stored in `users.verification_token`
 
 ### Preferences

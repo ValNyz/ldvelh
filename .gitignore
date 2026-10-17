@@ -31,3 +31,6 @@ backend/tests/reports/
 # Playwright e2e outputs
 frontend/test-results/
 frontend/playwright-report/
+
+# Local compose overrides (template: docker-compose.override.example.yml)
+docker-compose.override.yml
