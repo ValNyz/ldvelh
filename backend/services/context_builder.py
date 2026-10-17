@@ -35,20 +35,6 @@ if TYPE_CHECKING:
 class ContextBuilder:
     """Builds NarrationContext from database using KnowledgeGraphReader"""
 
-    async def _build_notices(self, conn: Connection) -> list[str]:
-        """System notices for the narrator, from the previous turn's stored deltas."""
-        last = await self.reader.get_last_assistant_message(conn)
-        deltas = last.get("narrator_deltas") if last else None
-        if isinstance(deltas, str):
-            deltas = parse_json(deltas)
-        credit = deltas.get("credit_delta") if isinstance(deltas, dict) else None
-        if not isinstance(credit, dict) or credit.get("applied") is not False:
-            return []
-        return [
-            f"Transaction refusée au tour précédent : {credit.get('description')} "
-            f"({credit.get('amount')} cr) — {credit.get('error')}"
-        ]
-
     def __init__(self, pool: Pool, game_id: UUID):
         self.pool = pool
         self.game_id = game_id
@@ -174,6 +160,24 @@ class ContextBuilder:
             engine_stats=engine_stats,
             genre=genre,
         )
+
+    # =========================================================================
+    # NOTICES
+    # =========================================================================
+
+    async def _build_notices(self, conn: Connection) -> list[str]:
+        """System notices for the narrator, from the previous turn's stored deltas."""
+        last = await self.reader.get_last_assistant_message(conn)
+        deltas = last.get("narrator_deltas") if last else None
+        if isinstance(deltas, str):
+            deltas = parse_json(deltas)
+        credit = deltas.get("credit_delta") if isinstance(deltas, dict) else None
+        if not isinstance(credit, dict) or credit.get("applied") is not False:
+            return []
+        notice = (f"Transaction refusée au tour précédent : {credit.get('description')} "
+                  f"({credit.get('amount')} cr)")
+        error = credit.get("error")
+        return [f"{notice} — {error}" if error is not None else notice]
 
     # =========================================================================
     # DIRECTOR

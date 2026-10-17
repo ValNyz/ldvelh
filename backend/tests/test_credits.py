@@ -1,10 +1,13 @@
 """Credits: what is stored is what the ledger applied (#33)."""
 
 import json
+from uuid import uuid4
 
+import pytest
 import pytest_asyncio
 
 from schema.narration import CREDIT_DELTA_CAP, CreditDelta
+from services.context_builder import ContextBuilder
 from tests.characterization import payloads
 from tests.characterization.conftest import harness, llm_mode, scripted_llm  # noqa: F401
 from tests.characterization.harness import spy_narration
@@ -87,3 +90,25 @@ async def test_next_turn_context_has_the_refusal_notice(harness, game, monkeypat
     prompt = json.dumps(calls[-1]["messages"], ensure_ascii=False)
     assert "Transaction refusée" in prompt
     assert "AVIS DU SYSTÈME" in prompt
+
+
+class _LastMessageReader:
+    def __init__(self, credit: dict):
+        self.credit = credit
+
+    async def get_last_assistant_message(self, conn):
+        return {"narrator_deltas": {"credit_delta": self.credit}}
+
+
+REFUSED = "Transaction refusée au tour précédent : Achat (-5 cr)"
+
+
+@pytest.mark.parametrize("error, expected", [
+    ("Fonds insuffisants", f"{REFUSED} — Fonds insuffisants"),
+    (None, REFUSED),
+])
+async def test_refused_debit_notice_omits_a_missing_error(error, expected):
+    builder = ContextBuilder(None, uuid4())
+    builder.reader = _LastMessageReader(
+        {"amount": -5, "description": "Achat", "applied": False, "error": error})
+    assert await builder._build_notices(None) == [expected]
