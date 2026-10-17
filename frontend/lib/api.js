@@ -32,13 +32,15 @@ export function saveToken(token) {
 }
 
 /**
- * Revoke the session on the backend (every device of the player). Best effort:
- * the caller clears the local session whatever the answer.
+ * Revoke the session on the backend (every device of the player). Best effort, at
+ * most 3 s: the caller clears the local session whatever the answer.
  */
 export async function revokeSession() {
 	try {
-		await fetch(apiUrl('/auth/logout'), { method: 'POST', headers: getAuthHeaders() });
-	} catch { /* offline: the token still expires on its own */ }
+		await fetch(apiUrl('/auth/logout'), {
+			method: 'POST', headers: getAuthHeaders(), signal: AbortSignal.timeout(3000),
+		});
+	} catch { /* offline or slow: the token still expires on its own */ }
 }
 
 /**

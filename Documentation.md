@@ -743,7 +743,8 @@ A refused rollback raises `RollbackRejected(reason)`; the route answers 400 with
 - **Register:** `register(email, password, passwordConfirm, displayName)` → `POST /auth/register`
 - **Session restore:** on mount, reads localStorage → validates via `GET /auth/me` → refreshes token
 - **Token refresh:** every 30 minutes via `POST /auth/refresh` (same session: never past the absolute lifetime, then the player logs in again)
-- **Logout:** `POST /auth/logout` (best effort, revokes the token on the backend), then clears localStorage
+- **Logout:** `POST /auth/logout` (best effort, 3 s timeout), then clears localStorage. The backend revokes every session of the player: logging out on one device logs out all of them
+- **Session lifetime:** a session lasts at most `JWT_SESSION_MAX_HOURS` (168 h by default) from login, refreshes included: players log in again once a week
 - **Password change** (Settings): stores the token returned by `POST /auth/change-password`; the player's other sessions are revoked
 
 **File:** `frontend/lib/api.js`

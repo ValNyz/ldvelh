@@ -32,7 +32,11 @@ export async function mockApi(page, handlers = {}) {
 	};
 	const all = { ...defaults, ...handlers };
 
+	// Signed in once per test (the tab's sessionStorage remembers it): a reload keeps
+	// what the app stored, and a logout stays logged out on the next page.
 	await page.addInitScript((user) => {
+		if (sessionStorage.getItem('e2e-signed-in')) return;
+		sessionStorage.setItem('e2e-signed-in', '1');
 		localStorage.setItem('ldvelh-auth-token', 'test-token');
 		localStorage.setItem('ldvelh-auth-user', JSON.stringify(user));
 	}, USER);
