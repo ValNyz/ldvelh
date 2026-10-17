@@ -19,12 +19,10 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Static server pinned by the lockfile (#41): package-lock.json is the only source of its
-# version. Installed alone (npm ci --omit=dev would also pull next and react: 4x the image).
-COPY package-lock.json /tmp/package-lock.json
-RUN npm install -g --ignore-scripts \
-	"serve@$(node -p "require('/tmp/package-lock.json').packages['node_modules/serve'].version")" \
-	&& rm /tmp/package-lock.json && npm cache clean --force
+# Static server from its own minimal manifest (#41): runtime/package-lock.json pins serve
+# and every dependency, without the app's build dependencies (next, react).
+COPY runtime/package.json runtime/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy static export
 COPY --from=builder /app/out ./out
@@ -34,4 +32,4 @@ USER node
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "exec serve out -l ${PORT:-3000}"]
+CMD ["sh", "-c", "exec node_modules/.bin/serve out -l ${PORT:-3000}"]
