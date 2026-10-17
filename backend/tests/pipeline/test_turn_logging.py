@@ -2,15 +2,20 @@
 
 import json
 import logging
+import re
+from types import SimpleNamespace
 
 import pytest
 
 from config import get_settings
+from services.engine import fate_core
 from tests.characterization import payloads
-from tests.characterization.conftest import _seeded_random, harness, llm_mode, scripted_llm, world_game  # noqa: F401
+from tests.characterization.scripted_llm import USAGE
 
 SYSTEM_PROMPT_MARKER = "Maître du Jeu"
 NARRATIVE_TEXT = json.loads(payloads.NARRATION)["narrative_text"]
+
+pytestmark = pytest.mark.usefixtures("seeded_random")
 
 
 @pytest.fixture
@@ -57,11 +62,32 @@ async def test_prompts_not_logged_by_default(harness, world_game, turn_logs):
     assert not any(SYSTEM_PROMPT_MARKER in r.getMessage() for r in turn_logs.records)
 
 
+def _summary_lines(turn_logs) -> list[str]:
+    return [r.getMessage() for r in turn_logs.records
+            if r.levelno == logging.INFO and r.getMessage().startswith("[TURN] ")]
+
+
 async def test_one_turn_summary_line(harness, world_game, turn_logs):
     turn_logs.clear()
     await _play(harness, world_game)
-    lines = [r.getMessage() for r in turn_logs.records
-             if r.levelno == logging.INFO and r.getMessage().startswith("[TURN] game=")]
+    lines = _summary_lines(turn_logs)
     assert len(lines) == 1, lines
-    assert "engine=none" in lines[0]
-    assert " ms=" in lines[0] and " cost=$" in lines[0]
+    # The scripted narration stream reports USAGE (100 in, 50 out); history is the arrival pair.
+    assert lines[0].startswith(
+        f"[TURN] game={world_game} engine=none provider=anthropic model=scripted-model "
+        f"history=2 in={USAGE.input_tokens} out={USAGE.output_tokens} cache_read=0 cost=$"
+    ), lines[0]
+    assert re.search(r" cost=\$\d+\.\d{4} ms=\d+$", lines[0]), lines[0]
+
+
+async def test_no_summary_line_when_the_turn_halts(harness, fate_game, turn_logs, monkeypatch):
+    """A roll awaiting aspects (HALT) is not a completed turn: no [TURN] line."""
+    harness.llm._responses["mechanical"] = payloads.mechanical(
+        requires_test=True, skill="Athlétisme", skill_value=0, difficulty=4)
+    monkeypatch.setattr(fate_core, "random", SimpleNamespace(choice=lambda seq: -1))
+    turn_logs.clear()
+    events = await harness.chat(fate_game, "Je tente un saut impossible.")
+    await harness.drain()
+    assert "roll_pending" in harness.summarize(events)
+    assert _summary_lines(turn_logs) == []
+

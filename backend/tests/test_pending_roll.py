@@ -9,7 +9,6 @@ from pipeline import turn
 from repos import turns
 from services.engine import fate_core
 from tests.characterization import payloads
-from tests.characterization.conftest import harness, llm_mode, scripted_llm  # noqa: F401
 from tests.characterization.harness import spy_narration
 
 HIGH_CONCEPT = "Pilote déchu en quête de rédemption"
@@ -18,7 +17,7 @@ ACTION = "Je tente un saut impossible."
 
 
 @pytest_asyncio.fixture
-async def pending(harness, monkeypatch):  # noqa: F811
+async def pending(harness, monkeypatch):
     """Fate game whose last turn paused on a failed roll (as in C-05): (game_id, roll_pending event)."""
     game_id = await harness.create_game("fate_core")
     await harness.init_world(game_id, engine="fate_core",
@@ -38,13 +37,13 @@ async def pending(harness, monkeypatch):  # noqa: F811
     return game_id, rolls[0]
 
 
-async def _fate_points(harness, game_id):  # noqa: F811
+async def _fate_points(harness, game_id):
     async with harness.pool.acquire() as conn:
         return await conn.fetchval(
             "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id)
 
 
-async def _messages(harness, game_id):  # noqa: F811
+async def _messages(harness, game_id):
     async with harness.pool.acquire() as conn:
         return await conn.fetch(
             "SELECT role, content FROM messages WHERE game_id = $1 ORDER BY created_at, sequence",
@@ -55,7 +54,7 @@ def _errors(events):
     return [e for e in events if e["type"] == "error"]
 
 
-async def test_resume_twice_applies_once(harness, pending):  # noqa: F811
+async def test_resume_twice_applies_once(harness, pending):
     game_id, event = pending
     first = await harness.chat(game_id, ACTION, roll_id=event["roll_id"],
                                invoked_aspects=[HIGH_CONCEPT])
@@ -73,7 +72,7 @@ async def test_resume_twice_applies_once(harness, pending):  # noqa: F811
     assert await _fate_points(harness, game_id) == 2
 
 
-async def test_chat_while_roll_pending_resends_the_modal(harness, pending):  # noqa: F811
+async def test_chat_while_roll_pending_resends_the_modal(harness, pending):
     game_id, event = pending
     before = len(await _messages(harness, game_id))
     events = await harness.chat(game_id, "Je fais autre chose.")
@@ -88,7 +87,7 @@ async def test_chat_while_roll_pending_resends_the_modal(harness, pending):  # n
     assert len(await _messages(harness, game_id)) == before
 
 
-async def test_resume_uses_the_stored_message(harness, pending, monkeypatch):  # noqa: F811
+async def test_resume_uses_the_stored_message(harness, pending, monkeypatch):
     game_id, event = pending
     narration_calls = spy_narration(monkeypatch)
     events = await harness.chat(game_id, "autre chose", roll_id=event["roll_id"],
@@ -102,7 +101,7 @@ async def test_resume_uses_the_stored_message(harness, pending, monkeypatch):  #
     assert "autre chose" not in user_messages
 
 
-async def test_loaded_state_exposes_pending_roll(harness, pending):  # noqa: F811
+async def test_loaded_state_exposes_pending_roll(harness, pending):
     game_id, event = pending
     r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
     assert r.status_code == 200, r.text
@@ -118,7 +117,7 @@ async def test_loaded_state_exposes_pending_roll(harness, pending):  # noqa: F81
     assert r.json()["state"]["pending_roll"] is None
 
 
-async def test_overspend_is_rejected_and_fp_unchanged(harness, pending):  # noqa: F811
+async def test_overspend_is_rejected_and_fp_unchanged(harness, pending):
     game_id, event = pending
     async with harness.pool.acquire() as conn:
         await conn.execute("UPDATE character_fate SET fate_points = 1 WHERE game_id = $1", game_id)
@@ -134,7 +133,7 @@ async def test_overspend_is_rejected_and_fp_unchanged(harness, pending):  # noqa
     assert r.json()["state"]["pending_roll"]["roll_id"] == event["roll_id"]
 
 
-async def test_loaded_pending_roll_carries_the_stored_action(harness, pending):  # noqa: F811
+async def test_loaded_pending_roll_carries_the_stored_action(harness, pending):
     """The frontend shows the waiting action in the chat after a reload."""
     game_id, event = pending
     assert event["player_message"] == ACTION
@@ -142,7 +141,7 @@ async def test_loaded_pending_roll_carries_the_stored_action(harness, pending): 
     assert r.json()["state"]["pending_roll"]["player_message"] == ACTION
 
 
-async def test_resume_with_empty_message_saves_the_stored_action(harness, pending):  # noqa: F811
+async def test_resume_with_empty_message_saves_the_stored_action(harness, pending):
     """After a reload the frontend has no last message: it resumes with message=""."""
     game_id, event = pending
     events = await harness.chat(game_id, "", roll_id=event["roll_id"],
@@ -154,7 +153,7 @@ async def test_resume_with_empty_message_saves_the_stored_action(harness, pendin
     assert "" not in user_messages
 
 
-async def test_invoked_aspects_are_stored_with_their_sheet_name(harness, pending):  # noqa: F811
+async def test_invoked_aspects_are_stored_with_their_sheet_name(harness, pending):
     game_id, event = pending
     events = await harness.chat(game_id, ACTION, roll_id=event["roll_id"],
                                 invoked_aspects=["pilote dechu en quete de redemption"])
@@ -167,7 +166,7 @@ async def test_invoked_aspects_are_stored_with_their_sheet_name(harness, pending
     assert stored["details"]["invoked_aspects"] == [HIGH_CONCEPT]
 
 
-async def test_rollback_expires_the_pending_roll(harness, pending):  # noqa: F811
+async def test_rollback_expires_the_pending_roll(harness, pending):
     """R12: the modal of a rolled-back action does not come back; the next turn rolls anew."""
     game_id, event = pending
     r = await harness.client.post(f"/api/games/{game_id}/rollback", json={"fromIndex": 2},
@@ -189,7 +188,7 @@ async def test_rollback_expires_the_pending_roll(harness, pending):  # noqa: F81
     assert "mechanical" in harness.llm.purposes()
 
 
-async def test_claim_refused_at_commit_writes_nothing(harness, pending, monkeypatch):  # noqa: F811
+async def test_claim_refused_at_commit_writes_nothing(harness, pending, monkeypatch):
     """Defence in depth: a roll claimed by a concurrent turn fails this one, untouched."""
     game_id, event = pending
     before = len(await _messages(harness, game_id))
@@ -207,7 +206,7 @@ async def test_claim_refused_at_commit_writes_nothing(harness, pending, monkeypa
     assert len(await _messages(harness, game_id)) == before
 
 
-async def test_fate_points_spent_elsewhere_before_commit(harness, pending, monkeypatch):  # noqa: F811
+async def test_fate_points_spent_elsewhere_before_commit(harness, pending, monkeypatch):
     """The guarded debit refuses the turn when the balance dropped after arbitrate."""
     game_id, event = pending
     before = len(await _messages(harness, game_id))

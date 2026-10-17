@@ -662,7 +662,7 @@ class TestVerifyOwnership:
         service = GameService(test_pool)
 
         # Should not raise — test_user["id"] is already a UUID from asyncpg
-        user_id = UUID(str(test_user["id"]))
+        user_id = test_user["id"]
         await service.verify_ownership(game_id, user_id)
 
     @pytest.mark.asyncio
@@ -679,7 +679,7 @@ class TestVerifyOwnership:
         game_id = UUID(resp.json()["gameId"])
         service = GameService(test_pool)
 
-        other_id = UUID(str(second_user["id"]))
+        other_id = second_user["id"]
         with pytest.raises(HTTPException) as exc_info:
             await service.verify_ownership(game_id, other_id)
         assert exc_info.value.status_code == 403
@@ -694,7 +694,7 @@ class TestVerifyOwnership:
 
         service = GameService(test_pool)
 
-        user_id = UUID(str(test_user["id"]))
+        user_id = test_user["id"]
         with pytest.raises(HTTPException) as exc_info:
             await service.verify_ownership(uuid4(), user_id)
         assert exc_info.value.status_code == 404
@@ -2050,7 +2050,7 @@ class TestContextBuilderMethods:
 
         # Store a detail request for a known entity
         npc_name = world_gen.characters[0].name
-        await store_requests(test_pool,game_id, [npc_name])
+        await store_requests(test_pool, game_id, [npc_name])
 
         builder = ContextBuilder(test_pool, game_id)
         async with test_pool.acquire() as conn:

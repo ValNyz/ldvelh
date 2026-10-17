@@ -18,7 +18,7 @@ from tests.test_game_and_populator import (
 pytestmark = pytest.mark.integration
 
 
-def _state(cycle=1, time=None, location=None, date=None) -> NarrationState:
+def _state(cycle=1, time="", location=None, date=None) -> NarrationState:
     return NarrationState(cycle=cycle, time=time, location=location, npcs_present=[], date=date)
 
 

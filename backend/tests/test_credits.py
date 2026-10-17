@@ -9,12 +9,11 @@ import pytest_asyncio
 from schema.narration import CREDIT_DELTA_CAP, CreditDelta
 from services.context_builder import ContextBuilder
 from tests.characterization import payloads
-from tests.characterization.conftest import harness, llm_mode, scripted_llm  # noqa: F401
 from tests.characterization.harness import spy_narration
 
 
 @pytest_asyncio.fixture
-async def game(harness):  # noqa: F811
+async def game(harness):
     """Game with arrival played and a balance of 50."""
     game_id = await harness.create_game("none")
     await harness.init_world(game_id)
@@ -82,14 +81,38 @@ def test_huge_credit_delta_is_clamped():
     assert CreditDelta(amount=-10**12, description="x").amount == -100_000
 
 
+async def test_rollback_of_a_legacy_debit_restores_the_balance(harness, game):
+    """Rows saved before the "applied" key existed count as applied: rollback reverses them."""
+    await _debit(harness, game, -10)
+    async with harness.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE messages SET narrator_deltas = narrator_deltas #- '{credit_delta,applied}'"
+            " WHERE game_id = $1 AND role = 'assistant'", game)
+    assert "applied" not in await _last_credit_delta(harness, game)
+    await _rollback_last_turn(harness, game)
+    assert await _balance(harness, game) == 50
+
+
+async def _narration_prompt(harness, game_id, monkeypatch) -> str:
+    """Play one plain turn; the messages sent to the narrator, as text."""
+    harness.llm._responses["narration"] = payloads.NARRATION
+    calls = spy_narration(monkeypatch)
+    await harness.chat(game_id, "Je continue.")
+    await harness.drain()
+    return json.dumps(calls[-1]["messages"], ensure_ascii=False)
+
+
 async def test_next_turn_context_has_the_refusal_notice(harness, game, monkeypatch):
     await _debit(harness, game, -2000)
-    calls = spy_narration(monkeypatch)
-    await harness.chat(game, "Je continue.")
-    await harness.drain()
-    prompt = json.dumps(calls[-1]["messages"], ensure_ascii=False)
+    prompt = await _narration_prompt(harness, game, monkeypatch)
     assert "Transaction refusée" in prompt
     assert "AVIS DU SYSTÈME" in prompt
+
+
+async def test_refusal_notice_lasts_one_turn(harness, game, monkeypatch):
+    await _debit(harness, game, -2000)
+    assert "Transaction refusée" in await _narration_prompt(harness, game, monkeypatch)
+    assert "Transaction refusée" not in await _narration_prompt(harness, game, monkeypatch)
 
 
 class _LastMessageReader:
@@ -112,3 +135,13 @@ async def test_refused_debit_notice_omits_a_missing_error(error, expected):
     builder.reader = _LastMessageReader(
         {"amount": -5, "description": "Achat", "applied": False, "error": error})
     assert await builder._build_notices(None) == [expected]
+
+
+@pytest.mark.parametrize("credit", [
+    {"amount": -5, "description": "Achat", "applied": True, "error": None},
+    {"amount": -5, "description": "Achat"},  # legacy row: no "applied" key
+], ids=["applied", "legacy"])
+async def test_applied_or_legacy_debit_yields_no_notice(credit):
+    builder = ContextBuilder(None, uuid4())
+    builder.reader = _LastMessageReader(credit)
+    assert await builder._build_notices(None) == []

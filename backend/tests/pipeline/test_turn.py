@@ -29,36 +29,47 @@ def _ctx() -> TurnContext:
 
 
 class _Spy:
-    def __init__(self, result=None, error: Exception | None = None):
+    def __init__(self, name: str, log: list[str], result=None, error: Exception | None = None):
+        self.name = name
+        self.log = log
         self.calls = 0
         self.result = result
         self.error = error
 
     async def __call__(self, *args):
         self.calls += 1
+        self.log.append(self.name)
         if self.error:
             raise self.error
         return self.result
 
 
 @pytest.fixture
-def steps(monkeypatch):
-    spies = {
-        "load_turn": _Spy(result=object()),
-        "arbitrate": _Spy(result=Arbitration(mechanical=None, resumed_roll_id=None)),
-        "narrate": _Spy(result=Narrated(narration=None, display_text="", cost=None)),
-        "commit_turn": _Spy(result=object()),
-        "respond": _Spy(),
-        "schedule_background": _Spy(),
+def call_log() -> list[str]:
+    """Names of the steps, in the order run_turn called them."""
+    return []
+
+
+@pytest.fixture
+def steps(monkeypatch, call_log):
+    results = {
+        "load_turn": object(),
+        "arbitrate": Arbitration(mechanical=None, resumed_roll_id=None),
+        "narrate": Narrated(narration=None, display_text="", cost=None),
+        "commit_turn": object(),
+        "respond": None,
+        "schedule_background": None,
     }
+    spies = {name: _Spy(name, call_log, result=result) for name, result in results.items()}
     for name, spy in spies.items():
         monkeypatch.setattr(turn, name, spy)
     return spies
 
 
-async def test_run_turn_runs_every_step_in_order(steps):
+async def test_run_turn_runs_every_step_in_order(steps, call_log):
     await turn.run_turn(_ctx())
-    assert all(spy.calls == 1 for spy in steps.values())
+    assert call_log == ["load_turn", "arbitrate", "narrate", "commit_turn", "respond",
+                        "schedule_background"]
 
 
 async def test_run_turn_stops_at_halt(steps):

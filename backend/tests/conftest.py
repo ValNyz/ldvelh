@@ -20,6 +20,9 @@ import logging
 
 logging.basicConfig(level=logging.WARNING)
 
+# Fixtures shared by every test package (chat harness, scripted LLM, catalog table)
+pytest_plugins = ["tests.plugins.chat", "tests.plugins.catalog"]
+
 
 # =============================================================================
 # FIXTURES - Exemples importés depuis prompts/examples.py

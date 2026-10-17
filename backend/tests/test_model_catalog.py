@@ -3,12 +3,12 @@
 import json
 
 import pytest
-import pytest_asyncio
 
 from llm.profile import ModelProfile
 from repos import llm_models
 from repos.llm_models import CatalogEntry, ModelCatalog, invalidate_catalog_cache, load_catalog
 from services.pricing import ModelPricing
+from tests.helpers import insert_llm_model
 
 
 @pytest.fixture(autouse=True)
@@ -58,41 +58,11 @@ def test_profile_lookup():
     assert cat.profile("p", "missing") is None
 
 
-@pytest_asyncio.fixture
-async def llm_table(test_pool):
-    """Empty llm_models for the test, restoring the seed rows afterwards."""
-    async with test_pool.acquire() as conn:
-        saved = await conn.fetch("SELECT * FROM llm_models")
-        await conn.execute("DELETE FROM llm_models")
-    yield test_pool
-    async with test_pool.acquire() as conn:
-        await conn.execute("DELETE FROM llm_models")
-        for r in saved:
-            cols = list(r.keys())
-            await conn.execute(
-                f"INSERT INTO llm_models ({', '.join(cols)}) VALUES "
-                f"({', '.join(f'${i + 1}' for i in range(len(cols)))})",
-                *[r[c] for c in cols],
-            )
-
-
-async def _insert(pool, model_id, **kw):
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """INSERT INTO llm_models (provider, model_id, label, status, roles, default_rank,
-                   input_price, output_price, cache_write_price, cache_read_price, profile)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)""",
-            kw.get("provider", "p"), model_id, kw.get("label", model_id),
-            kw.get("status", "enabled"), kw.get("roles", ["narration"]), kw.get("rank"),
-            kw.get("inp"), kw.get("out"), kw.get("cw"), kw.get("cr"), kw.get("profile", {}),
-        )
-
-
 @pytest.mark.asyncio
 async def test_load_reads_rows(llm_table):
-    await _insert(llm_table, "m1", rank=1, inp=3, out=15, cw=3.75, cr=0.3,
+    await insert_llm_model(llm_table, "m1", rank=1, inp=3, out=15, cw=3.75, cr=0.3,
                   profile={"send_temperature": False})
-    await _insert(llm_table, "m2", inp=None, out=None)
+    await insert_llm_model(llm_table, "m2", inp=None, out=None)
     cat = await load_catalog(llm_table)
     m1, m2 = cat.entry("p", "m1"), cat.entry("p", "m2")
     assert m1.prices == ModelPricing(3, 15, 3.75, 0.3)

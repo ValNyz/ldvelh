@@ -1,14 +1,12 @@
 """LLMSession and /api/providers driven by the llm_models catalog (#70)."""
 
 import pytest
-import pytest_asyncio
 
 from llm.profile import ModelProfile
 from llm.session import LLMSession, Purpose
 from repos.llm_models import CatalogEntry, ModelCatalog, invalidate_catalog_cache
 from services.pricing import ModelPricing
-from tests.helpers import auth_headers
-from tests.test_model_catalog import _insert, llm_table  # noqa: F401  (save/restore fixture)
+from tests.helpers import auth_headers, insert_llm_model
 
 
 @pytest.fixture(autouse=True)
@@ -73,10 +71,10 @@ async def test_providers_catalog_lists_only_enabled_models():
     assert a["default_model"] == "claude-sonnet-5-5"
 
 
-async def test_providers_endpoint_lists_only_enabled_models(client, test_user, llm_table):  # noqa: F811
-    await _insert(llm_table, "claude-sonnet-5-5", provider="anthropic", label="S",
+async def test_providers_endpoint_lists_only_enabled_models(client, test_user, llm_table):
+    await insert_llm_model(llm_table, "claude-sonnet-5-5", provider="anthropic", label="S",
                   roles=["narration"], rank=1, inp=3, out=15)
-    await _insert(llm_table, "claude-opus-5-5", provider="anthropic", label="O",
+    await insert_llm_model(llm_table, "claude-opus-5-5", provider="anthropic", label="O",
                   status="pending", rank=2, inp=5, out=25)
     r = await client.get("/api/providers", headers=auth_headers(test_user["token"]))
     a = r.json()["providers"]["anthropic"]

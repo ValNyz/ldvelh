@@ -10,10 +10,10 @@ from api.streaming import SSEEvent, SSEWriter
 from config import get_settings
 from pipeline import turn
 from repos import turns
+from repos.games import get_snapshot
 from services.game_service import GameService
 from tests.characterization import payloads
-from tests.characterization.conftest import harness, llm_mode, scripted_llm  # noqa: F401
-from tests.pipeline.test_commit import _engine_state, _stress_on_every_roll, fate_game  # noqa: F401
+from tests.helpers import engine_state, stress_on_every_roll
 
 TIMEOUT = 5.0
 
@@ -82,7 +82,7 @@ async def _game_state(pool, game_id: UUID) -> dict:
     async with pool.acquire() as conn:
         fate_points = await conn.fetchval(
             "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id)
-    return {**await _engine_state(pool, game_id), "fate_points": fate_points}
+    return {**await engine_state(pool, game_id), "fate_points": fate_points}
 
 
 def _rolling_turn_then_plain_turns(harness, gate: asyncio.Event, monkeypatch) -> None:
@@ -91,7 +91,7 @@ def _rolling_turn_then_plain_turns(harness, gate: asyncio.Event, monkeypatch) ->
         payloads.mechanical(requires_test=True, skill="Athlétisme", skill_value=2, difficulty=1),
         payloads.mechanical(requires_test=False),
     ]
-    _stress_on_every_roll(monkeypatch)
+    stress_on_every_roll(monkeypatch)
     harness.llm.stream_gate = gate
 
 
@@ -102,13 +102,13 @@ async def _read_until_chunk(stream) -> None:
             return
 
 
-async def test_disconnect_mid_stream_saves_nothing_and_releases_the_lock(  # noqa: F811
-        harness, fate_game, test_user, monkeypatch):  # noqa: F811
+async def test_disconnect_mid_stream_saves_nothing_and_releases_the_lock(
+        harness, fate_game, test_user, monkeypatch):
     game_id = fate_game
     harness.llm._responses["mechanical"] = payloads.mechanical(
         requires_test=True, skill="Athlétisme", skill_value=2, difficulty=1)
-    _stress_on_every_roll(monkeypatch)
-    before = await _engine_state(harness.pool, UUID(game_id))
+    stress_on_every_roll(monkeypatch)
+    before = await engine_state(harness.pool, UUID(game_id))
     gate = asyncio.Event()
     harness.llm.stream_gate = gate
 
@@ -120,7 +120,7 @@ async def test_disconnect_mid_stream_saves_nothing_and_releases_the_lock(  # noq
     await stream.aclose()
 
     await asyncio.wait_for(harness.drain(), TIMEOUT)
-    assert await _engine_state(harness.pool, UUID(game_id)) == before
+    assert await engine_state(harness.pool, UUID(game_id)) == before
     assert routes._get_game_lock(UUID(game_id)).locked() is False
 
     harness.llm.stream_gate = None
@@ -134,8 +134,8 @@ async def _read_all(writer: SSEWriter) -> list[dict]:
     return [json.loads(line[6:]) async for line in writer.iterate() if line.startswith("data: ")]
 
 
-async def test_disconnect_then_immediate_resend_is_accepted(  # noqa: F811
-        harness, fate_game, test_user, monkeypatch):  # noqa: F811
+async def test_disconnect_then_immediate_resend_is_accepted(
+        harness, fate_game, test_user, monkeypatch):
     game_id = UUID(fate_game)
     gate = asyncio.Event()
     _rolling_turn_then_plain_turns(harness, gate, monkeypatch)
@@ -163,7 +163,7 @@ async def test_disconnect_then_immediate_resend_is_accepted(  # noqa: F811
     assert {**after, "messages": before["messages"]} == before
 
 
-async def test_http_disconnect_cancels_the_turn(harness, fate_game, monkeypatch):  # noqa: F811
+async def test_http_disconnect_cancels_the_turn(harness, fate_game, monkeypatch):
     """Raw ASGI, as uvicorn drives it (HTTP spec 2.3): http.disconnect cancels the turn."""
     from main import app
 
@@ -209,8 +209,8 @@ async def test_http_disconnect_cancels_the_turn(harness, fate_game, monkeypatch)
     assert await _game_state(harness.pool, game_id) == before
 
 
-async def test_disconnect_during_respond_still_schedules_and_keeps_the_turn(  # noqa: F811
-        harness, fate_game, test_user, monkeypatch):  # noqa: F811
+async def test_disconnect_during_respond_still_schedules_and_keeps_the_turn(
+        harness, fate_game, test_user, monkeypatch):
     """The turn is committed before respond: a disconnect then cancels nothing (#20)."""
     game_id = UUID(fate_game)
     before = await _game_state(harness.pool, game_id)
@@ -254,8 +254,8 @@ async def test_disconnect_during_respond_still_schedules_and_keeps_the_turn(  # 
     assert routes._get_game_lock(game_id).locked() is False
 
 
-async def test_disconnect_during_commit_finishes_the_turn(  # noqa: F811
-        harness, fate_game, test_user, monkeypatch):  # noqa: F811
+async def test_disconnect_during_commit_finishes_the_turn(
+        harness, fate_game, test_user, monkeypatch):
     """A started commit completes despite a cancel; done/extraction still follow (#20)."""
     game_id = UUID(fate_game)
     before = await _game_state(harness.pool, game_id)
@@ -292,4 +292,45 @@ async def test_disconnect_during_commit_finishes_the_turn(  # noqa: F811
     after = await _game_state(harness.pool, game_id)
     assert after["messages"] == before["messages"] + 2
     assert len(scheduled) == 1
+    assert routes._get_game_lock(game_id).locked() is False
+
+
+async def test_disconnect_after_world_saved_finishes_the_init(harness, test_user, monkeypatch):
+    """INIT: once process_init saved the world, engine setup, duration and Director still run (#20)."""
+    game_id = UUID(await harness.create_game("fate_core"))
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_load = GameService.load_game_state
+
+    async def gated_load(self, gid):
+        entered.set()
+        await release.wait()
+        return await original_load(self, gid)
+
+    monkeypatch.setattr(GameService, "load_game_state", gated_load)
+    request = routes.ChatRequest(
+        message="__INIT__", gameId=game_id, engine="fate_core",
+        world_config={"genre": "sci_fi", "difficulty": "moderate", "duration": "short"},
+        character_data=payloads.CHARACTER_DATA["fate_core"])
+    writer = routes.start_chat(request, harness.pool, get_settings(), test_user["id"])
+    stream = writer.iterate()
+    await asyncio.wait_for(anext(stream), TIMEOUT)
+    await asyncio.wait_for(entered.wait(), TIMEOUT)  # world saved, building the done payload
+    await stream.aclose()
+    await asyncio.sleep(0.01)
+    release.set()
+
+    await asyncio.wait({writer._task}, timeout=TIMEOUT)
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+    assert writer._task.cancelled()  # the cancel was delivered...
+    async with harness.pool.acquire() as conn:  # ...yet the post-commit steps all ran
+        snapshot = await get_snapshot(conn, game_id)
+        duration = await conn.fetchval(
+            "SELECT game_duration FROM games WHERE id = $1", game_id)
+        fate_rows = await conn.fetchval(
+            "SELECT count(*) FROM character_fate WHERE game_id = $1", game_id)
+        plans = await conn.fetchval(
+            "SELECT count(*) FROM director_plans WHERE game_id = $1", game_id)
+    assert (snapshot.world_created, snapshot.engine, duration) == (True, "fate_core", "short")
+    assert fate_rows == 1
+    assert plans == 1
     assert routes._get_game_lock(game_id).locked() is False

@@ -1,13 +1,10 @@
 """GET /session/cost only reports the requesting user's spend (GHSA-w889)."""
 
-from tests.characterization.conftest import (  # noqa: F401  (fixtures)
-    _seeded_random,
-    harness,
-    llm_mode,
-    scripted_llm,
-    world_game,
-)
+import pytest
+
 from tests.helpers import auth_headers
+
+pytestmark = pytest.mark.usefixtures("seeded_random")
 
 
 async def test_session_cost_is_per_user(harness, world_game, second_user, monkeypatch):

@@ -194,7 +194,9 @@ async def test_c16_provider_error_midstream(harness, world_game):
     await harness.drain()
     after = await harness.db_summary(world_game)
     errors = [e for e in events if e["type"] == "error"]
-    assert errors and all(e.get("ref") for e in errors)
+    # #45: one French error with its code, no raw exception text, then a playable game.
+    assert len(errors) == 1 and errors[0]["code"] == "provider_error" and errors[0].get("ref")
+    assert "Traceback" not in str(events) and "RuntimeError" not in str(events)
     errors = [{k: v for k, v in e.items() if k != "ref"} for e in errors]  # ref is the random stream id
     msgs = await _messages(harness, world_game)
     assert_snapshot("c16_provider_error", {
@@ -205,21 +207,6 @@ async def test_c16_provider_error_midstream(harness, world_game):
         "db_changed": _diff(before, after),
         "last_messages": _brief(msgs)[-2:],
     })
-    harness.llm.fail_on.clear()
-    recovery = await harness.chat(world_game, "On réessaie.")
-    await harness.drain()
-    assert "done" in harness.summarize(recovery)
-
-
-async def test_provider_failure_sends_one_french_error(harness, world_game):
-    harness.llm.fail_on["narration"] = RuntimeError("provider down")
-    events = await harness.chat(world_game, "Ça va casser.")
-    await harness.drain()
-    errors = [e for e in events if e["type"] == "error"]
-    assert len(errors) == 1
-    assert errors[0]["code"] == "provider_error"
-    text = str(events)
-    assert "Traceback" not in text and "RuntimeError" not in text
     harness.llm.fail_on.clear()
     recovery = await harness.chat(world_game, "On réessaie.")
     await harness.drain()

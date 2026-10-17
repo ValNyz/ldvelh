@@ -25,8 +25,8 @@ async def test_get_user_api_key_decrypts_the_stored_key(client, test_user, test_
     )
     assert resp.status_code == 200
     async with test_pool.acquire() as conn:
-        key = await users_repo.get_user_api_key(conn, UUID(str(test_user["id"])), "anthropic")
-        missing = await users_repo.get_user_api_key(conn, UUID(str(test_user["id"])), "mistral")
+        key = await users_repo.get_user_api_key(conn, test_user["id"], "anthropic")
+        missing = await users_repo.get_user_api_key(conn, test_user["id"], "mistral")
     assert key == "sk-ant-test-key-1234567890"
     assert missing is None
 
