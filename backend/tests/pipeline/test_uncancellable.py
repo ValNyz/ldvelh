@@ -57,5 +57,5 @@ async def test_failure_after_cancellation_is_logged(caplog):
         await asyncio.wait({outer}, timeout=TIMEOUT)
 
     assert outer.cancelled()
-    assert "Post-commit step failed after cancellation" in caplog.text
+    assert "Commit or post-commit step failed after cancellation" in caplog.text
     assert "director exploded" in caplog.text

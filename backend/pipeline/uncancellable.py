@@ -29,7 +29,7 @@ async def finish_despite_cancel(coro: Coroutine[Any, Any, None], *, ref: str) ->
         logger.info(f"[TURN:{ref}] Cancelled once the commit started; finishing the turn")
         await _wait_ignoring_cancel(task)
         if not task.cancelled() and task.exception() is not None:
-            logger.error(f"[TURN:{ref}] Post-commit step failed after cancellation",
+            logger.error(f"[TURN:{ref}] Commit or post-commit step failed after cancellation",
                          exc_info=task.exception())
         raise
 
