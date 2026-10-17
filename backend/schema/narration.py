@@ -16,6 +16,8 @@ from .core import (
     Text,
 )
 
+logger = logging.getLogger(__name__)
+
 
 # =============================================================================
 # CONTEXT BUILDING BLOCKS (Narrator input)
@@ -193,6 +195,12 @@ class NarrationContext(BaseModel):
     # === ORGANIZATIONS ===
     organizations: list[OrganizationSummary]
 
+    # === SYSTEM NOTICES ===
+    notices: list[str] = Field(
+        default_factory=list,
+        description="System notices for the narrator (e.g. a refused transaction)",
+    )
+
     # === NPCs ===
     all_npcs: list[NPCLightSummary]
     npcs_present: list[NPCSummary] = Field(
@@ -323,11 +331,22 @@ class DayTransition(BaseModel):
         }
 
 
+CREDIT_DELTA_CAP = 100_000
+
+
 class CreditDelta(BaseModel):
     """Live credit change output by the narrator"""
 
     amount: int  # Positive = gain, negative = expense
     description: str = Field(..., max_length=100)  # "café au Terminal 7"
+
+    @field_validator("amount")
+    @classmethod
+    def _clamp_amount(cls, v: int) -> int:
+        clamped = max(-CREDIT_DELTA_CAP, min(CREDIT_DELTA_CAP, v))
+        if clamped != v:
+            logger.warning(f"[NARRATION] credit_delta {v} clamped to {clamped}")
+        return clamped
 
 
 class InventoryHint(BaseModel):

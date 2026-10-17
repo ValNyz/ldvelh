@@ -290,6 +290,11 @@ def build_narrator_context_prompt(
 
     lines = ["## CONTEXTE ACTUEL", ""]
 
+    if context.notices:
+        lines.append("### AVIS DU SYSTÈME")
+        lines.extend(context.notices)
+        lines.append("")
+
     # Time
     lines.append("### TEMPS")
     lines.append(f"- Cycle: {context.current_cycle}")

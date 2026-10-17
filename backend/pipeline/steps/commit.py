@@ -9,7 +9,7 @@ import logging
 from dataclasses import asdict, dataclass
 from uuid import UUID
 
-from domain.turn import NarrationState
+from domain.turn import AppliedDeltas, NarrationState
 from pipeline.context import TurnContext
 from pipeline.steps.arbitrate import Arbitration
 from pipeline.steps.load import Prepared
@@ -28,9 +28,19 @@ class Committed:
     narrator_deltas: dict
 
 
-def _stored_deltas(narration: NarrationOutput, cost: dict | None) -> dict:
+def _stored_credit(applied: AppliedDeltas | None) -> dict | None:
+    """What the ledger did with the narrator's credit delta, never what it asked for."""
+    credit = applied.credit if applied else None
+    if not credit:
+        return None
+    return {"amount": credit["amount"], "description": credit["description"],
+            "applied": credit["applied"], "error": credit["error"]}
+
+
+def _stored_deltas(narration: NarrationOutput, applied: AppliedDeltas | None,
+                   cost: dict | None) -> dict:
     return NarratorDeltasStored(
-        credit_delta=narration.credit_delta.model_dump() if narration.credit_delta else None,
+        credit_delta=_stored_credit(applied),
         inventory_hints=[h.model_dump() for h in narration.inventory_hints],
         entity_reveals=[r.model_dump() for r in narration.entity_reveals],
         extraction_triggers=narration.extraction_triggers,
@@ -39,16 +49,17 @@ def _stored_deltas(narration: NarrationOutput, cost: dict | None) -> dict:
 
 
 async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
-                           current_cycle: int) -> NarrationState:
+                           current_cycle: int) -> tuple[NarrationState, AppliedDeltas | None]:
     """Game state (cycle, time, location), narrator deltas, info requests."""
     state = await turns.apply_narration_state(conn, game_id, narration, current_cycle)
+    applied = None
     if narration.credit_delta or narration.entity_reveals or narration.compel_result:
         applied = await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
         logger.info(f"[CHAT] Deltas applied: {json.dumps(asdict(applied), default=str)}")
     if narration.info_requests:
         await turns.store_info_requests(conn, game_id, narration.info_requests)
         logger.info(f"[CHAT] Info requests stored: {narration.info_requests}")
-    return state
+    return state, applied
 
 
 async def _log_roll(conn, ctx: TurnContext, arbitration: Arbitration,
@@ -68,13 +79,13 @@ async def commit_turn(ctx: TurnContext, prepared: Prepared, arbitration: Arbitra
     game_id = ctx.request.game_id
     mechanical = arbitration.mechanical
     roll = mechanical.roll if mechanical else None
-    narrator_deltas = _stored_deltas(narrated.narration, narrated.cost)
 
     async with ctx.pool.acquire() as conn, conn.transaction():
         if roll:
             await ctx.engine.apply_roll_result(conn, game_id, roll, ctx.snapshot.current_cycle)
-        state = await _apply_narration(conn, game_id, narrated.narration,
-                                       ctx.snapshot.current_cycle)
+        state, applied = await _apply_narration(conn, game_id, narrated.narration,
+                                                ctx.snapshot.current_cycle)
+        narrator_deltas = _stored_deltas(narrated.narration, applied, narrated.cost)
         # Engine state after this turn's roll, for rollback support
         engine_snapshot = None
         if ctx.snapshot.engine != "none":

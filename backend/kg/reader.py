@@ -660,7 +660,7 @@ class KnowledgeGraphReader:
         """Get the most recent assistant message with location name."""
         row = await conn.fetchrow(
             """SELECT m.id, m.cycle, m.time, m.location_id, m.sequence,
-                      l.name as location_name
+                      m.narrator_deltas, l.name as location_name
                FROM messages m
                LEFT JOIN locations l ON m.location_id = l.id
                WHERE m.game_id = $1 AND m.role = 'assistant'

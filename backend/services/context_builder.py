@@ -26,6 +26,7 @@ from schema.narration import (
 
 from kg.reader import KnowledgeGraphReader
 from services.engine import get_engine
+from utils.json_utils import parse_json
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
@@ -33,6 +34,20 @@ if TYPE_CHECKING:
 
 class ContextBuilder:
     """Builds NarrationContext from database using KnowledgeGraphReader"""
+
+    async def _build_notices(self, conn: Connection) -> list[str]:
+        """System notices for the narrator, from the previous turn's stored deltas."""
+        last = await self.reader.get_last_assistant_message(conn)
+        deltas = last.get("narrator_deltas") if last else None
+        if isinstance(deltas, str):
+            deltas = parse_json(deltas)
+        credit = deltas.get("credit_delta") if isinstance(deltas, dict) else None
+        if not isinstance(credit, dict) or credit.get("applied") is not False:
+            return []
+        return [
+            f"Transaction refusée au tour précédent : {credit.get('description')} "
+            f"({credit.get('amount')} cr) — {credit.get('error')}"
+        ]
 
     def __init__(self, pool: Pool, game_id: UUID):
         self.pool = pool
@@ -125,7 +140,10 @@ class ContextBuilder:
         # Director plan (latest)
         director_guidance, director_tension, director_events = await self._load_director_plan(conn)
 
+        notices = await self._build_notices(conn)
+
         return NarrationContext(
+            notices=notices,
             current_cycle=current_cycle,
             current_time=current_time,
             current_date=game.get("current_date") or "Jour 1",

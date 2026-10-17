@@ -618,7 +618,9 @@ class GameService:
                         deltas = parse_json(deltas)
                     if isinstance(deltas, dict):
                         cd = deltas.get("credit_delta")
-                        if cd and isinstance(cd, dict):
+                        # A refused debit never touched the balance; rows from before
+                        # the "applied" key existed count as applied.
+                        if cd and isinstance(cd, dict) and cd.get("applied") is not False:
                             credit_reversal -= cd.get("amount", 0)
 
             # Restore full game state from last remaining assistant message
