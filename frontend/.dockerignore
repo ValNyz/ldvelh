@@ -1,5 +1,10 @@
-.env.local
+.env
+.env.*
+!.env.example
 node_modules
 images/
 scripts/
 .next/
+out/
+test-results/
+playwright-report/

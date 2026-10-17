@@ -125,3 +125,22 @@ jobs:
           name: e2e-results
           path: frontend/test-results/
           retention-days: 7
+
+  docker-images:
+    name: Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # Catches Dockerfile breakage before a deploy; both images must run as non-root.
+      - name: Build backend image (repo root context)
+        run: docker build -f backend/Dockerfile -t ldvelh-backend .
+      - name: Build frontend image
+        run: docker build -t ldvelh-frontend frontend
+      - name: Images run as non-root, without local secrets or tests
+        run: |
+          for image in ldvelh-backend ldvelh-frontend; do
+            uid="$(docker run --rm --entrypoint id "$image" -u)"
+            echo "$image uid=$uid"
+            test "$uid" != 0
+          done
+          docker run --rm --entrypoint sh ldvelh-backend -c 'test ! -e /app/.env && test ! -e /app/tests'

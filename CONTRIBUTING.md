@@ -154,6 +154,8 @@ Coolify deploys `docker-compose.yml` alone (no override). Environment to set in 
 - Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`, `JWT_SESSION_MAX_HOURS` (default 168: players log in again once a week).
 - Leave `DEBUG` unset (`false`), and do not set `DEV_USER_*`.
 
+Images: both run as an unprivileged user (backend `app`, uid 10001; frontend `node`, uid 1000), with pinned tools (dbmate `DBMATE_VERSION` + `DBMATE_SHA256` build args, checked with `sha256sum`, linux-amd64 only; serve `SERVE_VERSION`, the version in `package-lock.json`). The backend image is built from the repo root: `/.dockerignore` keeps `.env` files, `backend/tests`, caches and the frontend out of it. The backend has a compose healthcheck on `GET /health` (`docker compose ps` shows `healthy`; 30 s start period for the migrations run at boot).
+
 After the #83 deploy every player is logged out once (tokens without `ver`/`orig_iat` are refused).
 
 One-off check after this change (manual): debug mode used to seed `dev@ldvelh.local` with a known password. Make sure that account does not exist in the production database (`SELECT id FROM users WHERE email = 'dev@ldvelh.local';`) and delete it if it does.
@@ -165,3 +167,4 @@ GitHub Actions runs on every push to `main`/`dev`/`test`:
 - **Integration tests** against a Postgres service container
 - **Lint** of `pipeline/` and `api/routes.py` (ruff C901, F401)
 - **Frontend**: lint, unit tests, build, then the Playwright e2e tests (results uploaded as the `e2e-results` artifact)
+- **Docker images**: `docker build` of the backend (repo root context) and the frontend, run as non-root

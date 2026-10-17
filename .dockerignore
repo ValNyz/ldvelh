@@ -1,0 +1,27 @@
+# Build context of the backend image is the repo root (it needs db/migrations, #41).
+# Never ship local secrets, tests, caches or the frontend into it.
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.coverage
+**/coverage.xml
+**/htmlcov
+backend/tests
+# backend/scripts stays: the model catalog refresh runs in the container (scripts/README.md)
+**/node_modules
+**/.next
+frontend/
+docs/
+scripts/
+*.dump
+**/.venv
+.claude
+.superpowers
+docker-compose*.yml
+*.md
