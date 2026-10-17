@@ -3,13 +3,14 @@
 import { useState, useCallback, useRef } from 'react';
 import { useStreaming } from './useStreaming';
 import { stateApi } from '../lib/api';
-import { withPendingPlayerMessage } from '../lib/game/pendingRoll.mjs';
+import { invocationFromState, toInvocationData, withPendingPlayerMessage } from '../lib/game/pendingRoll.mjs';
 
 // Game content constants (French — the game is in French)
 const MESSAGES = {
 	NEW_GAME_NAME: 'Nouvelle partie',
 	CANCELLED_SUFFIX: '\n\n*(Annulé)*',
 	SAVE_UNCONFIRMED: "La sauvegarde de ce tour n'a pas été confirmée : recharge la partie si le dernier message manque.",
+	ROLLBACK_FAILED: 'Retour en arrière impossible.',
 };
 
 // Protocol tokens for special messages
@@ -17,14 +18,6 @@ const PROTOCOL = {
 	INIT_TOKEN: '__INIT__',
 	ARRIVAL_TOKEN: '__ARRIVEE__',
 };
-
-/** Aspect invocation modal data, from a roll_pending event or a loaded game's pending_roll. */
-const toInvocationData = (pending) => ({
-	rollId: pending.roll_id,
-	roll: pending.roll,
-	aspects: pending.aspects,
-	fatePoints: pending.fate_points,
-});
 
 // ============================================================================
 // GAME ORCHESTRATOR HOOK
@@ -276,7 +269,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			// A Fate roll still waiting for an invocation: show its modal again, and the
 			// action it belongs to (not saved yet) at the end of the chat (#32).
 			const pending = data.state?.pending_roll;
-			setInvocationData(pending ? toInvocationData(pending) : null);
+			setInvocationData(invocationFromState(data.state));
 
 			const loadedMessages = data.messages || [];
 			if (pending?.player_message) {
@@ -374,6 +367,23 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		}
 	}, [cancel, endTurn, gs]);
 
+	// Rollback to `messageId` and show its result; false when refused (the error is shown).
+	const rollbackTo = useCallback(async (messageId) => {
+		let result;
+		try {
+			result = await stateApi.rollback(gs.gameId, messageId);
+		} catch (e) {
+			console.warn('Rollback failed:', e);
+			gs.setError({ message: e.message || MESSAGES.ROLLBACK_FAILED });
+			return false;
+		}
+		gs.setMessages(result.messages || []);
+		if (result.state) gs.replaceGameState(result.state);
+		// The rollback expires any pending roll: its modal must not come back (#80).
+		setInvocationData(invocationFromState(result.state));
+		return true;
+	}, [gs]);
+
 	const handleEdit = useCallback((index) => {
 		setEditingIndex(index);
 	}, []);
@@ -387,40 +397,19 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 		const targetMsg = gs.messages[editingIndex];
 		if (!targetMsg?.id) return;
+		if (!await rollbackTo(targetMsg.id)) return;
 
-		let result;
-		try {
-			result = await stateApi.rollback(gs.gameId, targetMsg.id);
-		} catch (e) {
-			console.error('Rollback failed:', e);
-			gs.setError({ message: 'Rollback failed: ' + e.message });
-			return;
-		}
-
-		gs.setMessages(result.messages || []);
-		if (result.state) gs.replaceGameState(result.state);
 		setEditingIndex(null);
-
 		await handleSendMessage(content);
-	}, [editingIndex, gs.gameId, gs, handleSendMessage]);
+	}, [editingIndex, gs.messages, rollbackTo, handleSendMessage]);
 
 	const handleResend = useCallback(async (index) => {
 		const msg = gs.messages[index];
 		if (!msg || msg.role !== 'user' || !msg.id) return;
+		if (!await rollbackTo(msg.id)) return;
 
-		let result;
-		try {
-			result = await stateApi.rollback(gs.gameId, msg.id);
-		} catch (e) {
-			console.error('Rollback failed:', e);
-			gs.setError({ message: 'Rollback failed: ' + e.message });
-			return;
-		}
-
-		gs.setMessages(result.messages || []);
-		if (result.state) gs.replaceGameState(result.state);
 		await handleSendMessage(msg.content);
-	}, [gs.messages, gs.gameId, gs, handleSendMessage]);
+	}, [gs.messages, rollbackTo, handleSendMessage]);
 
 	const handleRegenerate = useCallback(async () => {
 		if (!lastUserMessage) return;
@@ -428,21 +417,10 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		const lastUserIndex = gs.messages.length - 2;
 		const lastUserMsg = gs.messages[lastUserIndex];
 		if (!lastUserMsg || lastUserMsg.role !== 'user' || !lastUserMsg.id) return;
-
-		let result;
-		try {
-			result = await stateApi.rollback(gs.gameId, lastUserMsg.id);
-		} catch (e) {
-			console.error('Rollback failed:', e);
-			gs.setError({ message: 'Rollback failed: ' + e.message });
-			return;
-		}
-
-		gs.setMessages(result.messages || []);
-		if (result.state) gs.replaceGameState(result.state);
+		if (!await rollbackTo(lastUserMsg.id)) return;
 
 		await handleSendMessage(lastUserMessage);
-	}, [lastUserMessage, gs.messages, gs.gameId, gs, handleSendMessage]);
+	}, [lastUserMessage, gs.messages, rollbackTo, handleSendMessage]);
 
 	const handleRetry = useCallback(() => {
 		if (lastUserMessage) handleSendMessage(lastUserMessage);
