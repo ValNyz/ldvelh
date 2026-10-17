@@ -50,6 +50,8 @@ async def run_turn(ctx: TurnContext) -> None:
     narrated = await narrate(ctx, prepared, arbitration)
     # Waiting for a connection stays cancellable (exhausted pool, #79); once it is held,
     # the commit and what follows it complete even if the client leaves (#20).
+    # Invariant: no await between acquire() and finish_despite_cancel(), which creates the
+    # shielded task synchronously: that task owns `conn` and always releases it.
     conn = await ctx.pool.acquire()
     await finish_despite_cancel(
         _commit_and_finish(ctx, conn, prepared, arbitration, narrated, started), ref=ctx.ref)

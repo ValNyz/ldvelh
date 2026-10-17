@@ -28,15 +28,18 @@ def _unregister(key: str, writer: SSEWriter) -> None:
         del _writers[key]
 
 
-def all_clients_gone(key: str) -> bool:
-    """True when the game has accepted requests and none of them still has its client.
-
-    No writer at all is False: the lock is then held by something else (e.g. a rollback).
-    """
-    writers = _writers.get(key)
-    return bool(writers) and all(w.disconnected for w in writers)
-
-
 def writers_of(key: str) -> list[SSEWriter]:
     """The registered writers of a game (a copy)."""
     return list(_writers.get(key, ()))
+
+
+def is_busy(key: str, lock: asyncio.Lock) -> bool:
+    """C-13: a new /chat is rejected while the game lock is held, unless every accepted
+    request lost its client (they are being cancelled: the new one queues behind them).
+
+    No writer at all with the lock held is busy: something else holds it (e.g. a rollback).
+    """
+    if not lock.locked():
+        return False
+    writers = writers_of(key)
+    return not writers or any(not w.disconnected for w in writers)

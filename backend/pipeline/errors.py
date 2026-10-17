@@ -35,6 +35,14 @@ async def finish_saved(step: Awaitable[T], *, ref: str) -> T:
                         recoverable=False) from exc
 
 
+def internal_error(ref: str) -> TurnError:
+    """The generic player-facing error: no internal detail, only the reference to report."""
+    return TurnError(
+        "internal",
+        f"Erreur interne (réf. {ref}). Réessaie ; si ça persiste, signale cette référence.",
+    )
+
+
 def _provider_error(exc: ProviderCallFailed, provider_name: str | None) -> TurnError:
     provider = exc.provider or provider_name or "le fournisseur"
     status = getattr(exc.__cause__, "status_code", None)
@@ -60,10 +68,7 @@ def to_turn_error(exc: BaseException, provider_name: str | None, ref: str) -> Tu
         return _provider_error(exc, provider_name)
     if isinstance(exc, (ValidationError, NarrationInvalid)):
         return TurnError("narration_invalid", NARRATION_INVALID_MESSAGE)
-    return TurnError(
-        "internal",
-        f"Erreur interne (réf. {ref}). Réessaie ; si ça persiste, signale cette référence.",
-    )
+    return internal_error(ref)
 
 
 async def report_error(sink: EventSink, exc: BaseException, *,

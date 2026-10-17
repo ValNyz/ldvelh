@@ -184,3 +184,22 @@ async def test_failure_after_world_saved_is_not_retryable(harness, monkeypatch):
         ("saved_display_failed", SAVED_DISPLAY_FAILED, False)]
     async with harness.pool.acquire() as conn:
         assert (await get_snapshot(conn, UUID(game_id))).world_created is True
+
+
+async def test_engine_setup_failure_saves_no_world(harness, monkeypatch):
+    """World, engine, character and duration are one transaction: a failure leaves nothing."""
+    game_id = await harness.create_game("fate_core")
+    before = await harness.db_summary(UUID(game_id))
+
+    async def boom(self, conn, gid, data):
+        raise RuntimeError("character insert failed")
+
+    monkeypatch.setattr(fate_core.FateCoreEngine, "create_character", boom)
+    events = await harness.init_world(game_id, engine="fate_core",
+                                      character_data=payloads.CHARACTER_DATA["fate_core"])
+
+    errors = [e for e in events if e["type"] == "error"]
+    assert [(e["code"], e["recoverable"]) for e in errors] == [("internal", True)]
+    async with harness.pool.acquire() as conn:
+        assert (await get_snapshot(conn, UUID(game_id))).world_created is False
+    assert await harness.db_summary(UUID(game_id)) == before

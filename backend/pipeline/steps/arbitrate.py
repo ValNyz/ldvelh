@@ -26,6 +26,8 @@ from services.pending_roll import load_pending_roll
 
 logger = logging.getLogger(__name__)
 
+ONE_PENDING_PER_GAME = "mechanic_rolls_one_pending_per_game"  # unique index (#32)
+
 
 @dataclass(frozen=True)
 class Arbitration:
@@ -83,7 +85,9 @@ async def _store_or_existing_pending(ctx: TurnContext, prepared: Prepared,
                 conn, game_id, mechanical.roll, prepared.player_message,
                 ctx.snapshot.current_cycle,
             )
-        except asyncpg.UniqueViolationError:
+        except asyncpg.UniqueViolationError as exc:
+            if getattr(exc, "constraint_name", None) != ONE_PENDING_PER_GAME:
+                raise
             existing = await load_pending_roll(conn, game_id, ctx.engine)
             if existing is None:  # resolved meanwhile: nothing coherent to offer
                 raise

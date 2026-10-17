@@ -306,9 +306,7 @@ def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
     writer = SSEWriter()
     key = str(request.gameId)
     lock = _get_game_lock(request.gameId)
-    if lock.locked() and not game_writers.all_clients_gone(key):
-        # Reject if another live request is already processing this game (C-13).
-        # Requests whose client is gone are being cancelled: queue behind them instead.
+    if game_writers.is_busy(key, lock):  # C-13
         writer.attach(asyncio.create_task(_reject_busy(writer)))
         return writer
     task = asyncio.create_task(

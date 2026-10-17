@@ -300,7 +300,7 @@ async def test_disconnect_during_commit_finishes_the_turn(
 
 
 async def test_disconnect_after_world_saved_finishes_the_init(harness, test_user, monkeypatch):
-    """INIT: once process_init saved the world, engine setup, duration and Director still run (#20)."""
+    """INIT: world, engine and duration saved together; the Director still runs after a disconnect (#20, #79)."""
     game_id = UUID(await harness.create_game("fate_core"))
     entered, release = asyncio.Event(), asyncio.Event()
     original_load = GameService.load_game_state
@@ -359,7 +359,6 @@ async def test_writer_entry_removed_when_cancelled_before_first_step(harness, fa
                                harness.pool, get_settings(), test_user["id"])
     writer._task.cancel()  # before the task ran a single step
     await asyncio.wait({writer._task}, timeout=TIMEOUT)
-    await asyncio.sleep(0)  # done callbacks run on the loop iteration after the task ends
 
     assert writer._task.cancelled()
     assert game_writers.writers_of(str(game_id)) == []
@@ -419,7 +418,8 @@ async def test_cancelled_resend_does_not_make_the_next_request_busy(
 
     types = [e["type"] for e in events]
     assert "error" not in types and "done" in types, events
-    await asyncio.sleep(0)  # done callbacks run on the loop iteration after the task ends
+    # The registry's done callback was added first, so it has run once this wait returns.
+    await asyncio.wait({third._task}, timeout=TIMEOUT)
     assert game_writers.writers_of(str(game_id)) == []
 
 
@@ -447,8 +447,9 @@ async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
     try:
         harness.llm.stream_gate = None
         gate.set()
+        # No sleep needed: the turn goes from narrate's return to pool.acquire() without
+        # yielding, so it is already blocked on the exhausted pool when this wait returns.
         await asyncio.wait_for(narrated.wait(), TIMEOUT)
-        await asyncio.sleep(0.05)  # the commit is now waiting for a connection
         await stream.aclose()
         await asyncio.wait({writer._task}, timeout=TIMEOUT)
         assert writer._task.cancelled()  # done while the pool is still exhausted
@@ -499,3 +500,49 @@ async def test_disconnect_during_initial_director_releases_the_lock(
             "SELECT count(*) FROM director_plans WHERE game_id = $1", game_id)
     assert snapshot.world_created is True
     assert plans == 1
+
+
+async def test_arrival_waits_for_the_initial_director_left_running_by_a_disconnect(
+        harness, test_user, monkeypatch):
+    """Client gone during the initial Director, then the arrival: one plan, and the arrival sees it."""
+    from pipeline import init_flow
+    from tests.characterization.harness import spy_narration
+
+    game_id = UUID(await harness.create_game("fate_core"))
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_director = init_flow.run_director
+
+    async def gated_director(**kwargs):
+        entered.set()
+        await release.wait()
+        return await original_director(**kwargs)
+
+    monkeypatch.setattr(init_flow, "run_director", gated_director)
+    request = routes.ChatRequest(
+        message="__INIT__", gameId=game_id, engine="fate_core",
+        world_config={"genre": "sci_fi", "difficulty": "moderate", "duration": "short"},
+        character_data=payloads.CHARACTER_DATA["fate_core"])
+    writer = routes.start_chat(request, harness.pool, get_settings(), test_user["id"])
+    stream = writer.iterate()
+    await asyncio.wait_for(anext(stream), TIMEOUT)
+    await asyncio.wait_for(entered.wait(), TIMEOUT)
+    await stream.aclose()
+    await asyncio.wait({writer._task}, timeout=TIMEOUT)
+
+    narrations = spy_narration(monkeypatch)
+    arrival = routes.start_chat(routes.ChatRequest(message="__ARRIVEE__", gameId=game_id),
+                                harness.pool, get_settings(), test_user["id"])
+    reading = asyncio.create_task(_read_all(arrival))
+    await asyncio.sleep(0.05)
+    assert narrations == []  # the arrival waits for the initial Director's plan
+    release.set()
+    events = await asyncio.wait_for(reading, TIMEOUT)
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+
+    assert "done" in [e["type"] for e in events], events
+    async with harness.pool.acquire() as conn:
+        plans = await conn.fetchval(
+            "SELECT count(*) FROM director_plans WHERE game_id = $1", game_id)
+    assert plans == 1
+    prompt = json.dumps(narrations[0], ensure_ascii=False)  # system + context messages
+    assert "Rythme calme, laisser le joueur explorer." in prompt

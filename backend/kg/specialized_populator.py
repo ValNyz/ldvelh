@@ -7,6 +7,7 @@ ExtractionPopulator: Narrative extraction processing
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -48,9 +49,13 @@ class WorldPopulator(KnowledgeGraphPopulator):
     """
 
     async def populate(
-        self, world_gen, user_id: UUID | None = None
+        self, world_gen, user_id: UUID | None = None,
+        finalize: Callable[[Connection], Awaitable[None]] | None = None,
     ) -> UUID:
-        """Main entry point — creates game and populates everything."""
+        """Main entry point — creates game and populates everything.
+
+        `finalize(conn)` runs last, in the same transaction (the caller's own writes).
+        """
 
         async with self.pool.acquire() as conn:
             async with conn.transaction():
@@ -149,6 +154,10 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
                 # 16. Metadata
                 await self._store_generation_meta(conn, world_gen)
+
+                # 17. Caller's writes (engine, character, duration): all or nothing
+                if finalize is not None:
+                    await finalize(conn)
 
                 logger.info(
                     f"World populated: {len(self.registry._by_name)} entities"

@@ -6,6 +6,7 @@ Utilise kg/reader.py et kg/populator.py pour l'accès BDD
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from uuid import UUID
 
 import asyncpg
@@ -371,10 +372,15 @@ class GameService:
     # PROCESS INIT (World Generation)
     # =========================================================================
 
-    async def process_init(self, game_id: UUID, world_gen: WorldGeneration) -> dict:
-        """Peuple le Knowledge Graph avec la génération du monde"""
+    async def process_init(self, game_id: UUID, world_gen: WorldGeneration,
+                           finalize: Callable[[asyncpg.Connection], Awaitable[None]] | None = None,
+                           ) -> dict:
+        """Peuple le Knowledge Graph avec la génération du monde.
+
+        `finalize(conn)` runs in the same transaction, after the world (atomic save).
+        """
         populator = WorldPopulator(self.pool, game_id)
-        await populator.populate(world_gen)
+        await populator.populate(world_gen, finalize=finalize)
 
         arrival = world_gen.arrival_event
 

@@ -226,3 +226,28 @@ async def test_concurrent_pending_roll_is_offered_again(harness, pending, monkey
             "SELECT count(*) FROM mechanic_rolls WHERE game_id = $1 AND status = 'pending'",
             UUID(game_id))
     assert pending_rows == 1
+
+
+async def test_other_unique_violation_is_not_taken_for_a_pending_roll(harness, pending, monkeypatch):
+    """Only the one-pending-per-game index means "a roll already waits"; others stay errors."""
+    import asyncpg
+
+    from pipeline.steps import load
+
+    game_id, _ = pending
+
+    async def stale_load(*args, **kwargs):
+        return None
+
+    async def other_violation(*args, **kwargs):
+        exc = asyncpg.UniqueViolationError("duplicate key")
+        exc.constraint_name = "mechanic_rolls_some_other_key"
+        raise exc
+
+    monkeypatch.setattr(load, "load_pending_roll", stale_load)
+    monkeypatch.setattr(turns, "store_pending_roll", other_violation)
+    events = await harness.chat(game_id, "Je fais autre chose.")
+    await harness.drain()
+
+    assert [e.get("code") for e in _errors(events)] == ["internal"], events
+    assert "roll_pending" not in harness.summarize(events)

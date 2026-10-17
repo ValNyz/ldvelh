@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from domain.game import GameSnapshot
 from domain.turn import PendingRoll
+from pipeline import director_runs
 from pipeline.context import TurnContext
 from repos import games as games_repo
 from schema.narration import NarrationContext
@@ -54,6 +55,9 @@ async def load_turn(ctx: TurnContext) -> Prepared:
     current_location = snapshot.current_location_name or ""
     mode_label = "LIGHT" if current_location else "FIRST_LIGHT"
     logger.info(f"[CHAT] Mode: {mode_label}, Cycle: {snapshot.current_cycle}")
+    # An initial Director left running by a client gone during world generation: its plan
+    # belongs in this context (bounded wait, no connection held meanwhile, #79).
+    await director_runs.wait_for_initial(snapshot.id)
 
     async with ctx.pool.acquire() as conn:
         pending_roll = await load_pending_roll(conn, snapshot.id, ctx.engine)

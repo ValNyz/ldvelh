@@ -3,16 +3,16 @@
 import asyncio
 import logging
 from dataclasses import replace
+from uuid import UUID
 
 from pydantic import ValidationError
 
 from config import get_settings
 from domain.game import GameSnapshot
-from pipeline import narration_stream
+from pipeline import director_runs, narration_stream
 from pipeline.narration_stream import NarrationStream
 from pipeline.context import InitParams, TurnContext
 from pipeline.errors import TurnError, finish_saved
-from pipeline.uncancellable import finish_despite_cancel
 from prompts.world_generation_prompt import get_full_generation_prompt
 from repos import games as games_repo
 from schema import WorldGeneration
@@ -106,26 +106,23 @@ def _validate_world(parsed: dict | None, raw: str) -> WorldGeneration:
         raise TurnError("world_gen_failed", WORLD_GEN_FAILED) from exc
 
 
-async def _setup_engine(ctx: TurnContext, init: InitParams) -> None:
-    """Store engine + world_config and create the engine character."""
-    if not init.engine or init.engine == "none":
-        return
-    game_id = ctx.request.game_id
-    async with ctx.pool.acquire() as conn:
-        await games_repo.set_engine(conn, game_id, init.engine, init.world_config)
-        await get_engine(init.engine).create_character(conn, game_id, init.character_data or {})
+def _engine_and_duration(init: InitParams, game_id: UUID):
+    """Writes done in the world save transaction: engine, world config, character, duration."""
+    async def write(conn) -> None:
+        if init.engine and init.engine != "none":
+            await games_repo.set_engine(conn, game_id, init.engine, init.world_config)
+            await get_engine(init.engine).create_character(conn, game_id,
+                                                           init.character_data or {})
+        await games_repo.set_game_duration(conn, game_id,
+                                           (init.world_config or {}).get("duration", "medium"))
+    return write
 
 
-# Strong references: a fire-and-forget task may otherwise be garbage collected mid-run.
-_background: set[asyncio.Task] = set()
-
-
-def _start_initial_director(ctx: TurnContext) -> asyncio.Task:
-    """Initial Director as its own task: it outlives the turn when the client leaves."""
-    task = asyncio.create_task(_run_initial_director(ctx))
-    _background.add(task)
-    task.add_done_callback(_background.discard)
-    return task
+def _start_initial_director(ctx: TurnContext) -> asyncio.Task | None:
+    """Initial Director as its own task: it outlives the turn when the client leaves, and
+    the game's first narration turn waits for it (director_runs)."""
+    return director_runs.start(ctx.request.game_id, _run_initial_director(ctx),
+                               wait_limit=DIRECTOR_INIT_TIMEOUT)
 
 
 async def _run_initial_director(ctx: TurnContext) -> None:
@@ -161,34 +158,26 @@ async def run_init(ctx: TurnContext) -> None:
     )
     world_gen = _validate_world(result.parsed, result.raw)
 
-    init_result = await ctx.games.process_init(game_id, world_gen)
-    # World saved (one transaction): engine setup and duration complete even if the client
-    # leaves (#20), and the initial Director is started. A failure from here on must not
-    # invite a resend (the world would be generated twice).
-    payload, director = await finish_despite_cancel(
-        finish_saved(_after_world_saved(ctx, init, init_result, result), ref=ctx.ref),
-        ref=ctx.ref)
+    # One transaction: world, engine, character and duration are saved together or not at
+    # all (#79). No await between the save and the Director start: a saved world always
+    # gets its initial Director, even if the client leaves right then (#20).
+    init_result = await ctx.games.process_init(game_id, world_gen,
+                                               finalize=_engine_and_duration(init, game_id))
+    director = _start_initial_director(ctx)
     # A connected client sees the Director's status, then done and saved. A client gone
     # meanwhile cancels only this wait: the Director (up to 30 s) finishes in the
     # background and the game lock is released at once (#79).
-    await asyncio.shield(director)
-    await finish_saved(_send_world_done(ctx, payload), ref=ctx.ref)
+    if director is not None:
+        await asyncio.shield(director)
+    # Saved: a failure from here on must not invite a resend (the world would be generated
+    # twice).
+    await finish_saved(_send_world_done(ctx, init, init_result, result), ref=ctx.ref)
 
 
-async def _after_world_saved(ctx: TurnContext, init: InitParams, init_result: dict,
-                             result: NarrationStream) -> tuple[SSEDonePayload, asyncio.Task]:
-    """Engine setup, done payload and duration once the world is saved; starts the Director."""
-    game_id = ctx.request.game_id
-    await _setup_engine(ctx, init)
-    state = await ctx.games.load_game_state(game_id)
+async def _send_world_done(ctx: TurnContext, init: InitParams, init_result: dict,
+                           result: NarrationStream) -> None:
+    """Done payload from the saved state, then done and saved."""
+    state = await ctx.games.load_game_state(ctx.request.game_id)
     payload = build_world_payload(state, init_result, init, result.parsed, result.cost)
-
-    async with ctx.pool.acquire() as conn:
-        await games_repo.set_game_duration(conn, game_id,
-                                           (init.world_config or {}).get("duration", "medium"))
-    return payload, _start_initial_director(ctx)
-
-
-async def _send_world_done(ctx: TurnContext, payload: SSEDonePayload) -> None:
     await ctx.sink.send_done(None, payload.model_dump(exclude_none=True))
     await ctx.sink.send_saved()

@@ -3,6 +3,7 @@
 import asyncio
 import logging
 
+from pipeline import director_runs
 from pipeline.context import TurnContext
 from pipeline.steps.commit import Committed
 from pipeline.steps.narrate import Narrated
@@ -34,8 +35,11 @@ def _schedule_extraction(ctx: TurnContext, narrated: Narrated, committed: Commit
 
 
 async def _schedule_director(ctx: TurnContext, committed: Committed) -> None:
-    """Director, if enough in-game time elapsed."""
+    """Director, if enough in-game time elapsed and no run is in flight for the game."""
     state = committed.state
+    if director_runs.is_running(ctx.request.game_id):
+        logger.info("[CHAT] Director already in flight, not triggered")
+        return
     # Re-read now: the previous turn's Director may have committed a plan since
     # the turn-start snapshot.
     async with ctx.pool.acquire() as sched_conn:
@@ -47,15 +51,13 @@ async def _schedule_director(ctx: TurnContext, committed: Committed) -> None:
         current_cycle=state.cycle,
         last_cycle=schedule.last_cycle,
     ):
-        asyncio.create_task(
-            run_director(
-                pool=ctx.pool,
-                game_id=ctx.request.game_id,
-                current_cycle=state.cycle,
-                current_time=state.time,
-                session=ctx.session,
-            )
-        )
+        director_runs.start(ctx.request.game_id, run_director(
+            pool=ctx.pool,
+            game_id=ctx.request.game_id,
+            current_cycle=state.cycle,
+            current_time=state.time,
+            session=ctx.session,
+        ))
         logger.info(f"[CHAT] Director triggered at {state.time}")
 
 
