@@ -24,7 +24,7 @@ from services.game_service import GameService, RollbackRejected
 from pipeline import init_flow, turn
 from pipeline.context import InitParams, TurnContext, TurnRequest
 from pipeline.errors import TurnError, report_error
-from utils.rate_limit import RateLimiter
+from utils.rate_limit import hit_all, request_ip, shared_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -289,8 +289,8 @@ def _get_game_lock(game_id: UUID) -> asyncio.Lock:
 
 
 # Each turn costs LLM calls (#82): per player, and per client IP across accounts.
-chat_user_limiter = RateLimiter(max_requests=10, window_seconds=60)
-chat_ip_limiter = RateLimiter(max_requests=30, window_seconds=60)
+chat_user_limiter = shared_limiter(max_requests=10, window_seconds=60)
+chat_ip_limiter = shared_limiter(max_requests=30, window_seconds=60)
 
 
 @router.post("/chat")
@@ -302,8 +302,8 @@ async def chat(
     settings: Settings = Depends(get_settings_dep),
 ):
     """Main chat endpoint with SSE streaming (with ownership check)."""
-    chat_ip_limiter.check(raw_request)
-    chat_user_limiter.hit(f"user:{user['id']}")
+    # Both or neither: a refusal by one limit does not use a slot of the other.
+    hit_all((chat_user_limiter, f"user:{user['id']}"), (chat_ip_limiter, request_ip(raw_request)))
     # Verify ownership before starting the stream
     service = GameService(pool)
     await service.verify_ownership(request.gameId, user["id"])

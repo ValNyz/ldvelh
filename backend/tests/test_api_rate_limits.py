@@ -27,7 +27,7 @@ async def test_spoofed_forwarded_for_does_not_reset_the_login_limit_without_prox
     assert statuses == [401] * 5 + [429]
     assert last.json() == {"detail": last.json()["detail"], "code": "rate_limited"}
     assert last.json()["detail"].startswith("Trop de requêtes")
-    assert last.headers["retry-after"] == "60"
+    assert 1 <= int(last.headers["retry-after"]) <= 60
 
 
 @pytest.mark.asyncio
@@ -69,6 +69,29 @@ async def test_chat_is_rate_limited_per_ip(client, test_user):
         chat_ip_limiter.hit("127.0.0.1")  # the ASGI test client's address
     resp = await _chat(client, test_user["token"])
     assert resp.status_code == 429
+    assert resp.json()["code"] == "rate_limited"
+
+
+@pytest.mark.asyncio
+async def test_a_chat_refused_per_user_does_not_use_the_ip_slot(client, test_user):
+    from api.routes import chat_ip_limiter, chat_user_limiter
+
+    for _ in range(chat_user_limiter.max_requests):
+        chat_user_limiter.hit(f"user:{test_user['id']}")
+    assert (await _chat(client, test_user["token"])).status_code == 429
+    assert chat_ip_limiter._hits.get("127.0.0.1", []) == []
+
+
+@pytest.mark.asyncio
+async def test_current_password_checks_are_throttled_per_user(client, test_user):
+    wrong = {"current_password": "guess", "new_password": "newpassword123",
+             "new_password_confirm": "newpassword123"}
+    statuses = []
+    for _ in range(6):
+        resp = await client.post("/api/auth/change-password", json=wrong,
+                                 headers=auth_headers(test_user["token"]))
+        statuses.append(resp.status_code)
+    assert statuses == [400] * 5 + [429]
     assert resp.json()["code"] == "rate_limited"
 
 

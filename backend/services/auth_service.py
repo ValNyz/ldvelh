@@ -93,8 +93,16 @@ async def revoke_sessions(conn, user_id: UUID) -> int:
     )
 
 
-async def change_password(conn, user_id: UUID, email: str, new_password: str) -> str:
-    """Store the new password, revoke every session, return a token for a new one."""
+async def change_password(conn, user_id: UUID, email: str, current_password: str,
+                          new_password: str) -> str | None:
+    """Check the current password, store the new one, revoke every session.
+
+    Returns a token for a new session, or None when the current password is wrong
+    (or the user is gone).
+    """
+    stored = await conn.fetchval("SELECT password_hash FROM users WHERE id = $1", user_id)
+    if not stored or not verify_password(current_password, stored):
+        return None
     version = await conn.fetchval(
         """UPDATE users SET password_hash = $1, token_version = token_version + 1
            WHERE id = $2 RETURNING token_version""",

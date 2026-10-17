@@ -15,7 +15,7 @@ from api.dependencies import get_pool, get_current_user
 from config import get_settings
 from services import auth_service
 from utils.crypto import encrypt_value, decrypt_value, mask_api_key
-from utils.rate_limit import RateLimiter, auth_limiter
+from utils.rate_limit import auth_limiter, shared_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,9 @@ router = APIRouter()
 ALLOWED_PROVIDERS = {"anthropic", "mistral", "wandb", "nebius", "nous"}
 
 # Each resend sends an email (#82).
-resend_limiter = RateLimiter(max_requests=3, window_seconds=600)
+resend_limiter = shared_limiter(max_requests=3, window_seconds=600)
+# Current-password checks of a signed-in session (guessing with a stolen token).
+password_check_limiter = shared_limiter(max_requests=5, window_seconds=600)
 
 
 # =============================================================================
@@ -300,20 +302,13 @@ async def change_password(
     if len(request.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT password_hash FROM users WHERE id = $1", user["id"]
-        )
-    if not row:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    if not auth_service.verify_password(request.current_password, row["password_hash"]):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-
+    password_check_limiter.hit(f"user:{user['id']}")
     # Every other session is revoked; this device continues with the returned token (#83).
     async with pool.acquire() as conn:
         token = await auth_service.change_password(
-            conn, user["id"], user["email"], request.new_password)
+            conn, user["id"], user["email"], request.current_password, request.new_password)
+    if token is None:
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
 
     return {"success": True, "token": token}
 

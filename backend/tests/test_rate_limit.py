@@ -3,7 +3,8 @@
 import pytest
 from starlette.requests import Request
 
-from utils.rate_limit import RateLimited, RateLimiter, client_ip
+from utils import rate_limit
+from utils.rate_limit import RateLimited, RateLimiter, client_ip, hit_all
 
 
 def _request(peer: str = "10.0.0.2", forwarded: list[str] | None = None) -> Request:
@@ -39,6 +40,11 @@ def test_fewer_entries_than_hops_falls_back_to_the_leftmost_then_the_peer():
     assert client_ip(_request(), hops=1) == "10.0.0.2"
 
 
+def test_a_chosen_entry_that_is_not_an_ip_falls_back_to_the_peer():
+    assert client_ip(_request(forwarded=["evil, not-an-ip"]), hops=1) == "10.0.0.2"
+    assert client_ip(_request(forwarded=["2001:db8::1"]), hops=1) == "2001:db8::1"
+
+
 def test_limit_raises_a_french_rate_limited_error_with_retry_after():
     limiter = RateLimiter(max_requests=2, window_seconds=30, clock=_Clock())
     limiter.hit("user:1")
@@ -56,8 +62,43 @@ def test_the_window_slides():
     clock = _Clock()
     limiter = RateLimiter(max_requests=1, window_seconds=60, clock=clock)
     limiter.hit("k")
-    clock.now += 61
+    clock.now += 59
+    with pytest.raises(RateLimited):
+        limiter.hit("k")
+    clock.now += 2  # the first hit is now 61 s old
     limiter.hit("k")
+
+
+def test_retry_after_is_the_time_until_the_oldest_hit_leaves_the_window():
+    clock = _Clock()
+    limiter = RateLimiter(max_requests=2, window_seconds=60, clock=clock)
+    limiter.hit("k")
+    clock.now += 20.5
+    limiter.hit("k")
+    clock.now += 5
+    with pytest.raises(RateLimited) as caught:
+        limiter.hit("k")
+    assert caught.value.headers == {"Retry-After": "35"}  # ceil(1000 + 60 - 1025.5) = 35
+    assert "Réessaie dans 35 s." in caught.value.detail
+
+
+def test_hit_all_counts_on_every_limiter_or_on_none():
+    clock = _Clock()
+    per_user = RateLimiter(max_requests=1, window_seconds=60, clock=clock)
+    per_ip = RateLimiter(max_requests=2, window_seconds=60, clock=clock)
+    hit_all((per_user, "u1"), (per_ip, "ip"))
+    with pytest.raises(RateLimited):
+        hit_all((per_user, "u1"), (per_ip, "ip"))  # refused by the user limit...
+    hit_all((per_user, "u2"), (per_ip, "ip"))     # ...without using the IP's second slot
+
+
+def test_only_the_app_limiters_are_registered_and_reset():
+    local = RateLimiter(max_requests=1, window_seconds=60)
+    assert local not in rate_limit._SHARED
+    shared = rate_limit._SHARED[0]
+    shared.hit("test-key")
+    rate_limit.reset_all_limiters()
+    assert shared._hits == {}
 
 
 def test_idle_keys_are_purged():

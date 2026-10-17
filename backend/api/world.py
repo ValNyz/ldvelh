@@ -21,14 +21,14 @@ from services.llm_providers import _CLASSES
 from services.world_enhance import (
     ENGINES, SCOPES, WorldEnhanceFailed, enhance,
 )
-from utils.rate_limit import RateLimiter
+from utils.rate_limit import shared_limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["world"])
 
 # Each call is a paid LLM call on the player's key: keep a double click or a loop cheap.
-enhance_limiter = RateLimiter(max_requests=10, window_seconds=60)
+enhance_limiter = shared_limiter(max_requests=10, window_seconds=60)
 
 
 # Far above what the wizard produces: an oversized form is refused before any LLM call.
