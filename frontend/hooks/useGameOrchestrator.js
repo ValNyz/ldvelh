@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { useStreaming } from './useStreaming';
 import { stateApi } from '../lib/api';
+import { withPendingPlayerMessage } from '../lib/game/pendingRoll.mjs';
 
 // Game content constants (French — the game is in French)
 const MESSAGES = {
@@ -157,6 +158,11 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		onRollPending: (data) => {
 			// Fate Core: roll failed, player can invoke aspects
 			endTurn();
+			// The roll may belong to an earlier action still waiting: show that one (#32).
+			if (data.player_message) {
+				gs.setMessages(prev => withPendingPlayerMessage(prev, data.player_message));
+				setLastUserMessage(data.player_message);
+			}
 			setInvocationData(toInvocationData(data));
 		},
 		onWarning: (message) => {
@@ -277,6 +283,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				setLastUserMessage(pending.player_message);
 			} else {
 				gs.setMessages(loadedMessages);
+				setLastUserMessage('');
 			}
 
 			if (loadedMessages.length > 0) {

@@ -7,7 +7,7 @@
     "build": "next build",
     "lint": "next lint --dir app --dir components --dir lib --dir hooks --max-warnings 28",
     "start": "serve out -l $PORT",
-    "test": "node --test tests/sse.test.mjs tests/formHistory.test.mjs tests/d6.test.mjs tests/enhanceBase.test.mjs tests/wizardDraft.test.mjs tests/chatStream.test.mjs",
+    "test": "node --test tests/sse.test.mjs tests/formHistory.test.mjs tests/d6.test.mjs tests/enhanceBase.test.mjs tests/wizardDraft.test.mjs tests/chatStream.test.mjs tests/pendingRoll.test.mjs",
     "test:e2e": "next build && playwright test"
   },
   "dependencies": {

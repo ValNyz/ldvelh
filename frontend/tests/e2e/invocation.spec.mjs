@@ -70,3 +70,34 @@ test('invocation modal comes back after a reload', async ({ page }, testInfo) =>
 	expect(chats[0].body.invoked_aspects).toEqual(['Pilote déchu en quête de rédemption']);
 	expect(chats[0].body.message).toBe('Je tente un saut impossible.');
 });
+
+test('a new message answered with the waiting roll shows the waiting action', async ({ page }, testInfo) => {
+	let chatCount = 0;
+	const api = await mockApi(page, {
+		'GET /games': () => ({ games: [{ id: GAME_ID, name: 'Partie Fate', current_cycle: 1 }] }),
+		[`GET /games/${GAME_ID}`]: () => ({ ...LOADED_GAME, state: { ...LOADED_GAME.state, pending_roll: null } }),
+		'POST /chat': () => {
+			chatCount += 1;
+			return { __sse: chatCount === 1 ? [{ type: 'roll_pending', ...PENDING_ROLL }] : ANSWER };
+		},
+	});
+	await page.goto('/game/');
+	await page.getByText('Partie Fate').click();
+	const input = page.getByPlaceholder(/Ton action/);
+	await input.fill('Je fais autre chose.');
+	await input.press('Control+Enter');
+
+	await expect(page.getByRole('heading', { name: 'Invoquer un aspect ?' })).toBeVisible();
+	// The optimistic message is replaced by the action the roll belongs to.
+	await expect(page.getByText('Je tente un saut impossible.')).toBeVisible();
+	await expect(page.getByText('Je fais autre chose.')).toHaveCount(0);
+	await page.screenshot({ path: testInfo.outputPath('invocation-waiting-action-replaces-message.png') });
+
+	await page.getByRole('button', { name: /Pilote déchu en quête de rédemption/ }).click();
+	await page.getByRole('button', { name: 'Invoquer (1 PD)' }).click();
+	await expect(page.getByText('Tu rates le saut de peu.').last()).toBeVisible();
+	const chats = api.calls.filter(c => c.path === '/chat');
+	expect(chats).toHaveLength(2);
+	expect(chats[1].body.roll_id).toBe(ROLL_ID);
+	expect(chats[1].body.message).toBe('Je tente un saut impossible.');
+});
