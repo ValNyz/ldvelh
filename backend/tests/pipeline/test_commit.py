@@ -17,6 +17,7 @@ from repos.games import get_snapshot
 from schema import NarrationOutput
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
 from services.engine import fate_core, get_engine
+from services.game_service import GameService
 from tests.characterization import payloads
 from tests.characterization.conftest import harness, llm_mode, scripted_llm  # noqa: F401
 
@@ -182,3 +183,45 @@ async def test_commit_failure_on_resumed_roll_keeps_it_pending(harness, fate_gam
             "SELECT fate_points FROM character_fate WHERE game_id = $1", UUID(game_id))
     assert stored is not None and str(stored["id"]) == roll_id
     assert fp_after == fp_before
+
+
+SAVED_DISPLAY_FAILED = "Ton action est enregistrée, mais l'affichage a échoué. Recharge la partie."
+
+
+async def test_failure_after_commit_is_not_retryable(harness, fate_game, monkeypatch):  # noqa: F811
+    """A saved turn whose display fails must not invite a resend (it would play twice)."""
+    game_id = fate_game
+    before = await _engine_state(harness.pool, UUID(game_id))
+
+    async def boom(self, gid):
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(GameService, "load_game_state", boom)
+    events = await harness.chat(game_id, "Je regarde autour.")
+    await harness.drain()
+
+    errors = [e for e in events if e["type"] == "error"]
+    assert len(errors) == 1
+    assert errors[0]["code"] == "saved_display_failed"
+    assert errors[0]["error"] == SAVED_DISPLAY_FAILED
+    assert errors[0]["recoverable"] is False
+    assert "Réessaie" not in errors[0]["error"]
+    after = await _engine_state(harness.pool, UUID(game_id))
+    assert after["messages"] == before["messages"] + 2
+
+
+async def test_failure_after_world_saved_is_not_retryable(harness, monkeypatch):  # noqa: F811
+    """Same for world generation: once process_init saved the world, no resend."""
+    game_id = await harness.create_game("none")
+
+    async def boom(self, gid):
+        raise RuntimeError("connection reset")
+
+    monkeypatch.setattr(GameService, "load_game_state", boom)
+    events = await harness.init_world(game_id)
+
+    errors = [e for e in events if e["type"] == "error"]
+    assert [(e["code"], e["error"], e["recoverable"]) for e in errors] == [
+        ("saved_display_failed", SAVED_DISPLAY_FAILED, False)]
+    async with harness.pool.acquire() as conn:
+        assert (await get_snapshot(conn, UUID(game_id))).world_created is True

@@ -74,3 +74,25 @@ async def test_run_turn_propagates_errors(steps):
     with pytest.raises(TurnError):
         await turn.run_turn(_ctx())
     assert steps["commit_turn"].calls == 0
+
+
+@pytest.mark.parametrize("failing", ["respond", "schedule_background", "_log_summary"])
+async def test_failure_after_commit_becomes_saved_display_failed(steps, monkeypatch, failing):
+    if failing == "_log_summary":
+        def broken(*args):
+            raise RuntimeError("log handler down")
+        monkeypatch.setattr(turn, "_log_summary", broken)
+    else:
+        steps[failing].error = RuntimeError("db hiccup")
+    with pytest.raises(TurnError) as raised:
+        await turn.run_turn(_ctx())
+    assert raised.value.code == "saved_display_failed"
+    assert raised.value.recoverable is False
+    assert isinstance(raised.value.__cause__, RuntimeError)
+
+
+async def test_commit_failure_stays_a_plain_error(steps):
+    steps["commit_turn"].error = RuntimeError("disk full")
+    with pytest.raises(RuntimeError):
+        await turn.run_turn(_ctx())
+    assert steps["respond"].calls == 0

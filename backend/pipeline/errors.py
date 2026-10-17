@@ -1,6 +1,7 @@
 """Any turn failure becomes one French TurnError, sent once on the sink (#45)."""
 
 import logging
+from collections.abc import Awaitable
 
 from pydantic import ValidationError
 
@@ -10,6 +11,22 @@ from pipeline.ports import EventSink
 from schema.narration import NARRATION_INVALID_MESSAGE, NarrationInvalid
 
 logger = logging.getLogger(__name__)
+
+SAVED_DISPLAY_FAILED = ("Ton action est enregistrée, mais l'affichage a échoué. "
+                        "Recharge la partie.")
+
+
+async def finish_saved(step: Awaitable[None], *, ref: str) -> None:
+    """Run what follows a save: any failure there is reported as saved, never retryable.
+
+    A retryable message would make the player resend an action already saved (played twice).
+    """
+    try:
+        await step
+    except Exception as exc:
+        logger.error(f"[TURN:{ref}] Saved, but the post-save step failed", exc_info=exc)
+        raise TurnError("saved_display_failed", SAVED_DISPLAY_FAILED,
+                        recoverable=False) from exc
 
 
 def _provider_error(exc: ProviderCallFailed, provider_name: str | None) -> TurnError:

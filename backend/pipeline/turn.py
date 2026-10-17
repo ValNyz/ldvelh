@@ -5,9 +5,10 @@ import time
 
 from llm.session import Purpose
 from pipeline.context import TurnContext
+from pipeline.errors import finish_saved
 from pipeline.steps.arbitrate import HALT, Arbitration, arbitrate
 from pipeline.steps.commit import Committed, commit_turn
-from pipeline.steps.load import load_turn
+from pipeline.steps.load import Prepared, load_turn
 from pipeline.steps.narrate import Narrated, narrate
 from pipeline.steps.respond import respond
 from pipeline.steps.schedule import schedule_background
@@ -37,15 +38,21 @@ async def run_turn(ctx: TurnContext) -> None:
     if arbitration is HALT:
         return
     narrated = await narrate(ctx, prepared, arbitration)
-    committed = await commit_turn(ctx, prepared, arbitration, narrated)
-    # A HALT turn (roll awaiting aspects) is not completed: no summary line.
-    _log_summary(ctx, narrated, started)
-    # Saved: what follows completes even if the client closes the stream (#20).
-    await finish_despite_cancel(_after_commit(ctx, narrated, arbitration, committed),
+    # A started commit, and what follows it, completes even if the client leaves (#20).
+    await finish_despite_cancel(_commit_and_finish(ctx, prepared, arbitration, narrated, started),
                                 ref=ctx.ref)
 
 
+async def _commit_and_finish(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration,
+                             narrated: Narrated, started: float) -> None:
+    committed = await commit_turn(ctx, prepared, arbitration, narrated)
+    # Saved: a failure from here on must not invite a resend.
+    await finish_saved(_after_commit(ctx, narrated, arbitration, committed, started), ref=ctx.ref)
+
+
 async def _after_commit(ctx: TurnContext, narrated: Narrated, arbitration: Arbitration,
-                        committed: Committed) -> None:
+                        committed: Committed, started: float) -> None:
+    # A HALT turn (roll awaiting aspects) is not completed: no summary line.
+    _log_summary(ctx, narrated, started)
     await respond(ctx, narrated, arbitration, committed)
     await schedule_background(ctx, narrated, committed)

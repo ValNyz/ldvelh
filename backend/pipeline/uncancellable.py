@@ -1,7 +1,8 @@
-"""Finish the post-commit part of a turn even if the turn is cancelled meanwhile (#20).
+"""Finish a started commit and what follows it even if the turn is cancelled meanwhile (#20).
 
-Once the turn is saved, the done payload and the background scheduling (extraction,
-Director) must run: a client closing the stream at that moment cancels nothing.
+Once the commit has started (DB only, milliseconds), the commit, the done payload and the
+background scheduling (extraction, Director) must run: a client closing the stream at that
+moment cancels nothing.
 """
 
 import asyncio
@@ -25,7 +26,7 @@ async def finish_despite_cancel(coro: Coroutine[Any, Any, None], *, ref: str) ->
     except asyncio.CancelledError:
         if task.cancelled():
             raise
-        logger.info(f"[TURN:{ref}] Cancelled after commit; finishing the saved turn")
+        logger.info(f"[TURN:{ref}] Cancelled once the commit started; finishing the turn")
         await _wait_ignoring_cancel(task)
         if not task.cancelled() and task.exception() is not None:
             logger.error(f"[TURN:{ref}] Post-commit step failed after cancellation",
