@@ -71,18 +71,21 @@ psql -U your_user -d your_db -f schema.sql
 | `DEBUG` | Debug mode (seeds dev user) | `false` |
 | `CORS_ORIGINS` | Allowed origins | `http://localhost:3000` |
 
-## Testing
+## Running tests
+
+There is no need for a local Postgres or Python venv: the scripts run everything in Docker (run them from anywhere in the repo).
 
 ```bash
-cd backend
+scripts/test-backend.sh                      # full backend suite (Postgres 18 + migrations, same env as CI)
+scripts/test-backend.sh tests/pipeline -x    # arguments are passed to pytest
+scripts/test-e2e.sh                          # frontend build + Playwright (screenshots copied to $E2E_OUT, default /tmp/ldvelh-e2e)
+```
 
-# Unit tests (no DB needed)
-pytest tests/ -m "not integration" -q
+Without Docker, from `backend/` against your own `ldvelh_test` database:
 
-# Integration tests (requires ldvelh_test database)
-pytest tests/ -m integration -q
-
-# With coverage
+```bash
+pytest tests/ -m "not integration" -q       # unit tests (no DB needed)
+pytest tests/ -m integration -q             # integration tests
 pytest tests/ -m "not integration" --cov=. --cov-branch -q
 ```
 
