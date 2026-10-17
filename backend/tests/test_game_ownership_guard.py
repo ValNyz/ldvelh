@@ -140,6 +140,8 @@ def test_discovery_reads_nested_list_and_form_bodies():
 async def _owner_view(client, owner, game_id) -> tuple:
     """What a denied request must not change: the game exists, its name, its messages."""
     resp = await client.get(f"/api/games/{game_id}", headers=auth_headers(owner["token"]))
+    if resp.status_code != 200:  # e.g. deleted: compare the status, not a missing body
+        return resp.status_code, None, 0
     body = resp.json()
     return resp.status_code, body["state"]["game"]["name"], len(body["messages"])
 
