@@ -13,13 +13,16 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
     "domain": {"api", "pipeline", "services", "repos", "kg", "llm", "fastapi", "starlette",
                "asyncpg", "anthropic", "mistralai", "openai"},
     "pipeline": {"api", "fastapi", "starlette"},
-    "services": {"api", "pipeline"},
-    "repos": {"api", "pipeline"},
-    "llm": {"api", "pipeline"},
-    "kg": {"api", "pipeline"},
-    "schema": {"api", "pipeline"},
-    "prompts": {"api", "pipeline"},
+    "services": {"api", "pipeline", "fastapi", "starlette"},
+    "repos": {"api", "pipeline", "fastapi", "starlette"},
+    "llm": {"api", "pipeline", "fastapi", "starlette"},
+    "kg": {"api", "pipeline", "fastapi", "starlette"},
+    "schema": {"api", "pipeline", "fastapi", "starlette"},
+    "prompts": {"api", "pipeline", "fastapi", "starlette"},
+    "utils": {"fastapi", "starlette"},
 }
+# HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
+LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request-IP rate limiter of the auth routes
 KNOWN_VIOLATIONS: set[tuple[str, str]] = set()
 SQL_IN_ROUTES_ALLOWED: set[str] = set()
 
@@ -53,7 +56,7 @@ def collect_violations():
     violations = set()
     for path, rel in _source_files():
         forbidden = LAYER_RULES.get(rel.parts[0])
-        if not forbidden or len(rel.parts) < 2:
+        if not forbidden or len(rel.parts) < 2 or rel.as_posix() in LAYER_EXEMPT_FILES:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for package in set(_imported_packages(tree)) & forbidden:
@@ -126,3 +129,8 @@ def test_handle_chat_is_thin():
 ])
 def test_sql_regex(text, is_sql):
     assert bool(_SQL_RE.match(text)) == is_sql
+
+
+def test_layer_exempt_files_exist():
+    missing = {f for f in LAYER_EXEMPT_FILES if not (BACKEND / f).is_file()}
+    assert not missing, f"LAYER_EXEMPT_FILES entries that do not exist: {sorted(missing)}"

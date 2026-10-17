@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import unicodedata
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from uuid import UUID
 
 from domain.turn import InvocationOffer
@@ -118,6 +119,14 @@ class BaseEngine(ABC):
         An offer pauses the turn until the player chooses (#32). Default: never.
         """
         return None
+
+    def apply_invocation(self, roll: RollResult, invoked: Sequence[str],
+                         aspects: Sequence[str], fate_points: int) -> RollResult:
+        """The offered roll with the invoked aspects applied (pure).
+
+        Required from every engine that overrides invocation_offer.
+        """
+        raise NotImplementedError(f"{type(self).__name__} offers no invocation")
 
     @abstractmethod
     def build_narrator_addon(self, roll_result: RollResult | None) -> str:

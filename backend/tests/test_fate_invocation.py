@@ -4,8 +4,8 @@ import pytest
 
 from domain.errors import TurnError
 from domain.turn import InvocationOffer
-from schema.engine import RollResult
-from services.engine import get_engine
+from schema.engine import EngineType, RollResult
+from services.engine import BaseEngine, get_engine
 from services.engine.fate_core import aspect_names, outcome_for_shifts
 
 ASPECTS = ["Pilote déchu", "Dette envers la Guilde", "Réflexes de contrebandier"]
@@ -116,3 +116,16 @@ def test_fate_available_invocations_read_the_sheet():
     engine = get_engine("fate_core")
     assert engine.available_invocations(SHEET) == InvocationOffer(aspects=ASPECTS, fate_points=2)
     assert engine.available_invocations(None) == InvocationOffer(aspects=[], fate_points=0)
+
+
+@pytest.mark.parametrize("engine_type", list(EngineType), ids=lambda e: e.value)
+def test_an_engine_that_offers_invocation_can_apply_it(engine_type):
+    """Registry contract: overriding invocation_offer requires overriding apply_invocation."""
+    engine_class = type(get_engine(engine_type))
+    if engine_class.invocation_offer is not BaseEngine.invocation_offer:
+        assert engine_class.apply_invocation is not BaseEngine.apply_invocation
+
+
+def test_apply_invocation_is_refused_by_engines_without_offer():
+    with pytest.raises(NotImplementedError):
+        get_engine("d6").apply_invocation(_failed_roll(), [], ASPECTS, 3)

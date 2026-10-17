@@ -123,7 +123,9 @@ from api.auth import router as auth_router
 from api.tooltips import router as tooltips_router
 from api.genres import router as genres_router
 from api.world import router as world_router
+from api.http_errors import register_domain_error_handlers
 
+register_domain_error_handlers(app)
 app.include_router(router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(tooltips_router, prefix="/api")

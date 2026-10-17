@@ -20,8 +20,9 @@ import logging
 
 logging.basicConfig(level=logging.WARNING)
 
-# Fixtures shared by every test package (chat harness, scripted LLM, catalog table)
-pytest_plugins = ["tests.plugins.chat", "tests.plugins.catalog"]
+# Fixtures shared by every test package (chat harness, scripted LLM, catalog table,
+# pending Fate roll)
+pytest_plugins = ["tests.plugins.chat", "tests.plugins.catalog", "tests.plugins.pending_roll"]
 
 
 # =============================================================================

@@ -25,6 +25,8 @@ class Prepared:
     is_arrival: bool
     context: NarrationContext
     pending_roll: PendingRoll | None = None
+    # The pending roll this request resumes (its roll_id matches), else None.
+    resumed_roll: PendingRoll | None = None
 
 
 async def _build_arrival_message(conn, snapshot: GameSnapshot) -> str:
@@ -75,4 +77,5 @@ async def load_turn(ctx: TurnContext) -> Prepared:
             current_location_name=current_location,
         )
     return Prepared(player_input=player_input, player_message=player_message,
-                    is_arrival=is_arrival, context=context, pending_roll=pending_roll)
+                    is_arrival=is_arrival, context=context, pending_roll=pending_roll,
+                    resumed_roll=resumed)

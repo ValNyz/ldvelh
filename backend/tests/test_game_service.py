@@ -137,7 +137,7 @@ async def test_rename_game(test_pool, test_user):
 @pytest.mark.asyncio
 async def test_verify_ownership(test_pool, test_user):
     """Owner can access their game; a random UUID cannot."""
-    from fastapi import HTTPException
+    from domain.errors import GameAccessDenied
 
     service = GameService(test_pool)
     user_id = test_user["id"]
@@ -149,6 +149,5 @@ async def test_verify_ownership(test_pool, test_user):
 
     # A random user should get a 403
     stranger_id = uuid.uuid4()
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(GameAccessDenied):
         await service.verify_ownership(game_id, stranger_id)
-    assert exc_info.value.status_code == 403

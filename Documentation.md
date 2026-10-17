@@ -334,7 +334,7 @@ User types message
 
 LIGHT mode is the default when `world_created == True` (the first turn after world generation is a FIRST_LIGHT turn through the same pipeline).
 
-**Layers.** `api/` (routes, `SSEWriter`) talks HTTP and SSE only. `pipeline/` orchestrates a turn and knows nothing of FastAPI or SQL: it sends events through the `EventSink` port (`pipeline/ports.py`) that `SSEWriter` satisfies. SQL lives in `repos/` (`games.py`, `turns.py`, `users.py`); pure types in `domain/`. `tests/test_architecture.py` enforces these dependency rules and that `_handle_chat` stays under 80 lines.
+**Layers.** `api/` (routes, `SSEWriter`) talks HTTP and SSE only. `pipeline/` orchestrates a turn and knows nothing of FastAPI or SQL: it sends events through the `EventSink` port (`pipeline/ports.py`) that `SSEWriter` satisfies. SQL lives in `repos/` (`games.py`, `turns.py`, `users.py`); pure types in `domain/`. Only `api/` imports FastAPI: services raise domain errors (`GameNotFound`, `GameAccessDenied`) that `api/http_errors.py` answers with 404 / 403. `tests/test_architecture.py` enforces these dependency rules and that `_handle_chat` stays under 80 lines.
 
 **Adapter.** `_handle_chat` loads the game snapshot, resolves the API key, builds an `LLMSession` and a `TurnContext`, then calls `run_turn` (or `run_init` when the world is not created). Any exception is caught there once and sent by `report_error`. The session belongs to the authenticated user (usage is attributed to them). `TurnContext` builds one `GameService` per turn (`ctx.games`: game state, narrator history); steps read genres and set the engine through `repos/games.py`.
 
@@ -540,6 +540,7 @@ All engine-specific logic goes through the `BaseEngine` interface.
 | `roll_dice(decision)` | sync | Execute dice roll |
 | `available_invocations(engine_stats)` | sync | Aspects the player may invoke and fate points (default: none) |
 | `invocation_offer(roll, engine_stats)` | sync | What the player may spend on this roll before narration, or `None` (default); an offer pauses the turn |
+| `apply_invocation(roll, invoked, aspects, fate_points)` | sync | The offered roll with the invoked aspects applied; default raises `NotImplementedError`, required from any engine that overrides `invocation_offer` (contract test) |
 | `build_narrator_addon(roll_result)` | sync | Extra text for narrator |
 | `get_gauge_policy()` | sync | `"none"` or `"engine"` |
 | `get_system_prompt_addon()` | sync | Engine-specific narrator rules |

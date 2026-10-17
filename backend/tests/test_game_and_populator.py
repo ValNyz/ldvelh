@@ -669,8 +669,8 @@ class TestVerifyOwnership:
     async def test_unauthorized_access(
         self, client, test_user, second_user, test_pool
     ):
-        """verify_ownership raises 403 for a different user."""
-        from fastapi import HTTPException
+        """verify_ownership raises GameAccessDenied (403) for a different user."""
+        from domain.errors import GameAccessDenied
         from services.game_service import GameService
 
         resp = await client.post(
@@ -680,24 +680,22 @@ class TestVerifyOwnership:
         service = GameService(test_pool)
 
         other_id = second_user["id"]
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(GameAccessDenied):
             await service.verify_ownership(game_id, other_id)
-        assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
     async def test_nonexistent_game(self, client, test_user, test_pool):
-        """verify_ownership raises 404 for a non-existent game."""
+        """verify_ownership raises GameNotFound (404) for a non-existent game."""
         from uuid import uuid4
 
-        from fastapi import HTTPException
+        from domain.errors import GameNotFound
         from services.game_service import GameService
 
         service = GameService(test_pool)
 
         user_id = test_user["id"]
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(GameNotFound):
             await service.verify_ownership(uuid4(), user_id)
-        assert exc_info.value.status_code == 404
 
 
 # =============================================================================

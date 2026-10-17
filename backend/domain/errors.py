@@ -1,4 +1,4 @@
-"""Turn failure shown to the player: a stable code and a French message."""
+"""Domain failures: turn errors shown to the player, game access errors."""
 
 
 class TurnError(Exception):
@@ -12,3 +12,11 @@ class TurnError(Exception):
 
     def __str__(self) -> str:
         return self.message
+
+
+class GameNotFound(Exception):
+    """No active game with this id (HTTP 404 at the API edge)."""
+
+
+class GameAccessDenied(Exception):
+    """The game belongs to another user (HTTP 403 at the API edge)."""

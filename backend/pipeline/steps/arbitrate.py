@@ -31,9 +31,12 @@ HALT = object()
 
 
 async def _resume_roll(ctx: TurnContext, pending: PendingRoll | None) -> Arbitration:
-    """Resume the stored roll with the invoked aspects (+2 each, from the original roll)."""
+    """Resume the stored roll with the invoked aspects (+2 each, from the original roll).
+
+    `pending` is the roll load matched with the request's roll_id; None means stale.
+    """
     request = ctx.request
-    if pending is None or pending.id != request.roll_id:
+    if pending is None:
         raise TurnError("roll_not_pending", "Ce jet n'est plus en attente.")
     roll = ctx.engine.apply_invocation(RollResult(**pending.roll), request.invoked_aspects,
                                        pending.aspects, pending.fate_points)
@@ -102,7 +105,7 @@ async def _roll_dice(ctx: TurnContext, prepared: Prepared):
 async def arbitrate(ctx: TurnContext, prepared: Prepared):
     """Arbitration of the turn, or HALT when the turn must stop before narration."""
     if ctx.request.roll_id:
-        return await _resume_roll(ctx, prepared.pending_roll)
+        return await _resume_roll(ctx, prepared.resumed_roll)
     if prepared.pending_roll:
         # A roll still waits for the player's choice: offer it again, roll nothing.
         await ctx.sink.send_roll_pending(prepared.pending_roll.offer())

@@ -187,3 +187,17 @@ async def test_delete_game_not_found(client, test_user):
     fake_id = "00000000-0000-0000-0000-000000000000"
     resp = await client.delete(f"/api/games/{fake_id}", headers=auth_headers(test_user["token"]))
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ownership_errors_keep_their_http_shape(client, test_user, second_user):
+    """GameNotFound / GameAccessDenied (domain) answer 404 / 403 with the same body (#78)."""
+    missing = await client.delete("/api/games/00000000-0000-0000-0000-000000000000",
+                                  headers=auth_headers(test_user["token"]))
+    assert (missing.status_code, missing.json()) == (404, {"detail": "Game not found"})
+
+    game_id = (await client.post("/api/games",
+                                 headers=auth_headers(test_user["token"]))).json()["gameId"]
+    denied = await client.post("/api/chat", json={"gameId": game_id, "message": "Salut"},
+                               headers=auth_headers(second_user["token"]))
+    assert (denied.status_code, denied.json()) == (403, {"detail": "Access denied"})

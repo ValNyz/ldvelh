@@ -11,6 +11,7 @@ from uuid import UUID
 import asyncpg
 
 from config import DEFAULT_STATS
+from domain.errors import GameAccessDenied, GameNotFound
 from utils.json_utils import parse_json
 from llm.usage import cost_from_stored
 from kg.reader import KnowledgeGraphReader
@@ -28,8 +29,6 @@ from schema.sse_payload import (
     WorldInfo,
     WorldSummary,
 )
-
-from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -51,15 +50,15 @@ class GameService:
         return KnowledgeGraphPopulator(self.pool, game_id)
 
     async def verify_ownership(self, game_id: UUID, user_id: UUID) -> None:
-        """Verify user owns the game. Raises 403 if not."""
+        """Verify user owns the game: GameNotFound if missing, GameAccessDenied if not theirs."""
         async with self.pool.acquire() as conn:
             owner = await conn.fetchval(
                 "SELECT user_id FROM games WHERE id = $1 AND active = true", game_id
             )
         if owner is None:
-            raise HTTPException(status_code=404, detail="Game not found")
+            raise GameNotFound(game_id)
         if owner != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
+            raise GameAccessDenied(game_id)
 
     # =========================================================================
     # CRUD PARTIES
