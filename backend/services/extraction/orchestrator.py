@@ -18,7 +18,7 @@ from config import get_settings
 from llm.session import LLMSession
 
 from kg.populator import KnowledgeGraphPopulator
-from utils.log_safe import log_exception, safe_repr
+from utils.log_safe import log_exception, safe_repr, safe_text
 
 from .characters import CharactersExtractor
 from .inventory import InventoryExtractor
@@ -243,7 +243,7 @@ async def run_resolve_and_extract(
                         f"[RESOLVER] Stored {len(annotations)} entity annotations"
                     )
         except Exception as e:
-            logger.warning(f"[EXTRACTION] Store annotations failed: {e}")
+            logger.warning(f"[EXTRACTION] Store annotations failed: {safe_text(e)}")
 
         return result
 
@@ -359,4 +359,4 @@ async def _append_extraction_cost(
             )
 
     except Exception as e:
-        logger.warning(f"[EXTRACTION] Failed to update message cost: {e}")
+        logger.warning(f"[EXTRACTION] Failed to update message cost: {safe_text(e)}")

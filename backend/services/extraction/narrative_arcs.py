@@ -20,6 +20,7 @@ from schema.extraction import (
     RelationEnd,
     RelationUpdate,
 )
+from utils.log_safe import safe_text
 
 from .base import BaseExtractor
 
@@ -126,7 +127,7 @@ class NarrativeArcsExtractor(BaseExtractor):
                 if result:
                     stats["relations_created"] += 1
             except Exception as e:
-                stats["errors"].append(f"rel_create: {e}")
+                stats["errors"].append(f"rel_create: {safe_text(e)}")
 
         # Relations updated
         for ru_data in raw_result.get("relations_updated", []):
@@ -148,7 +149,7 @@ class NarrativeArcsExtractor(BaseExtractor):
                 )
                 stats["relations_updated"] += 1
             except Exception as e:
-                stats["errors"].append(f"rel_update: {e}")
+                stats["errors"].append(f"rel_update: {safe_text(e)}")
 
         # Relations ended
         for re_data in raw_result.get("relations_ended", []):
@@ -160,7 +161,7 @@ class NarrativeArcsExtractor(BaseExtractor):
                 )
                 stats["relations_ended"] += 1
             except Exception as e:
-                stats["errors"].append(f"rel_end: {e}")
+                stats["errors"].append(f"rel_end: {safe_text(e)}")
 
         # Events scheduled
         for ev_data in raw_result.get("events_scheduled", []):
@@ -169,7 +170,7 @@ class NarrativeArcsExtractor(BaseExtractor):
                 await self.populator._schedule_event(conn, ev)
                 stats["events_scheduled"] += 1
             except Exception as e:
-                stats["errors"].append(f"event: {e}")
+                stats["errors"].append(f"event: {safe_text(e)}")
 
         # Facts
         for fact_data in raw_result.get("facts", []):
@@ -179,7 +180,7 @@ class NarrativeArcsExtractor(BaseExtractor):
                 if await self.populator.create_fact(conn, fact):
                     stats["facts_created"] += 1
             except Exception as e:
-                stats["errors"].append(f"fact: {e}")
+                stats["errors"].append(f"fact: {safe_text(e)}")
 
         # Segment summary -> chronology
         summary = raw_result.get("segment_summary", "")

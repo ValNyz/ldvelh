@@ -428,3 +428,50 @@ async def test_director_cost_is_recorded(test_pool, test_user):
     assert await run_director(pool=test_pool, game_id=game_id, current_cycle=1,
                               current_time="08h00", session=session) is not None
     assert ledger.get_summary()["purposes"]["director"]["calls"] == 1
+
+
+STORY = "Le dragon de verre murmure"
+
+
+class TestDirectorLogHygiene:
+    """An invalid DirectorOutput carrying story text never leaks it at WARNING or above."""
+
+    async def _run_invalid(self, test_pool, test_user, caplog):
+        import logging
+
+        from services.director_service import run_director
+        from services.game_service import GameService
+
+        game_id = await GameService(test_pool).create_game(test_user["id"])
+        text = json.dumps({"tension_level": {"x": STORY}, "narrator_guidance": "g",
+                           "planned_events": [], "long_term_vision": "v"})
+        with caplog.at_level(logging.DEBUG):
+            result = await run_director(test_pool, game_id, 1, "10h00", _session(text))
+        assert result is None
+        return caplog.records
+
+    async def test_fragment_absent_from_warning_and_above(self, test_pool, test_user, caplog):
+        import logging
+
+        records = await self._run_invalid(test_pool, test_user, caplog)
+        formatter = logging.Formatter()
+        failed = [r for r in records if r.levelno >= logging.WARNING]
+        assert any("[DIRECTOR] Failed" in r.getMessage() for r in failed)
+        assert STORY not in "\n".join(formatter.format(r) for r in failed)
+
+    async def test_fragment_at_debug_only_with_log_prompts(self, test_pool, test_user, caplog,
+                                                          monkeypatch):
+        import logging
+
+        from config import get_settings
+
+        monkeypatch.setenv("LOG_PROMPTS", "true")
+        get_settings.cache_clear()
+        try:
+            records = await self._run_invalid(test_pool, test_user, caplog)
+        finally:
+            monkeypatch.delenv("LOG_PROMPTS")
+            get_settings.cache_clear()
+        formatter = logging.Formatter()
+        debug = [r for r in records if r.levelno == logging.DEBUG]
+        assert STORY in "\n".join(formatter.format(r) for r in debug)

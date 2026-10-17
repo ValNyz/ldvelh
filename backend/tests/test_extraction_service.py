@@ -524,3 +524,37 @@ class TestExtractorPromptInjection:
         # Progression doesn't inject resolution — it delegates to engine
         assert "ENTITY RESOLUTION MAP" not in user_prompt
         assert user_prompt == "user"
+
+
+class TestExtractorErrorsDoNotLeakStory:
+    """A pydantic error from an invalid item keeps its input_value out of logs and stats."""
+
+    async def test_invalid_item_error_has_no_story_fragment(self, test_pool, test_user, caplog):
+        import logging
+
+        from services.extraction.characters import CharactersExtractor
+        from services.game_service import GameService
+        from tests.test_llm_session import FakeProvider
+        from llm.session import LLMSession
+
+        fragment = "Le dragon de verre murmure"
+        game_id = await GameService(test_pool).create_game(test_user["id"])
+        extractor = CharactersExtractor(test_pool, game_id,
+                                        LLMSession.from_provider(FakeProvider()))
+
+        async def fake_call(*args, **kwargs):
+            return {"entities_created": [{"name": "Voss", "data": fragment}]}, None
+
+        extractor._call_llm = fake_call
+        with caplog.at_level(logging.DEBUG):
+            result = await extractor.run("texte", {}, 1)
+        assert result["success"] is True
+        errors = result["stats"]["errors"]
+        assert errors and "create:" in errors[0] and fragment not in errors[0]
+        formatter = logging.Formatter()
+        info_up = [r for r in caplog.records if r.levelno >= logging.INFO]
+        assert fragment not in "\n".join(formatter.format(r) for r in info_up)
+        async with test_pool.acquire() as conn:
+            stored = await conn.fetchval(
+                "SELECT errors FROM extraction_logs WHERE game_id = $1", game_id)
+        assert stored and fragment not in " ".join(stored)

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 
 def validation_summary(exc: ValidationError) -> str:
-    """`ValidationError: 2 errors (time.new_time: missing; credit_delta: int_parsing)`."""
+    """`ValidationError: errors=2 (time.new_time: missing; credit_delta: int_parsing)`."""
     errors = exc.errors(include_input=False, include_url=False, include_context=False)
     where = "; ".join(f"{'.'.join(str(p) for p in e['loc']) or '<root>'}: {e['type']}"
                       for e in errors)
@@ -39,6 +39,13 @@ def safe_repr(exc: BaseException) -> str:
         return repr(exc)
     return " <- ".join(validation_summary(e) if isinstance(e, ValidationError)
                        else f"{type(e).__name__}: {e}" for e in _chain(exc))
+
+
+def safe_text(exc: BaseException) -> str:
+    """`str(exc)`, except that validation errors in the cause chain are summarised."""
+    if not has_validation_error(exc):
+        return str(exc)
+    return safe_repr(exc)
 
 
 def log_exception(logger: logging.Logger, level: int, message: str, exc: BaseException,

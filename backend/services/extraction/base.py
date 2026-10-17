@@ -17,7 +17,7 @@ from uuid import UUID
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
 from config import get_settings
-from utils.log_safe import log_exception
+from utils.log_safe import log_exception, safe_text
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
@@ -83,7 +83,7 @@ class BaseExtractor(ABC):
                         stats = await self._populate(conn, raw_result, trigger_cycle)
                 except Exception as pop_err:
                     logger.warning(
-                        f"[{et.upper()}] Populate failed (rolled back): {pop_err}"
+                        f"[{et.upper()}] Populate failed (rolled back): {safe_text(pop_err)}"
                     )
 
                 # Log extraction for auditing

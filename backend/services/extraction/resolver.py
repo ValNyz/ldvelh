@@ -24,8 +24,8 @@ from utils.log_safe import safe_repr
 
 if TYPE_CHECKING:
     from asyncpg import Pool
-    from llm.session import LLMSession
 
+    from llm.session import LLMSession
 
 logger = logging.getLogger(__name__)
 

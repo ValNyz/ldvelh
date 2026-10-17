@@ -9,6 +9,7 @@ from uuid import UUID
 
 import asyncpg
 
+from config import get_settings
 from kg.reader import KnowledgeGraphReader
 from llm.session import LLMSession, Purpose
 from prompts.director_prompt import (
@@ -17,7 +18,6 @@ from prompts.director_prompt import (
     build_director_user_prompt,
 )
 from schema.director import DirectorOutput
-from config import get_settings
 from utils.json_utils import parse_json_response
 from utils.log_safe import log_exception, safe_repr
 

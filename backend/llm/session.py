@@ -22,8 +22,8 @@ from services.llm_providers import (
     get_provider,
 )
 from repos.llm_models import ModelCatalog
-from utils.log_safe import safe_repr
 from utils import parse_json_response
+from utils.log_safe import safe_repr
 
 logger = logging.getLogger(__name__)
 

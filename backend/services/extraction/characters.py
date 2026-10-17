@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from prompts.extraction import characters_prompt
 from schema import EntityType, FactData
 from schema.extraction import AmbientUpdate, CharactersExtraction, EntityCreation, EntityUpdate
+from utils.log_safe import safe_text
 
 from .base import BaseExtractor
 
@@ -120,7 +121,7 @@ class CharactersExtractor(BaseExtractor):
                 await self.populator._process_entity_creation(conn, ec, cycle)
                 stats["entities_created"] += 1
             except Exception as e:
-                stats["errors"].append(f"create: {e}")
+                stats["errors"].append(f"create: {safe_text(e)}")
 
         # Reload registry after new entities
         if stats["entities_created"]:
@@ -134,7 +135,7 @@ class CharactersExtractor(BaseExtractor):
                 await self.populator._process_entity_update(conn, eu, cycle)
                 stats["entities_updated"] += 1
             except Exception as e:
-                stats["errors"].append(f"update: {e}")
+                stats["errors"].append(f"update: {safe_text(e)}")
 
         # Entities removed
         for er_data in raw_result.get("entities_removed", []):
@@ -145,7 +146,7 @@ class CharactersExtractor(BaseExtractor):
                     conn, ref, EntityType.CHARACTER, reason_cycle
                 )
             except Exception as e:
-                stats["errors"].append(f"remove: {e}")
+                stats["errors"].append(f"remove: {safe_text(e)}")
 
         # Ambient updates
         for amb_data in raw_result.get("ambient_updates", []):
@@ -158,7 +159,7 @@ class CharactersExtractor(BaseExtractor):
                 if success:
                     stats["ambients_updated"] += 1
             except Exception as e:
-                stats["errors"].append(f"ambient: {e}")
+                stats["errors"].append(f"ambient: {safe_text(e)}")
 
         # Skills
         for skill_data in raw_result.get("skills_changed", []):
@@ -171,7 +172,7 @@ class CharactersExtractor(BaseExtractor):
                         conn, skill, cycle, protagonist_id=proto_id
                     )
             except Exception as e:
-                stats["errors"].append(f"skill: {e}")
+                stats["errors"].append(f"skill: {safe_text(e)}")
 
         # Facts
         for fact_data in raw_result.get("facts", []):
@@ -181,6 +182,6 @@ class CharactersExtractor(BaseExtractor):
                 if await self.populator.create_fact(conn, fact):
                     stats["facts_created"] += 1
             except Exception as e:
-                stats["errors"].append(f"fact: {e}")
+                stats["errors"].append(f"fact: {safe_text(e)}")
 
         return stats

@@ -9,6 +9,7 @@ from pipeline.steps.narrate import Narrated
 from repos.games import get_director_schedule
 from services.director_service import run_director, should_run_director
 from services.extraction import run_resolve_and_extract
+from utils.log_safe import safe_text
 
 logger = logging.getLogger(__name__)
 
@@ -63,4 +64,4 @@ async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: C
     try:
         await _schedule_director(ctx, committed)
     except Exception as dir_err:
-        logger.warning(f"[DIRECTOR] Trigger check failed: {dir_err}")
+        logger.warning(f"[DIRECTOR] Trigger check failed: {safe_text(dir_err)}")

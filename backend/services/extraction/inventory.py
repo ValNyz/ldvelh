@@ -12,6 +12,7 @@ from prompts.extraction import inventory_prompt
 from schema import FactData
 from schema.extraction import InventoryChange, ObjectCreation
 from services.engine import get_engine
+from utils.log_safe import safe_text
 
 from .base import BaseExtractor
 
@@ -101,7 +102,7 @@ class InventoryExtractor(BaseExtractor):
                                     f"[INVENTORY] Engine extension failed: {ext_err}"
                                 )
             except Exception as e:
-                stats["errors"].append(f"object: {e}")
+                stats["errors"].append(f"object: {safe_text(e)}")
 
         # Inventory changes
         for ic_data in raw_result.get("inventory_changes", []):
@@ -110,7 +111,7 @@ class InventoryExtractor(BaseExtractor):
                 await self.populator._process_inventory_change(conn, ic, cycle)
                 stats["inventory_changes"] += 1
             except Exception as e:
-                stats["errors"].append(f"inv_change: {e}")
+                stats["errors"].append(f"inv_change: {safe_text(e)}")
 
         # Facts
         for fact_data in raw_result.get("facts", []):
@@ -120,6 +121,6 @@ class InventoryExtractor(BaseExtractor):
                 if await self.populator.create_fact(conn, fact):
                     stats["facts_created"] += 1
             except Exception as e:
-                stats["errors"].append(f"fact: {e}")
+                stats["errors"].append(f"fact: {safe_text(e)}")
 
         return stats
