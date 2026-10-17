@@ -19,9 +19,12 @@ FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Pinned static server (#41): same version as package-lock.json.
-ARG SERVE_VERSION=14.2.5
-RUN npm install -g "serve@${SERVE_VERSION}" && npm cache clean --force
+# Static server pinned by the lockfile (#41): package-lock.json is the only source of its
+# version. Installed alone (npm ci --omit=dev would also pull next and react: 4x the image).
+COPY package-lock.json /tmp/package-lock.json
+RUN npm install -g --ignore-scripts \
+	"serve@$(node -p "require('/tmp/package-lock.json').packages['node_modules/serve'].version")" \
+	&& rm /tmp/package-lock.json && npm cache clean --force
 
 # Copy static export
 COPY --from=builder /app/out ./out
@@ -31,4 +34,4 @@ USER node
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "serve out -l ${PORT:-3000}"]
+CMD ["sh", "-c", "exec serve out -l ${PORT:-3000}"]

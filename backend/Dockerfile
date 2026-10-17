@@ -2,16 +2,18 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# dbmate, pinned and checksum-verified (#41): same version as CI and scripts/test-backend.sh.
-# The checksum is for the linux-amd64 binary.
-ARG DBMATE_VERSION=v2.36.0
-ARG DBMATE_SHA256=47e284b3d8cbad1ba5f090495aa05afd1bbd5f35e2ed5577aad06da74ce780ce
+# No .pyc written at runtime (the code directory is read-only for the app user).
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# dbmate, pinned and checksum-verified (#41): version and SHA-256 in db/dbmate-release.env,
+# shared with CI and scripts/test-backend.sh. amd64 and arm64 (TARGETARCH, set by BuildKit;
+# the machine's architecture otherwise).
+ARG TARGETARCH
+COPY db/dbmate-release.env db/install-dbmate.sh /tmp/dbmate/
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends curl ca-certificates \
-	&& curl -fsSL -o /usr/local/bin/dbmate \
-	"https://github.com/amacneil/dbmate/releases/download/${DBMATE_VERSION}/dbmate-linux-amd64" \
-	&& echo "${DBMATE_SHA256}  /usr/local/bin/dbmate" | sha256sum -c - \
-	&& chmod +x /usr/local/bin/dbmate \
+	&& /tmp/dbmate/install-dbmate.sh /tmp/dbmate/dbmate-release.env /usr/local/bin/dbmate "${TARGETARCH}" \
+	&& rm -rf /tmp/dbmate \
 	&& apt-get purge -y curl \
 	&& apt-get autoremove -y \
 	&& rm -rf /var/lib/apt/lists/*
