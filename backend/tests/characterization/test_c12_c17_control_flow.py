@@ -153,9 +153,11 @@ async def test_c14_missing_api_key(harness, world_game, no_api_key):
     await harness.drain()
     after = await harness.db_summary(world_game)
     assert events[0]["type"] == "error" and events[0].get("recoverable") is False
+    assert events[0].get("ref")
+    first_event = {k: v for k, v in events[0].items() if k != "ref"}  # ref is the random stream id
     assert_snapshot("c14_missing_key", {
         "sse": harness.summarize(events),
-        "first_event": events[0],
+        "first_event": first_event,
         "llm_calls": harness.llm.purposes(),
         "db_changed": _diff(before, after),
     })

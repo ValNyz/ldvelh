@@ -8,32 +8,21 @@ import asyncio
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
-from schema import WorldGeneration
 from services.engine import get_engine
-from schema.sse_payload import (
-    AISummary,
-    ArrivalSummary,
-    ProtagonistSummary,
-    SSEDonePayload,
-    SSEGameState,
-    SSEMeta,
-    WorldInfo,
-    WorldSummary,
-)
 
 from api.dependencies import get_pool, get_settings_dep, get_current_user
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
-from prompts.world_generation_prompt import get_full_generation_prompt
+from llm.session import LLMSession
 from repos import games as games_repo
 from repos import users as users_repo
 from repos.llm_models import load_catalog
 from services.game_service import GameService, RollbackRejected
-from pipeline import narration_stream, turn
-from pipeline.context import TurnContext, TurnRequest
-from pipeline.errors import report_error
+from pipeline import init_flow, turn
+from pipeline.context import InitParams, TurnContext, TurnRequest
+from pipeline.errors import TurnError, report_error
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +283,6 @@ def _get_game_lock(game_id: UUID) -> asyncio.Lock:
 @router.post("/chat")
 async def chat(
     request: ChatRequest,
-    background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
     settings: Settings = Depends(get_settings_dep),
@@ -317,10 +305,9 @@ async def chat(
         _handle_chat_locked(
             lock=lock,
             request=request,
-            sse_writer=sse_writer,
+            sink=sse_writer,
             pool=pool,
             settings=settings,
-            background_tasks=background_tasks,
             user_id=user["id"],
         )
     )
@@ -343,247 +330,71 @@ async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):
         await _handle_chat(**kwargs)
 
 
+async def _api_key_or_raise(pool: asyncpg.Pool, user_id: UUID | None, provider_name: str) -> str:
+    """The user's API key for the provider; none ⇒ non-recoverable TurnError (C-14)."""
+    user_api_key = None
+    if user_id:
+        try:
+            user_api_key = await _resolve_user_api_key(pool, user_id, provider_name)
+        except Exception as e:
+            logger.warning(f"[CHAT] Failed to resolve user API key: {e}")
+    if not user_api_key:
+        raise TurnError(
+            "no_api_key",
+            f"Aucune clé API configurée pour {provider_name}. "
+            "Ajoutez votre clé dans Paramètres > Modèle IA.",
+            recoverable=False,
+        )
+    return user_api_key
+
+
+def _turn_request(request: ChatRequest, user_id: UUID | None) -> TurnRequest:
+    return TurnRequest(
+        game_id=request.gameId,
+        user_id=user_id,
+        message=request.message,
+        roll_id=request.roll_id,
+        invoked_aspects=tuple(request.invoked_aspects or ()),
+        init=InitParams(
+            engine=request.engine,
+            world_config=request.world_config,
+            character_data=request.character_data,
+            manual_entities=request.manual_entities,
+        ),
+    )
+
+
 async def _handle_chat(
     request: ChatRequest,
-    sse_writer: SSEWriter,
+    sink: SSEWriter,
     pool: asyncpg.Pool,
     settings: Settings,
-    background_tasks: BackgroundTasks,
     user_id: UUID | None = None,
-):
-    """Gère le traitement du chat de manière asynchrone"""
+) -> None:
+    """Thin adapter: snapshot, API key, session, then the init or narration pipeline."""
     provider_name = request.provider or "anthropic"
     try:
-        game_service = GameService(pool)
-
-        game_id = request.gameId
-        message = request.message
-
-        # =====================================================================
-        # CHARGER L'ÉTAT DEPUIS LA DB (via GameService)
-        # =====================================================================
-        from repos.games import get_snapshot
-
-        async with pool.acquire() as snap_conn:
-            snapshot = await get_snapshot(snap_conn, game_id)
+        async with pool.acquire() as conn:
+            snapshot = await games_repo.get_snapshot(conn, request.gameId)
         if snapshot is None:
-            raise ValueError(f"Partie {game_id} introuvable")
-
-        is_init_mode = not snapshot.world_created
-
-        # Resolve provider: use request.provider + user's encrypted API key
-        user_api_key = None
-        if user_id:
-            try:
-                user_api_key = await _resolve_user_api_key(pool, user_id, provider_name)
-            except Exception as e:
-                logger.warning(f"[CHAT] Failed to resolve user API key: {e}")
-
-        if not user_api_key:
-            await sse_writer.send_error(
-                f"Aucune clé API configurée pour {provider_name}. "
-                "Ajoutez votre clé dans Paramètres > Modèle IA.",
-                recoverable=False,
-            )
-            return
-
-        from llm.session import LLMSession
-
-        session = LLMSession(provider_name, user_api_key, request.model,
+            raise TurnError("game_not_found", "Partie introuvable.", recoverable=False)
+        api_key = await _api_key_or_raise(pool, user_id, provider_name)
+        session = LLMSession(provider_name, api_key, request.model,
                              catalog=await load_catalog(pool))
-
-        # Engine setup
-        engine_type = snapshot.engine
-        engine = get_engine(engine_type)
-
-        # =====================================================================
-        # MODE INIT (World Builder)
-        # =====================================================================
-        if is_init_mode:
-            logger.info("[CHAT] Mode: INIT (World Builder)")
-
-            # Use engine from request (wizard) or fallback to game_session
-            init_engine = request.engine or engine_type
-            init_world_config = request.world_config
-            init_character_data = request.character_data
-            init_manual_entities = request.manual_entities
-
-            # Extract manual NPCs as mandatory_npcs if provided
-            mandatory_npcs = None
-            if init_manual_entities and "npcs" in init_manual_entities:
-                mandatory_npcs = init_manual_entities["npcs"]
-
-            # Load genre from DB (from game or world_config)
-            genre = None
-            genre_id = snapshot.genre_id
-            if not genre_id and init_world_config:
-                # Genre slug might be in world_config from wizard
-                genre_slug = init_world_config.get("genre")
-                if genre_slug:
-                    async with pool.acquire() as conn:
-                        genre = await games_repo.get_genre_by_slug(conn, genre_slug)
-                        if genre:
-                            # Store genre_id on game for future use
-                            await games_repo.set_game_genre(conn, game_id, genre["id"])
-            elif genre_id:
-                from kg.reader import KnowledgeGraphReader
-                reader = KnowledgeGraphReader(pool, game_id)
-                async with pool.acquire() as conn:
-                    genre = await reader.get_genre(conn, genre_id)
-
-            # Protagonist name from character_data or default
-            protagonist_name = "Valentin"
-            if init_character_data and init_character_data.get("name"):
-                protagonist_name = init_character_data["name"]
-
-            prompt = get_full_generation_prompt(
-                protagonist_name=protagonist_name,
-                mandatory_npcs=mandatory_npcs,
-                theme_preferences=message
-                if message and not message.startswith("__")
-                else None,
-                employer_preference="employed",
-                engine=init_engine,
-                world_config=init_world_config,
-                character_data=init_character_data,
-                manual_entities=init_manual_entities,
-                genre=genre,
-            )
-
-            async def on_init_complete(parsed, display_text, raw_json, cost):
-                logger.debug(f"[DEBUG] raw_json length: {len(raw_json)}")
-                logger.debug(f"[DEBUG] raw_json ends with: ...{raw_json[-100:]}")
-                if not parsed:
-                    await sse_writer.send_error(
-                        "Échec de génération du monde",
-                        recoverable=True,
-                        details={
-                            "raw_length": len(raw_json),
-                            "last_100": raw_json[-100:],
-                        },
-                    )
-                    return
-
-                try:
-                    world_gen = WorldGeneration.model_validate(parsed)
-                    init_result = await game_service.process_init(game_id, world_gen)
-
-                    # Set engine + world_config and create engine character
-                    if init_engine and init_engine != "none":
-                        async with pool.acquire() as eng_conn:
-                            populator = game_service._get_populator(game_id)
-                            await populator.set_engine(
-                                eng_conn, init_engine, init_world_config
-                            )
-                            eng = get_engine(init_engine)
-                            await eng.create_character(
-                                eng_conn, game_id,
-                                init_character_data or {},
-                            )
-
-                    # Load canonical state (same shape as light mode)
-                    state = await game_service.load_game_state(game_id)
-
-                    init_cost = cost
-                    payload = SSEDonePayload(
-                        game_state=SSEGameState(
-                            game=state["game"],
-                            player=state["player"],
-                            ai=state.get("ai"),
-                            world_created=True,
-                            engine=init_engine if init_engine != "none" else None,
-                            engine_stats=state["player"].get("engine_stats"),
-                        ),
-                        world_info=WorldInfo(
-                            world=WorldSummary(**init_result["world"]),
-                            protagonist=ProtagonistSummary(
-                                **init_result["protagonist"]
-                            ),
-                            ai=AISummary(**init_result["ai"]),
-                            npc_count=init_result["npc_count"],
-                            location_count=init_result["location_count"],
-                            org_count=init_result["org_count"],
-                            inventory_count=init_result["inventory_count"],
-                            arrival=ArrivalSummary(**init_result["arrival"])
-                            if init_result.get("arrival")
-                            else None,
-                            arrival_event=parsed.get("arrival_event"),
-                        ),
-                        meta=SSEMeta(narration_cost=init_cost)
-                        if init_cost
-                        else None,
-                    )
-
-                    # Store game_duration from wizard config
-                    init_game_duration = (init_world_config or {}).get("duration", "medium")
-                    async with pool.acquire() as dir_conn:
-                        await games_repo.set_game_duration(dir_conn, game_id, init_game_duration)
-
-                    # Initial Director run (blocking, streamed to frontend)
-                    try:
-                        from services.director_service import run_director as run_director_init
-                        await asyncio.wait_for(
-                            run_director_init(
-                                pool=pool,
-                                game_id=game_id,
-                                current_cycle=1,
-                                current_time="08h00",
-                                session=session,
-                                sse_writer=sse_writer,
-                            ),
-                            timeout=30.0,
-                        )
-                        logger.info("[CHAT] Initial Director run completed")
-                    except (asyncio.TimeoutError, Exception) as dir_err:
-                        logger.warning(f"[DIRECTOR] Initial run failed/timeout: {dir_err}")
-
-                    await sse_writer.send_done(
-                        None, payload.model_dump(exclude_none=True)
-                    )
-                    await sse_writer.send_saved()
-
-                except Exception as e:
-                    logger.error(f"[CHAT] Error process init: {e}", exc_info=True)
-                    await sse_writer.send_error(str(e), recoverable=True)
-
-            result = await narration_stream.stream_narration(
-                session,
-                sse_writer,
-                system_prompt=prompt["system"],
-                messages=[{"role": "user", "content": prompt["user"]}],
-                world_gen=True,
-                temperature=1.0,
-            )
-            await on_init_complete(
-                result.parsed, result.display_text, result.raw, result.cost
-            )
-
-        # =====================================================================
-        # MODE LIGHT / FIRST_LIGHT (Narration)
-        # =====================================================================
-        else:
-            request_turn = TurnRequest(
-                game_id=game_id,
-                user_id=user_id,
-                message=message,
-                roll_id=request.roll_id,
-                invoked_aspects=tuple(request.invoked_aspects or ()),
-            )
-            ctx = TurnContext(
-                request=request_turn,
-                snapshot=snapshot,
-                session=session,
-                sink=sse_writer,
-                pool=pool,
-                engine=engine,
-                ref=sse_writer._stream_id,
-            )
-            await turn.run_turn(ctx)
-
-    except Exception as e:
-        await report_error(
-            sse_writer, e, provider_name=provider_name, ref=sse_writer._stream_id
+        ctx = TurnContext(
+            request=_turn_request(request, user_id),
+            snapshot=snapshot,
+            session=session,
+            sink=sink,
+            pool=pool,
+            engine=get_engine(snapshot.engine),
+            ref=sink._stream_id,
         )
-
+        if snapshot.world_created:
+            await turn.run_turn(ctx)
+        else:
+            await init_flow.run_init(ctx)
+    except Exception as e:
+        await report_error(sink, e, provider_name=provider_name, ref=sink._stream_id)
     finally:
-        await sse_writer.close()
+        await sink.close()

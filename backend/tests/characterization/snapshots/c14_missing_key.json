@@ -1,6 +1,7 @@
 {
   "db_changed": {},
   "first_event": {
+    "code": "no_api_key",
     "details": null,
     "error": "Aucune clé API configurée pour anthropic. Ajoutez votre clé dans Paramètres > Modèle IA.",
     "recoverable": false,

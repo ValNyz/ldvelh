@@ -93,3 +93,9 @@ def test_layers_respect_the_dependency_rule():
 
 def test_no_sql_in_api_routes():
     assert functions_with_sql("api/routes.py") == SQL_IN_ROUTES_ALLOWED
+
+
+def test_handle_chat_is_thin():
+    tree = ast.parse((BACKEND / "api/routes.py").read_text(encoding="utf-8"))
+    func = next(f for f in _outermost_functions(tree) if f.name == "_handle_chat")
+    assert func.end_lineno - func.lineno + 1 < 80
