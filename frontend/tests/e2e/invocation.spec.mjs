@@ -123,6 +123,12 @@ test('the input is disabled while the roll waits, enabled again after skipping',
 	await expect(dialog).toBeVisible();
 	await expect(dialog).toBeFocused();
 	await expect(input).toBeDisabled();
+	// Tab stays inside the dialog (3 buttons: two aspects and "Accepter l'échec"; the
+	// invoke button is disabled until an aspect is chosen), Escape closes nothing.
+	for (let i = 0; i < 4; i += 1) await page.keyboard.press('Tab');
+	expect(await dialog.evaluate(el => el.contains(document.activeElement))).toBe(true);
+	await page.keyboard.press('Escape');
+	await expect(dialog).toBeVisible();
 	await expect(page.getByText('Je tente un saut impossible.')).toHaveCount(1);
 	await page.screenshot({ path: testInfo.outputPath('invocation-input-disabled-while-roll-waits.png') });
 
@@ -130,6 +136,7 @@ test('the input is disabled while the roll waits, enabled again after skipping',
 	await expect(dialog).toBeHidden();
 	await expect(page.getByText('Tu rates le saut de peu.').last()).toBeVisible();
 	await expect(input).toBeEnabled();
+	await expect(input).toBeFocused();
 	await page.screenshot({ path: testInfo.outputPath('invocation-input-enabled-after-skip.png') });
 	const chats = api.calls.filter(c => c.path === '/chat');
 	expect(chats).toHaveLength(2);

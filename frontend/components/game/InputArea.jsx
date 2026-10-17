@@ -13,10 +13,23 @@ export default function InputArea({
 }) {
 	const [input, setInput] = useState('');
 	const textareaRef = useRef(null);
+	const refocusRef = useRef(false);
 
 	// Calcul des états réels
 	const inputDisabled = disabled || disableInput;
 	const sendDisabled = disabled || disableSend || !input.trim();
+
+	// Disabled from outside (e.g. behind the invocation modal): take the focus back once the
+	// textarea is usable again, after the turn that closed the modal (#80).
+	useEffect(() => {
+		if (disabled) refocusRef.current = true;
+	}, [disabled]);
+	useEffect(() => {
+		if (!inputDisabled && refocusRef.current) {
+			refocusRef.current = false;
+			textareaRef.current?.focus();
+		}
+	}, [inputDisabled]);
 
 	// Auto-resize du textarea
 	useEffect(() => {

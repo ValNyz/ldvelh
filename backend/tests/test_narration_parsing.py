@@ -137,7 +137,6 @@ def test_bad_elements_and_bad_field_are_reported_together():
     assert narration.credit_delta is None
 
 
-
 def test_error_without_a_field_is_invalid():
     """A model-level error (empty loc) names no optional field: nothing is salvaged."""
     from pydantic_core import InitErrorDetails, PydanticCustomError, ValidationError

@@ -9,6 +9,31 @@ const OUTCOME_LABELS = {
 	success_with_style: 'Réussite avec style',
 };
 
+const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Keep Tab inside the dialog. Escape deliberately does nothing: skipping a roll must be an
+ * explicit choice ("Accepter l'échec"), never a stray key press.
+ */
+function trapFocus(event, container) {
+	if (event.key !== 'Tab' || !container) return;
+	const items = [...container.querySelectorAll(FOCUSABLE)];
+	if (items.length === 0) {
+		event.preventDefault();
+		return;
+	}
+	const first = items[0];
+	const last = items[items.length - 1];
+	const active = document.activeElement;
+	if (event.shiftKey && (active === first || active === container)) {
+		event.preventDefault();
+		last.focus();
+	} else if (!event.shiftKey && (active === last || !container.contains(active))) {
+		event.preventDefault();
+		first.focus();
+	}
+}
+
 const FUDGE_SYMBOLS = { '-1': '-', '0': '0', '1': '+' };
 
 function FudgeDie({ value }) {
@@ -71,6 +96,7 @@ export default function AspectInvocationModal({
 				aria-modal="true"
 				aria-labelledby="aspect-invocation-title"
 				tabIndex={-1}
+				onKeyDown={(e) => trapFocus(e, dialogRef.current)}
 				className="bg-surface border border-gray-700 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 space-y-5 outline-none"
 			>
 				{/* Header */}
