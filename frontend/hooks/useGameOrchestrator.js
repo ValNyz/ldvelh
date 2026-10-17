@@ -266,11 +266,18 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			if (data.state) {
 				gs.replaceGameState(data.state);
 			}
-			// A Fate roll still waiting for an invocation: show its modal again (#32).
-			setInvocationData(data.state?.pending_roll ? toInvocationData(data.state.pending_roll) : null);
+			// A Fate roll still waiting for an invocation: show its modal again, and the
+			// action it belongs to (not saved yet) at the end of the chat (#32).
+			const pending = data.state?.pending_roll;
+			setInvocationData(pending ? toInvocationData(pending) : null);
 
 			const loadedMessages = data.messages || [];
-			gs.setMessages(loadedMessages);
+			if (pending?.player_message) {
+				gs.setMessages([...loadedMessages, { role: 'user', content: pending.player_message }]);
+				setLastUserMessage(pending.player_message);
+			} else {
+				gs.setMessages(loadedMessages);
+			}
 
 			if (loadedMessages.length > 0) {
 				phase.setGamePhase(phase.GAME_PHASE.PLAYING);

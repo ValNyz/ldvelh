@@ -12,6 +12,7 @@ const PENDING_ROLL = {
 	},
 	aspects: ['Pilote déchu en quête de rédemption', "Je dois de l'argent à tout le monde"],
 	fate_points: 3,
+	player_message: 'Je tente un saut impossible.',
 };
 const LOADED_GAME = {
 	state: { game: { name: 'Partie Fate', engine: 'fate_core' }, pending_roll: PENDING_ROLL },
@@ -57,8 +58,15 @@ test('invocation modal comes back after a reload', async ({ page }, testInfo) =>
 	await page.getByRole('button', { name: 'Invoquer (1 PD)' }).click();
 	await expect(modal).toBeHidden();
 	await expect(page.getByText('Tu rates le saut de peu.').last()).toBeVisible();
+	// The waiting action, not saved before the resume, is shown just before its narration.
+	const action = page.getByText('Je tente un saut impossible.');
+	await expect(action).toBeVisible();
+	const [actionBox, answerBox] = [await action.boundingBox(), await page.getByText('Tu rates le saut de peu.').last().boundingBox()];
+	expect(actionBox.y).toBeLessThan(answerBox.y);
+	await page.screenshot({ path: testInfo.outputPath('invocation-resolved-after-reload.png') });
 	const chats = api.calls.filter(c => c.path === '/chat');
 	expect(chats).toHaveLength(1);
 	expect(chats[0].body.roll_id).toBe(ROLL_ID);
 	expect(chats[0].body.invoked_aspects).toEqual(['Pilote déchu en quête de rédemption']);
+	expect(chats[0].body.message).toBe('Je tente un saut impossible.');
 });
