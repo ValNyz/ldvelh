@@ -3,32 +3,22 @@ LDVELH - API Routes
 Routes FastAPI principales
 """
 
-import time
-import json
 import logging
 import asyncio
 from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
-from prompts.narrator_prompt import (
-    build_narrator_system_prompt,
-    build_narrator_context_prompt,
-)
 from pydantic import BaseModel
-from schema import NarrationOutput, WorldGeneration
-from schema.engine import MechanicalDecision, MechanicalResult, RollResult
+from schema import WorldGeneration
 from services.engine import get_engine
-from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
-    NarratorDeltasStored,
     ProtagonistSummary,
     SSEDonePayload,
     SSEGameState,
     SSEMeta,
-    SSEUIHints,
     WorldInfo,
     WorldSummary,
 )
@@ -36,15 +26,13 @@ from schema.sse_payload import (
 from api.dependencies import get_pool, get_settings_dep, get_current_user
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
-from domain.game import GameSnapshot
 from prompts.world_generation_prompt import get_full_generation_prompt
 from repos import games as games_repo
 from repos import users as users_repo
 from repos.llm_models import load_catalog
-from services.context_builder import ContextBuilder
-from services.extraction import run_resolve_and_extract
 from services.game_service import GameService, RollbackRejected
-from pipeline import narration_stream
+from pipeline import narration_stream, turn
+from pipeline.context import TurnContext, TurnRequest
 from pipeline.errors import report_error
 
 logger = logging.getLogger(__name__)
@@ -355,28 +343,6 @@ async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):
         await _handle_chat(**kwargs)
 
 
-ARRIVAL_TOKEN = "__ARRIVEE__"
-DEFAULT_ARRIVAL_MESSAGE = "Je viens d'arriver."
-
-
-async def _build_arrival_message(pool: asyncpg.Pool, snapshot: GameSnapshot) -> str:
-    """Player message for the arrival turn, from the game's genre arrival_prompt."""
-    from kg.reader import KnowledgeGraphReader
-
-    if not snapshot.genre_id:
-        return DEFAULT_ARRIVAL_MESSAGE
-    reader = KnowledgeGraphReader(pool, snapshot.id)
-    async with pool.acquire() as conn:
-        genre = await reader.get_genre(conn, snapshot.genre_id)
-    if not genre or not genre.get("arrival_prompt"):
-        return DEFAULT_ARRIVAL_MESSAGE
-    return (
-        genre["arrival_prompt"]
-        .replace("{world_name}", snapshot.world_name or "")
-        .replace("{protagonist_name}", snapshot.protagonist_name or "")
-    )
-
-
 async def _handle_chat(
     request: ChatRequest,
     sse_writer: SSEWriter,
@@ -421,21 +387,14 @@ async def _handle_chat(
             )
             return
 
-        from llm.session import LLMSession, Purpose
+        from llm.session import LLMSession
 
         session = LLMSession(provider_name, user_api_key, request.model,
                              catalog=await load_catalog(pool))
 
-        current_cycle = snapshot.current_cycle
-        current_time = snapshot.current_time
-        # The old DTO dropped None values, so a missing location read as "".
-        current_location = snapshot.current_location_name or ""
-
         # Engine setup
         engine_type = snapshot.engine
         engine = get_engine(engine_type)
-
-        is_first_light = snapshot.world_created and not current_location
 
         # =====================================================================
         # MODE INIT (World Builder)
@@ -600,429 +559,26 @@ async def _handle_chat(
             )
 
         # =====================================================================
-        # MODE LIGHT (Narration)
+        # MODE LIGHT / FIRST_LIGHT (Narration)
         # =====================================================================
         else:
-            mode_label = "FIRST_LIGHT" if is_first_light else "LIGHT"
-            logger.info(f"[CHAT] Mode: {mode_label}, Cycle: {current_cycle}")
-
-            # Protocol token (__ARRIVEE__): replace it with the genre's arrival text.
-            # genre_id / world_name / protagonist_name come from the snapshot (#9).
-            is_arrival_turn = request.message == ARRIVAL_TOKEN
-            if is_arrival_turn:
-                message = await _build_arrival_message(pool, snapshot)
-
-            async with pool.acquire() as conn:
-                builder = ContextBuilder(pool, game_id)
-                context = await builder.build(
-                    conn=conn,
-                    player_input=message,
-                    current_cycle=current_cycle,
-                    current_time=current_time,
-                    current_location_name=current_location,
-                )
-
-            # Run mechanical step (fate_core/d6 only)
-            # If resuming from aspect invocation, use stored roll
-            mechanical_result = None
-            if request.roll_id:
-                # Resume from Fate Core aspect invocation
-                pending = await game_service.load_pending_roll(
-                    game_id, request.roll_id
-                )
-                if not pending:
-                    await sse_writer.send_error(
-                        "Pending roll not found", recoverable=True
-                    )
-                    await sse_writer.close()
-                    return
-
-                roll_data = dict(pending["roll_details"])
-                invoked = request.invoked_aspects or []
-
-                if invoked:
-                    # Apply +2 per invoked aspect
-                    bonus = len(invoked) * 2
-                    roll_data["skill_total"] = roll_data["skill_total"] + bonus
-                    difficulty = roll_data.get("details", {}).get("difficulty", 0)
-                    new_shifts = roll_data["skill_total"] - difficulty
-                    if new_shifts < 0:
-                        roll_data["outcome"] = "failure"
-                    elif new_shifts == 0:
-                        roll_data["outcome"] = "tie"
-                    elif new_shifts >= 3:
-                        roll_data["outcome"] = "success_with_style"
-                    else:
-                        roll_data["outcome"] = "success"
-                    roll_data["shifts"] = new_shifts
-                    roll_data.setdefault("details", {})
-                    roll_data["details"]["invoked_aspects"] = invoked
-                    roll_data["details"]["invocation_bonus"] = bonus
-                    roll_data["details"]["fate_points_spent"] = len(invoked)
-
-                updated_roll = RollResult(**roll_data)
-                mechanical_result = MechanicalResult(
-                    decision=MechanicalDecision(
-                        requires_test=True,
-                        skill=roll_data.get("details", {}).get("skill_name"),
-                        skill_value=roll_data.get("details", {}).get("skill_value"),
-                        difficulty=roll_data.get("details", {}).get("difficulty"),
-                    ),
-                    roll=updated_roll,
-                )
-
-                # Apply roll result (stress + fate point deduction)
-                async with pool.acquire() as apply_conn:
-                    await engine.apply_roll_result(
-                        apply_conn, game_id, updated_roll, current_cycle,
-                    )
-                # Update stored roll
-                await game_service.update_mechanic_roll(
-                    request.roll_id, roll_data, updated_roll.outcome,
-                )
-                await sse_writer.send_roll_result(updated_roll.model_dump())
-
-            # The arrival scene is narration only: no dice on the opening text.
-            elif (
-                engine.needs_mechanical_step()
-                and context.engine_stats
-                and not is_arrival_turn
-            ):
-                try:
-                    mechanical_result = await run_mechanical_step(
-                        engine=engine,
-                        engine_stats=context.engine_stats,
-                        player_message=message,
-                        context_summary="",  # TODO: build short context summary
-                        world_difficulty="moderate",  # TODO: from world_config
-                        session=session,
-                    )
-                except MechanicalStepUnavailable:
-                    # #10: tell the player instead of silently narrating without dice
-                    mechanical_result = None
-                    await sse_writer.send_warning(
-                        "Jet de dés indisponible pour ce tour : le modèle n'a pas "
-                        "renvoyé de décision exploitable."
-                    )
-                # Check if Fate Core invocation is available
-                if (
-                    mechanical_result
-                    and mechanical_result.roll
-                    and engine_type == "fate_core"
-                    and mechanical_result.roll.outcome == "failure"
-                ):
-                    fate_points = context.engine_stats.get("fate_points", 0)
-                    aspects = context.engine_stats.get("aspects", [])
-                    if fate_points > 0 and aspects:
-                        # Store pending roll and pause pipeline
-                        roll_id = await game_service.log_mechanic_roll(
-                            game_id=game_id,
-                            message_id=None,
-                            engine=engine_type,
-                            skill_used=mechanical_result.roll.details.get("skill_name"),
-                            roll_details=mechanical_result.roll.model_dump(),
-                            outcome=mechanical_result.roll.outcome,
-                            complication=mechanical_result.roll.complication,
-                            cycle=current_cycle,
-                        )
-                        await sse_writer.send_roll_pending({
-                            "roll_id": str(roll_id),
-                            "roll": mechanical_result.roll.model_dump(),
-                            "aspects": aspects,
-                            "fate_points": fate_points,
-                        })
-                        await sse_writer.close()
-                        return
-
-                # Normal flow: apply result + send to frontend
-                if mechanical_result and mechanical_result.roll:
-                    async with pool.acquire() as apply_conn:
-                        await engine.apply_roll_result(
-                            apply_conn, game_id,
-                            mechanical_result.roll, current_cycle,
-                        )
-                    await sse_writer.send_roll_result(
-                        mechanical_result.roll.model_dump()
-                    )
-
-            # Build engine + genre-aware prompts
-            system_prompt = build_narrator_system_prompt(engine_type, genre=context.genre)
-            context_prompt = build_narrator_context_prompt(
-                context, engine_type, mechanical_result
+            request_turn = TurnRequest(
+                game_id=game_id,
+                user_id=user_id,
+                message=message,
+                roll_id=request.roll_id,
+                invoked_aspects=tuple(request.invoked_aspects or ()),
             )
-            logger.debug(f"[CHAT] context prompt: {len(context_prompt)} chars")
-
-            # Build multi-turn messages array (history + context prompt)
-            # Wrap assistant history in JSON for providers that need it
-            json_history = getattr(
-                session.provider_for(Purpose.NARRATION), "FORCE_JSON", False
+            ctx = TurnContext(
+                request=request_turn,
+                snapshot=snapshot,
+                session=session,
+                sink=sse_writer,
+                pool=pool,
+                engine=engine,
+                ref=sse_writer._stream_id,
             )
-            llm_messages = await game_service.build_llm_messages(
-                game_id, current_cycle, context_prompt,
-                json_history=json_history,
-                cache_control=session.caps.cache_control,
-            )
-            logger.info(
-                f"[CHAT] Multi-turn: {len(llm_messages)} messages "
-                f"({len(llm_messages) - 1} history + 1 context)"
-            )
-            # Log full LLM context
-            logger.info(f"[CHAT] === SYSTEM PROMPT ===\n{system_prompt}")
-            for i, msg in enumerate(llm_messages):
-                content = msg["content"]
-                if isinstance(content, list):
-                    content = content[0]["text"] if content else ""
-                logger.info(f"[CHAT] === MESSAGE [{i}] ({msg['role']}) ===\n{content}")
-
-            async def on_light_complete(parsed, display_text, raw_json, cost):
-                t0 = time.perf_counter()
-                if not parsed:
-                    await sse_writer.send_error(
-                        "Échec de génération narrative", recoverable=True
-                    )
-                    return
-
-                try:
-                    # Fill missing required fields with current game state
-                    if "time" not in parsed:
-                        parsed["time"] = {"new_time": current_time, "ellipse": False}
-                    if "current_location" not in parsed:
-                        parsed["current_location"] = current_location
-
-                    t1 = time.perf_counter()
-                    narration = NarrationOutput.model_validate(parsed)
-                    logger.debug(
-                        f"[TIMING] validation: {(time.perf_counter() - t1) * 1000:.0f}ms"
-                    )
-
-                    # 1. Update game state (cycle, time, location)
-                    t1 = time.perf_counter()
-                    process_result = await game_service.process_light(
-                        game_id, narration, current_cycle
-                    )
-                    logger.debug(
-                        f"[TIMING] process_light: {(time.perf_counter() - t1) * 1000:.0f}ms"
-                    )
-
-                    # 2. Apply narrator deltas immediately (credits, entity reveals, compels)
-                    t1 = time.perf_counter()
-                    has_deltas = (
-                        narration.credit_delta
-                        or narration.entity_reveals
-                        or narration.compel_result
-                    )
-                    if has_deltas:
-                        delta_result = await game_service.apply_narrator_deltas(
-                            game_id, narration, process_result["cycle"]
-                        )
-                        logger.info(
-                            f"[CHAT] Deltas applied: {json.dumps(delta_result, default=str)}"
-                        )
-                    logger.debug(
-                        f"[TIMING] apply_deltas: {(time.perf_counter() - t1) * 1000:.0f}ms"
-                    )
-
-                    # 3. Store info requests for next turn
-                    if narration.info_requests:
-                        await game_service.store_info_requests(
-                            game_id, narration.info_requests
-                        )
-                        logger.info(
-                            f"[CHAT] Info requests stored: {narration.info_requests}"
-                        )
-
-                    # 4. Build client state
-                    t1 = time.perf_counter()
-                    state = await game_service.load_game_state(game_id)
-                    state["game"].update(
-                        {
-                            "current_cycle": process_result["cycle"],
-                            "time": process_result["time"],
-                            "current_location": process_result["location"],
-                            "npcs_present": process_result["npcs_present"],
-                        }
-                    )
-                    if process_result.get("date"):
-                        state["game"]["game_date"] = process_result["date"]
-
-                    logger.debug(
-                        f"[TIMING] load_state: {(time.perf_counter() - t1) * 1000:.0f}ms"
-                    )
-
-                    # 5. Build structured payload
-                    narration_cost = cost
-                    mech_cost = (
-                        mechanical_result.cost if mechanical_result else None
-                    )
-                    payload = SSEDonePayload(
-                        game_state=SSEGameState(
-                            game=state["game"],
-                            player=state["player"],
-                            ai=state.get("ai"),
-                            world_created=state.get("world_created", True),
-                            engine=engine_type if engine_type != "none" else None,
-                            engine_stats=state["player"].get("engine_stats"),
-                        ),
-                        meta=SSEMeta(
-                            narration_cost=narration_cost,
-                            mechanical_cost=mech_cost,
-                        )
-                        if narration_cost or mech_cost
-                        else None,
-                        ui=SSEUIHints(
-                            inventory_hints=[
-                                h.model_dump() for h in narration.inventory_hints
-                            ],
-                        )
-                        if narration.inventory_hints
-                        else None,
-                    )
-
-                    # 6. Send done to client
-                    await sse_writer.send_done(
-                        display_text, payload.model_dump(exclude_none=True)
-                    )
-
-                    # 7. Save messages (with narrator deltas + extraction triggers)
-                    t1 = time.perf_counter()
-                    deltas_typed = NarratorDeltasStored(
-                        credit_delta=narration.credit_delta.model_dump()
-                        if narration.credit_delta
-                        else None,
-                        inventory_hints=[
-                            h.model_dump() for h in narration.inventory_hints
-                        ],
-                        entity_reveals=[
-                            r.model_dump() for r in narration.entity_reveals
-                        ],
-                        extraction_triggers=narration.extraction_triggers,
-                        cost=narration_cost if narration_cost else None,
-                    )
-
-                    # Snapshot engine state for rollback support
-                    engine_snapshot = None
-                    if engine_type != "none":
-                        async with pool.acquire() as snap_conn:
-                            engine_snapshot = await engine.snapshot_state(
-                                snap_conn, game_id
-                            )
-
-                    _, assistant_msg_id = await game_service.save_messages(
-                        game_id=game_id,
-                        # Keep the protocol token (e.g. __ARRIVEE__) so the chat
-                        # history hides it, as before the arrival text substitution.
-                        user_message=request.message,
-                        assistant_message=display_text,
-                        cycle=process_result["cycle"],
-                        time=process_result.get("time"),
-                        game_date=process_result.get("date"),
-                        location_ref=process_result["location"],
-                        narrator_deltas=deltas_typed.model_dump(exclude_none=True),
-                        engine_snapshot=engine_snapshot,
-                    )
-                    # Log mechanical roll with message reference
-                    if mechanical_result and mechanical_result.roll:
-                        if request.roll_id:
-                            # Update existing pending roll with message_id
-                            await game_service.update_mechanic_roll(
-                                request.roll_id,
-                                mechanical_result.roll.model_dump(),
-                                mechanical_result.roll.outcome,
-                                message_id=assistant_msg_id,
-                            )
-                        else:
-                            await game_service.log_mechanic_roll(
-                                game_id=game_id,
-                                message_id=assistant_msg_id,
-                                engine=engine_type,
-                                skill_used=mechanical_result.roll.details.get("skill_name"),
-                                roll_details=mechanical_result.roll.model_dump(),
-                                outcome=mechanical_result.roll.outcome,
-                                complication=mechanical_result.roll.complication,
-                                cycle=process_result["cycle"],
-                            )
-
-                    logger.debug(
-                        f"[TIMING] save_messages: {(time.perf_counter() - t1) * 1000:.0f}ms"
-                    )
-                    await sse_writer.send_saved()
-
-                    # 8. Background: resolver (always) + extractors (if triggered)
-                    extraction_triggers = getattr(narration, "extraction_triggers", [])
-                    if extraction_triggers:
-                        logger.info(
-                            f"[CHAT] Extraction triggers: {extraction_triggers}"
-                        )
-                    asyncio.create_task(
-                        run_resolve_and_extract(
-                            pool=pool,
-                            game_id=game_id,
-                            trigger_cycle=current_cycle,
-                            triggers=extraction_triggers or None,
-                            session=session,
-                            assistant_message_id=assistant_msg_id,
-                            message_content=display_text,
-                            narrator_deltas=deltas_typed.model_dump(exclude_none=True),
-                        )
-                    )
-
-                    # 9. Background: Director (if enough IG time elapsed)
-                    try:
-                        from services.director_service import should_run_director, run_director
-
-                        from repos.games import get_director_schedule
-
-                        # Re-read now: the previous turn's Director may have
-                        # committed a plan since the turn-start snapshot.
-                        async with pool.acquire() as sched_conn:
-                            schedule = await get_director_schedule(sched_conn, game_id)
-                        if should_run_director(
-                            process_result["time"],
-                            schedule.last_time,
-                            schedule.game_duration,
-                            current_cycle=process_result["cycle"],
-                            last_cycle=schedule.last_cycle,
-                        ):
-                            asyncio.create_task(
-                                run_director(
-                                    pool=pool,
-                                    game_id=game_id,
-                                    current_cycle=process_result["cycle"],
-                                    current_time=process_result["time"],
-                                    session=session,
-                                )
-                            )
-                            logger.info(
-                                f"[CHAT] Director triggered at {process_result['time']}"
-                            )
-                    except Exception as dir_err:
-                        logger.warning(f"[DIRECTOR] Trigger check failed: {dir_err}")
-
-                    logger.debug(
-                        f"[TIMING] TOTAL on_light_complete: {(time.perf_counter() - t0) * 1000:.0f}ms"
-                    )
-
-                except Exception as e:
-                    await report_error(
-                        sse_writer, e, provider_name=provider_name, ref=sse_writer._stream_id
-                    )
-
-            # Lock engine on first non-init message
-            if engine_type != "none" and not snapshot.engine_locked:
-                async with pool.acquire() as lock_conn:
-                    populator = game_service._get_populator(game_id)
-                    await populator.lock_engine(lock_conn)
-
-            result = await narration_stream.stream_narration(
-                session,
-                sse_writer,
-                system_prompt=system_prompt,
-                messages=llm_messages,
-                world_gen=False,
-            )
-            await on_light_complete(
-                result.parsed, result.display_text, result.raw, result.cost
-            )
+            await turn.run_turn(ctx)
 
     except Exception as e:
         await report_error(
