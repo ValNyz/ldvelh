@@ -43,6 +43,14 @@ def test_weak_jwt_secret_is_rejected_even_in_debug(secret, debug):
     assert len(errors) == 1 and errors[0].startswith("JWT_SECRET")
 
 
+@pytest.mark.parametrize("secret", [
+    "56aa6e11deadfce51dfeaec6dacadd86",          # real `openssl rand -hex 16` output, 9 distinct chars
+    "01234567012345670123456701234567",          # exactly 8 distinct chars
+])
+def test_legitimate_low_variety_secret_passes(secret):
+    assert startup_config_errors(secret, FERNET, debug=False) == []
+
+
 def test_missing_encryption_key_is_rejected_outside_debug():
     errors = startup_config_errors(STRONG, "", debug=False)
     assert len(errors) == 1 and errors[0].startswith("ENCRYPTION_KEY")
@@ -58,6 +66,8 @@ def test_missing_encryption_key_is_allowed_in_debug():
     "ab" * 32,                 # `openssl rand -hex 32`: 64 hex chars, not a Fernet key
     FERNET[:-4],               # truncated
     "not a key at all!",
+    " " + FERNET,              # valid key with stray whitespace
+    FERNET + "\n",
     PUBLISHED_CI_KEY,          # valid Fernet key, but published in the repo
 ])
 def test_invalid_or_published_encryption_key_is_rejected(key, debug):

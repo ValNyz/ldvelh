@@ -265,8 +265,6 @@ def _try_dbmate_setup():
         capture_output=True, text=True, env=env,
     )
     if result.returncode != 0 and _require_test_db():
-        import pytest
-
         pytest.fail(
             f"dbmate up failed (rc={result.returncode}) and REQUIRE_TEST_DB=1:\n{result.stderr}",
             pytrace=False,
@@ -280,8 +278,6 @@ def _require_test_db() -> bool:
 
 def _db_unavailable(reason: str) -> None:
     """Skip locally, but fail when REQUIRE_TEST_DB=1 so CI cannot go green without a DB."""
-    import pytest
-
     if _require_test_db():
         pytest.fail(f"Test DB required (REQUIRE_TEST_DB=1) but unavailable: {reason}", pytrace=False)
     pytest.skip(f"Test DB not available: {reason}")

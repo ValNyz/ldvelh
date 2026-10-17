@@ -5,7 +5,7 @@ import binascii
 from cryptography.fernet import Fernet
 
 MIN_JWT_SECRET_LENGTH = 32
-MIN_JWT_SECRET_DISTINCT_CHARS = 10
+MIN_JWT_SECRET_DISTINCT_CHARS = 8  # rejects "a"*32; a random 32-hex secret can have only ~9
 # Values published in this repo at some point: anyone could sign tokens with them.
 KNOWN_DEFAULT_SECRETS = frozenset({
     "dev-secret-change-me-in-production!!",
@@ -43,6 +43,8 @@ def _encryption_key_error(key: str, debug: bool) -> str | None:
         return None if debug else "ENCRYPTION_KEY is not set: " + _GENERATE_KEY
     if key.strip() in KNOWN_ENCRYPTION_KEYS:
         return "ENCRYPTION_KEY is a key published in the repository: " + _GENERATE_KEY
+    if key.strip() != key:
+        return "ENCRYPTION_KEY has leading or trailing whitespace: " + _GENERATE_KEY
     try:
         Fernet(key.encode())
     except (ValueError, binascii.Error):

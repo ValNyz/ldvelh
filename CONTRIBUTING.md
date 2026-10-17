@@ -49,7 +49,7 @@ docker compose up --build # frontend http://localhost:3000, backend http://local
 
 `docker-compose.yml` is the production file (deployed by Coolify) and is fail-closed: without `JWT_SECRET`, `DB_PASSWORD` or `ENCRYPTION_KEY`, `docker compose` stops with `required variable JWT_SECRET is missing a value: ... (for local dev, run scripts/dev-setup.sh)`, and `DEBUG` defaults to `false`. Everything that only makes sense locally lives in `docker-compose.override.yml`, which `docker compose up` applies automatically: published ports, `DEBUG=true` and the dev user (`dev@ldvelh.local` / `devpassword`, seeded in debug mode only).
 
-That override is git-ignored and created from the committed `docker-compose.override.example.yml`, so a server that runs a plain `docker compose up` on a fresh clone never gets debug mode or the dev account by accident. `scripts/dev-setup.sh` is safe to re-run: it keeps an existing override and existing values in `.env`, and only fills `JWT_SECRET` (when empty, shorter than 32 characters or a `change-me` placeholder), `ENCRYPTION_KEY` and `DB_PASSWORD` (`ldvelh`, the password of existing local `pgdata` volumes). It never overwrites a set `ENCRYPTION_KEY` (saved API keys depend on it): if the one in `.env` is not a valid Fernet key, it prints a warning and the `sed` command that replaces it. After pulling this change, run it once: the formerly tracked `docker-compose.override.yml` is deleted by the pull and the script writes your own, ignored copy. If you had edited the tracked file, the pull stops on a conflict instead: back up your copy (`mv docker-compose.override.yml /tmp/`), pull, run the script, then port your edits into the new `docker-compose.override.yml`.
+That override is git-ignored and created from the committed `docker-compose.override.example.yml`, so a server that runs a plain `docker compose up` on a fresh clone never gets debug mode or the dev account by accident. `scripts/dev-setup.sh` is safe to re-run: it keeps an existing override and existing values in `.env`, and only fills `JWT_SECRET` (when empty or refused by the backend rules), `ENCRYPTION_KEY` (when empty) and `DB_PASSWORD` (`ldvelh`, the password of existing local `pgdata` volumes). It checks the existing values with the backend's own rules (`backend/startup_checks.py`, when `python3` with `cryptography` is available; otherwise an equivalent shell check that reads the published values from that file): a `JWT_SECRET` the backend would refuse is regenerated (it only signs local sessions), but a set `ENCRYPTION_KEY` is never overwritten (saved API keys depend on it): if it would be refused, the script prints a warning and the `sed` command that replaces it. After pulling this change, run it once: the formerly tracked `docker-compose.override.yml` is deleted by the pull and the script writes your own, ignored copy. If you had edited the tracked file, the pull stops on a conflict instead: back up your copy (`mv docker-compose.override.yml /tmp/`), pull, run the script, then port your edits into the new `docker-compose.override.yml`.
 
 ### Backend
 
@@ -62,7 +62,7 @@ uvicorn main:app --reload
 
 `scripts/dev-setup.sh` writes a random `JWT_SECRET` and `ENCRYPTION_KEY` into the root `.env`: copy those two lines, or generate them yourself (`ENCRYPTION_KEY`: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`); `ENCRYPTION_KEY` may stay empty only with `DEBUG=true`.
 
-The backend refuses to start (`backend/startup_checks.py`), whatever `DEBUG` says, when `JWT_SECRET` is under 32 characters, has leading/trailing whitespace, uses fewer than 10 distinct characters, contains `change-me` or is a value published in the repo; and when `ENCRYPTION_KEY` is set but is not a valid Fernet key or is a published one. An empty `ENCRYPTION_KEY` is refused outside debug mode.
+The backend refuses to start (`backend/startup_checks.py`), whatever `DEBUG` says, when `JWT_SECRET` is under 32 characters, has leading/trailing whitespace, uses fewer than 8 distinct characters, contains `change-me` or is a value published in the repo; and when `ENCRYPTION_KEY` is set but has leading/trailing whitespace, is not a valid Fernet key or is a published one. An empty `ENCRYPTION_KEY` is refused outside debug mode.
 
 ### Frontend
 
@@ -84,7 +84,7 @@ psql -U your_user -d your_db -f schema.sql
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | — |
 | `ANTHROPIC_API_KEY` | Claude API key (server fallback) | — |
-| `JWT_SECRET` | JWT signing key, required: 32+ random characters, no outer whitespace, 10+ distinct characters, no `change-me`, not a published value (checked at startup, even in debug) | — |
+| `JWT_SECRET` | JWT signing key, required: 32+ random characters, no outer whitespace, 8+ distinct characters, no `change-me`, not a published value (checked at startup, even in debug) | — |
 | `ENCRYPTION_KEY` | Fernet key for stored API keys: required by `docker-compose.yml` and at startup unless `DEBUG=true`; must be a valid, unpublished Fernet key; never change it once set | — |
 | `DB_PASSWORD` | Postgres password, required by `docker-compose.yml`; URL-safe (it goes into `DATABASE_URL`) | — |
 | `EMAIL_FROM` | Sender of verification emails | `noreply@yourdomain.com` |
