@@ -19,9 +19,17 @@ T = TypeVar("T")
 
 SAVED_DISPLAY_FAILED = ("Ton action est enregistrée, mais l'affichage a échoué. "
                         "Recharge la partie.")
+WORLD_SAVED_DISPLAY_FAILED = ("Ton monde est enregistré, mais l'affichage a échoué. "
+                              "Recharge la partie.")
 
 
-async def finish_saved(step: Awaitable[T], *, ref: str) -> T:
+def saved_display_failed(*, world: bool = False) -> TurnError:
+    """Failure after the save: never retryable, worded for the world or for an action (#80)."""
+    message = WORLD_SAVED_DISPLAY_FAILED if world else SAVED_DISPLAY_FAILED
+    return TurnError("saved_display_failed", message, recoverable=False)
+
+
+async def finish_saved(step: Awaitable[T], *, ref: str, world: bool = False) -> T:
     """Run what follows a save: any failure there is reported as saved, never retryable.
 
     A retryable message would make the player resend an action already saved (played twice).
@@ -31,8 +39,7 @@ async def finish_saved(step: Awaitable[T], *, ref: str) -> T:
     try:
         return await step
     except Exception as exc:
-        raise TurnError("saved_display_failed", SAVED_DISPLAY_FAILED,
-                        recoverable=False) from exc
+        raise saved_display_failed(world=world) from exc
 
 
 def internal_error(ref: str) -> TurnError:

@@ -176,7 +176,8 @@ async def run_init(ctx: TurnContext) -> None:
         await asyncio.shield(director)
     # Saved: a failure from here on must not invite a resend (the world would be generated
     # twice).
-    await finish_saved(_send_world_done(ctx, init, init_result, result), ref=ctx.ref)
+    await finish_saved(_send_world_done(ctx, init, init_result, result), ref=ctx.ref,
+                       world=True)
 
 
 async def _save_world(ctx: TurnContext, conn, init: InitParams,

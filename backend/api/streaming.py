@@ -15,8 +15,7 @@ from uuid import uuid4
 
 from fastapi.responses import StreamingResponse
 
-from domain.errors import TurnError
-from pipeline.errors import SAVED_DISPLAY_FAILED, internal_error
+from pipeline.errors import internal_error, saved_display_failed
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +51,7 @@ class SSEWriter:
     _bytes_sent: int = 0
     _task: asyncio.Task | None = None
     _done_queued: bool = False
+    _world_done: bool = False
     disconnected: bool = field(default=False, init=False)
 
     def __post_init__(self):
@@ -111,6 +111,8 @@ class SSEWriter:
         self, display_text: str | None, state: dict | None = None
     ) -> None:
         """Envoie l'événement de fin avec le résultat"""
+        # Only the world generation's done carries world_info (SSEDonePayload).
+        self._world_done = bool(state and state.get("world_info"))
         await self.send(SSEEvent.DONE, {"displayText": display_text, "state": state})
 
     async def send_saved(self) -> None:
@@ -208,7 +210,7 @@ class SSEWriter:
     def _stream_error_line(self) -> str:
         """The one error event sent when the stream itself fails (French, with the ref)."""
         if self._done_queued:  # committed: a retryable error would make the turn play twice
-            error = TurnError("saved_display_failed", SAVED_DISPLAY_FAILED, recoverable=False)
+            error = saved_display_failed(world=self._world_done)
         else:
             error = internal_error(self._stream_id)
         payload = {"type": SSEEvent.ERROR.value, "error": error.message, "details": None,

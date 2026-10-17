@@ -357,7 +357,7 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 
 **Transaction.** The roll is *computed* before the narration (the narrator needs it) but *applied* at commit. `commit_turn` writes roll effects (stress, fate points), narration state, narrator deltas, engine snapshot, both messages, the roll log (or the claim of the resumed pending roll) and the engine lock in a single transaction (`repos/turns.py`). A failure or a cancellation anywhere before it leaves nothing behind (#16, #20). Credit deltas are stored as the ledger applied them (`applied`, `error`), not as the narrator asked (#33); a refused debit is reported to the narrator on the next turn.
 
-**Lenient narration parsing** (`schema/narration.py`, `parse_narration`). An optional field that is invalid (for example a malformed `day_transition` object) is ignored instead of discarding the turn; `day_transition` accepts `true`, a string or a partial object; `false`, `0`, `0.0` and the strings `null`, `false`, `none`, `aucune`, `non`, `no` (any case) mean no transition. A narration that cannot be used at all raises `narration_invalid`.
+**Lenient narration parsing** (`schema/narration.py`, `parse_narration`). An optional field that is invalid (for example a malformed `day_transition` object) is ignored instead of discarding the turn; in an optional list (`entity_reveals`, `inventory_hints`, ...) only the invalid elements are dropped and the valid ones kept (logged as `entity_reveals[1]`), the whole list only when it is not a list (#80); `day_transition` accepts `true`, a string or a partial object; `false`, `0`, `0.0` and the strings `null`, `false`, `none`, `aucune`, `non`, `no` (any case) mean no transition. A narration that cannot be used at all raises `narration_invalid`.
 
 **Errors.** A failure during a turn produces exactly one `error` event, in French, with a `code` and a `ref` (the stream id, also in the logs as `[TURN:<ref>]`); SQL, Pydantic or SDK text is never sent (#45).
 
@@ -373,7 +373,8 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 | `no_api_key` | no | No API key for the chosen provider |
 | `invalid_invocation` | yes | Aspect invocation refused (unknown aspect, or more invocations than fate points; duplicates count once) |
 | `roll_not_pending` | yes | The roll to resume is not pending (already resolved or expired) |
-| `saved_display_failed` | no | The turn (or world) was saved, but a later step (summary log, done payload, background scheduling) failed: reload, do not resend |
+| `saved_display_failed` | no | The turn (or world) was saved, but a later step (summary log, done payload, background scheduling) failed: reload, do not resend. The message names the action ("Ton action est enregistrée, …") or, for world generation, the world ("Ton monde est enregistré, …", #80) |
+| `game_busy` | yes | Another `/chat` is already running for this game (C-13): "Une action est déjà en cours pour cette partie. …" (#80) |
 
 **Logging.** One INFO line per completed turn: `[TURN] game= engine= provider= model= history= in= out= cache_read= cost=$0.0000 ms=`. Prompts and narrator JSON are logged at DEBUG only, and only when `LOG_PROMPTS=true`.
 
@@ -711,30 +712,13 @@ Frontend: gamesHook.loadGames()
 
 All three follow the same pattern: rollback to a message index, then re-send.
 
-**Edit (modify text):**
-```
-handleSubmitEdit(content):
-  1. stateApi.rollback(gameId, editingIndex)  → POST /games/{id}/rollback {fromIndex}
-  2. gs.setMessages(prev => prev.slice(0, editingIndex))
-  3. handleSendMessage(content)  // new text
-```
+`rollbackTo(messageId)` calls `stateApi.rollback` (`POST /games/{id}/rollback {messageId}`), then shows the returned `messages` and `state`; the invocation modal follows `state.pending_roll` (null after a rollback, which expires the pending roll, #80). A refused rollback shows the server's French message and sends nothing.
 
-**Resend (same text):**
-```
-handleResend(index):
-  1. Get message at index (must be user role)
-  2. stateApi.rollback(gameId, index)
-  3. gs.setMessages(prev => prev.slice(0, index))
-  4. handleSendMessage(msg.content)  // same text
-```
+**Edit (modify text):** `handleSubmitEdit(content)`: `rollbackTo(messages[editingIndex].id)`, then `handleSendMessage(content)` (new text).
 
-**Regenerate (redo last assistant response):**
-```
-handleRegenerate():
-  1. stateApi.rollback(gameId, messages.length - 2)
-  2. gs.setMessages(prev => prev.slice(0, -2))  // remove user + assistant
-  3. handleSendMessage(lastUserMessage)
-```
+**Resend (same text):** `handleResend(index)`: the message must be a user one; `rollbackTo(msg.id)`, then `handleSendMessage(msg.content)`.
+
+**Regenerate (redo last assistant response):** `handleRegenerate()`: `rollbackTo(messages[length - 2].id)`, then `handleSendMessage(lastUserMessage)`.
 
 ### Backend Rollback
 
@@ -744,6 +728,8 @@ Calls `GameService.rollback_to_message(game_id, keep_until_index)`:
 1. Deletes messages after `keep_until_index`
 2. Restores engine snapshot from last remaining message (if present)
 3. Returns updated state and remaining messages
+
+A refused rollback raises `RollbackRejected(reason)`; the route answers 400 with a fixed French `detail` per reason (`arrival_scene`: "Impossible de revenir avant la scène d'arrivée."), never the exception text (#80).
 
 ---
 

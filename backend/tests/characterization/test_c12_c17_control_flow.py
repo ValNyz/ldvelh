@@ -140,11 +140,13 @@ async def test_c13_busy_game_rejected(harness, world_game):
     await harness.drain()
     assert_snapshot("c13_busy_game", {
         "second_sse": harness.summarize(second),
-        "second_first_event": {k: v for k, v in second[0].items()},
+        # ref is the random stream id (#80: the rejection carries one, like any error)
+        "second_first_event": {k: v for k, v in second[0].items() if k != "ref"},
         "first_sse": harness.summarize(first_events),
         "messages": _brief(await _messages(harness, world_game))[-2:],
     })
     assert second[0]["type"] == "error" and second[0].get("recoverable") is True
+    assert second[0].get("ref")
 
 
 async def test_c14_missing_api_key(harness, world_game, no_api_key):

@@ -355,6 +355,19 @@ async def test_stream_error_after_done_reports_the_turn_as_saved():
     assert error["ref"] == writer.stream_id
 
 
+async def test_stream_error_after_world_done_reports_the_world_as_saved():
+    """#80: the world generation done (world_info) gets the world-specific message."""
+    writer = SSEWriter()
+    await writer.send_done(None, {"game_state": {}, "world_info": {"npc_count": 1}})
+    await writer.send(SSEEvent.STATUS, {"bad": object()})
+
+    lines = [line async for line in writer.iterate()]
+
+    error = json.loads(lines[-1][6:])
+    assert (error["code"], error["recoverable"]) == ("saved_display_failed", False)
+    assert error["error"].startswith("Ton monde est enregistré")
+
+
 async def test_writer_entry_removed_when_cancelled_before_first_step(harness, fate_game, test_user):
     game_id = fate_game
     writer = routes.start_chat(routes.ChatRequest(message="Je regarde.", gameId=game_id),

@@ -17,8 +17,9 @@
     }
   ],
   "second_first_event": {
+    "code": "game_busy",
     "details": null,
-    "error": "A request is already being processed for this game.",
+    "error": "Une action est déjà en cours pour cette partie. Attends la fin du tour, puis réessaie.",
     "recoverable": true,
     "type": "error"
   },

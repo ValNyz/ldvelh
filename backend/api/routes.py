@@ -238,7 +238,13 @@ async def list_providers(
 # =============================================================================
 
 
-# 2. Remplacer le endpoint rollback
+# Player text per RollbackRejected.reason: the exception text never reaches the player (#80).
+ROLLBACK_REJECTED_MESSAGES = {
+    RollbackRejected.ARRIVAL_SCENE: "Impossible de revenir avant la scène d'arrivée.",
+}
+ROLLBACK_REJECTED_DEFAULT = "Ce retour en arrière est impossible."
+
+
 @router.post("/games/{game_id}/rollback")
 async def rollback_game(
     game_id: UUID,
@@ -259,7 +265,8 @@ async def rollback_game(
                 game_id, message_id=msg_id, keep_until_index=request.fromIndex
             )
         except RollbackRejected as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
+            detail = ROLLBACK_REJECTED_MESSAGES.get(e.reason, ROLLBACK_REJECTED_DEFAULT)
+            raise HTTPException(status_code=400, detail=detail) from e
         new_state = await service.load_game_state(game_id)
         new_messages = await service.load_chat_messages(game_id)
 
@@ -325,13 +332,16 @@ def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
     return writer
 
 
+GAME_BUSY = "Une action est déjà en cours pour cette partie. Attends la fin du tour, puis réessaie."
+
+
 async def _reject_busy(sse_writer: SSEWriter):
-    """Send error and close for busy game."""
-    await sse_writer.send_error(
-        "A request is already being processed for this game.",
-        recoverable=True,
-    )
-    await sse_writer.close()
+    """Busy game (C-13): one French error through the normal error path, then close (#80)."""
+    try:
+        await report_error(sse_writer, TurnError("game_busy", GAME_BUSY), provider_name=None,
+                           ref=sse_writer.stream_id)
+    finally:
+        await sse_writer.close()
 
 
 async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):

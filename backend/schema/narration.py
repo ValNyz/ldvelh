@@ -524,7 +524,8 @@ def parse_narration(parsed: dict, *, current_time: str,
                     current_location: str) -> tuple[NarrationOutput, list[str]]:
     """Validate the narrator JSON; optional fields that fail are dropped, not the turn.
 
-    Returns the narration and the names of the dropped fields. `time` and
+    Returns the narration and what was dropped: a field name, or `field[i]` for one invalid
+    element of an optional list (its valid elements are kept, #80). `time` and
     `current_location` default to the current state. Raises NarrationInvalid when
     `narrative_text` is missing or the output is still invalid after dropping.
     """
@@ -536,13 +537,57 @@ def parse_narration(parsed: dict, *, current_time: str,
     try:
         return NarrationOutput.model_validate(data), []
     except ValidationError as first:
-        failing = {str(err["loc"][0]) for err in first.errors() if err["loc"]}
-        dropped = [f for f in OPTIONAL_NARRATION_FIELDS if f in failing and f in data]
-        if not dropped or failing - set(dropped):
-            raise NarrationInvalid(validation_summary(first)) from first
-        for field in dropped:
+        dropped = _drop_invalid_optionals(data, first)
+    try:
+        return NarrationOutput.model_validate(data), dropped
+    except ValidationError as second:
+        # Elements kept may still break a list-level rule: drop those lists whole.
+        dropped = _drop_whole_lists(data, second, dropped)
+    try:
+        return NarrationOutput.model_validate(data), dropped
+    except ValidationError as third:
+        raise NarrationInvalid(validation_summary(third)) from third
+
+
+def _failing_fields(error: ValidationError) -> set[str]:
+    return {str(err["loc"][0]) for err in error.errors() if err["loc"]}
+
+
+def _drop_invalid_optionals(data: dict, error: ValidationError) -> list[str]:
+    """Remove what fails from `data` in place: bad list elements, else the whole field.
+
+    Raises NarrationInvalid when a required field fails (nothing can be salvaged).
+    """
+    failing = _failing_fields(error)
+    if failing - set(OPTIONAL_NARRATION_FIELDS) or not failing <= data.keys():
+        raise NarrationInvalid(validation_summary(error)) from error
+    bad_items: dict[str, set[int]] = {}
+    whole: set[str] = set()
+    for err in error.errors():
+        loc = err["loc"]
+        field = str(loc[0])
+        if isinstance(data[field], list) and len(loc) > 1 and isinstance(loc[1], int):
+            bad_items.setdefault(field, set()).add(loc[1])
+        else:
+            whole.add(field)
+    dropped: list[str] = []
+    for field in OPTIONAL_NARRATION_FIELDS:
+        if field in whole:
             del data[field]
-        try:
-            return NarrationOutput.model_validate(data), dropped
-        except ValidationError as second:
-            raise NarrationInvalid(validation_summary(second)) from second
+            dropped.append(field)
+        elif field in bad_items:
+            bad = bad_items[field]
+            data[field] = [item for i, item in enumerate(data[field]) if i not in bad]
+            dropped.extend(f"{field}[{i}]" for i in sorted(bad))
+    return dropped
+
+
+def _drop_whole_lists(data: dict, error: ValidationError, dropped: list[str]) -> list[str]:
+    """Second pass: the optional fields still failing are dropped whole."""
+    failing = _failing_fields(error)
+    if failing - set(OPTIONAL_NARRATION_FIELDS) or not failing <= data.keys():
+        raise NarrationInvalid(validation_summary(error)) from error
+    for field in failing:
+        del data[field]
+    kept = [d for d in dropped if d.split("[", 1)[0] not in failing]
+    return kept + sorted(failing)

@@ -100,3 +100,52 @@ def test_narrate_validate_rejects_non_object_as_narration_invalid():
                                                    current_location_name="Ici"))
     with pytest.raises(NarrationInvalid):
         _validate(ctx, [{"narrative_text": "x"}])
+
+
+_REVEAL = {"entity_type": "character", "current_name": "La pilote", "real_name": "Mira"}
+
+
+def test_invalid_list_elements_are_dropped_not_the_list():
+    """#80: one bad entity_reveals element no longer discards the valid ones."""
+    reveals = [_REVEAL, {"entity_type": "vaisseau", "current_name": "Le cargo"},
+               {"entity_type": "location", "current_name": "Le hangar"}]
+    narration, dropped = parse_narration(_raw(entity_reveals=reveals), **_KW)
+    assert dropped == ["entity_reveals[1]"]
+    assert [r.current_name for r in narration.entity_reveals] == ["La pilote", "Le hangar"]
+
+
+def test_every_invalid_element_is_reported():
+    hints = [{"action": "voler", "item_name": "Clé", "item_description": "Une clé"},
+             {"action": "acquire", "item_name": "Badge", "item_description": "Un badge"},
+             "une lampe"]
+    narration, dropped = parse_narration(_raw(inventory_hints=hints), **_KW)
+    assert dropped == ["inventory_hints[0]", "inventory_hints[2]"]
+    assert [h.item_name for h in narration.inventory_hints] == ["Badge"]
+
+
+def test_list_field_that_is_not_a_list_is_dropped_whole():
+    narration, dropped = parse_narration(_raw(entity_reveals="Mira"), **_KW)
+    assert dropped == ["entity_reveals"]
+    assert narration.entity_reveals == []
+
+
+def test_bad_elements_and_bad_field_are_reported_together():
+    narration, dropped = parse_narration(
+        _raw(entity_reveals=[_REVEAL, 3], credit_delta={"amount": "x"}), **_KW)
+    assert dropped == ["credit_delta", "entity_reveals[1]"]
+    assert len(narration.entity_reveals) == 1
+    assert narration.credit_delta is None
+
+
+def test_fallback_drops_a_list_still_failing_after_element_pruning():
+    """The second pass replaces the element entries of a still-failing list by the field."""
+    from pydantic import ValidationError
+
+    from schema.narration import NarrationOutput, _drop_whole_lists
+
+    data = _raw(entity_reveals="Mira")
+    with pytest.raises(ValidationError) as failed:
+        NarrationOutput.model_validate(data)
+    dropped = _drop_whole_lists(data, failed.value, ["entity_reveals[1]", "inventory_hints[0]"])
+    assert dropped == ["inventory_hints[0]", "entity_reveals"]
+    assert "entity_reveals" not in data

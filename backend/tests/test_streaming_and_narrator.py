@@ -1493,3 +1493,16 @@ def test_prompt_documents_day_transition():
 
     assert '{"new_date":' in build_narrator_system_prompt("none")
     assert '{"new_date":' in build_narrator_context_prompt(_make_context(), "none")
+
+
+@pytest.mark.parametrize("engine_type", ["none", "fate_core"])
+def test_context_prompt_reminder_block_is_valid_json(engine_type):
+    """#80: the reminder says "JSON": its fenced block must parse as JSON."""
+    import re
+
+    prompt = build_narrator_context_prompt(_make_context(), engine_type)
+    reminder = prompt.split("## FORMAT DE RÉPONSE ATTENDU (rappel)", 1)[1]
+    block = re.search(r"```json\n(.*?)\n```", reminder, re.DOTALL).group(1)
+    parsed = json.loads(block)
+    assert parsed["day_transition"] is None
+    assert ("compel_aspect" in parsed) is (engine_type == "fate_core")

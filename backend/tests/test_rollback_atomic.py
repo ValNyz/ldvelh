@@ -112,3 +112,5 @@ class TestAtomicRollback:
             headers={"Authorization": f"Bearer {test_user['token']}"},
         )
         assert r.status_code == 400
+        # #80: a fixed French message, never the exception text.
+        assert r.json()["detail"] == "Impossible de revenir avant la scène d'arrivée."

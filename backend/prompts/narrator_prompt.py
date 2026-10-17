@@ -532,7 +532,7 @@ def build_narrator_context_prompt(
   "narrative_length": "short | medium | long",
   "narrative_text": "...",
   "time": {"new_time": "HHhMM", "ellipse": false},
-  "day_transition": null ou {"new_date": "Jeudi 16 Mars 2847", "night_summary": "..."},
+  "day_transition": null,
   "current_location": "Nom EXACT",
   "npcs_present": [],
   "credit_delta": null,
@@ -545,6 +545,10 @@ def build_narrator_context_prompt(
   "narrator_notes": "Notes courtes"
 }""")
     lines.append("```")
+    lines.append("")
+    # Kept out of the block above so that it stays valid JSON (#80).
+    lines.append('Pour passer au jour suivant, `day_transition` devient '
+                 '`{"new_date": "Jeudi 16 Mars 2847", "night_summary": "..."}`.')
     lines.append("")
     lines.append("---")
     lines.append("")

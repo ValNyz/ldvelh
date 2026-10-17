@@ -35,7 +35,13 @@ logger = logging.getLogger(__name__)
 
 
 class RollbackRejected(ValueError):
-    """The requested rollback would remove the arrival scene (#11)."""
+    """The requested rollback is refused; `reason` names why (player text lives in api/)."""
+
+    ARRIVAL_SCENE = "arrival_scene"  # would remove the arrival scene (#11)
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
 class GameService:
@@ -617,7 +623,7 @@ class GameService:
             # The arrival pair (protocol token + first narration) is never rolled back:
             # doing so would target cycle 0 and wipe the initial world (#11).
             if keep_until_index < 2:
-                raise RollbackRejected("Cannot roll back the arrival scene")
+                raise RollbackRejected(RollbackRejected.ARRIVAL_SCENE)
 
             target_cycle = messages[keep_until_index - 1]["cycle"]
 

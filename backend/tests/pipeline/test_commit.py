@@ -145,6 +145,7 @@ async def test_commit_failure_on_resumed_roll_keeps_it_pending(harness, fate_gam
 
 
 SAVED_DISPLAY_FAILED = "Ton action est enregistrée, mais l'affichage a échoué. Recharge la partie."
+WORLD_SAVED_DISPLAY_FAILED = "Ton monde est enregistré, mais l'affichage a échoué. Recharge la partie."
 
 
 async def test_failure_after_commit_is_not_retryable(harness, fate_game, monkeypatch):
@@ -170,7 +171,8 @@ async def test_failure_after_commit_is_not_retryable(harness, fate_game, monkeyp
 
 
 async def test_failure_after_world_saved_is_not_retryable(harness, monkeypatch):
-    """Same for world generation: once process_init saved the world, no resend."""
+    """Same for world generation: once the world is saved, no resend; the message names the
+    world, not an action (#80)."""
     game_id = await harness.create_game("none")
 
     async def boom(self, gid):
@@ -181,7 +183,7 @@ async def test_failure_after_world_saved_is_not_retryable(harness, monkeypatch):
 
     errors = [e for e in events if e["type"] == "error"]
     assert [(e["code"], e["error"], e["recoverable"]) for e in errors] == [
-        ("saved_display_failed", SAVED_DISPLAY_FAILED, False)]
+        ("saved_display_failed", WORLD_SAVED_DISPLAY_FAILED, False)]
     async with harness.pool.acquire() as conn:
         assert (await get_snapshot(conn, UUID(game_id))).world_created is True
 
