@@ -17,6 +17,7 @@ from uuid import UUID
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
 from config import get_settings
+from utils.log_safe import log_exception
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
@@ -104,7 +105,8 @@ class BaseExtractor(ABC):
             }
 
         except Exception as e:
-            logger.error(f"[{et.upper()}] Extraction failed: {e}", exc_info=True)
+            log_exception(logger, logging.ERROR, f"[{et.upper()}] Extraction failed", e,
+                          debug_detail=get_settings().log_prompts)
             return {"type": et, "success": False, "error": str(e)}
 
     async def _call_llm(

@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from pydantic import ValidationError
 
+from config import get_settings
 from domain.game import GameSnapshot
 from pipeline import narration_stream
 from pipeline.narration_stream import NarrationStream
@@ -94,7 +95,9 @@ def build_world_payload(client_state: dict, init_result: dict, init: InitParams,
 
 def _validate_world(parsed: dict | None, raw: str) -> WorldGeneration:
     if not parsed:
-        logger.warning(f"[INIT] Unparsable world: length={len(raw)}, tail={raw[-100:]!r}")
+        logger.warning(f"[INIT] Unparsable world: length={len(raw)}")
+        if get_settings().log_prompts:  # the raw output is story text
+            logger.debug(f"[INIT] Unparsable world tail: {raw[-100:]!r}")
         raise TurnError("world_gen_failed", WORLD_GEN_FAILED)
     try:
         return WorldGeneration.model_validate(parsed)

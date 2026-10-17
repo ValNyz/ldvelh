@@ -5,10 +5,8 @@ import logging
 
 import pytest
 
-from config import get_settings
-from pipeline.errors import to_turn_error
-
 from llm.session import LLMSession
+from pipeline.errors import to_turn_error
 from pipeline.narration_stream import NarrationStream, ProviderCallFailed, stream_narration
 from tests.characterization.scripted_llm import ScriptedLLMProvider
 
@@ -120,19 +118,14 @@ async def test_consumer_error_is_internal_provider_error_is_not():
 STORY_FRAGMENT = "Le dragon de verre murmure"
 
 
-async def test_parse_failure_logs_length_at_error_and_excerpt_at_debug(caplog, monkeypatch):
+async def test_parse_failure_logs_length_at_error_and_excerpt_at_debug(caplog, log_prompts):
     raw = f'garbage {{"narrative_text": "{STORY_FRAGMENT}'
-    monkeypatch.setenv("LOG_PROMPTS", "true")
-    get_settings.cache_clear()
-    try:
-        session, _ = _session({"narration": raw})
-        with caplog.at_level(logging.DEBUG):
-            await stream_narration(session, _RecordingSink(), system_prompt=NARRATOR,
-                                   messages=MESSAGES, world_gen=False)
-    finally:
-        monkeypatch.undo()
-        get_settings.cache_clear()
-    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR and "[LLM]" in r.getMessage()]
+    session, _ = _session({"narration": raw})
+    with caplog.at_level(logging.DEBUG):
+        await stream_narration(session, _RecordingSink(), system_prompt=NARRATOR,
+                               messages=MESSAGES, world_gen=False)
+    messages = [(r.levelno, r.getMessage()) for r in caplog.records]
+    errors = [m for level, m in messages if level >= logging.ERROR and "[LLM]" in m]
     assert errors == [f"[LLM] JSON parse FAILED. Raw output: {len(raw)} chars"]
     debug = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
     assert any(STORY_FRAGMENT in m for m in debug)

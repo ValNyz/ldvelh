@@ -59,3 +59,27 @@ async def test_failure_after_cancellation_is_logged(caplog):
     assert outer.cancelled()
     assert "Commit or post-commit step failed after cancellation" in caplog.text
     assert "director exploded" in caplog.text
+
+
+async def test_cancelled_post_save_failure_is_logged_exactly_once(caplog):
+    """No report_error runs once the caller is gone: finish_despite_cancel logs it, once."""
+    from pipeline.errors import finish_saved
+
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def failing_step():
+        entered.set()
+        await release.wait()
+        raise RuntimeError("db hiccup")
+
+    outer = asyncio.create_task(
+        finish_despite_cancel(finish_saved(failing_step(), ref="t"), ref="t"))
+    with caplog.at_level(logging.INFO):
+        await asyncio.wait_for(entered.wait(), TIMEOUT)
+        outer.cancel()
+        await asyncio.sleep(0.01)
+        release.set()
+        await asyncio.wait({outer}, timeout=TIMEOUT)
+    logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(logged) == 1, [r.getMessage() for r in logged]
+    assert "db hiccup" in logging.Formatter().format(logged[0])

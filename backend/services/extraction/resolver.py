@@ -20,11 +20,12 @@ from uuid import UUID
 from schema.extraction import EntityResolution
 from config import get_settings
 from llm.session import Purpose
+from utils.log_safe import safe_repr
 
 if TYPE_CHECKING:
     from asyncpg import Pool
-
     from llm.session import LLMSession
+
 
 logger = logging.getLogger(__name__)
 
@@ -277,5 +278,5 @@ async def resolve_entities(
         )
         return resolution_map, cost
     except Exception as e:
-        logger.warning(f"[RESOLVER] Failed to parse resolution: {e}")
+        logger.warning(f"[RESOLVER] Failed to parse resolution: {safe_repr(e)}")
         return None, cost

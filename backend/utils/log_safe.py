@@ -15,7 +15,7 @@ def validation_summary(exc: ValidationError) -> str:
     errors = exc.errors(include_input=False, include_url=False, include_context=False)
     where = "; ".join(f"{'.'.join(str(p) for p in e['loc']) or '<root>'}: {e['type']}"
                       for e in errors)
-    return f"{exc.title}: {len(errors)} errors ({where})"
+    return f"{exc.title}: errors={len(errors)} ({where})"
 
 
 def _chain(exc: BaseException | None):
@@ -31,11 +31,14 @@ def has_validation_error(exc: BaseException) -> bool:
 
 
 def safe_repr(exc: BaseException) -> str:
-    """`repr(exc)`, except that validation errors in the cause chain are summarised."""
+    """`repr(exc)`, except that validation errors in the cause chain are summarised.
+
+    Other exceptions of such a chain keep their text (`RuntimeError: db hiccup`).
+    """
     if not has_validation_error(exc):
         return repr(exc)
     return " <- ".join(validation_summary(e) if isinstance(e, ValidationError)
-                       else f"{type(e).__name__}" for e in _chain(exc))
+                       else f"{type(e).__name__}: {e}" for e in _chain(exc))
 
 
 def log_exception(logger: logging.Logger, level: int, message: str, exc: BaseException,

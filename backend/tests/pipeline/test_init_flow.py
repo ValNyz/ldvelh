@@ -1,6 +1,7 @@
 """World generation (InitFlow): pure payload, unparsable world, genre from the wizard slug."""
 
 import json
+import logging
 from uuid import uuid4
 
 import pytest
@@ -86,6 +87,18 @@ async def test_unparsable_world_raises_world_gen_failed(test_pool, test_user):
     assert not [e for e in sink.events if e[0] in ("send_done", "send_error")]
 
 
+async def test_unparsable_world_logs_length_only_at_warning(test_pool, test_user, caplog,
+                                                            log_prompts):
+    tail = "le dragon de verre murmure"
+    ctx, _ = await _ctx(test_pool, test_user, {"world_gen": "pas du JSON " + tail}, _init())
+    with caplog.at_level(logging.DEBUG), pytest.raises(TurnError):
+        await init_flow.run_init(ctx)
+    warned = [r.getMessage() for r in caplog.records
+              if r.levelno >= logging.WARNING and "[INIT]" in r.getMessage()]
+    assert warned == [f"[INIT] Unparsable world: length={len('pas du JSON ' + tail)}"]
+    assert any(tail in r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG)
+
+
 async def test_invalid_world_schema_raises_world_gen_failed(test_pool, test_user):
     ctx, sink = await _ctx(test_pool, test_user, {"world_gen": json.dumps({"world": "pas un objet"})},
                            _init())
@@ -98,13 +111,6 @@ async def test_invalid_world_schema_raises_world_gen_failed(test_pool, test_user
         count = await conn.fetchval("SELECT COUNT(*) FROM locations WHERE game_id = $1",
                                     ctx.request.game_id)
     assert count == 0
-
-
-async def test_unparsable_world_logs_the_output_tail(test_pool, test_user, caplog):
-    ctx, _ = await _ctx(test_pool, test_user, {"world_gen": "pas du JSON"}, _init())
-    with caplog.at_level("WARNING", logger="pipeline.init_flow"), pytest.raises(TurnError):
-        await init_flow.run_init(ctx)
-    assert "length=11" in caplog.text and "pas du JSON" in caplog.text
 
 
 async def test_resolve_genre_from_wizard_slug_is_stored(test_pool, test_user, seeded_genres):

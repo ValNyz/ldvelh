@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from services.engine import get_engine
+from utils.log_safe import safe_repr
 
 from .base import BaseExtractor
 
@@ -79,7 +80,7 @@ class ProgressionExtractor(BaseExtractor):
                 conn, self.game_id, raw_result
             )
         except Exception as e:
-            logger.error(f"[PROGRESSION] apply_progression failed: {e}")
+            logger.error(f"[PROGRESSION] apply_progression failed: {safe_repr(e)}")
             changes = {"error": str(e)}
 
         stats = {

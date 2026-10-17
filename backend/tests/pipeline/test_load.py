@@ -35,7 +35,7 @@ async def test_resume_loads_the_stored_action(harness, pending, loaded):
     assert prepared.context.player_input == PENDING_ACTION
 
 
-async def test_arrival_narrates_the_genre_text_and_saves_the_token(harness, loaded):
+async def test_arrival_without_genre_prompt_sends_the_default_message_and_saves_the_token(harness, loaded):
     game_id = await harness.create_game()
     await harness.init_world(game_id)
     events = await harness.chat(game_id, load.ARRIVAL_TOKEN)

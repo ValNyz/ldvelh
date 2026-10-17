@@ -22,6 +22,7 @@ from services.llm_providers import (
     get_provider,
 )
 from repos.llm_models import ModelCatalog
+from utils.log_safe import safe_repr
 from utils import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -234,6 +235,6 @@ class LLMSession:
         except NotImplementedError:
             logger.info(f"[LLM] {self.provider_name} has no {mode.value} support, using text")
         except Exception as e:
-            logger.warning(f"[LLM] {mode.value} extraction failed: {e}, falling back to text")
+            logger.warning(f"[LLM] {mode.value} extraction failed: {safe_repr(e)}, falling back to text")
         return await self.complete_json(purpose, system_prompt, user_message,
                                         temperature, max_tokens)

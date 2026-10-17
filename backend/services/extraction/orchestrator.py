@@ -14,9 +14,11 @@ from uuid import UUID
 
 import asyncpg
 
+from config import get_settings
 from llm.session import LLMSession
 
 from kg.populator import KnowledgeGraphPopulator
+from utils.log_safe import log_exception, safe_repr
 
 from .characters import CharactersExtractor
 from .inventory import InventoryExtractor
@@ -111,7 +113,7 @@ async def run_resolve_and_extract(
                 else:
                     logger.info("[RESOLVER] No reference text available, skipping")
         except Exception as e:
-            logger.warning(f"[RESOLVER] Failed, continuing without: {e}")
+            logger.warning(f"[RESOLVER] Failed, continuing without: {safe_repr(e)}")
 
         # =====================================================================
         # Phase 2: Extractors
@@ -172,10 +174,9 @@ async def run_resolve_and_extract(
 
             for trigger, ext_result in all_results:
                 if isinstance(ext_result, Exception):
-                    logger.error(
-                        f"[EXTRACTION] {trigger} raised exception: {ext_result}",
-                        exc_info=ext_result,
-                    )
+                    log_exception(logger, logging.ERROR,
+                                  f"[EXTRACTION] {trigger} raised exception", ext_result,
+                                  debug_detail=get_settings().log_prompts)
                     result["extractors"][trigger] = {
                         "success": False, "error": str(ext_result)
                     }
@@ -221,7 +222,7 @@ async def run_resolve_and_extract(
                                 conn, current_name
                             )
         except Exception as e:
-            logger.warning(f"[EXTRACTION] Re-apply entity_reveals failed: {e}")
+            logger.warning(f"[EXTRACTION] Re-apply entity_reveals failed: {safe_repr(e)}")
 
         # =====================================================================
         # Phase 4: Store annotations (after extractors, so entities exist in DB)
@@ -247,7 +248,8 @@ async def run_resolve_and_extract(
         return result
 
     except Exception as e:
-        logger.error(f"[EXTRACTION] Orchestrator failed: {e}", exc_info=True)
+        log_exception(logger, logging.ERROR, "[EXTRACTION] Orchestrator failed", e,
+                      debug_detail=get_settings().log_prompts)
         return {"success": False, "error": str(e)}
 
     finally:

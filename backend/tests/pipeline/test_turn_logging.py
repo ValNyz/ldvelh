@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from config import get_settings
 from services.engine import fate_core
 from tests.characterization import payloads
 from tests.characterization.scripted_llm import USAGE
@@ -23,15 +22,6 @@ def turn_logs(caplog):
     # main.py's basicConfig lives on the root logger; caplog's handler sits there too.
     caplog.set_level(logging.DEBUG)
     return caplog
-
-
-@pytest.fixture
-def log_prompts(monkeypatch):
-    monkeypatch.setenv("LOG_PROMPTS", "true")
-    get_settings.cache_clear()
-    yield
-    monkeypatch.undo()
-    get_settings.cache_clear()
 
 
 async def _play(harness, game_id):

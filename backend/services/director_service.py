@@ -17,7 +17,9 @@ from prompts.director_prompt import (
     build_director_user_prompt,
 )
 from schema.director import DirectorOutput
+from config import get_settings
 from utils.json_utils import parse_json_response
+from utils.log_safe import log_exception, safe_repr
 
 logger = logging.getLogger(__name__)
 
@@ -337,7 +339,7 @@ async def run_director(
                 try:
                     await _apply_arc_update(conn, game_id, arc_update, current_cycle)
                 except Exception as arc_err:
-                    logger.warning(f"[DIRECTOR] Arc update failed: {arc_err}")
+                    logger.warning(f"[DIRECTOR] Arc update failed: {safe_repr(arc_err)}")
 
         logger.info(
             f"[DIRECTOR] Plan stored for game {game_id}: "
@@ -347,7 +349,8 @@ async def run_director(
         return plan.model_dump()
 
     except Exception as e:
-        logger.error(f"[DIRECTOR] Failed for game {game_id}: {e}", exc_info=True)
+        log_exception(logger, logging.ERROR, f"[DIRECTOR] Failed for game {game_id}", e,
+                      debug_detail=get_settings().log_prompts)
         logger.debug(f"[DIRECTOR] Context prompt was:\n{user_prompt[:2000]}")
         return None
     finally:
