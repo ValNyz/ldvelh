@@ -271,9 +271,14 @@ All writes happen in a single atomic transaction:
 13. Create narrative arcs (global + per-character)
 14. Store arrival event as facts + chronology entry
 15. Set initial game state (cycle=1, date, time, location)
+16. Store generation metadata (games.updated_at, extraction_log entry with entity/relation counts)
+17. Caller's `finalize(conn)` (from `run_init`): engine + world_config and game duration on `games`,
+    engine character (Fate Core: character_fate + skills_fate; D6: character_d6 + skills_d6)
 ```
 
-**DB tables written:** games, locations, protagonists, personal_assistants, organizations, characters, objects, protagonist_inventory, entity_registry (auto via triggers), relations, narrative_arcs, facts, events, chronology, extraction_log.
+`populate` uses the caller's connection when given (`run_init` acquires it before the shield, see 2.5), else one from the pool.
+
+**DB tables written:** games, locations, protagonists, personal_assistants, organizations, characters, objects, protagonist_inventory, entity_registry (auto via triggers), relations, narrative_arcs, facts, events, chronology, extraction_log; and through `finalize`: games (engine, world_config, game_duration), character_fate + skills_fate (Fate Core) or character_d6 + skills_d6 (D6).
 
 #### 2.7 Frontend: Progress Display
 

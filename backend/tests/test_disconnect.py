@@ -8,7 +8,7 @@ from uuid import UUID
 from api import game_writers, routes
 from api.streaming import SSEEvent, SSEWriter
 from config import get_settings
-from pipeline import turn
+from pipeline import director_runs, turn
 from repos import turns
 from repos.games import get_snapshot
 from services.game_service import GameService
@@ -299,8 +299,10 @@ async def test_disconnect_during_commit_finishes_the_turn(
     assert routes._get_game_lock(game_id).locked() is False
 
 
-async def test_disconnect_after_world_saved_finishes_the_init(harness, test_user, monkeypatch):
-    """INIT: world, engine and duration saved together; the Director still runs after a disconnect (#20, #79)."""
+async def test_disconnect_while_sending_world_done_keeps_the_saved_world(
+        harness, test_user, monkeypatch):
+    """INIT: a disconnect after the save and the Director, while the done payload is built,
+    loses nothing: world, engine, character and duration were saved in one transaction (#20, #79)."""
     game_id = UUID(await harness.create_game("fate_core"))
     entered, release = asyncio.Event(), asyncio.Event()
     original_load = GameService.load_game_state
@@ -318,15 +320,15 @@ async def test_disconnect_after_world_saved_finishes_the_init(harness, test_user
     writer = routes.start_chat(request, harness.pool, get_settings(), test_user["id"])
     stream = writer.iterate()
     await asyncio.wait_for(anext(stream), TIMEOUT)
-    await asyncio.wait_for(entered.wait(), TIMEOUT)  # world saved, building the done payload
+    await asyncio.wait_for(entered.wait(), TIMEOUT)  # saved, Director done, building done
     await stream.aclose()
     await asyncio.sleep(0.01)
     release.set()
 
     await asyncio.wait({writer._task}, timeout=TIMEOUT)
     await asyncio.wait_for(harness.drain(), TIMEOUT)
-    assert writer._task.cancelled()  # the cancel was delivered...
-    async with harness.pool.acquire() as conn:  # ...yet the post-commit steps all ran
+    assert writer._task.cancelled()  # the cancel was delivered (done never sent)...
+    async with harness.pool.acquire() as conn:  # ...after everything was already saved
         snapshot = await get_snapshot(conn, game_id)
         duration = await conn.fetchval(
             "SELECT game_duration FROM games WHERE id = $1", game_id)
@@ -530,15 +532,26 @@ async def test_arrival_waits_for_the_initial_director_left_running_by_a_disconne
     await asyncio.wait({writer._task}, timeout=TIMEOUT)
 
     narrations = spy_narration(monkeypatch)
+    waiting, waited = asyncio.Event(), asyncio.Event()
+    original_wait = director_runs.wait_for_initial
+
+    async def spy_wait(gid):
+        waiting.set()  # then blocks in the wait at once: the Director is still gated
+        await original_wait(gid)
+        waited.set()
+
+    monkeypatch.setattr(director_runs, "wait_for_initial", spy_wait)
     arrival = routes.start_chat(routes.ChatRequest(message="__ARRIVEE__", gameId=game_id),
                                 harness.pool, get_settings(), test_user["id"])
     reading = asyncio.create_task(_read_all(arrival))
-    await asyncio.sleep(0.05)
-    assert narrations == []  # the arrival waits for the initial Director's plan
+    await asyncio.wait_for(waiting.wait(), TIMEOUT)
+    assert director_runs.is_running(game_id)
+    assert not waited.is_set() and narrations == []  # the arrival waits for the plan
     release.set()
     events = await asyncio.wait_for(reading, TIMEOUT)
     await asyncio.wait_for(harness.drain(), TIMEOUT)
 
+    assert waited.is_set()
     assert "done" in [e["type"] for e in events], events
     async with harness.pool.acquire() as conn:
         plans = await conn.fetchval(
@@ -571,8 +584,7 @@ async def test_disconnect_during_world_save_commits_and_starts_the_director(
     stream = writer.iterate()
     await asyncio.wait_for(anext(stream), TIMEOUT)
     await asyncio.wait_for(entered.wait(), TIMEOUT)  # the world-save transaction is open
-    await stream.aclose()
-    await asyncio.sleep(0.01)
+    await stream.aclose()  # cancels the task at once: no need to yield before releasing
     release.set()
 
     await asyncio.wait({writer._task}, timeout=TIMEOUT)

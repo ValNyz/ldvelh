@@ -367,8 +367,10 @@ class TestApplyArcUpdateDedup:
 
 class TestDirectorGuards:
     @pytest.mark.asyncio
-    async def test_concurrent_runs_for_same_game_call_llm_once(self, test_pool, test_user):
+    async def test_concurrent_starts_for_same_game_call_llm_once(self, test_pool, test_user):
+        """One Director per game at a time: the rule lives in pipeline/director_runs (#79)."""
         import asyncio
+        from pipeline import director_runs
         from services.director_service import run_director
         from services.game_service import GameService
         from schema import WorldGeneration
@@ -389,14 +391,14 @@ class TestDirectorGuards:
 
         provider = GatedProvider(text=json.dumps({"tension_level": 3, "narrator_guidance": "g"}))
         session = LLMSession.from_provider(provider)
-        first = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
-        second = asyncio.create_task(run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
-        await asyncio.sleep(0.2)
+        first = director_runs.start(game_id, run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
+        second = director_runs.start(game_id, run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
         gate.set()
-        results = await asyncio.gather(first, second)
+        result = await first
 
+        assert second is None
         assert provider.calls.count("complete") == 1
-        assert sum(r is not None for r in results) == 1
+        assert result is not None
 
     @pytest.mark.asyncio
     async def test_reader_failure_returns_none_without_unbound_error(self, test_pool, test_user):

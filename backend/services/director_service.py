@@ -35,11 +35,6 @@ def _parse_ig_hours(t: str) -> float:
         return 0.0
 
 
-# Games with a Director run in flight. Claimed synchronously at the start of
-# run_director (before any await) so back-to-back triggers cannot overlap.
-_in_flight: set[UUID] = set()
-
-
 def should_run_director(
     current_time: str,
     last_director_time: str | None,
@@ -158,12 +153,8 @@ async def run_director(
     When sse_writer is provided (init flow), streams the call and sends
     SSE status events as each JSON key is detected. Without sse_writer
     (per-message trigger), uses a simple non-streaming complete() call.
+    One run per game at a time is the caller's rule: pipeline/director_runs.py.
     """
-    if game_id in _in_flight:
-        logger.info(f"[DIRECTOR] Already running for game {game_id}, skipping")
-        return None
-    _in_flight.add(game_id)
-
     logger.info(f"[DIRECTOR] Starting for game {game_id} at cycle {current_cycle} {current_time}")
 
     user_prompt = ""
@@ -353,5 +344,3 @@ async def run_director(
                       debug_detail=get_settings().log_prompts)
         logger.debug(f"[DIRECTOR] Context prompt was:\n{user_prompt[:2000]}")
         return None
-    finally:
-        _in_flight.discard(game_id)

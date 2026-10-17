@@ -170,6 +170,8 @@ async def run_init(ctx: TurnContext) -> None:
     # A connected client sees the Director's status, then done and saved. A client gone
     # meanwhile cancels only this wait: the Director (up to 30 s) finishes in the
     # background and the game lock is released at once (#79).
+    # None only if a Director already runs for this game: not expected for a game whose world
+    # was just generated (nothing schedules one before), kept as a guard.
     if director is not None:
         await asyncio.shield(director)
     # Saved: a failure from here on must not invite a resend (the world would be generated
