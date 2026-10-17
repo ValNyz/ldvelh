@@ -102,14 +102,14 @@ test('a new message answered with the waiting roll shows the waiting action', as
 	expect(chats[1].body.message).toBe('Je tente un saut impossible.');
 });
 
-test('a message typed while the roll waits does not show the waiting action twice', async ({ page }, testInfo) => {
+test('the input is disabled while the roll waits, enabled again after skipping', async ({ page }, testInfo) => {
 	let chatCount = 0;
 	const api = await mockApi(page, {
 		'GET /games': () => ({ games: [{ id: GAME_ID, name: 'Partie Fate', current_cycle: 1 }] }),
 		[`GET /games/${GAME_ID}`]: () => ({ ...LOADED_GAME, state: { ...LOADED_GAME.state, pending_roll: null } }),
 		'POST /chat': () => {
 			chatCount += 1;
-			return { __sse: [{ type: 'roll_pending', ...PENDING_ROLL }] };
+			return { __sse: chatCount === 1 ? [{ type: 'roll_pending', ...PENDING_ROLL }] : ANSWER };
 		},
 	});
 	await page.goto('/game/');
@@ -117,16 +117,22 @@ test('a message typed while the roll waits does not show the waiting action twic
 	const input = page.getByPlaceholder(/Ton action/);
 	await input.fill('Je fais autre chose.');
 	await input.press('Control+Enter');
-	await expect(page.getByRole('heading', { name: 'Invoquer un aspect ?' })).toBeVisible();
 
-	// The input keeps the keyboard focus behind the modal: a second message can be sent (#80).
-	await input.fill('Je tente encore autre chose.');
-	await input.press('Control+Enter');
-	await expect.poll(() => chatCount).toBe(2);
-
-	await expect(page.getByRole('heading', { name: 'Invoquer un aspect ?' })).toBeVisible();
+	// #80: nothing can be sent behind the modal (it would show the waiting action twice).
+	const dialog = page.getByRole('dialog', { name: 'Invoquer un aspect ?' });
+	await expect(dialog).toBeVisible();
+	await expect(dialog).toBeFocused();
+	await expect(input).toBeDisabled();
 	await expect(page.getByText('Je tente un saut impossible.')).toHaveCount(1);
-	await expect(page.getByText('Je tente encore autre chose.')).toHaveCount(0);
-	await page.screenshot({ path: testInfo.outputPath('invocation-waiting-action-not-duplicated.png') });
-	expect(api.calls.filter(c => c.path === '/chat')).toHaveLength(2);
+	await page.screenshot({ path: testInfo.outputPath('invocation-input-disabled-while-roll-waits.png') });
+
+	await page.getByRole('button', { name: "Accepter l'échec" }).click();
+	await expect(dialog).toBeHidden();
+	await expect(page.getByText('Tu rates le saut de peu.').last()).toBeVisible();
+	await expect(input).toBeEnabled();
+	await page.screenshot({ path: testInfo.outputPath('invocation-input-enabled-after-skip.png') });
+	const chats = api.calls.filter(c => c.path === '/chat');
+	expect(chats).toHaveLength(2);
+	expect(chats[1].body.roll_id).toBe(ROLL_ID);
+	expect(chats[1].body.invoked_aspects).toEqual([]);
 });

@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 
 const OUTCOME_LABELS = {
-	failure: 'Echec',
-	tie: 'Egalite',
-	success: 'Reussite',
-	success_with_style: 'Reussite avec style',
+	failure: 'Échec',
+	tie: 'Égalité',
+	success: 'Réussite',
+	success_with_style: 'Réussite avec style',
 };
 
 const FUDGE_SYMBOLS = { '-1': '-', '0': '0', '1': '+' };
@@ -28,6 +28,12 @@ export default function AspectInvocationModal({
 }) {
 	const { roll, aspects, fatePoints } = invocationData;
 	const [selected, setSelected] = useState([]);
+	const dialogRef = useRef(null);
+
+	// The modal takes the keyboard focus: nothing behind it stays reachable from the keyboard.
+	useEffect(() => {
+		dialogRef.current?.focus();
+	}, []);
 
 	const toggle = (aspectName) => {
 		setSelected(prev =>
@@ -59,12 +65,19 @@ export default function AspectInvocationModal({
 
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-			<div className="bg-surface border border-gray-700 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 space-y-5">
+			<div
+				ref={dialogRef}
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="aspect-invocation-title"
+				tabIndex={-1}
+				className="bg-surface border border-gray-700 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6 space-y-5 outline-none"
+			>
 				{/* Header */}
 				<div className="text-center">
-					<h3 className="text-lg font-semibold text-white">Invoquer un aspect ?</h3>
+					<h3 id="aspect-invocation-title" className="text-lg font-semibold text-white">Invoquer un aspect ?</h3>
 					<p className="text-sm text-gray-400 mt-1">
-						Votre jet a echoue. Vous pouvez invoquer des aspects pour ajouter +2 chacun.
+						Votre jet a échoué. Vous pouvez invoquer des aspects pour ajouter +2 chacun.
 					</p>
 				</div>
 
@@ -86,7 +99,7 @@ export default function AspectInvocationModal({
 						<span className="text-gray-300">{difficulty} ({roll.details?.difficulty_label || '?'})</span>
 					</div>
 					<div className="text-xs text-gray-500">
-						Ecart : {roll.shifts >= 0 ? '+' : ''}{roll.shifts}
+						Écart : {roll.shifts >= 0 ? '+' : ''}{roll.shifts}
 					</div>
 				</div>
 
@@ -134,7 +147,7 @@ export default function AspectInvocationModal({
 				{/* Preview */}
 				{selected.length > 0 && (
 					<div className="bg-gray-800/50 rounded-lg p-3 border border-gray-700">
-						<div className="text-xs text-gray-400 mb-1">Apres invocation :</div>
+						<div className="text-xs text-gray-400 mb-1">Après invocation :</div>
 						<div className="flex items-center gap-2 text-sm">
 							<span className="text-white">{roll.skill_total}</span>
 							<span className="text-primary">+{previewBonus}</span>
@@ -157,7 +170,7 @@ export default function AspectInvocationModal({
 						onClick={onSkip}
 						className="flex-1 px-4 py-2.5 text-gray-400 hover:text-white border border-gray-700 hover:border-gray-600 rounded-lg text-sm transition-colors"
 					>
-						Accepter l'echec
+						Accepter l'échec
 					</button>
 					<button
 						onClick={() => onInvoke(selected)}

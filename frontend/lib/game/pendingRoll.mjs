@@ -5,8 +5,9 @@
 /**
  * Messages where the last user message shows `playerMessage`, the action the pending roll
  * belongs to (the backend may answer a new message with the roll already waiting).
- * When that action is already shown just before the optimistic message (modal dismissed,
- * then a new message sent), the optimistic message is dropped instead of duplicating it (#80).
+ * When that action is already shown just before the optimistic message, the optimistic
+ * message is dropped instead of duplicating it (#80). The input is disabled while the roll
+ * waits, so this only guards a race (a message sent just before the modal opened).
  * Same array when there is nothing to change.
  */
 export function withPendingPlayerMessage(messages, playerMessage) {

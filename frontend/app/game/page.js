@@ -277,6 +277,7 @@ function GameScreen({ user, logout }) {
 
 					<InputArea
 						onSend={orch.handleSendMessage}
+						disabled={Boolean(orch.invocationData)}
 						disableInput={gs.loading && !orch.isExtracting}
 						disableSend={gs.loading || orch.isExtracting}
 						fontSize={prefs.fontSize}

@@ -468,10 +468,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		});
 	}, [invocationData, gs.gameId, gs.gameState, lastUserMessage, startStream, gs, preferences]);
 
-	const handleDismissInvocation = useCallback(() => {
-		setInvocationData(null);
-	}, []);
-
 	// =========================================================================
 	// RETURN
 	// =========================================================================
@@ -503,7 +499,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		// Aspect invocation (Fate Core)
 		handleInvoke,
 		handleSkipInvocation,
-		handleDismissInvocation,
 
 		// World generation
 		handleStartAdventure,
