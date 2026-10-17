@@ -22,7 +22,15 @@ def _raw(**extra) -> dict:
     ("Mardi", "Mardi"),
     ({"new_date": "Mardi"}, "Mardi"),
     ({"new_cycle": 9, "new_date": "Mardi"}, "Mardi"),
-], ids=["true", "string", "date_only", "new_cycle_ignored"])
+    ({"new_cycle": "abc", "new_date": "Mardi"}, "Mardi"),
+    ({"new_date": 5}, "5"),
+    ({"night_summary": ["x"], "new_date": "Mardi"}, "Mardi"),
+    ({"night_summary": {"a": 1}}, "Jour 2"),
+    (1, "Jour 2"),
+    ("oui", "oui"),
+    ([1], "Jour 2"),
+], ids=["true", "string", "date_only", "new_cycle_ignored", "new_cycle_text", "date_number",
+        "summary_list", "summary_dict", "one", "yes", "list"])
 async def test_day_transition_shapes_advance_one_day(
         client, test_user, test_pool, shape, expected_date):
     game_id, service, _ = await _setup_game_with_world(client, test_user, test_pool)
@@ -60,3 +68,32 @@ def test_missing_narrative_text_is_invalid():
     del data["narrative_text"]
     with pytest.raises(NarrationInvalid):
         parse_narration(data, **_KW)
+
+
+@pytest.mark.parametrize("shape", [False, None, 0, ""])
+def test_false_and_null_day_transition_mean_no_transition(shape):
+    narration, dropped = parse_narration(_raw(day_transition=shape), **_KW)
+    assert dropped == []
+    assert narration.day_transition is None
+
+
+def test_non_object_output_is_invalid():
+    with pytest.raises(NarrationInvalid):
+        parse_narration(["not", "an", "object"], **_KW)
+
+
+def test_invalid_required_field_alongside_optional_is_invalid():
+    # credit_delta is droppable but time is not: nothing is salvaged.
+    with pytest.raises(NarrationInvalid):
+        parse_narration(_raw(credit_delta={"amount": "x"}, time={"ellipse": False}), **_KW)
+
+
+def test_narrate_validate_rejects_non_object_as_narration_invalid():
+    from types import SimpleNamespace
+
+    from pipeline.steps.narrate import _validate
+
+    ctx = SimpleNamespace(snapshot=SimpleNamespace(current_time="10h00",
+                                                   current_location_name="Ici"))
+    with pytest.raises(NarrationInvalid):
+        _validate(ctx, [{"narrative_text": "x"}])

@@ -294,12 +294,28 @@ class DayTransition(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _accept_loose_shapes(cls, data):
-        """`true` means "next day"; a bare string is the new date."""
-        if data is True:
-            return {}
+        """Never fail: any odd shape still means "next day" (#16).
+
+        `true`, numbers and other truthy scalars give an empty transition, a bare
+        string is the new date, and in a dict `new_cycle` is kept only when numeric (the server ignores it) while
+        `new_date` and `night_summary` are coerced to str or None."""
         if isinstance(data, str):
             return {"new_date": data}
-        return data
+        if not isinstance(data, dict):
+            return {}
+
+        def _text(value):
+            if value is None or isinstance(value, (dict, list, tuple, set)):
+                return None
+            return str(value)
+
+        cycle = data.get("new_cycle")
+        if isinstance(cycle, str) and cycle.strip().lstrip("-").isdigit():
+            cycle = int(cycle)
+        return {"new_cycle": cycle if isinstance(cycle, int) and not isinstance(cycle, bool)
+                else None,
+                "new_date": _text(data.get("new_date")),
+                "night_summary": _text(data.get("night_summary"))}
 
 
 class CreditDelta(BaseModel):
@@ -396,6 +412,11 @@ class NarrationOutput(BaseModel):
         default=None, description="Filled only when transitioning to a new day"
     )
 
+    @field_validator("day_transition", mode="before")
+    @classmethod
+    def _falsy_means_no_transition(cls, v):
+        return v if v else None
+
     # === SPACE ===
     current_location: EntityRef = Field(
         ..., description="EXACT name of the current location (must exist)"
@@ -473,6 +494,8 @@ def parse_narration(parsed: dict, *, current_time: str,
     `current_location` default to the current state. Raises NarrationInvalid when
     `narrative_text` is missing or the output is still invalid after dropping.
     """
+    if not isinstance(parsed, dict):
+        raise NarrationInvalid(f"narrator output is {type(parsed).__name__}, not an object")
     data = dict(parsed)
     data.setdefault("time", {"new_time": current_time, "ellipse": False})
     data.setdefault("current_location", current_location)
