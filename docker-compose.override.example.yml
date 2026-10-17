@@ -1,0 +1,21 @@
+# Local dev overrides. scripts/dev-setup.sh copies this file to
+# docker-compose.override.yml (git-ignored), which `docker compose up` applies
+# automatically. Coolify deploys docker-compose.yml alone, without it.
+# Secrets (JWT_SECRET, DB_PASSWORD, ENCRYPTION_KEY) come from .env, also created
+# by scripts/dev-setup.sh: never put them here.
+
+services:
+  backend:
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      # Dev runs over plain http on localhost (prod takes SERVICE_URL_FRONTEND).
+      FRONTEND_URL: http://localhost:3000
+      # Seeds the dev user and streams debug payloads: local only.
+      DEBUG: "true"
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@ldvelh.local}
+      DEV_USER_PASSWORD: ${DEV_USER_PASSWORD:-devpassword}
+
+  frontend:
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"

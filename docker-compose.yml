@@ -1,7 +1,10 @@
 # In Coolify, set per-service domains in the UI:
 #   backend  -> https://<host>/api  (turn OFF "Strip Prefix")
 #   frontend -> https://<host>
-# Local dev port publishing lives in docker-compose.override.yml.
+# Fail-closed: JWT_SECRET, DB_PASSWORD and ENCRYPTION_KEY must be set (the deploy
+# fails otherwise) and DEBUG defaults to false. See CONTRIBUTING.md "Deployment".
+# Local dev (ports, DEBUG=true, dev user) lives in docker-compose.override.yml,
+# created by scripts/dev-setup.sh from docker-compose.override.example.yml.
 
 services:
   db:
@@ -11,7 +14,7 @@ services:
     restart: on-failure:3
     environment:
       POSTGRES_USER: ldvelh
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ldvelh}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set (for local dev, run scripts/dev-setup.sh)}
       POSTGRES_DB: ldvelh
       POSTGRES_SERVER_CN: db  # matches the service name used by clients
     volumes:
@@ -34,15 +37,15 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://ldvelh:${DB_PASSWORD:-ldvelh}@db:5432/ldvelh?sslmode=verify-ca&sslrootcert=/certs/rootCA.crt
+      DATABASE_URL: postgresql://ldvelh:${DB_PASSWORD:?DB_PASSWORD must be set (for local dev, run scripts/dev-setup.sh)}@db:5432/ldvelh?sslmode=verify-ca&sslrootcert=/certs/rootCA.crt
       FRONTEND_URL: ${SERVICE_URL_FRONTEND}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      DEBUG: ${DEBUG:-true}
-      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-dev@ldvelh.local}
-      DEV_USER_PASSWORD: ${DEV_USER_PASSWORD:-devpassword}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      DEBUG: ${DEBUG:-false}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set to a Fernet key (for local dev, run scripts/dev-setup.sh)}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      EMAIL_FROM: ${EMAIL_FROM:-noreply@yourdomain.com}
+      REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to 32+ random characters (for local dev, run scripts/dev-setup.sh)}
     volumes:
       - db-certs:/certs:ro
 
@@ -52,7 +55,8 @@ services:
       dockerfile: Dockerfile
       network: host
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        # Unset: localhost dev default. Set but empty: same-origin /api (production behind Traefik).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL-http://localhost:8000}
     restart: unless-stopped
     depends_on:
       - backend

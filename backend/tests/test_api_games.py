@@ -74,7 +74,7 @@ async def test_rename_game(client, test_user):
 
     resp = await client.patch(
         f"/api/games/{game_id}",
-        json={"gameId": game_id, "name": "My Adventure"},
+        json={"name": "My Adventure"},
         headers=auth_headers(test_user["token"]),
     )
     assert resp.status_code == 200

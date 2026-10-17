@@ -197,10 +197,13 @@ import pytest_asyncio
 
 import os
 
-# Set a test encryption key for API key storage tests (valid Fernet key)
+# Random per-run secrets when the environment gives none (never a value published in the repo)
 if not os.getenv("ENCRYPTION_KEY"):
     from cryptography.fernet import Fernet
     os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+if not os.getenv("JWT_SECRET"):
+    import secrets
+    os.environ["JWT_SECRET"] = secrets.token_hex(32)
 
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"
@@ -262,8 +265,6 @@ def _try_dbmate_setup():
         capture_output=True, text=True, env=env,
     )
     if result.returncode != 0 and _require_test_db():
-        import pytest
-
         pytest.fail(
             f"dbmate up failed (rc={result.returncode}) and REQUIRE_TEST_DB=1:\n{result.stderr}",
             pytrace=False,
@@ -277,8 +278,6 @@ def _require_test_db() -> bool:
 
 def _db_unavailable(reason: str) -> None:
     """Skip locally, but fail when REQUIRE_TEST_DB=1 so CI cannot go green without a DB."""
-    import pytest
-
     if _require_test_db():
         pytest.fail(f"Test DB required (REQUIRE_TEST_DB=1) but unavailable: {reason}", pytrace=False)
     pytest.skip(f"Test DB not available: {reason}")
@@ -293,7 +292,6 @@ async def test_pool():
     assert_safe_test_db_url(TEST_DB_URL)
     import asyncpg
     import json
-    import pytest
 
     _try_dbmate_setup()
 

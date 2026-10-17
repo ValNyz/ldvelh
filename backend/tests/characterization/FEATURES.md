@@ -43,7 +43,7 @@ Other guards that are not tied to one F-xx: `tests/characterization/test_c19_leg
 
 ## Running the suite
 
-CI sets `REQUIRE_TEST_DB=1`: a missing or unmigrated test database (or a failing `dbmate up`) FAILS the run instead of skipping tests. Locally the variable is unset and DB tests skip when no DB is reachable. For local runs use a JWT secret of at least 32 bytes (for example `JWT_SECRET=ci-test-secret-0123456789abcdef0123`) to avoid `InsecureKeyLengthWarning`.
+CI sets `REQUIRE_TEST_DB=1`: a missing or unmigrated test database (or a failing `dbmate up`) FAILS the run instead of skipping tests. Locally the variable is unset and DB tests skip when no DB is reachable. `scripts/test-backend.sh` and CI generate a random `JWT_SECRET` and `ENCRYPTION_KEY` per run, and `tests/conftest.py` does the same when they are unset; never reuse a secret written in the repo (the former CI values are rejected by `startup_checks.py`).
 
 The chat fixtures (`harness`, `scripted_llm`, `llm_mode`, `world_game`, `fate_game`, `no_api_key`, `seeded_random`) live in `tests/plugins/chat.py` and the catalog fixture `llm_table` in `tests/plugins/catalog.py`, both registered by `tests/conftest.py`, so every test package uses them without importing them; characterization tests get `seeded_random` automatically, other tests opt in with `pytestmark = pytest.mark.usefixtures("seeded_random")`. Pure helpers (`engine_state`, `stress_on_every_roll`, `insert_llm_model`) are in `tests/helpers.py`.
 

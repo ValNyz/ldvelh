@@ -50,10 +50,11 @@ DATABASE_URL="postgresql://test:test@${PG_HOST}:5432/ldvelh_test?sslmode=disable
   dbmate --migrations-dir ../db/migrations --no-dump-schema up >/dev/null
 export DATABASE_URL="postgresql://test:test@${PG_HOST}:5432/ldvelh_test"
 export TEST_DATABASE_URL="$DATABASE_URL"
-export JWT_SECRET=ci-test-secret-0123456789abcdef0123
+# Random per-run secrets: a value published in the repo is rejected by startup_checks.
+export JWT_SECRET="$(python -c "import secrets; print(secrets.token_hex(32))")"
+export ENCRYPTION_KEY="$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")"
 export REQUIRE_TEST_DB=1
 export DEBUG=true
-export ENCRYPTION_KEY="WkpQHs-KU7XuScnVGAxm35ucMGXCCGt1yLenNhtGqR0="
 status=0
 pytest "$@" -o asyncio_mode=auto -q -p no:cacheprovider || status=$?
 if [ "${UPDATE_SNAPSHOTS:-}" = "1" ]; then

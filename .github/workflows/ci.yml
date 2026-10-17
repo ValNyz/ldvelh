@@ -64,6 +64,16 @@ jobs:
           pip install ruff==0.8.4
           ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipeline/ api/routes.py
 
+      # Random per-run secrets: a value published in the repo is rejected by startup_checks.
+      - name: Generate test secrets
+        run: |
+          jwt="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          key="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          echo "::add-mask::$jwt"
+          echo "::add-mask::$key"
+          echo "JWT_SECRET=$jwt" >> "$GITHUB_ENV"
+          echo "ENCRYPTION_KEY=$key" >> "$GITHUB_ENV"
+
       - name: Run all tests with coverage
         run: |
           pytest tests/ \
@@ -78,10 +88,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/ldvelh_test
           TEST_DATABASE_URL: postgresql://test:test@localhost:5432/ldvelh_test
-          JWT_SECRET: ci-test-secret-0123456789abcdef0123
           REQUIRE_TEST_DB: "1"
           DEBUG: "true"
-          ENCRYPTION_KEY: "WkpQHs-KU7XuScnVGAxm35ucMGXCCGt1yLenNhtGqR0="
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v6

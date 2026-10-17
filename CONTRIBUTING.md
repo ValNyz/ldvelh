@@ -26,6 +26,7 @@ backend/
 ├── schema/         # Pydantic models
 ├── services/       # Business logic (game, LLM, extraction, auth)
 ├── tests/          # Unit + integration tests (700+)
+├── startup_checks.py  # Secrets validation run before startup (JWT_SECRET, ENCRYPTION_KEY)
 └── main.py
 
 frontend/
@@ -39,14 +40,29 @@ schema.sql          # PostgreSQL schema
 
 ## Setup
 
+### Docker Compose (whole stack)
+
+```bash
+scripts/dev-setup.sh      # once: docker-compose.override.yml + .env with random secrets
+docker compose up --build # frontend http://localhost:3000, backend http://localhost:8000
+```
+
+`docker-compose.yml` is the production file (deployed by Coolify) and is fail-closed: without `JWT_SECRET`, `DB_PASSWORD` or `ENCRYPTION_KEY`, `docker compose` stops with `required variable JWT_SECRET is missing a value: ... (for local dev, run scripts/dev-setup.sh)`, and `DEBUG` defaults to `false`. Everything that only makes sense locally lives in `docker-compose.override.yml`, which `docker compose up` applies automatically: published ports, `DEBUG=true` and the dev user (`dev@ldvelh.local` / `devpassword`, seeded in debug mode only).
+
+That override is git-ignored and created from the committed `docker-compose.override.example.yml`, so a server that runs a plain `docker compose up` on a fresh clone never gets debug mode or the dev account by accident. `scripts/dev-setup.sh` is safe to re-run: it keeps an existing override and existing values in `.env`, and only fills `JWT_SECRET` (when empty or refused by the backend rules), `ENCRYPTION_KEY` (when empty) and `DB_PASSWORD` (`ldvelh`, the password of existing local `pgdata` volumes). It checks the existing values with the backend's own rules (`backend/startup_checks.py`, when `python3` with `cryptography` is available; otherwise an equivalent shell check that reads the published values from that file): a `JWT_SECRET` the backend would refuse is regenerated (it only signs local sessions), but a set `ENCRYPTION_KEY` is never overwritten (saved API keys depend on it): if it would be refused, the script prints a warning and the `sed` command that replaces it. After pulling this change, run it once: the formerly tracked `docker-compose.override.yml` is deleted by the pull and the script writes your own, ignored copy. If you had edited the tracked file, the pull stops on a conflict instead: back up your copy (`mv docker-compose.override.yml /tmp/`), pull, run the script, then port your edits into the new `docker-compose.override.yml`.
+
 ### Backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
-cp .env.example .env  # Configure DATABASE_URL, API keys
+cp ../.env.example .env  # set DATABASE_URL, JWT_SECRET (openssl rand -hex 32), ENCRYPTION_KEY, API keys
 uvicorn main:app --reload
 ```
+
+`scripts/dev-setup.sh` writes a random `JWT_SECRET` and `ENCRYPTION_KEY` into the root `.env`: copy those two lines, or generate them yourself (`ENCRYPTION_KEY`: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`); `ENCRYPTION_KEY` may stay empty only with `DEBUG=true`.
+
+The backend refuses to start (`backend/startup_checks.py`), whatever `DEBUG` says, when `JWT_SECRET` is under 32 characters, has leading/trailing whitespace, uses fewer than 8 distinct characters, contains `change-me` or is a value published in the repo; and when `ENCRYPTION_KEY` is set but has leading/trailing whitespace, is not a valid Fernet key or is a published one. An empty `ENCRYPTION_KEY` is refused outside debug mode.
 
 ### Frontend
 
@@ -68,10 +84,15 @@ psql -U your_user -d your_db -f schema.sql
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | — |
 | `ANTHROPIC_API_KEY` | Claude API key (server fallback) | — |
-| `JWT_SECRET` | JWT signing key | dev default |
-| `ENCRYPTION_KEY` | Fernet key for stored API keys | — |
+| `JWT_SECRET` | JWT signing key, required: 32+ random characters, no outer whitespace, 8+ distinct characters, no `change-me`, not a published value (checked at startup, even in debug) | — |
+| `ENCRYPTION_KEY` | Fernet key for stored API keys: required by `docker-compose.yml` and at startup unless `DEBUG=true`; must be a valid, unpublished Fernet key; never change it once set | — |
+| `DB_PASSWORD` | Postgres password, required by `docker-compose.yml`; URL-safe (it goes into `DATABASE_URL`) | — |
+| `EMAIL_FROM` | Sender of verification emails | `noreply@yourdomain.com` |
+| `RESEND_API_KEY` | Resend key for verification emails (optional) | — |
+| `NEXT_PUBLIC_API_URL` | Frontend build arg: backend base URL; empty means same origin (`/api`) | compose: `http://localhost:8000` when unset |
 | `REGISTRATION_ENABLED` | Enable/disable registration | `true` |
-| `DEBUG` | Debug mode (seeds dev user) | `false` |
+| `DEBUG` | Debug mode (seeds dev user, streams debug payloads): local only, set by `docker-compose.override.yml` | `false` |
+| `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` | Dev account seeded in debug mode | `dev@ldvelh.local` / `devpassword` |
 | `LOG_PROMPTS` | Log narrator prompts and JSON (DEBUG level) | `false` |
 | `CORS_ORIGINS` | Allowed origins | `http://localhost:3000` |
 
@@ -108,6 +129,8 @@ The e2e tests (`frontend/tests/e2e/`) answer every `/api` call from `mockApi.mjs
 
 `backend/tests/test_architecture.py` enforces the dependency rule (`domain` imports no other layer; `pipeline` never imports `api`; `services`, `repos`, `kg`, `llm`, `schema` and `prompts` import neither `api` nor `pipeline`; no SQL in `api/routes.py`) and that `_handle_chat` stays under 80 lines. A violation fails the suite, so add new code in the right layer rather than editing the test.
 
+Every route that takes a game id (any spelling of `game_id`/`gameId` in path, query, header or body, nested fields included, or any path parameter right under `/games/`) must call `GameService.verify_ownership` before touching the game, and take the id from one place only. `backend/tests/test_game_ownership_guard.py` discovers these routes from the OpenAPI schema and fails until a new one is added to its `GAME_SCOPED_CALLS` table, which then checks that another user gets a 403 and that the game (existence, name, messages) is unchanged. Routes must not use `include_in_schema=False` (the same test fails on a hidden route).
+
 `pipeline/` and `api/routes.py` are also linted for complexity (McCabe 15 at most) and unused imports, with the same command as CI (ruff 0.8.4):
 
 ```bash
@@ -116,6 +139,19 @@ ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipelin
 ```
 
 Errors reaching the player come from `pipeline/errors.py` (one French message, a `code`, a `ref`); never send raw exception text, and use `logger.exception` rather than `traceback.print_exc`. Prompts are logged only with `LOG_PROMPTS=true`.
+
+## Deployment
+
+Coolify deploys `docker-compose.yml` alone (no override). Environment to set in Coolify:
+
+- `JWT_SECRET` (required): 32+ random characters (`openssl rand -hex 32`). Missing: the deploy fails; weak or published: the backend refuses to start. Changing it logs every player out.
+- `DB_PASSWORD` (required): must be the password the existing `pgdata` volume was created with. Postgres only reads it when the volume is first initialised; if Coolify never set it, production has been running with the old default `ldvelh`, so set exactly that (or first change the password in Postgres with `ALTER USER ldvelh PASSWORD '...'`, then update the variable). It is interpolated into `DATABASE_URL`, so use URL-safe characters only (letters, digits, `-`, `_`, `.`, `~`; `openssl rand -hex 24` fits).
+- `ENCRYPTION_KEY` (required): a Fernet key. Players' saved API keys are encrypted with it: once set, never change or lose it, or those keys become unreadable (players must enter them again).
+- `SERVICE_URL_FRONTEND` (Coolify magic variable), `CORS_ORIGINS` (the production origin), `NEXT_PUBLIC_API_URL` (build arg: set it empty for same-origin `/api`, or to the backend URL; unset falls back to `http://localhost:8000`).
+- Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`.
+- Leave `DEBUG` unset (`false`), and do not set `DEV_USER_*`.
+
+One-off check after this change (manual): debug mode used to seed `dev@ldvelh.local` with a known password. Make sure that account does not exist in the production database (`SELECT id FROM users WHERE email = 'dev@ldvelh.local';`) and delete it if it does.
 
 ## CI
 

@@ -83,9 +83,8 @@ class RollbackRequest(BaseModel):
 
 
 class RenameRequest(BaseModel):
-    """Requête de renommage"""
+    """Requête de renommage (the game id is the path parameter only)"""
 
-    gameId: UUID
     name: str
 
 
