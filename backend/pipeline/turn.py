@@ -30,12 +30,22 @@ def _log_summary(ctx: TurnContext, narrated: Narrated, started: float) -> None:
     )
 
 
+def _log_halted(ctx: TurnContext, started: float) -> None:
+    """One INFO line for a turn that stops on a pending roll (HALT): nothing narrated or billed."""
+    logger.info(
+        f"[TURN] game={ctx.request.game_id} engine={ctx.snapshot.engine} "
+        f"provider={ctx.session.provider_name} halted=roll_pending "
+        f"ms={int((time.perf_counter() - started) * 1000)}"
+    )
+
+
 async def run_turn(ctx: TurnContext) -> None:
     """Run one narration turn. Catches nothing: the API adapter reports failures."""
     started = time.perf_counter()
     prepared = await load_turn(ctx)
     arbitration = await arbitrate(ctx, prepared)
     if arbitration is HALT:
+        _log_halted(ctx, started)
         return
     narrated = await narrate(ctx, prepared, arbitration)
     # A started commit, and what follows it, completes even if the client leaves (#20).
@@ -52,7 +62,6 @@ async def _commit_and_finish(ctx: TurnContext, prepared: Prepared, arbitration: 
 
 async def _after_commit(ctx: TurnContext, narrated: Narrated, arbitration: Arbitration,
                         committed: Committed, started: float) -> None:
-    # A HALT turn (roll awaiting aspects) is not completed: no summary line.
     _log_summary(ctx, narrated, started)
     await respond(ctx, narrated, arbitration, committed)
     await schedule_background(ctx, narrated, committed)

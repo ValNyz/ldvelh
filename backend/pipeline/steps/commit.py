@@ -50,6 +50,11 @@ def _stored_deltas(narration: NarrationOutput, applied: AppliedDeltas | None,
     ).model_dump(exclude_none=True)
 
 
+def _deltas_log_line(applied: AppliedDeltas) -> str:
+    """DEBUG line with a fixed shape: both keys always present, null when absent."""
+    return f"[CHAT] Deltas applied: {json.dumps(asdict(applied), default=str)}"
+
+
 async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
                            current_cycle: int) -> tuple[NarrationState, AppliedDeltas | None]:
     """Game state (cycle, time, location), narrator deltas, info requests."""
@@ -57,7 +62,7 @@ async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
     applied = None
     if narration.credit_delta or narration.entity_reveals or narration.compel_result:
         applied = await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
-        logger.debug(f"[CHAT] Deltas applied: {json.dumps(asdict(applied), default=str)}")
+        logger.debug(_deltas_log_line(applied))
     if narration.info_requests:
         await turns.store_info_requests(conn, game_id, narration.info_requests)
         logger.info(f"[CHAT] Info requests stored: {len(narration.info_requests)}")

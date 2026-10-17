@@ -8,6 +8,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from utils.log_safe import validation_summary
+
 from .core import (
     EntityRef,
     Name,
@@ -537,10 +539,10 @@ def parse_narration(parsed: dict, *, current_time: str,
         failing = {str(err["loc"][0]) for err in first.errors() if err["loc"]}
         dropped = [f for f in OPTIONAL_NARRATION_FIELDS if f in failing and f in data]
         if not dropped or failing - set(dropped):
-            raise NarrationInvalid(str(first)) from first
+            raise NarrationInvalid(validation_summary(first)) from first
         for field in dropped:
             del data[field]
         try:
             return NarrationOutput.model_validate(data), dropped
         except ValidationError as second:
-            raise NarrationInvalid(str(second)) from second
+            raise NarrationInvalid(validation_summary(second)) from second

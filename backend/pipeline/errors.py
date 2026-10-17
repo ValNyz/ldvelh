@@ -5,10 +5,12 @@ from collections.abc import Awaitable
 
 from pydantic import ValidationError
 
+from config import get_settings
 from domain.errors import TurnError
 from pipeline.narration_stream import ProviderCallFailed
 from pipeline.ports import EventSink
 from schema.narration import NARRATION_INVALID_MESSAGE, NarrationInvalid
+from utils.log_safe import has_validation_error, log_exception
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +22,12 @@ async def finish_saved(step: Awaitable[None], *, ref: str) -> None:
     """Run what follows a save: any failure there is reported as saved, never retryable.
 
     A retryable message would make the player resend an action already saved (played twice).
+    Not logged here: `report_error` logs the TurnError with its cause (or, when the caller is
+    gone, `finish_despite_cancel` does), so each failure is logged exactly once.
     """
     try:
         await step
     except Exception as exc:
-        logger.error(f"[TURN:{ref}] Saved, but the post-save step failed", exc_info=exc)
         raise TurnError("saved_display_failed", SAVED_DISPLAY_FAILED,
                         recoverable=False) from exc
 
@@ -64,10 +67,18 @@ async def report_error(sink: EventSink, exc: BaseException, *,
                        provider_name: str | None, ref: str) -> None:
     """Log the failure, then send exactly one error event (details stay None)."""
     error = to_turn_error(exc, provider_name, ref)
+    detail = get_settings().log_prompts
     if isinstance(exc, TurnError):
         # A chained cause (e.g. a ValidationError) keeps its traceback in the log.
-        logger.warning(f"[TURN:{ref}] {error.code}: {error.message}",
-                       exc_info=exc if exc.__cause__ else None)
+        level = logging.ERROR if error.code == "saved_display_failed" else logging.WARNING
+        message = f"[TURN:{ref}] {error.code}: {error.message}"
+        if exc.__cause__:
+            log_exception(logger, level, message, exc, debug_detail=detail)
+        else:
+            logger.log(level, message)
     else:
-        logger.exception(f"[TURN:{ref}] {error.code}: {exc!r}", exc_info=exc)
+        # log_exception appends the redacted cause chain itself when it holds a ValidationError.
+        shown = type(exc).__name__ if has_validation_error(exc) else repr(exc)
+        log_exception(logger, logging.ERROR, f"[TURN:{ref}] {error.code}: {shown}", exc,
+                      debug_detail=detail)
     await sink.send_error(error.message, recoverable=error.recoverable, code=error.code, ref=ref)

@@ -10,6 +10,9 @@ import logging
 from collections.abc import Coroutine
 from typing import Any
 
+from config import get_settings
+from utils.log_safe import log_exception
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,8 +32,9 @@ async def finish_despite_cancel(coro: Coroutine[Any, Any, None], *, ref: str) ->
         logger.info(f"[TURN:{ref}] Cancelled once the commit started; finishing the turn")
         await _wait_ignoring_cancel(task)
         if not task.cancelled() and task.exception() is not None:
-            logger.error(f"[TURN:{ref}] Commit or post-commit step failed after cancellation",
-                         exc_info=task.exception())
+            log_exception(logger, logging.ERROR,
+                          f"[TURN:{ref}] Commit or post-commit step failed after cancellation",
+                          task.exception(), debug_detail=get_settings().log_prompts)
         raise
 
 

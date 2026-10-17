@@ -49,6 +49,10 @@ class LLMCall:
     cost: dict | None  # this call's ledger snapshot; None when nothing was billed
 
 
+class UsageRecordingFailed(Exception):
+    """The usage ledger failed after a stream ended: our bug, not a provider failure."""
+
+
 class StreamCall:
     """Async iterator of text deltas; usage and cost are set once it is exhausted."""
 
@@ -72,7 +76,10 @@ class StreamCall:
                 continue
             yield item
         if self.usage is not None:
-            self.cost = self._session._record(self._purpose, provider, self.usage)
+            try:
+                self.cost = self._session._record(self._purpose, provider, self.usage)
+            except Exception as e:
+                raise UsageRecordingFailed("usage ledger failed") from e
 
 
 class LLMSession:

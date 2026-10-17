@@ -80,8 +80,8 @@ async def test_one_turn_summary_line(harness, world_game, turn_logs):
     assert re.search(r" cost=\$\d+\.\d{4} ms=\d+$", lines[0]), lines[0]
 
 
-async def test_no_summary_line_when_the_turn_halts(harness, fate_game, turn_logs, monkeypatch):
-    """A roll awaiting aspects (HALT) is not a completed turn: no [TURN] line."""
+async def test_halted_turn_logs_a_halted_line(harness, fate_game, turn_logs, monkeypatch):
+    """A roll awaiting aspects (HALT) logs its own [TURN] line: no tokens, no cost."""
     harness.llm._responses["mechanical"] = payloads.mechanical(
         requires_test=True, skill="Athlétisme", skill_value=0, difficulty=4)
     monkeypatch.setattr(fate_core, "random", SimpleNamespace(choice=lambda seq: -1))
@@ -89,4 +89,19 @@ async def test_no_summary_line_when_the_turn_halts(harness, fate_game, turn_logs
     events = await harness.chat(fate_game, "Je tente un saut impossible.")
     await harness.drain()
     assert "roll_pending" in harness.summarize(events)
-    assert _summary_lines(turn_logs) == []
+    lines = _summary_lines(turn_logs)
+    assert len(lines) == 1, lines
+    assert re.fullmatch(
+        rf"\[TURN\] game={fate_game} engine=fate_core provider=anthropic "
+        r"halted=roll_pending ms=\d+", lines[0]), lines[0]
+
+
+async def test_deltas_log_shape_is_fixed(harness, world_game, turn_logs):
+    """Debug line: both `credit` and `compel` keys are always present (null when absent)."""
+    harness.llm._responses["narration"] = payloads.NARRATION_WITH_COMPEL
+    turn_logs.clear()
+    await _play(harness, world_game)
+    lines = [r.getMessage() for r in turn_logs.records
+             if r.levelno == logging.DEBUG and r.getMessage().startswith("[CHAT] Deltas applied: ")]
+    assert len(lines) == 1, lines
+    assert set(json.loads(lines[0].split(": ", 1)[1])) == {"credit", "compel"}

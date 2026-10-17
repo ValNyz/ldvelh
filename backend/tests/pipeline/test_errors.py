@@ -1,11 +1,13 @@
 """Failure -> one French TurnError, sent once on the sink (#45)."""
 
+import logging
+
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from pipeline.errors import TurnError, report_error, to_turn_error
+from pipeline.errors import TurnError, finish_saved, report_error, to_turn_error
 from pipeline.narration_stream import ProviderCallFailed
-from schema.narration import NarrationInvalid
+from schema.narration import NarrationInvalid, parse_narration
 
 
 class _StatusError(Exception):
@@ -114,3 +116,52 @@ async def test_turn_error_without_cause_logs_no_traceback(caplog):
                            provider_name="anthropic", ref="abc")
     record = next(r for r in caplog.records if "no_api_key" in r.getMessage())
     assert not record.exc_info
+
+
+def _formatted(records) -> str:
+    """What a handler writes for these records: message plus traceback."""
+    formatter = logging.Formatter()
+    return "\n".join(formatter.format(r) for r in records)
+
+
+async def test_post_save_failure_is_logged_once_with_its_cause(caplog):
+    async def failing_step():
+        raise RuntimeError("db hiccup")
+
+    sink = _RecordingSink()
+    with caplog.at_level("DEBUG"):
+        with pytest.raises(TurnError) as raised:
+            await finish_saved(failing_step(), ref="abc")
+        await report_error(sink, raised.value, provider_name="anthropic", ref="abc")
+    logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(logged) == 1, [r.getMessage() for r in logged]
+    assert logged[0].levelno == logging.ERROR
+    assert "saved_display_failed" in logged[0].getMessage()
+    assert "db hiccup" in _formatted(logged)
+    assert sink.errors[0]["code"] == "saved_display_failed"
+
+
+STORY = "Le dragon de verre murmure"
+
+
+def _invalid_narration() -> NarrationInvalid:
+    with pytest.raises(NarrationInvalid) as info:
+        parse_narration({"narrative_text": STORY, "time": {"new_time": {"text": STORY}}},
+                        current_time="10:00", current_location="Quai")
+    return info.value
+
+
+async def test_validation_error_cause_never_leaks_story_text(caplog):
+    invalid = _invalid_narration()
+    assert isinstance(invalid.__cause__, ValidationError)
+    assert STORY in str(invalid.__cause__)  # the leak this test guards against
+    wrapped = TurnError("narration_invalid", "x")
+    wrapped.__cause__ = invalid.__cause__
+    sink = _RecordingSink()
+    with caplog.at_level("INFO"):
+        await report_error(sink, invalid, provider_name="anthropic", ref="abc")
+        await report_error(sink, wrapped, provider_name="anthropic", ref="abc")
+    logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(logged) == 2
+    assert STORY not in _formatted(logged)
+    assert "time.new_time: string_type" in _formatted(logged)  # the cause is still described

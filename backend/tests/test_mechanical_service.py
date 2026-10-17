@@ -46,6 +46,19 @@ class TestRunMechanicalStep:
         assert "mechanical" in session.ledger.get_summary()["purposes"]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("requires_test", [False, True])
+    async def test_arbiter_reason_is_not_logged_at_info(self, caplog, requires_test):
+        reason = "Le chevalier hésite devant le dragon de verre."
+        text = ('{"requires_test": %s, "skill": "Athlétisme", "skill_value": 2, "difficulty": 2, '
+                '"difficulty_label": "Correct", "reason": "%s"}'
+                % (str(requires_test).lower(), reason))
+        session = LLMSession.from_provider(FakeProvider(text=text))
+        with caplog.at_level("DEBUG"):
+            await run_mechanical_step(get_engine("fate_core"), {}, "Je force", "", "moderate", session)
+        assert not any(reason in r.getMessage() for r in caplog.records if r.levelno >= 20)
+        assert any(reason in r.getMessage() for r in caplog.records if r.levelno == 10)
+
+    @pytest.mark.asyncio
     async def test_failed_call_raises_unavailable(self):
         session = LLMSession.from_provider(FakeProvider(fail=RuntimeError("down")))
         with pytest.raises(MechanicalStepUnavailable):

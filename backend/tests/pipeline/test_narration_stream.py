@@ -1,8 +1,12 @@
 """Narrator stream: chunks or progress on the sink, result returned, no callback (#44, #45)."""
 
 import json
+import logging
 
 import pytest
+
+from config import get_settings
+from pipeline.errors import to_turn_error
 
 from llm.session import LLMSession
 from pipeline.narration_stream import NarrationStream, ProviderCallFailed, stream_narration
@@ -88,3 +92,55 @@ async def test_cost_is_returned():
                                     messages=MESSAGES, world_gen=False)
     assert result.cost["input_tokens"] == 100
     assert result.cost["output_tokens"] == 50
+
+
+async def test_ledger_failure_is_internal_not_a_provider_error(monkeypatch):
+    session, _ = _session({"narration": json.dumps({"narrative_text": "Bonjour."})})
+
+    def broken_record(*args, **kwargs):
+        raise ValueError("ledger row rejected")
+
+    monkeypatch.setattr(session.ledger, "record", broken_record)
+    with pytest.raises(Exception) as info:
+        await stream_narration(session, _RecordingSink(), system_prompt=NARRATOR,
+                               messages=MESSAGES, world_gen=False)
+    assert not isinstance(info.value, ProviderCallFailed)
+    assert to_turn_error(info.value, "anthropic", "abc").code == "internal"
+
+
+async def test_consumer_error_is_internal_provider_error_is_not():
+    session, provider = _session({})
+    provider.fail_on["narration"] = RuntimeError("API down")
+    with pytest.raises(ProviderCallFailed) as info:
+        await stream_narration(session, _RecordingSink(), system_prompt=NARRATOR,
+                               messages=MESSAGES, world_gen=False)
+    assert to_turn_error(info.value, "anthropic", "abc").code == "provider_error"
+
+
+STORY_FRAGMENT = "Le dragon de verre murmure"
+
+
+async def test_parse_failure_logs_length_at_error_and_excerpt_at_debug(caplog, monkeypatch):
+    raw = f'garbage {{"narrative_text": "{STORY_FRAGMENT}'
+    monkeypatch.setenv("LOG_PROMPTS", "true")
+    get_settings.cache_clear()
+    try:
+        session, _ = _session({"narration": raw})
+        with caplog.at_level(logging.DEBUG):
+            await stream_narration(session, _RecordingSink(), system_prompt=NARRATOR,
+                                   messages=MESSAGES, world_gen=False)
+    finally:
+        monkeypatch.undo()
+        get_settings.cache_clear()
+    errors = [r.getMessage() for r in caplog.records if r.levelno >= logging.ERROR and "[LLM]" in r.getMessage()]
+    assert errors == [f"[LLM] JSON parse FAILED. Raw output: {len(raw)} chars"]
+    debug = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any(STORY_FRAGMENT in m for m in debug)
+
+
+async def test_parse_failure_excerpt_is_not_logged_without_log_prompts(caplog):
+    session, _ = _session({"narration": f'garbage {{"narrative_text": "{STORY_FRAGMENT}'})
+    with caplog.at_level(logging.DEBUG):
+        await stream_narration(session, _RecordingSink(), system_prompt=NARRATOR,
+                               messages=MESSAGES, world_gen=False)
+    assert STORY_FRAGMENT not in caplog.text

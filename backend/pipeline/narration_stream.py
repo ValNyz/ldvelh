@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from config import get_settings
-from llm.session import LLMSession, Purpose
+from llm.session import LLMSession, Purpose, UsageRecordingFailed
 from pipeline.ports import EventSink
 from utils import parse_json_response
 
@@ -36,10 +36,15 @@ class NarrationStream:
 
 
 async def _guarded(stream: AsyncIterator[str], provider: str) -> AsyncIterator[str]:
-    """Re-raise provider errors as ProviderCallFailed; the consumer's own errors pass through."""
+    """Re-raise provider errors as ProviderCallFailed.
+
+    The consumer's own errors and our ledger failures pass through (they map to `internal`).
+    """
     try:
         async for item in stream:
             yield item
+    except UsageRecordingFailed:
+        raise
     except Exception as e:
         raise ProviderCallFailed(provider) from e
 
@@ -79,9 +84,11 @@ async def stream_narration(session: LLMSession, sink: EventSink, *, system_promp
             logger.debug(
                 f"[LLM] JSON generated:\n{json.dumps(parsed, indent=2, ensure_ascii=False)}")
     else:
-        # Head and tail only: the raw output is story text.
-        logger.error(f"[LLM] JSON parse FAILED. Raw output ({len(full_json)} chars): "
-                     f"head={full_json[:500]!r} tail={full_json[-500:]!r}")
+        # The raw output is story text: only its length at ERROR, an excerpt at DEBUG.
+        logger.error(f"[LLM] JSON parse FAILED. Raw output: {len(full_json)} chars")
+        if settings.log_prompts:
+            logger.debug(f"[LLM] Unparsable output excerpt: "
+                         f"head={full_json[:500]!r} tail={full_json[-500:]!r}")
 
     display_text = None
     if not world_gen:

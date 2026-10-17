@@ -14,6 +14,7 @@ from prompts.mechanical_prompt import (
 )
 from schema.engine import MechanicalDecision, MechanicalResult
 from services.engine.base import BaseEngine
+from utils.log_safe import safe_repr
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,15 @@ async def run_mechanical_step(
     try:
         decision = MechanicalDecision(**parsed)
     except Exception as e:
-        logger.error(f"[MECHANICAL] Failed to parse decision: {e}")
-        raise MechanicalStepUnavailable(str(e)) from e
+        logger.error(f"[MECHANICAL] Failed to parse decision: {safe_repr(e)}")
+        raise MechanicalStepUnavailable(safe_repr(e)) from e
 
     # Get cost from last call
     cost = call.cost
 
     if not decision.requires_test:
-        logger.info(f"[MECHANICAL] No test needed: {decision.reason}")
+        logger.info("[MECHANICAL] No test needed")
+        logger.debug(f"[MECHANICAL] Reason: {decision.reason}")
         return MechanicalResult(decision=decision, roll=None, cost=cost)
 
     # The arbiter picks the skill; the value comes from the character sheet (#13)
@@ -94,9 +96,9 @@ async def run_mechanical_step(
     # Roll dice
     logger.info(
         f"[MECHANICAL] Test required: {decision.skill} "
-        f"(value={decision.skill_value}) vs difficulty={decision.difficulty} "
-        f"— {decision.reason}"
+        f"(value={decision.skill_value}) vs difficulty={decision.difficulty}"
     )
+    logger.debug(f"[MECHANICAL] Reason: {decision.reason}")
     roll = engine.roll_dice(decision)
 
     logger.info(

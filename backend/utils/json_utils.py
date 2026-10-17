@@ -9,6 +9,8 @@ import logging
 import re
 from typing import Any
 
+from config import get_settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,8 +46,9 @@ def parse_json_response(content: str) -> dict | None:
             return py_result
 
         logger.warning(f"[JSON] Parse error: {e}")
-        logger.debug(f"[JSON] First 500 chars: {content[:500]}")
-        logger.debug(f"[JSON] Last 200 chars: ...{content[-200:]}")
+        if get_settings().log_prompts:  # the content is story text
+            logger.debug(f"[JSON] First 500 chars: {content[:500]}")
+            logger.debug(f"[JSON] Last 200 chars: ...{content[-200:]}")
         return try_repair_json(content)
 
 
