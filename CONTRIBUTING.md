@@ -108,6 +108,8 @@ The e2e tests (`frontend/tests/e2e/`) answer every `/api` call from `mockApi.mjs
 
 `backend/tests/test_architecture.py` enforces the dependency rule (`domain` imports no other layer; `pipeline` never imports `api`; `services`, `repos`, `kg`, `llm`, `schema` and `prompts` import neither `api` nor `pipeline`; no SQL in `api/routes.py`) and that `_handle_chat` stays under 80 lines. A violation fails the suite, so add new code in the right layer rather than editing the test.
 
+Every route that takes a game id (`gameId` / `game_id` in path, query or body) must call `GameService.verify_ownership` before touching the game. `backend/tests/test_game_ownership_guard.py` discovers these routes from the OpenAPI schema and fails until a new one is added to its `GAME_SCOPED_CALLS` table, which then checks that another user gets a 403.
+
 `pipeline/` and `api/routes.py` are also linted for complexity (McCabe 15 at most) and unused imports, with the same command as CI (ruff 0.8.4):
 
 ```bash

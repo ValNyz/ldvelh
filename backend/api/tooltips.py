@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
+from services.game_service import GameService
 
 router = APIRouter(tags=["tooltips"])
 
@@ -121,6 +122,7 @@ async def get_annotations(
     The frontend polls this after each turn to get resolver results.
     Returns annotations for messages that have narrator_context set.
     """
+    await GameService(pool).verify_ownership(game_id, user["id"])
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT id, sequence, narrator_context
@@ -174,6 +176,7 @@ async def get_entity_tooltip(
 
     Queries the current DB schema (characters, locations, etc.)
     """
+    await GameService(pool).verify_ownership(game_id, user["id"])
     async with pool.acquire() as conn:
         details = {}
 

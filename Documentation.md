@@ -910,11 +910,12 @@ Cancellation: `cancel()` aborts the `AbortController`, frontend updates message 
 
 **File:** `backend/api/tooltips.py`
 
-`GET /api/tooltips?gameId={id}`:
-- Queries entities with LEFT JOIN facts
-- Groups knowledge facts per entity
-- Loads relation to protagonist
-- Returns `{tooltips: {[name_lower]: {entity_type, entity_name, facts, relation, formatted}}}`
+Both endpoints check that the caller owns the game (`GameService.verify_ownership`): 404 `Game not found` for an unknown game, 403 `Access denied` for someone else's.
+
+- `GET /api/tooltips/annotations?gameId={id}&limit=10`: entity spans (`start`, `end`, `canonical_name`, `entity_type`) of the latest assistant messages that have a `narrator_context`. Returns `{messages: [{message_id, sequence, annotations}]}`.
+- `GET /api/tooltips/entity?gameId={id}&name={name}&entityType={type}`: hover card of one character, location, organization or object (plus its relation to the protagonist). Returns `{found: true, tooltip: {icon, name, type, infos, relation}}` or `{found: false, name, type}`.
+
+Every route that reads a game id (path, query or JSON body) must check ownership: `backend/tests/test_game_ownership_guard.py` lists them from the OpenAPI schema and calls each one as another user, so a new game route without the check fails CI until it is added there.
 
 **Frontend:** `useTooltips(gameId)` hook. Auto-refreshes on `onSaved` event. Returns `tooltipMap` used by `MessageList` to render entity name hover cards.
 
