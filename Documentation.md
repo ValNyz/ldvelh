@@ -356,22 +356,22 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 
 **Errors.** A failure during a turn produces exactly one `error` event, in French, with a `code` and a `ref` (the stream id, also in the logs as `[TURN:<ref>]`); SQL, Pydantic or SDK text is never sent (#45).
 
-| Code | Meaning |
-|------|---------|
-| `provider_auth` | Provider rejected the API key (not recoverable) |
-| `provider_rate_limit` | Provider rate limit (429) |
-| `provider_error` | Any other provider failure |
-| `narration_invalid` | The narration could not be parsed or validated |
-| `internal` | Unexpected error; the message gives the `ref` to report |
-| `world_gen_failed` | World generation failed (INIT) |
-| `game_not_found` | No such game |
-| `no_api_key` | No API key for the chosen provider |
-| `invalid_invocation` | Aspect invocation refused (unknown or duplicate aspect, more than the fate points) |
-| `roll_not_pending` | The roll to resume is not pending (already resolved or expired) |
+| Code | Recoverable | Meaning |
+|------|-------------|---------|
+| `provider_auth` | no | Provider rejected the API key |
+| `provider_rate_limit` | yes | Provider rate limit (429) |
+| `provider_error` | yes | Any other provider failure |
+| `narration_invalid` | yes | The narration could not be parsed or validated |
+| `internal` | yes | Unexpected error; the message gives the `ref` to report |
+| `world_gen_failed` | yes | World generation failed (INIT) |
+| `game_not_found` | no | No such game |
+| `no_api_key` | no | No API key for the chosen provider |
+| `invalid_invocation` | yes | Aspect invocation refused (unknown aspect, or more invocations than fate points; duplicates count once) |
+| `roll_not_pending` | yes | The roll to resume is not pending (already resolved or expired) |
 
-**Logging.** One INFO line per completed turn: `[TURN] game= engine= provider= model= history= in= out= cache_read= cost= ms=`. Prompts and narrator JSON are logged at DEBUG only, and only when `LOG_PROMPTS=true`.
+**Logging.** One INFO line per completed turn: `[TURN] game= engine= provider= model= history= in= out= cache_read= cost=$0.0000 ms=`. Prompts and narrator JSON are logged at DEBUG only, and only when `LOG_PROMPTS=true`.
 
-**Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Once the turn is committed, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work.
+**Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Once the turn is committed, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work. Likewise, once `done` is queued on the writer, a disconnect no longer cancels the turn, and everything after the commit is shielded.
 
 **Step 1: Load context**
 
@@ -411,7 +411,8 @@ Returns a `NarrationContext` object with all this data.
 If `engine.needs_mechanical_step()` returns True (Fate Core or D6):
 
 ```python
-mechanical_result = await run_mechanical_step(engine, context, message, provider_name, api_key)
+mechanical = await run_mechanical_step(engine, engine_stats, player_message,
+                                       context_summary, world_difficulty, session)
 ```
 
 **File:** `backend/services/engine/mechanical_service.py` — `run_mechanical_step()`
@@ -431,7 +432,7 @@ mechanical_result = await run_mechanical_step(engine, context, message, provider
 - Returns `HALT`: the stream closes, nothing else is committed
 - Frontend shows aspect invocation modal → player selects aspects
 - Frontend sends new `POST /chat` with `roll_id + invoked_aspects`
-- Backend validates the invocation (known aspects, no duplicates, enough fate points; otherwise `invalid_invocation`), applies +2/aspect to the original roll, recalculates outcome and narrates the stored message; the commit claims the roll (`status = 'resolved'`) once, a second resume gets `roll_not_pending`
+- Backend validates the invocation (known aspects, enough fate points, duplicates count once; otherwise `invalid_invocation`), applies +2/aspect to the original roll, recalculates outcome and narrates the stored message; the commit claims the roll (`status = 'resolved'`) once, a second resume gets `roll_not_pending`
 - Any other `POST /chat` while the roll waits gets the same `roll_pending` again, and `GET /games/{id}` returns it as `state.pending_roll` (with `player_message`) so the modal and the waiting action come back after a reload; a rollback expires it
 
 **Step 3: Build narrator prompts**

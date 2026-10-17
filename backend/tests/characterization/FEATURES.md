@@ -57,7 +57,7 @@ The world and narration payloads served by the scripted LLM are frozen under `te
 
 ### Phase 3 (turn pipeline)
 
-F-xx touched: F-06, F-07, F-08, F-09, F-10, F-11, F-12, F-13, F-14, F-15, F-17, F-18, F-19, F-20, F-21, F-22, F-25.
+F-xx touched: F-02, F-06, F-07, F-08, F-09, F-10, F-11, F-12, F-13, F-14, F-15, F-16, F-17, F-18, F-19, F-20, F-21, F-22, F-25.
 
 - [x] F-xx touched are listed above
 - [x] Full suite green (`scripts/test-backend.sh`), C-17 still xfail(strict) (P4)
