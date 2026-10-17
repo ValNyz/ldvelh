@@ -48,7 +48,8 @@ class SSEWriter:
     _event_count: int = 0
     _bytes_sent: int = 0
     _task: asyncio.Task | None = None
-    disconnected: bool = False
+    _done_queued: bool = False
+    disconnected: bool = field(default=False, init=False)
 
     def __post_init__(self):
         logger.info(f"[SSE:{self._stream_id}] Stream créé")
@@ -70,6 +71,8 @@ class SSEWriter:
         self._event_count += 1
         payload = {"type": event_type.value, **data}
         await self._queue.put(payload)
+        if event_type is SSEEvent.DONE:
+            self._done_queued = True  # The turn is committed: never cancel it from here on.
 
         # Log pour événements importants
         if event_type in (SSEEvent.DONE, SSEEvent.ERROR, SSEEvent.EXTRACTING):
@@ -165,6 +168,7 @@ class SSEWriter:
         """
         logger.debug(f"[SSE:{self._stream_id}] Début de l'itération")
         finished = False
+        cause = "client disconnected"
         try:
             while True:
                 try:
@@ -186,16 +190,22 @@ class SSEWriter:
                     yield ": keepalive\n\n"
                 except Exception as e:
                     logger.error(f"[SSE:{self._stream_id}] Erreur iteration: {e}")
+                    cause = f"server-side stream error ({type(e).__name__})"
                     break
         finally:
             if not finished:
-                self._on_disconnect()
+                self._on_disconnect(cause)
 
-    def _on_disconnect(self) -> None:
+    def _on_disconnect(self, cause: str) -> None:
+        """Stream ended early: drop further events and cancel the turn unless DONE was queued."""
         self.disconnected = True
-        if self._task is not None and not self._task.done():
-            logger.info(f"[SSE:{self._stream_id}] Client disconnected, cancelling the turn")
-            self._task.cancel()
+        if self._task is None or self._task.done():
+            return
+        if self._done_queued:
+            logger.info(f"[SSE:{self._stream_id}] Stream ended ({cause}) after DONE, turn kept")
+            return
+        logger.warning(f"[SSE:{self._stream_id}] Stream ended ({cause}), cancelling the turn")
+        self._task.cancel()
 
 
 def create_sse_response(writer: SSEWriter) -> StreamingResponse:
