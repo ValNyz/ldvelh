@@ -46,16 +46,15 @@ ldvelh/
 │   │   ├── turn.py            # run_turn: load → arbitrate → narrate → commit → respond → schedule
 │   │   ├── init_flow.py       # World generation turn (INIT)
 │   │   ├── context.py         # TurnContext, TurnRequest, InitParams
-│   │   ├── narration_stream.py# Provider stream, lenient narration parsing
+│   │   ├── narration_stream.py# Provider stream, partial-JSON chunks, display text
 │   │   ├── errors.py          # report_error: exception → one French TurnError
 │   │   ├── ports.py           # EventSink protocol (SSEWriter satisfies it)
-│   │   ├── uncancellable.py   # finish_despite_cancel (post-commit part)
+│   │   ├── uncancellable.py   # finish_despite_cancel (commit and post-commit part)
 │   │   └── steps/             # load, arbitrate, narrate, commit, respond, schedule
 │   ├── domain/                # Pure types: turn.py (PendingRoll, AppliedDeltas, NarrationState), errors.py (TurnError), game.py
 │   ├── repos/                 # SQL: games.py, turns.py (the turn transaction), users.py, llm_models.py
 │   ├── services/
 │   │   ├── game_service.py    # Game CRUD, state loading, messages, rollback
-│   │   ├── llm_service.py     # Claude API integration, streaming
 │   │   ├── context_builder.py # Builds NarrationContext from DB
 │   │   ├── state_normalizer.py# Normalizes game state for frontend
 │   │   ├── auth_service.py    # JWT, password hashing, email verification
@@ -89,7 +88,7 @@ ldvelh/
 │   │   └── extraction/        # Per-extractor prompt modules
 │   ├── schema/                # Pydantic models
 │   │   ├── core.py            # Base types (Name, ShortText, etc.)
-│   │   ├── narration.py       # NarrationOutput, NarrationContext
+│   │   ├── narration.py       # NarrationOutput, NarrationContext, lenient parsing (parse_narration)
 │   │   ├── world_generation.py# WorldGeneration schema
 │   │   ├── engine.py          # Engine types, MechanicalDecision, RollResult
 │   │   ├── extraction.py      # Extraction models
@@ -236,8 +235,8 @@ INIT mode is detected when the game snapshot has `world_created == False`.
    - System prompt: world-building instructions in French, entity constraints (3-6 NPCs, 4-5 locations, 1-3 orgs), JSON output format
    - User prompt: example JSON, engine-specific sections, manual entity constraints, genre/difficulty
 
-2. **Stream LLM**: `llm_service.stream_narration(system, messages, sse_writer, is_init_mode=True)`
-   - **File:** `backend/services/llm_service.py`
+2. **Stream LLM**: `narration_stream.stream_narration(session, sink, system_prompt=..., messages=..., world_gen=True)`
+   - **File:** `backend/pipeline/narration_stream.py`
    - Uses `max_tokens_init` (higher limit for world gen)
    - Sends `SSEEvent.PROGRESS` every ~500 characters with the partial raw JSON
    - Frontend uses partial JSON to show real-time progress bar
@@ -306,9 +305,9 @@ On completion (`worldData` is set via `onDone`):
 User types message
   → POST /chat → routes._handle_chat (snapshot, API key, LLMSession, TurnContext)
     → pipeline.turn.run_turn
-      → load       context from DB (ContextBuilder), prompts, history
+      → load       player input, context from DB (ContextBuilder), pending roll
       → arbitrate  mechanical step and dice (Fate Core may pause: roll_pending)
-      → narrate    stream narration from the LLM, SSE chunks, lenient parsing
+      → narrate    narrator prompts, history, stream from the LLM, SSE chunks, lenient parsing
       → commit     ONE transaction: roll effects, state, deltas, messages
       → respond    SSE done + saved
       → schedule   extraction and Director (fire-and-forget)
@@ -343,16 +342,16 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 
 | Step | Role |
 |------|------|
-| `load` | Context from the DB, narrator prompts, message history (steps 1, 3, 4 below) |
+| `load` | Player input, context from the DB, pending roll (step 1 below) |
 | `arbitrate` | Mechanical step, dice, pending Fate roll (step 2); may return `HALT` and end the turn |
-| `narrate` | Streams the narration, parses it leniently (step 5) |
+| `narrate` | Narrator prompts and message history, streams the narration, parses it leniently (steps 3, 4, 5) |
 | `commit` | Writes everything of the turn in one transaction (step 6) |
 | `respond` | Sends `done` then `saved` |
 | `schedule` | Starts extraction and the Director in the background |
 
 **Transaction.** The roll is *computed* before the narration (the narrator needs it) but *applied* at commit. `commit_turn` writes roll effects (stress, fate points), narration state, narrator deltas, engine snapshot, both messages, the roll log (or the claim of the resumed pending roll) and the engine lock in a single transaction (`repos/turns.py`). A failure or a cancellation anywhere before it leaves nothing behind (#16, #20). Credit deltas are stored as the ledger applied them (`applied`, `error`), not as the narrator asked (#33); a refused debit is reported to the narrator on the next turn.
 
-**Lenient narration parsing.** An optional field that is invalid (for example a malformed `day_transition` object) is ignored instead of discarding the turn; `day_transition` accepts `true`, a string or a partial object. A narration that cannot be used at all raises `narration_invalid`.
+**Lenient narration parsing** (`schema/narration.py`, `parse_narration`). An optional field that is invalid (for example a malformed `day_transition` object) is ignored instead of discarding the turn; `day_transition` accepts `true`, a string or a partial object; `false`, `0`, `0.0` and the strings `null`, `false`, `none`, `aucune`, `non`, `no` (any case) mean no transition. A narration that cannot be used at all raises `narration_invalid`.
 
 **Errors.** A failure during a turn produces exactly one `error` event, in French, with a `code` and a `ref` (the stream id, also in the logs as `[TURN:<ref>]`); SQL, Pydantic or SDK text is never sent (#45).
 
@@ -368,10 +367,11 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 | `no_api_key` | no | No API key for the chosen provider |
 | `invalid_invocation` | yes | Aspect invocation refused (unknown aspect, or more invocations than fate points; duplicates count once) |
 | `roll_not_pending` | yes | The roll to resume is not pending (already resolved or expired) |
+| `saved_display_failed` | no | The turn (or world) was saved, but a later step (summary log, done payload, background scheduling) failed: reload, do not resend |
 
 **Logging.** One INFO line per completed turn: `[TURN] game= engine= provider= model= history= in= out= cache_read= cost=$0.0000 ms=`. Prompts and narrator JSON are logged at DEBUG only, and only when `LOG_PROMPTS=true`.
 
-**Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Once the turn is committed, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work. Likewise, once `done` is queued on the writer, a disconnect no longer cancels the turn, and everything after the commit is shielded.
+**Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Once the commit has started, the commit itself, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work. Likewise, once `done` is queued on the writer, a disconnect no longer cancels the turn, and everything after the commit is shielded.
 
 **Step 1: Load context**
 
@@ -441,7 +441,7 @@ mechanical = await run_mechanical_step(engine, engine_stats, player_message,
 
 ```python
 system_prompt = build_narrator_system_prompt(engine_type)
-context_prompt = build_narrator_context_prompt(context, engine_type, mechanical_result)
+context_prompt = build_narrator_context_prompt(context, engine_type, mechanical)
 ```
 
 System prompt (~210 lines): narrative rules, tone, structure, delta output format (credits, inventory hints, entity reveals, info requests, extraction triggers).
