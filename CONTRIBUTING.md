@@ -47,20 +47,22 @@ scripts/dev-setup.sh      # once: docker-compose.override.yml + .env with random
 docker compose up --build # frontend http://localhost:3000, backend http://localhost:8000
 ```
 
-`docker-compose.yml` is the production file (deployed by Coolify) and is fail-closed: without `JWT_SECRET` or `DB_PASSWORD`, `docker compose` stops with `required variable JWT_SECRET is missing a value`, and `DEBUG` defaults to `false`. Everything that only makes sense locally lives in `docker-compose.override.yml`, which `docker compose up` applies automatically: published ports, `DEBUG=true` and the dev user (`dev@ldvelh.local` / `devpassword`, seeded in debug mode only).
+`docker-compose.yml` is the production file (deployed by Coolify) and is fail-closed: without `JWT_SECRET`, `DB_PASSWORD` or `ENCRYPTION_KEY`, `docker compose` stops with `required variable JWT_SECRET is missing a value: ... (for local dev, run scripts/dev-setup.sh)`, and `DEBUG` defaults to `false`. Everything that only makes sense locally lives in `docker-compose.override.yml`, which `docker compose up` applies automatically: published ports, `DEBUG=true` and the dev user (`dev@ldvelh.local` / `devpassword`, seeded in debug mode only).
 
-That override is git-ignored and created from the committed `docker-compose.override.example.yml`, so a server that runs a plain `docker compose up` on a fresh clone never gets debug mode or the dev account by accident. `scripts/dev-setup.sh` is safe to re-run: it keeps an existing override and existing values in `.env`, and only fills `JWT_SECRET` (when empty, shorter than 32 characters or a `change-me` placeholder), `ENCRYPTION_KEY` and `DB_PASSWORD` (`ldvelh`, the password of existing local `pgdata` volumes). After pulling this change, run it once: the tracked `docker-compose.override.yml` is replaced by your own copy.
+That override is git-ignored and created from the committed `docker-compose.override.example.yml`, so a server that runs a plain `docker compose up` on a fresh clone never gets debug mode or the dev account by accident. `scripts/dev-setup.sh` is safe to re-run: it keeps an existing override and existing values in `.env`, and only fills `JWT_SECRET` (when empty, shorter than 32 characters or a `change-me` placeholder), `ENCRYPTION_KEY` and `DB_PASSWORD` (`ldvelh`, the password of existing local `pgdata` volumes). After pulling this change, run it once: the formerly tracked `docker-compose.override.yml` is deleted by the pull and the script writes your own, ignored copy. If you had edited the tracked file, the pull stops on a conflict instead: back up your copy (`mv docker-compose.override.yml /tmp/`), pull, run the script, then port your edits into the new `docker-compose.override.yml`.
 
 ### Backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
-cp ../.env.example .env  # set DATABASE_URL, a random JWT_SECRET (openssl rand -hex 32), API keys
+cp ../.env.example .env  # set DATABASE_URL, JWT_SECRET (openssl rand -hex 32), ENCRYPTION_KEY, API keys
 uvicorn main:app --reload
 ```
 
-The backend refuses to start when `JWT_SECRET` is shorter than 32 characters, contains `change-me` or is a published default, whatever `DEBUG` says, and when `ENCRYPTION_KEY` is empty outside debug mode (`backend/startup_checks.py`).
+`scripts/dev-setup.sh` writes a random `JWT_SECRET` and `ENCRYPTION_KEY` into the root `.env`: copy those two lines, or generate them yourself (`ENCRYPTION_KEY`: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`); `ENCRYPTION_KEY` may stay empty only with `DEBUG=true`.
+
+The backend refuses to start (`backend/startup_checks.py`), whatever `DEBUG` says, when `JWT_SECRET` is under 32 characters, has leading/trailing whitespace, uses fewer than 10 distinct characters, contains `change-me` or is a value published in the repo; and when `ENCRYPTION_KEY` is set but is not a valid Fernet key or is a published one. An empty `ENCRYPTION_KEY` is refused outside debug mode.
 
 ### Frontend
 
@@ -82,9 +84,12 @@ psql -U your_user -d your_db -f schema.sql
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | — |
 | `ANTHROPIC_API_KEY` | Claude API key (server fallback) | — |
-| `JWT_SECRET` | JWT signing key, required: 32+ random characters, no `change-me`, not a published default (checked at startup, even in debug) | — |
-| `ENCRYPTION_KEY` | Fernet key for stored API keys, required at startup unless `DEBUG=true` | — |
-| `DB_PASSWORD` | Postgres password, required by `docker-compose.yml` | — |
+| `JWT_SECRET` | JWT signing key, required: 32+ random characters, no outer whitespace, 10+ distinct characters, no `change-me`, not a published value (checked at startup, even in debug) | — |
+| `ENCRYPTION_KEY` | Fernet key for stored API keys: required by `docker-compose.yml` and at startup unless `DEBUG=true`; must be a valid, unpublished Fernet key; never change it once set | — |
+| `DB_PASSWORD` | Postgres password, required by `docker-compose.yml`; URL-safe (it goes into `DATABASE_URL`) | — |
+| `EMAIL_FROM` | Sender of verification emails | `noreply@yourdomain.com` |
+| `RESEND_API_KEY` | Resend key for verification emails (optional) | — |
+| `NEXT_PUBLIC_API_URL` | Frontend build arg: backend base URL; empty means same origin (`/api`) | compose: `http://localhost:8000` when unset |
 | `REGISTRATION_ENABLED` | Enable/disable registration | `true` |
 | `DEBUG` | Debug mode (seeds dev user, streams debug payloads): local only, set by `docker-compose.override.yml` | `false` |
 | `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` | Dev account seeded in debug mode | `dev@ldvelh.local` / `devpassword` |
@@ -137,7 +142,16 @@ Errors reaching the player come from `pipeline/errors.py` (one French message, a
 
 ## Deployment
 
-Coolify deploys `docker-compose.yml` alone (no override). Set at least `JWT_SECRET`, `DB_PASSWORD` and `ENCRYPTION_KEY` in its environment: a missing `JWT_SECRET` or `DB_PASSWORD` fails the deploy, and a weak `JWT_SECRET` or missing `ENCRYPTION_KEY` stops the backend at startup. Leave `DEBUG` unset (`false`).
+Coolify deploys `docker-compose.yml` alone (no override). Environment to set in Coolify:
+
+- `JWT_SECRET` (required): 32+ random characters (`openssl rand -hex 32`). Missing: the deploy fails; weak or published: the backend refuses to start. Changing it logs every player out.
+- `DB_PASSWORD` (required): must be the password the existing `pgdata` volume was created with. Postgres only reads it when the volume is first initialised; if Coolify never set it, production has been running with the old default `ldvelh`, so set exactly that (or first change the password in Postgres with `ALTER USER ldvelh PASSWORD '...'`, then update the variable). It is interpolated into `DATABASE_URL`, so use URL-safe characters only (letters, digits, `-`, `_`, `.`, `~`; `openssl rand -hex 24` fits).
+- `ENCRYPTION_KEY` (required): a Fernet key. Players' saved API keys are encrypted with it: once set, never change or lose it, or those keys become unreadable (players must enter them again).
+- `SERVICE_URL_FRONTEND` (Coolify magic variable), `CORS_ORIGINS` (the production origin), `NEXT_PUBLIC_API_URL` (build arg: set it empty for same-origin `/api`, or to the backend URL; unset falls back to `http://localhost:8000`).
+- Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`.
+- Leave `DEBUG` unset (`false`), and do not set `DEV_USER_*`.
+
+One-off check after this change (manual): debug mode used to seed `dev@ldvelh.local` with a known password. Make sure that account does not exist in the production database (`SELECT id FROM users WHERE email = 'dev@ldvelh.local';`) and delete it if it does.
 
 ## CI
 

@@ -3,7 +3,6 @@ LDVELH - FastAPI Application
 Point d'entrée principal
 """
 
-import asyncio
 import json
 import os
 from contextlib import asynccontextmanager

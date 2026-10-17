@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     encryption_key: str = os.getenv("ENCRYPTION_KEY", "")
 
     # Auth
-    jwt_secret: str = os.getenv("JWT_SECRET", "dev-secret-change-me-in-production!!")
+    jwt_secret: str = ""  # JWT_SECRET, required: checked by startup_checks at startup
     jwt_algorithm: str = "HS256"
     jwt_expiry_hours: int = 72
     registration_enabled: bool = os.getenv("REGISTRATION_ENABLED", "true").lower() == "true"

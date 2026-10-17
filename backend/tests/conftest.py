@@ -197,10 +197,13 @@ import pytest_asyncio
 
 import os
 
-# Set a test encryption key for API key storage tests (valid Fernet key)
+# Random per-run secrets when the environment gives none (never a value published in the repo)
 if not os.getenv("ENCRYPTION_KEY"):
     from cryptography.fernet import Fernet
     os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+if not os.getenv("JWT_SECRET"):
+    import secrets
+    os.environ["JWT_SECRET"] = secrets.token_hex(32)
 
 TEST_DB_URL = os.getenv(
     "TEST_DATABASE_URL", "postgresql://ldvelh:ldvelh@localhost:5432/ldvelh_test"

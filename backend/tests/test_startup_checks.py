@@ -1,13 +1,16 @@
-"""Startup secrets validation: weak JWT secret or missing ENCRYPTION_KEY stops the backend (#39)."""
+"""Startup secrets validation: weak JWT secret or bad ENCRYPTION_KEY stops the backend (#39)."""
 
 from types import SimpleNamespace
 
 import pytest
+from cryptography.fernet import Fernet
 
 from startup_checks import check_startup_config, startup_config_errors
 
 STRONG = "q8V2m4Lx9TzR1cWn7KpB3yHs6JdF0aGe"  # 32 chars, random-looking
-FERNET = "WkpQHs-KU7XuScnVGAxm35ucMGXCCGt1yLenNhtGqR0="
+FERNET = Fernet.generate_key().decode()
+PUBLISHED_CI_SECRET = "ci-test-secret-0123456789abcdef0123"
+PUBLISHED_CI_KEY = "WkpQHs-KU7XuScnVGAxm35ucMGXCCGt1yLenNhtGqR0="
 
 
 @pytest.mark.parametrize("debug", [False, True])
@@ -20,20 +23,24 @@ def test_strong_secret_with_key_passes(debug):
     "",
     "short-but-random-9f3k",
     STRONG[:31],                                  # one char short
-    "dev-secret-change-me-in-production!!",      # config.py default
+    "dev-secret-change-me-in-production!!",      # config.py former default
     "dev-secret-change-me",                      # old docker-compose default
     "change-me-to-a-random-64-char-string",      # .env.example placeholder
+    PUBLISHED_CI_SECRET,                         # former CI / test-script value
+    PUBLISHED_CI_SECRET.upper(),
     "x" * 20 + "CHANGE-ME" + "y" * 20,           # long but contains change-me
     "please-changeme-0123456789abcdef0123",
+    " " * 40,                                    # whitespace only
+    "  short-secret-9f3k  " + " " * 12,          # padded to 32 with blanks
+    " " + STRONG,                                # stray whitespace around a good secret
+    STRONG + "\n",
+    "a" * 32,                                    # no variety
+    "0" * 64,
+    "abcdabcdabcdabcdabcdabcdabcdabcd",          # 4 distinct characters
 ])
 def test_weak_jwt_secret_is_rejected_even_in_debug(secret, debug):
     errors = startup_config_errors(secret, FERNET, debug=debug)
     assert len(errors) == 1 and errors[0].startswith("JWT_SECRET")
-
-
-def test_ci_secret_is_accepted():
-    """scripts/test-backend.sh and ci.yml use this value: it must satisfy the validator."""
-    assert startup_config_errors("ci-test-secret-0123456789abcdef0123", FERNET, debug=True) == []
 
 
 def test_missing_encryption_key_is_rejected_outside_debug():
@@ -43,6 +50,19 @@ def test_missing_encryption_key_is_rejected_outside_debug():
 
 def test_missing_encryption_key_is_allowed_in_debug():
     assert startup_config_errors(STRONG, "", debug=True) == []
+
+
+@pytest.mark.parametrize("debug", [False, True])
+@pytest.mark.parametrize("key", [
+    "   ",                     # whitespace only
+    "ab" * 32,                 # `openssl rand -hex 32`: 64 hex chars, not a Fernet key
+    FERNET[:-4],               # truncated
+    "not a key at all!",
+    PUBLISHED_CI_KEY,          # valid Fernet key, but published in the repo
+])
+def test_invalid_or_published_encryption_key_is_rejected(key, debug):
+    errors = startup_config_errors(STRONG, key, debug=debug)
+    assert len(errors) == 1 and errors[0].startswith("ENCRYPTION_KEY")
 
 
 def test_all_problems_are_reported_together():
@@ -57,6 +77,16 @@ def test_check_raises_with_every_message():
 
 def test_check_passes_on_valid_settings():
     check_startup_config(SimpleNamespace(jwt_secret=STRONG, encryption_key=FERNET, debug=False))
+
+
+def test_config_has_no_usable_jwt_default(monkeypatch):
+    """Without JWT_SECRET the setting is empty, which the validator rejects."""
+    from config import Settings
+
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.jwt_secret == ""
+    assert startup_config_errors(settings.jwt_secret, FERNET, debug=True)
 
 
 @pytest.mark.asyncio
