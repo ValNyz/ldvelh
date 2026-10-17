@@ -51,3 +51,17 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
         protagonist_name=(protagonist or {}).get("name"),
         director=await get_director_schedule(conn, game_id),
     )
+
+
+async def get_genre_by_slug(conn, slug: str) -> dict | None:
+    """Return the genre row for a slug, or None."""
+    row = await conn.fetchrow("SELECT * FROM genres WHERE slug = $1 LIMIT 1", slug)
+    return dict(row) if row else None
+
+
+async def set_game_genre(conn, game_id: UUID, genre_id: UUID) -> None:
+    await conn.execute("UPDATE games SET genre_id = $1 WHERE id = $2", genre_id, game_id)
+
+
+async def set_game_duration(conn, game_id: UUID, duration: str) -> None:
+    await conn.execute("UPDATE games SET game_duration = $2 WHERE id = $1", game_id, duration)

@@ -38,6 +38,8 @@ from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from domain.game import GameSnapshot
 from prompts.world_generation_prompt import get_full_generation_prompt
+from repos import games as games_repo
+from repos import users as users_repo
 from repos.llm_models import load_catalog
 from services.context_builder import ContextBuilder
 from services.extraction import run_resolve_and_extract
@@ -59,21 +61,7 @@ async def _resolve_user_api_key(
 ) -> str | None:
     """Look up the user's encrypted API key for a provider, decrypt it."""
     async with pool.acquire() as conn:
-        prefs_raw = await conn.fetchval(
-            "SELECT preferences FROM users WHERE id = $1", user_id
-        )
-    if not prefs_raw:
-        return None
-
-    prefs = prefs_raw if isinstance(prefs_raw, dict) else json.loads(prefs_raw)
-    api_keys = prefs.get("api_keys", {})
-    encrypted_key = api_keys.get(provider_name)
-    if not encrypted_key:
-        return None
-
-    from utils.crypto import decrypt_value
-
-    return decrypt_value(encrypted_key)
+        return await users_repo.get_user_api_key(conn, user_id, provider_name)
 
 
 # =============================================================================
@@ -474,17 +462,10 @@ async def _handle_chat(
                 genre_slug = init_world_config.get("genre")
                 if genre_slug:
                     async with pool.acquire() as conn:
-                        genre_row = await conn.fetchrow(
-                            "SELECT * FROM genres WHERE slug = $1 LIMIT 1",
-                            genre_slug,
-                        )
-                        if genre_row:
-                            genre = dict(genre_row)
+                        genre = await games_repo.get_genre_by_slug(conn, genre_slug)
+                        if genre:
                             # Store genre_id on game for future use
-                            await conn.execute(
-                                "UPDATE games SET genre_id = $1 WHERE id = $2",
-                                genre_row["id"], game_id,
-                            )
+                            await games_repo.set_game_genre(conn, game_id, genre["id"])
             elif genre_id:
                 from kg.reader import KnowledgeGraphReader
                 reader = KnowledgeGraphReader(pool, game_id)
@@ -577,10 +558,7 @@ async def _handle_chat(
                     # Store game_duration from wizard config
                     init_game_duration = (init_world_config or {}).get("duration", "medium")
                     async with pool.acquire() as dir_conn:
-                        await dir_conn.execute(
-                            "UPDATE games SET game_duration = $2 WHERE id = $1",
-                            game_id, init_game_duration,
-                        )
+                        await games_repo.set_game_duration(dir_conn, game_id, init_game_duration)
 
                     # Initial Director run (blocking, streamed to frontend)
                     try:
