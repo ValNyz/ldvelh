@@ -4,6 +4,7 @@ Every LLM call is classified by purpose (from its system prompt or tool name),
 answered with a scripted payload, and recorded so tests can assert the call sequence.
 """
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -77,6 +78,8 @@ class ScriptedLLMProvider(LLMProvider):
         self.STRUCTURED_OUTPUT = mode
         self.calls: list[CallRecord] = []
         self.fail_on: dict[str, Exception] = {}
+        # When set, stream() waits on this event after its first chunk (disconnect tests).
+        self.stream_gate: asyncio.Event | None = None
 
     def _next(self, purpose: str, default):
         value = self._responses.get(purpose, default)
@@ -101,6 +104,8 @@ class ScriptedLLMProvider(LLMProvider):
         # Split in two chunks so SSE chunk reassembly is exercised.
         mid = len(content) // 2
         yield content[:mid]
+        if self.stream_gate is not None:
+            await self.stream_gate.wait()
         yield content[mid:]
         yield USAGE
 

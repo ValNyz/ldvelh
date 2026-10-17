@@ -47,12 +47,20 @@ class SSEWriter:
     _start_time: float = field(default_factory=time.perf_counter)
     _event_count: int = 0
     _bytes_sent: int = 0
+    _task: asyncio.Task | None = None
+    disconnected: bool = False
 
     def __post_init__(self):
         logger.info(f"[SSE:{self._stream_id}] Stream créé")
 
+    def attach(self, task: asyncio.Task) -> None:
+        """Producer task to cancel if the client closes the stream early."""
+        self._task = task
+
     async def send(self, event_type: SSEEvent, data: dict[str, Any]) -> None:
         """Envoie un événement dans la queue"""
+        if self.disconnected:
+            return  # Client gone: drop silently, the producer is being cancelled.
         if self._closed:
             logger.warning(
                 f"[SSE:{self._stream_id}] Tentative d'envoi sur stream fermé"
@@ -150,29 +158,44 @@ class SSEWriter:
             await self._queue.put(None)  # Signal de fin
 
     async def iterate(self) -> AsyncGenerator[str, None]:
-        """Itère sur les événements pour le streaming"""
+        """Itère sur les événements pour le streaming.
+
+        If the generator stops before the end-of-stream signal (client closed the
+        connection), the attached producer task is cancelled.
+        """
         logger.debug(f"[SSE:{self._stream_id}] Début de l'itération")
+        finished = False
+        try:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(
+                        self._queue.get(),
+                        timeout=60.0,  # Timeout de 60s
+                    )
 
-        while True:
-            try:
-                payload = await asyncio.wait_for(
-                    self._queue.get(),
-                    timeout=60.0,  # Timeout de 60s
-                )
+                    if payload is None:  # Signal de fin
+                        logger.debug(f"[SSE:{self._stream_id}] Signal de fin reçu")
+                        finished = True
+                        break
 
-                if payload is None:  # Signal de fin
-                    logger.debug(f"[SSE:{self._stream_id}] Signal de fin reçu")
+                    yield f"data: {json.dumps(payload)}\n\n"
+
+                except TimeoutError:
+                    # Envoie un keepalive
+                    logger.debug(f"[SSE:{self._stream_id}] Keepalive envoyé")
+                    yield ": keepalive\n\n"
+                except Exception as e:
+                    logger.error(f"[SSE:{self._stream_id}] Erreur iteration: {e}")
                     break
+        finally:
+            if not finished:
+                self._on_disconnect()
 
-                yield f"data: {json.dumps(payload)}\n\n"
-
-            except TimeoutError:
-                # Envoie un keepalive
-                logger.debug(f"[SSE:{self._stream_id}] Keepalive envoyé")
-                yield ": keepalive\n\n"
-            except Exception as e:
-                logger.error(f"[SSE:{self._stream_id}] Erreur iteration: {e}")
-                break
+    def _on_disconnect(self) -> None:
+        self.disconnected = True
+        if self._task is not None and not self._task.done():
+            logger.info(f"[SSE:{self._stream_id}] Client disconnected, cancelling the turn")
+            self._task.cancel()
 
 
 def create_sse_response(writer: SSEWriter) -> StreamingResponse:

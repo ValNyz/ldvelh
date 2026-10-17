@@ -292,27 +292,33 @@ async def chat(
     service = GameService(pool)
     await service.verify_ownership(request.gameId, user["id"])
 
-    # Reject if another request is already processing this game
+    return create_sse_response(start_chat(request, pool, settings, user["id"]))
+
+
+def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
+               user_id: UUID | None) -> SSEWriter:
+    """Start the turn task (or the busy-game rejection) and attach it to a new writer.
+
+    Closing the stream cancels the task: nothing is committed and the game lock is
+    released when `async with lock` unwinds (#20).
+    """
+    writer = SSEWriter()
     lock = _get_game_lock(request.gameId)
     if lock.locked():
-        sse_writer = SSEWriter()
-        asyncio.create_task(_reject_busy(sse_writer))
-        return create_sse_response(sse_writer)
-
-    sse_writer = SSEWriter()
-
-    asyncio.create_task(
+        # Reject if another request is already processing this game (C-13)
+        writer.attach(asyncio.create_task(_reject_busy(writer)))
+        return writer
+    writer.attach(asyncio.create_task(
         _handle_chat_locked(
             lock=lock,
             request=request,
-            sink=sse_writer,
+            sink=writer,
             pool=pool,
             settings=settings,
-            user_id=user["id"],
+            user_id=user_id,
         )
-    )
-
-    return create_sse_response(sse_writer)
+    ))
+    return writer
 
 
 async def _reject_busy(sse_writer: SSEWriter):
