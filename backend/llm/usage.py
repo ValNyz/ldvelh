@@ -24,6 +24,23 @@ def call_cost(usage: LLMUsage, provider_name: str, model: str) -> float:
     ) / 1_000_000
 
 
+def cost_from_stored(usage_data: dict) -> float:
+    """USD cost from a stored usage dict (read from DB).
+
+    Expected keys: input_tokens, output_tokens, cache_creation_input_tokens,
+    cache_read_input_tokens, model, provider.
+    """
+    usage = LLMUsage(
+        input_tokens=usage_data.get("input_tokens", 0),
+        output_tokens=usage_data.get("output_tokens", 0),
+        cache_creation_input_tokens=usage_data.get("cache_creation_input_tokens", 0),
+        cache_read_input_tokens=usage_data.get("cache_read_input_tokens", 0),
+    )
+    return round(
+        call_cost(usage, usage_data.get("provider", "anthropic"), usage_data.get("model", "")), 6
+    )
+
+
 @dataclass
 class _Totals:
     input_tokens: int = 0

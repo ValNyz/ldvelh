@@ -1,5 +1,5 @@
 """
-Tests for api/streaming.py (SSEWriter, SSE helpers, display builders)
+Tests for api/streaming.py (SSEWriter, SSE helpers), the display builders
 and uncovered branches in prompts/narrator_prompt.py.
 
 All comments in English.
@@ -14,11 +14,9 @@ import pytest_asyncio
 from api.streaming import (
     SSEEvent,
     SSEWriter,
-    build_display_text,
     create_sse_response,
-    debug_partial_world_gen,
-    extract_narrative_from_partial,
 )
+from pipeline.narration_stream import build_display_text, extract_narrative_from_partial
 from prompts.narrator_prompt import (
     NARRATOR_SYSTEM_PROMPT,
     build_narrator_context_prompt,
@@ -238,34 +236,6 @@ class TestSSEWriterSend:
         await w.send_warning("note")
         payload = w._queue.get_nowait()
         assert payload["details"] is None
-
-    @pytest.mark.asyncio
-    async def test_send_debug_not_active_by_default(self, monkeypatch):
-        """send_debug does nothing when DEBUG env is not set."""
-        monkeypatch.delenv("DEBUG", raising=False)
-        w = SSEWriter()
-        await w.send_debug("test msg", data={"x": 1})
-        assert w._queue.empty()
-        assert w._event_count == 0
-
-    @pytest.mark.asyncio
-    async def test_send_debug_active_when_debug_true(self, monkeypatch):
-        """send_debug enqueues a WARNING event when DEBUG=true."""
-        monkeypatch.setenv("DEBUG", "true")
-        w = SSEWriter()
-        await w.send_debug("debug info", data={"x": 1})
-        payload = w._queue.get_nowait()
-        assert payload["type"] == "warning"
-        assert "[DEBUG]" in payload["message"]
-        assert payload["details"] == {"x": 1}
-
-    @pytest.mark.asyncio
-    async def test_send_debug_case_insensitive(self, monkeypatch):
-        """send_debug recognizes DEBUG=True (case insensitive)."""
-        monkeypatch.setenv("DEBUG", "True")
-        w = SSEWriter()
-        await w.send_debug("msg")
-        assert not w._queue.empty()
 
     @pytest.mark.asyncio
     async def test_send_on_closed_writer_is_noop(self):
@@ -496,55 +466,6 @@ class TestExtractNarrativeFromPartial:
         """Returns None when the key exists but no opening quote for value."""
         partial = '{"narrative_text":'
         assert extract_narrative_from_partial(partial) is None
-
-
-# =============================================================================
-# TESTS — debug_partial_world_gen
-# =============================================================================
-
-
-class TestDebugPartialWorldGen:
-    """debug_partial_world_gen extraction."""
-
-    def test_empty_json(self):
-        """No markers found in empty/minimal JSON."""
-        result = debug_partial_world_gen("{}")
-        assert result["progress_percent"] == 0
-        assert result["json_length"] == 2
-        assert result["fields_found"] == []
-        assert result["preview"] == "En cours..."
-
-    def test_name_extraction(self):
-        """Extracts world name from partial JSON."""
-        raw = '{"name": "Chrysalide-7", "station_type": "orbital"}'
-        result = debug_partial_world_gen(raw)
-        assert "world.name" in result["fields_found"]
-        assert "world.station_type" in result["fields_found"]
-        assert "world_name" in result["fields_found"]
-        assert result["preview"] == "Chrysalide-7"
-        assert result["progress_percent"] > 0
-
-    def test_all_markers_found(self):
-        """100% progress when all markers are present."""
-        raw = json.dumps({
-            "name": "Test",
-            "station_type": "orbital",
-            "population": 5000,
-            "protagonist": {"name": "V"},
-            "npcs": [],
-            "locations": [],
-            "factions": [],
-        })
-        result = debug_partial_world_gen(raw)
-        assert result["progress_percent"] == 100
-
-    def test_partial_markers(self):
-        """Partial progress with some markers."""
-        raw = '{"name": "Station", "population": 1000}'
-        result = debug_partial_world_gen(raw)
-        # name + population + world_name extracted = 3 fields found
-        # But only 2 of the 7 markers matched (name, population)
-        assert 0 < result["progress_percent"] < 100
 
 
 # =============================================================================

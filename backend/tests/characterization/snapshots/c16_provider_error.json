@@ -2,15 +2,10 @@
   "db_changed": {},
   "errors": [
     {
+      "code": "provider_error",
       "details": null,
-      "error": "LLM API error (anthropic): provider down",
+      "error": "anthropic n'a pas répondu correctement. Réessaie.",
       "recoverable": true,
-      "type": "error"
-    },
-    {
-      "details": null,
-      "error": "provider down",
-      "recoverable": false,
       "type": "error"
     }
   ],
@@ -26,7 +21,6 @@
   ],
   "messages_added": 0,
   "sse": [
-    "error",
     "error"
   ]
 }

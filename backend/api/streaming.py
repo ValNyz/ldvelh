@@ -3,7 +3,6 @@ LDVELH - SSE Streaming
 Gestion du streaming Server-Sent Events
 """
 
-import os
 import asyncio
 import json
 import logging
@@ -100,14 +99,21 @@ class SSEWriter:
         await self.send(SSEEvent.SAVED, {})
 
     async def send_error(
-        self, error: str, details: Any = None, recoverable: bool = False
+        self,
+        error: str,
+        details: Any = None,
+        recoverable: bool = False,
+        code: str | None = None,
+        ref: str | None = None,
     ) -> None:
-        """Envoie une erreur"""
+        """Send an error; code and ref are only included when set."""
         logger.error(f"[SSE:{self._stream_id}] Erreur: {error}")
-        await self.send(
-            SSEEvent.ERROR,
-            {"error": error, "details": details, "recoverable": recoverable},
-        )
+        data = {"error": error, "details": details, "recoverable": recoverable}
+        if code is not None:
+            data["code"] = code
+        if ref is not None:
+            data["ref"] = ref
+        await self.send(SSEEvent.ERROR, data)
 
     async def send_warning(self, message: str, details: Any = None) -> None:
         """Envoie un avertissement"""
@@ -129,14 +135,6 @@ class SSEWriter:
     async def send_status(self, step: str, label: str | None = None) -> None:
         """Send a status update to the frontend (e.g., Director running)."""
         await self.send(SSEEvent.STATUS, {"step": step, "label": label or step})
-
-    async def send_debug(self, message: str, data: Any = None) -> None:
-        """Envoie un message de debug (dev only)"""
-        if os.getenv("DEBUG", "false").lower() == "true":
-            logger.debug(f"[SSE:{self._stream_id}] DEBUG: {message}")
-            await self.send(
-                SSEEvent.WARNING, {"message": f"[DEBUG] {message}", "details": data}
-            )
 
     async def close(self) -> None:
         """Ferme la queue"""
@@ -189,114 +187,3 @@ def create_sse_response(writer: SSEWriter) -> StreamingResponse:
             "X-Accel-Buffering": "no",  # Désactive le buffering nginx
         },
     )
-
-
-# =============================================================================
-# DISPLAY BUILDER
-# =============================================================================
-
-
-def extract_narrative_from_partial(partial_json: str) -> str | None:
-    """
-    Extrait le texte narratif d'un JSON partiel en cours de streaming.
-    Gère les cas où le JSON n'est pas encore complet.
-    """
-    # Cherche "narrative_text": "
-    marker = '"narrative_text":'
-    start = partial_json.find(marker)
-
-    if start == -1:
-        return None
-
-    # Trouve le début de la string
-    quote_start = partial_json.find('"', start + len(marker))
-    if quote_start == -1:
-        return None
-
-    # Extrait jusqu'à la fin ou jusqu'au prochain guillemet non-échappé
-    content = []
-    i = quote_start + 1
-    while i < len(partial_json):
-        char = partial_json[i]
-
-        if char == "\\":
-            # Vérifier qu'on a le caractère suivant
-            if i + 1 >= len(partial_json):
-                # Séquence d'échappement incomplète, s'arrêter ici
-                # On ne veut pas ajouter le \ littéralement
-                break
-
-            next_char = partial_json[i + 1]
-            if next_char == "n":
-                content.append("\n")
-            elif next_char == "r":
-                content.append("\r")
-            elif next_char == "t":
-                content.append("\t")
-            elif next_char == '"':
-                content.append('"')
-            elif next_char == "\\":
-                content.append("\\")
-            else:
-                # Autres séquences (\uXXXX, etc.) - garder tel quel pour simplifier
-                content.append(next_char)
-            i += 2
-        elif char == '"':
-            # Fin de la string
-            break
-        else:
-            content.append(char)
-            i += 1
-
-    result = "".join(content).strip()
-    return result if result else None
-
-
-def build_display_text(parsed: dict) -> str:
-    """
-    Construit le texte d'affichage depuis une réponse parsée.
-    """
-    text = parsed.get("narrative_text") or ""
-    return text.strip()
-
-
-def debug_partial_world_gen(raw_json: str) -> dict:
-    """
-    Extrait les champs visibles d'un JSON de WorldGeneration partiel.
-    Utile pour debug et affichage de progression.
-    """
-    fields_found = {}
-
-    # Liste des champs principaux à chercher
-    markers = [
-        ("world.name", '"name":'),
-        ("world.station_type", '"station_type":'),
-        ("world.population", '"population":'),
-        ("protagonist.name", '"protagonist"'),
-        ("npcs_count", '"npcs":'),
-        ("locations_count", '"locations":'),
-        ("factions_count", '"factions":'),
-    ]
-
-    for field_name, marker in markers:
-        if marker in raw_json:
-            fields_found[field_name] = True
-
-    # Estimer la progression
-    total_expected = len(markers)
-    found = len(fields_found)
-    progress_pct = int((found / total_expected) * 100)
-
-    # Extraire quelques valeurs si possible
-    import re
-
-    name_match = re.search(r'"name"\s*:\s*"([^"]+)"', raw_json)
-    if name_match:
-        fields_found["world_name"] = name_match.group(1)
-
-    return {
-        "fields_found": list(fields_found.keys()),
-        "progress_percent": progress_pct,
-        "json_length": len(raw_json),
-        "preview": fields_found.get("world_name", "En cours..."),
-    }

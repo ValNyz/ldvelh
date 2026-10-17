@@ -1,7 +1,7 @@
 {
   "cycle": 1,
   "errors": [
-    "1 validation error for NarrationOutput | day_transition.new_date"
+    "La réponse du narrateur était inutilisable. Réessaie."
   ],
   "sse": [
     "chunk*",

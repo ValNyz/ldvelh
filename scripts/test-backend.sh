@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the backend test suite in Docker (Postgres + python:3.13-slim), mirroring CI.
 # Usage: scripts/test-backend.sh [pytest args...]   (default: tests/ --ignore=tests/benchmark)
+# UPDATE_SNAPSHOTS=1 scripts/test-backend.sh tests/characterization  rewrites snapshots on the host.
 set -euo pipefail
 
 REPO="$(git rev-parse --show-toplevel)"
@@ -25,7 +26,13 @@ docker run -d --rm --name "$PG" --network "$NET" \
 until docker exec "$PG" pg_isready -U test >/dev/null 2>&1; do sleep 1; done
 sleep 2
 
-docker run --rm --network "$NET" -e PG_HOST="$PG" -v "$REPO":/src:ro python:3.13-slim bash -c '
+SNAP_ARGS=()
+if [ "${UPDATE_SNAPSHOTS:-}" = "1" ]; then
+  SNAP_ARGS=(-e UPDATE_SNAPSHOTS=1 -e HOST_IDS="$(id -u):$(id -g)"
+             -v "$REPO/backend/tests/characterization/snapshots":/snapshots)
+fi
+
+docker run --rm --network "$NET" -e PG_HOST="$PG" "${SNAP_ARGS[@]}" -v "$REPO":/src:ro python:3.13-slim bash -c '
 set -euo pipefail
 cp -r /src /w && cd /w/backend
 apt-get update -qq >/dev/null && apt-get install -y -qq curl >/dev/null
@@ -41,5 +48,10 @@ export JWT_SECRET=ci-test-secret-0123456789abcdef0123
 export REQUIRE_TEST_DB=1
 export DEBUG=true
 export ENCRYPTION_KEY="WkpQHs-KU7XuScnVGAxm35ucMGXCCGt1yLenNhtGqR0="
-exec pytest "$@" -o asyncio_mode=auto -q -p no:cacheprovider
+status=0
+pytest "$@" -o asyncio_mode=auto -q -p no:cacheprovider || status=$?
+if [ "${UPDATE_SNAPSHOTS:-}" = "1" ]; then
+  cp -r tests/characterization/snapshots/. /snapshots/ && chown -R "$HOST_IDS" /snapshots
+fi
+exit $status
 ' _ "$@"

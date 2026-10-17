@@ -7,7 +7,7 @@ NOTE: Les routers NE sont PAS importés ici pour éviter les imports circulaires
 """
 
 from api.dependencies import get_pool, get_connection, get_settings_dep
-from api.streaming import SSEWriter, SSEEvent, create_sse_response, build_display_text
+from api.streaming import SSEWriter, SSEEvent, create_sse_response
 
 __all__ = [
     "get_pool",
@@ -16,5 +16,4 @@ __all__ = [
     "SSEWriter",
     "SSEEvent",
     "create_sse_response",
-    "build_display_text",
 ]

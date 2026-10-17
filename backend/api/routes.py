@@ -44,7 +44,8 @@ from repos.llm_models import load_catalog
 from services.context_builder import ContextBuilder
 from services.extraction import run_resolve_and_extract
 from services.game_service import GameService, RollbackRejected
-from services.llm_service import get_llm_service
+from pipeline import narration_stream
+from pipeline.errors import report_error
 
 logger = logging.getLogger(__name__)
 
@@ -385,9 +386,9 @@ async def _handle_chat(
     user_id: UUID | None = None,
 ):
     """Gère le traitement du chat de manière asynchrone"""
+    provider_name = request.provider or "anthropic"
     try:
         game_service = GameService(pool)
-        llm_service = get_llm_service()
 
         game_id = request.gameId
         message = request.message
@@ -405,7 +406,6 @@ async def _handle_chat(
         is_init_mode = not snapshot.world_created
 
         # Resolve provider: use request.provider + user's encrypted API key
-        provider_name = request.provider or "anthropic"
         user_api_key = None
         if user_id:
             try:
@@ -587,14 +587,16 @@ async def _handle_chat(
                     logger.error(f"[CHAT] Error process init: {e}", exc_info=True)
                     await sse_writer.send_error(str(e), recoverable=True)
 
-            await llm_service.stream_narration(
+            result = await narration_stream.stream_narration(
                 session,
+                sse_writer,
                 system_prompt=prompt["system"],
                 messages=[{"role": "user", "content": prompt["user"]}],
-                sse_writer=sse_writer,
-                is_init_mode=True,
+                world_gen=True,
                 temperature=1.0,
-                on_complete=on_init_complete,
+            )
+            await on_init_complete(
+                result.parsed, result.display_text, result.raw, result.cost
             )
 
         # =====================================================================
@@ -1001,11 +1003,9 @@ async def _handle_chat(
                     )
 
                 except Exception as e:
-                    logger.error(f"[CHAT] Erreur process light: {e}")
-                    import traceback
-
-                    traceback.print_exc()
-                    await sse_writer.send_error(str(e), recoverable=True)
+                    await report_error(
+                        sse_writer, e, provider_name=provider_name, ref=sse_writer._stream_id
+                    )
 
             # Lock engine on first non-init message
             if engine_type != "none" and not snapshot.engine_locked:
@@ -1013,21 +1013,21 @@ async def _handle_chat(
                     populator = game_service._get_populator(game_id)
                     await populator.lock_engine(lock_conn)
 
-            await llm_service.stream_narration(
+            result = await narration_stream.stream_narration(
                 session,
+                sse_writer,
                 system_prompt=system_prompt,
                 messages=llm_messages,
-                sse_writer=sse_writer,
-                is_init_mode=False,
-                on_complete=on_light_complete,
+                world_gen=False,
+            )
+            await on_light_complete(
+                result.parsed, result.display_text, result.raw, result.cost
             )
 
     except Exception as e:
-        logger.debug(f"[CHAT] Erreur non gérée: {e}")
-        import traceback
-
-        traceback.print_exc()
-        await sse_writer.send_error(str(e), recoverable=False)
+        await report_error(
+            sse_writer, e, provider_name=provider_name, ref=sse_writer._stream_id
+        )
 
     finally:
         await sse_writer.close()

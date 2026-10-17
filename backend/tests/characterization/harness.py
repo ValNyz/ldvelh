@@ -115,14 +115,14 @@ class ChatHarness:
 
 def spy_narration(monkeypatch) -> list[dict]:
     """Record every narrator call as {"system": ..., "messages": ...}; behavior is unchanged."""
-    from services import llm_service
+    from pipeline import narration_stream
 
     calls: list[dict] = []
-    original = llm_service.LLMService.stream_narration
+    original = narration_stream.stream_narration
 
-    async def spy(self, session, system_prompt, messages, *args, **kwargs):
+    async def spy(session, sink, *, system_prompt, messages, **kwargs):
         calls.append({"system": system_prompt, "messages": messages})
-        return await original(self, session, system_prompt, messages, *args, **kwargs)
+        return await original(session, sink, system_prompt=system_prompt, messages=messages, **kwargs)
 
-    monkeypatch.setattr(llm_service.LLMService, "stream_narration", spy)
+    monkeypatch.setattr(narration_stream, "stream_narration", spy)
     return calls

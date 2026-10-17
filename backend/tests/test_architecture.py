@@ -18,7 +18,7 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
     "schema": {"api", "pipeline"},
     "prompts": {"api", "pipeline"},
 }
-KNOWN_VIOLATIONS = {("services/llm_service.py", "api")}        # removed in Task 3
+KNOWN_VIOLATIONS: set[tuple[str, str]] = set()
 SQL_IN_ROUTES_ALLOWED: set[str] = set()
 
 _SQL_RE = re.compile(r"^\s*(SELECT|INSERT|UPDATE|DELETE)\b", re.IGNORECASE)

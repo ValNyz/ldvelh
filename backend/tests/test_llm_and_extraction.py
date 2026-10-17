@@ -1,5 +1,5 @@
 """
-Comprehensive tests for llm_service.py, extraction_service.py, and llm_providers.py.
+Comprehensive tests for llm_providers.py, cost tracking and the usage ledger.
 
 All LLM calls are mocked — no real API calls are made.
 Uses pytest + pytest-asyncio + unittest.mock (AsyncMock / MagicMock / patch).
@@ -33,13 +33,7 @@ from services.llm_providers import (
     _providers,
 )
 from llm.session import LLMSession
-from llm.usage import UsageLedger, call_cost
-from services.llm_service import (
-    LLMService,
-    compute_cost_from_stored,
-    get_llm_service,
-    _llm_service,
-)
+from llm.usage import UsageLedger, call_cost, cost_from_stored
 
 
 # =============================================================================
@@ -440,7 +434,7 @@ class TestOpenAICompatibleProviders:
 
 
 class TestComputeCost:
-    """Tests for call_cost and compute_cost_from_stored."""
+    """Tests for call_cost and cost_from_stored."""
 
     def test_compute_cost_basic(self):
         usage = _make_usage(inp=1000, out=500)
@@ -461,8 +455,8 @@ class TestComputeCost:
         ) / 1_000_000
         assert abs(cost - expected) < 1e-9
 
-    def test_compute_cost_from_stored(self):
-        result = compute_cost_from_stored({
+    def test_cost_from_stored(self):
+        result = cost_from_stored({
             "input_tokens": 2000,
             "output_tokens": 1000,
             "cache_creation_input_tokens": 0,
@@ -525,241 +519,6 @@ class TestUsageLedger:
         assert "total_cost_usd" in summary
 
 
-# =============================================================================
-# SECTION 3: LLM SERVICE
-# =============================================================================
-
-
-class TestGetLLMServiceSingleton:
-    """Tests for the get_llm_service() singleton pattern."""
-
-    def setup_method(self):
-        # Reset singleton between tests
-        import services.llm_service as mod
-        mod._llm_service = None
-
-    @patch("services.llm_service.get_settings")
-    def test_returns_singleton(self, mock_settings):
-        mock_settings.return_value = MagicMock()
-        s1 = get_llm_service()
-        s2 = get_llm_service()
-        assert s1 is s2
-
-    @patch("services.llm_service.get_settings")
-    def test_creates_llm_service(self, mock_settings):
-        mock_settings.return_value = MagicMock()
-        s = get_llm_service()
-        assert isinstance(s, LLMService)
-
-    def teardown_method(self):
-        import services.llm_service as mod
-        mod._llm_service = None
-
-
-class TestLLMServiceStreamNarration:
-    """Tests for LLMService.stream_narration()."""
-
-    @pytest.fixture
-    def service(self):
-        with patch("services.llm_service.get_settings") as mock_settings:
-            mock_settings.return_value = MagicMock(
-                max_tokens_init=10000,
-                max_tokens_narration=4000,
-                temperature=0.8,
-            )
-            return LLMService()
-
-    @pytest.mark.asyncio
-    async def test_stream_narration_basic(self, service):
-        """Stream narration assembles JSON, sends chunks, calls on_complete."""
-        json_output = json.dumps({
-            "narrative_text": "Hello world. A narrative story about space. This is a long enough text for testing.",
-        })
-
-        # Mock provider that yields chunks + final usage
-        async def mock_stream(**kwargs):
-            for chunk in [json_output[:30], json_output[30:]]:
-                yield chunk
-            yield _make_usage(inp=200, out=100)
-
-        mock_provider = _mock_provider()
-        mock_provider.stream = mock_stream
-
-        sse_writer = AsyncMock()
-        on_complete = AsyncMock()
-
-        session = LLMSession.from_provider(mock_provider)
-        await service.stream_narration(
-            session,
-            system_prompt="sys",
-            messages=[{"role": "user", "content": "test"}],
-            sse_writer=sse_writer,
-            on_complete=on_complete,
-        )
-
-        # on_complete should have been called
-        on_complete.assert_awaited_once()
-        call_args = on_complete.call_args
-        parsed, display_text, raw_json, cost = call_args[0]
-        assert parsed is not None
-        assert parsed["narrative_text"].startswith("Hello world")
-
-    @pytest.mark.asyncio
-    async def test_stream_narration_init_mode(self, service):
-        """In init mode, send_progress is used instead of send_chunk."""
-        json_output = '{"world": {"name": "Test Station"}}'
-
-        async def mock_stream(**kwargs):
-            # Yield a big chunk to trigger progress (> 500 chars)
-            yield json_output + " " * 600
-            yield _make_usage()
-
-        mock_provider = _mock_provider()
-        mock_provider.stream = mock_stream
-
-        sse_writer = AsyncMock()
-
-        session = LLMSession.from_provider(mock_provider)
-        await service.stream_narration(
-            session,
-            system_prompt="sys",
-            messages=[],
-            sse_writer=sse_writer,
-            is_init_mode=True,
-        )
-
-        # In init mode, send_progress should be used
-        assert sse_writer.send_progress.await_count >= 1
-
-    @pytest.mark.asyncio
-    async def test_stream_narration_records_cost(self, service):
-        """Cost tracking is recorded after streaming completes."""
-        json_output = '{"narrative_text": "Some long narrative text about space exploration and adventure."}'
-
-        async def mock_stream(**kwargs):
-            yield json_output
-            yield _make_usage(inp=500, out=250, cache_read=100)
-
-        mock_provider = _mock_provider()
-        mock_provider.stream = mock_stream
-        seen = {}
-
-        async def on_complete(parsed, display_text, raw_json, cost):
-            seen["cost"] = cost
-
-        session = LLMSession.from_provider(mock_provider)
-        await service.stream_narration(
-            session,
-            system_prompt="sys",
-            messages=[],
-            sse_writer=AsyncMock(),
-            on_complete=on_complete,
-        )
-
-        assert seen["cost"]["input_tokens"] == 500
-
-    @pytest.mark.asyncio
-    async def test_stream_narration_api_error(self, service):
-        """API errors are caught, error sent via SSE, and re-raised."""
-
-        async def mock_stream(**kwargs):
-            raise RuntimeError("API down")
-            yield  # Make it an async generator
-
-        mock_provider = _mock_provider()
-        mock_provider.stream = mock_stream
-
-        sse_writer = AsyncMock()
-
-        session = LLMSession.from_provider(mock_provider)
-        with pytest.raises(RuntimeError, match="API down"):
-            await service.stream_narration(
-                session,
-                system_prompt="sys",
-                messages=[],
-                sse_writer=sse_writer,
-            )
-
-        sse_writer.send_error.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_stream_narration_on_narrative_ready_callback(self, service):
-        """on_narrative_ready is called when narrative_text is complete."""
-        # Build JSON that has narrative_text followed by a closing comma/brace
-        json_output = json.dumps({
-            "narrative_text": "Complete narrative text that is well-formed and finalized in the JSON output stream.",
-        })
-
-        async def mock_stream(**kwargs):
-            # Yield the full JSON in two parts to simulate streaming
-            yield json_output[:50]
-            yield json_output[50:]
-            yield _make_usage()
-
-        mock_provider = _mock_provider()
-        mock_provider.stream = mock_stream
-
-        on_narrative_ready = AsyncMock()
-
-        session = LLMSession.from_provider(mock_provider)
-        await service.stream_narration(
-            session,
-            system_prompt="sys",
-            messages=[],
-            sse_writer=AsyncMock(),
-            on_narrative_ready=on_narrative_ready,
-        )
-
-        # The callback should fire once when narrative_text field is complete
-        on_narrative_ready.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_stream_narration_json_parse_failure(self, service):
-        """When JSON parse fails, display_text is extracted from partial."""
-        broken_output = '{"narrative_text": "Some narrative about broken JSON'
-
-        async def mock_stream(**kwargs):
-            yield broken_output
-            yield _make_usage()
-
-        mock_provider = _mock_provider()
-        mock_provider.stream = mock_stream
-
-        on_complete = AsyncMock()
-
-        session = LLMSession.from_provider(mock_provider)
-        await service.stream_narration(
-            session,
-            system_prompt="sys",
-            messages=[],
-            sse_writer=AsyncMock(),
-            on_complete=on_complete,
-        )
-
-        call_args = on_complete.call_args[0]
-        parsed, display_text, raw_json, cost = call_args
-        # parsed may be None or repaired; display_text should exist
-        assert display_text is not None
-
-
-class TestLLMServiceIsNarrativeComplete:
-    """Tests for LLMService._is_narrative_complete static method."""
-
-    def test_complete_narrative(self):
-        json_str = '{"narrative_text": "Hello world", "other": 1}'
-        assert LLMService._is_narrative_complete(json_str) is True
-
-    def test_incomplete_narrative(self):
-        json_str = '{"narrative_text": "Hello world'
-        assert LLMService._is_narrative_complete(json_str) is False
-
-    def test_narrative_with_escaped_quotes(self):
-        json_str = '{"narrative_text": "She said \\"hello\\"", "other": 1}'
-        assert LLMService._is_narrative_complete(json_str) is True
-
-    def test_empty_string(self):
-        assert LLMService._is_narrative_complete("") is False
-
-
+# Section 3 (LLMService) removed: narration streaming is tested in tests/pipeline/.
 # Section 4 (old batch extraction) removed — replaced by services/extraction/ package.
 # See test_extraction_service.py for new extraction tests.

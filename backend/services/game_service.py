@@ -12,7 +12,7 @@ import asyncpg
 
 from config import DEFAULT_STATS
 from utils.json_utils import parse_json
-from services.llm_service import compute_cost_from_stored
+from llm.usage import cost_from_stored
 from kg.reader import KnowledgeGraphReader
 from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
@@ -352,12 +352,12 @@ class GameService:
                 if deltas.get("cost"):
                     cost_data = dict(deltas["cost"])
                     if "cost_usd" not in cost_data:
-                        cost_data["cost_usd"] = compute_cost_from_stored(cost_data)
+                        cost_data["cost_usd"] = cost_from_stored(cost_data)
                     msg["cost"] = cost_data
                 if deltas.get("extraction_cost"):
                     ext_cost = dict(deltas["extraction_cost"])
                     if "cost_usd" not in ext_cost:
-                        ext_cost["cost_usd"] = compute_cost_from_stored(ext_cost)
+                        ext_cost["cost_usd"] = cost_from_stored(ext_cost)
                     msg["extraction_cost"] = ext_cost
             result.append(msg)
         return result
