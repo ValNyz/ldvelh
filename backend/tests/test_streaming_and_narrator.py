@@ -114,6 +114,13 @@ class TestSSEWriterCreation:
         b = SSEWriter()
         assert a._stream_id != b._stream_id
 
+    def test_stream_id_is_public_read_only(self):
+        """The error ref uses the public stream_id, the same id as in the logs."""
+        w = SSEWriter()
+        assert w.stream_id == w._stream_id
+        with pytest.raises(AttributeError):
+            w.stream_id = "other"
+
 
 # =============================================================================
 # TESTS — SSEWriter.send and per-event helpers (async)

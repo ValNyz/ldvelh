@@ -54,6 +54,11 @@ class SSEWriter:
     def __post_init__(self):
         logger.info(f"[SSE:{self._stream_id}] Stream créé")
 
+    @property
+    def stream_id(self) -> str:
+        """Short id of this stream, in the logs and as the error `ref`."""
+        return self._stream_id
+
     def attach(self, task: asyncio.Task) -> None:
         """Producer task to cancel if the client closes the stream early."""
         self._task = task
@@ -210,7 +215,7 @@ class SSEWriter:
 
 def create_sse_response(writer: SSEWriter) -> StreamingResponse:
     """Crée une réponse SSE à partir d'un writer"""
-    logger.debug(f"[SSE:{writer._stream_id}] Création de la réponse SSE")
+    logger.debug(f"[SSE:{writer.stream_id}] Création de la réponse SSE")
     return StreamingResponse(
         writer.iterate(),
         media_type="text/event-stream",

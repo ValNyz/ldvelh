@@ -405,13 +405,13 @@ async def _handle_chat(
             sink=sink,
             pool=pool,
             engine=get_engine(snapshot.engine),
-            ref=sink._stream_id,
+            ref=sink.stream_id,
         )
         if snapshot.world_created:
             await turn.run_turn(ctx)
         else:
             await init_flow.run_init(ctx)
     except Exception as e:
-        await report_error(sink, e, provider_name=provider_name, ref=sink._stream_id)
+        await report_error(sink, e, provider_name=provider_name, ref=sink.stream_id)
     finally:
         await sink.close()
