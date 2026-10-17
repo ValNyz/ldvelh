@@ -18,6 +18,7 @@ from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration
 from services.engine import get_engine
+from services.pending_roll import load_pending_roll
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
@@ -125,6 +126,8 @@ class GameService:
             engine_stats = None
             if engine_type != "none":
                 engine_stats = await engine.get_vitals_display(conn, game_id)
+            # A roll waiting for an aspect invocation comes back with the game (#32).
+            pending_roll = await load_pending_roll(conn, game_id, engine)
 
             # Cycle info from games table
             location_name = await reader.get_current_location_name(conn)
@@ -154,6 +157,7 @@ class GameService:
 
         result = game_state_to_dict(state)
         result["world_created"] = world_created
+        result["pending_roll"] = pending_roll.offer() if pending_roll else None
         return result
 
     async def _load_protagonist_stats(self, reader: KnowledgeGraphReader, conn) -> dict:

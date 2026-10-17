@@ -4,8 +4,10 @@ Full Fate Core implementation: 4dF dice, aspects, stunts, stress, consequences, 
 """
 
 import random
+from collections.abc import Sequence
 from uuid import UUID
 
+from domain.errors import TurnError
 from schema.engine import EngineType, MechanicalDecision, RollResult
 from .base import BaseEngine, normalize_name
 
@@ -49,6 +51,42 @@ def _fate_value(value) -> int:
         return int(text.replace("+", ""))
     except ValueError:
         return _LADDER_BY_LABEL.get(text.lower(), 0)
+
+
+def outcome_for_shifts(shifts: int) -> str:
+    """The one Fate outcome ladder, for fresh rolls and invoked ones alike."""
+    if shifts < 0:
+        return "failure"
+    if shifts == 0:
+        return "tie"
+    if shifts >= 3:
+        return "success_with_style"
+    return "success"
+
+
+def aspect_names(engine_stats: dict) -> list[str]:
+    """Aspect names of a character sheet: plain strings or {"name"} / {"text"} dicts."""
+    names = []
+    for aspect in (engine_stats or {}).get("aspects") or []:
+        if isinstance(aspect, dict):
+            aspect = aspect.get("name") or aspect.get("text")
+        if isinstance(aspect, str) and aspect:
+            names.append(aspect)
+    return names
+
+
+def _known_invocations(invoked: Sequence[str], aspects: Sequence[str]) -> list[str]:
+    """Invoked aspects without duplicates (order kept); an unknown one is refused."""
+    known = {normalize_name(a) for a in aspects}
+    seen, unique = set(), []
+    for name in invoked:
+        key = normalize_name(name)
+        if key not in known:
+            raise TurnError("invalid_invocation", f"Aspect inconnu : {name}.")
+        if key not in seen:
+            seen.add(key)
+            unique.append(name)
+    return unique
 
 
 class FateCoreEngine(BaseEngine):
@@ -263,18 +301,24 @@ class FateCoreEngine(BaseEngine):
                 else:
                     changes["overflow"] = True
 
-        # Handle fate point spending from aspect invocations
+        # Fate points spent on invocations: never below zero, or the whole turn fails.
         spent_fp = details.get("fate_points_spent", 0)
         if spent_fp > 0:
-            await conn.execute(
+            remaining = await conn.fetchval(
                 """
                 UPDATE character_fate
-                SET fate_points = GREATEST(0, fate_points - $1), updated_at = now()
-                WHERE game_id = $2
+                SET fate_points = fate_points - $1, updated_at = now()
+                WHERE game_id = $2 AND fate_points >= $1
+                RETURNING fate_points
                 """,
                 spent_fp,
                 game_id,
             )
+            if remaining is None:
+                raise TurnError(
+                    "invalid_invocation",
+                    f"Pas assez de points de destin pour {spent_fp} invocations.",
+                )
             changes["fate_points_spent"] = spent_fp
 
         return changes
@@ -366,15 +410,7 @@ class FateCoreEngine(BaseEngine):
             difficulty = opposition_total
 
         shifts = skill_total - difficulty
-
-        if shifts < 0:
-            outcome = "failure"
-        elif shifts == 0:
-            outcome = "tie"
-        elif shifts >= 3:
-            outcome = "success_with_style"
-        else:
-            outcome = "success"
+        outcome = outcome_for_shifts(shifts)
 
         details = {
             "skill_name": decision.skill,
@@ -401,6 +437,26 @@ class FateCoreEngine(BaseEngine):
             complication=False,
             details=details,
         )
+
+    def apply_invocation(self, roll: RollResult, invoked: Sequence[str],
+                         aspects: Sequence[str], fate_points: int) -> RollResult:
+        """+2 per invoked aspect on the ORIGINAL roll, outcome recomputed (pure)."""
+        unique = _known_invocations(invoked, aspects)
+        if not unique:
+            return roll.model_copy(deep=True)
+        if len(unique) > fate_points:
+            raise TurnError(
+                "invalid_invocation",
+                f"Pas assez de points de destin ({fate_points}) pour {len(unique)} invocations.",
+            )
+        bonus = 2 * len(unique)
+        skill_total = roll.skill_total + bonus
+        shifts = skill_total - roll.details.get("difficulty", 0)
+        details = {**roll.details, "invoked_aspects": unique, "invocation_bonus": bonus,
+                   "fate_points_spent": len(unique)}
+        return roll.model_copy(update={"skill_total": skill_total, "shifts": shifts,
+                                       "outcome": outcome_for_shifts(shifts),
+                                       "details": details})
 
     def build_narrator_addon(self, roll_result: RollResult | None) -> str:
         """Inject roll result into narrator prompt."""

@@ -3,17 +3,21 @@
 The roll is only computed and announced here (roll_result): its effects are
 applied by the commit step, in the turn's transaction (#16).
 
-HALT means the turn stops here: the pending roll is missing, or the player may
-invoke aspects on a failed Fate roll (roll_pending sent, the turn resumes later).
+HALT means the turn stops here: the player may invoke aspects on a failed Fate
+roll (roll_pending sent, the turn resumes later with its roll_id). While a roll
+waits, any other message gets the same roll_pending again: it cannot be dodged (#32).
 """
 
 from dataclasses import dataclass
 from uuid import UUID
 
+from domain.errors import TurnError
+from domain.turn import PendingRoll
 from pipeline.context import TurnContext
 from pipeline.steps.load import Prepared
 from repos import turns
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
+from services.engine.fate_core import aspect_names
 from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
 
 
@@ -21,48 +25,21 @@ from services.engine.mechanical_service import MechanicalStepUnavailable, run_me
 class Arbitration:
     mechanical: MechanicalResult | None
     resumed_roll_id: UUID | None
+    # Resumed roll: the stored action, narrated and saved instead of the received message.
+    player_message: str | None = None
 
 
 HALT = object()
 
 
-def _resume_invocation(roll_data: dict, invoked: list[str]) -> None:
-    """Apply +2 per invoked aspect to a stored Fate roll and recompute its outcome."""
-    bonus = len(invoked) * 2
-    roll_data["skill_total"] = roll_data["skill_total"] + bonus
-    difficulty = roll_data.get("details", {}).get("difficulty", 0)
-    new_shifts = roll_data["skill_total"] - difficulty
-    if new_shifts < 0:
-        roll_data["outcome"] = "failure"
-    elif new_shifts == 0:
-        roll_data["outcome"] = "tie"
-    elif new_shifts >= 3:
-        roll_data["outcome"] = "success_with_style"
-    else:
-        roll_data["outcome"] = "success"
-    roll_data["shifts"] = new_shifts
-    roll_data.setdefault("details", {})
-    roll_data["details"]["invoked_aspects"] = invoked
-    roll_data["details"]["invocation_bonus"] = bonus
-    roll_data["details"]["fate_points_spent"] = len(invoked)
-
-
-async def _resume_roll(ctx: TurnContext):
-    """Resume from a Fate Core aspect invocation, using the stored roll."""
+async def _resume_roll(ctx: TurnContext, pending: PendingRoll | None) -> Arbitration:
+    """Resume the stored roll with the invoked aspects (+2 each, from the original roll)."""
     request = ctx.request
-    async with ctx.pool.acquire() as conn:
-        pending = await turns.load_pending_roll(conn, request.game_id, request.roll_id)
-    if not pending:
-        await ctx.sink.send_error("Pending roll not found", recoverable=True)
-        return HALT
-
-    roll_data = dict(pending["roll_details"])
-    invoked = list(request.invoked_aspects)
-    if invoked:
-        _resume_invocation(roll_data, invoked)
-
-    updated_roll = RollResult(**roll_data)
-    details = roll_data.get("details", {})
+    if pending is None or pending.id != request.roll_id:
+        raise TurnError("roll_not_pending", "Ce jet n'est plus en attente.")
+    roll = ctx.engine.apply_invocation(RollResult(**pending.roll), request.invoked_aspects,
+                                       pending.aspects, pending.fate_points)
+    details = roll.details
     mechanical = MechanicalResult(
         decision=MechanicalDecision(
             requires_test=True,
@@ -70,12 +47,12 @@ async def _resume_roll(ctx: TurnContext):
             skill_value=details.get("skill_value"),
             difficulty=details.get("difficulty"),
         ),
-        roll=updated_roll,
+        roll=roll,
     )
-
-    # Stress + fate point deduction and the roll update happen at commit.
-    await ctx.sink.send_roll_result(updated_roll.model_dump())
-    return Arbitration(mechanical=mechanical, resumed_roll_id=request.roll_id)
+    # Stress + fate point deduction and the roll claim happen at commit.
+    await ctx.sink.send_roll_result(roll.model_dump())
+    return Arbitration(mechanical=mechanical, resumed_roll_id=pending.id,
+                       player_message=pending.player_message)
 
 
 async def _offer_invocation(ctx: TurnContext, prepared: Prepared,
@@ -83,21 +60,18 @@ async def _offer_invocation(ctx: TurnContext, prepared: Prepared,
     """On a failed Fate roll with fate points and aspects, store it and pause the turn."""
     stats = prepared.context.engine_stats
     fate_points = stats.get("fate_points", 0)
-    aspects = stats.get("aspects", [])
+    aspects = aspect_names(stats)
     if not (fate_points > 0 and aspects):
         return False
-    roll = mechanical.roll
     async with ctx.pool.acquire() as conn:
-        roll_id = await turns.log_mechanic_roll(
-            conn, ctx.request.game_id, message_id=None, engine=ctx.snapshot.engine,
-            roll=roll, cycle=ctx.snapshot.current_cycle,
+        roll_id = await turns.store_pending_roll(
+            conn, ctx.request.game_id, mechanical.roll, ctx.request.message,
+            ctx.snapshot.current_cycle,
         )
-    await ctx.sink.send_roll_pending({
-        "roll_id": str(roll_id),
-        "roll": roll.model_dump(),
-        "aspects": aspects,
-        "fate_points": fate_points,
-    })
+    pending = PendingRoll(id=roll_id, roll=mechanical.roll.model_dump(),
+                          player_message=ctx.request.message, aspects=aspects,
+                          fate_points=fate_points)
+    await ctx.sink.send_roll_pending(pending.offer())
     return True
 
 
@@ -134,7 +108,11 @@ async def _roll_dice(ctx: TurnContext, prepared: Prepared):
 async def arbitrate(ctx: TurnContext, prepared: Prepared):
     """Arbitration of the turn, or HALT when the turn must stop before narration."""
     if ctx.request.roll_id:
-        return await _resume_roll(ctx)
+        return await _resume_roll(ctx, prepared.pending_roll)
+    if prepared.pending_roll:
+        # A roll still waits for the player's choice: offer it again, roll nothing.
+        await ctx.sink.send_roll_pending(prepared.pending_roll.offer())
+        return HALT
     # The arrival scene is narration only: no dice on the opening text.
     if ctx.engine.needs_mechanical_step() and prepared.context.engine_stats and not prepared.is_arrival:
         return await _roll_dice(ctx, prepared)

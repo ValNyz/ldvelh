@@ -237,6 +237,9 @@ Ossek est au comptoir, occupé à nettoyer la machine à café avec une concentr
 --
 
 INSERT INTO public.mechanic_rolls (id, game_id, message_id, engine, skill_used, roll_details, outcome, complication, cycle, created_at) VALUES ('e42c8b5e-a84f-4218-9305-c7df85ed2e6c', '3ae11cca-36ef-46cc-8544-9e5cbcaf1aa9', '53d17d89-da4a-4a39-80d6-1e1c299c80d8', 'fate_core', 'Athlétisme', '{"dice": [1, 1, 1, 1], "total": 4, "shifts": 5, "details": {"reason": "Action risquée.", "difficulty": 1, "skill_name": "Athlétisme", "skill_label": "Correct", "skill_value": 2, "difficulty_label": "Correct"}, "outcome": "success_with_style", "skill_total": 6, "complication": false, "opposition_total": null}', 'success_with_style', false, 1, '2026-10-14 13:14:35.056273+00');
+-- Added by hand (#32): a roll left waiting for an aspect invocation by the pre-refactor code
+-- (message_id NULL, no status column yet). Replaying the migration must mark it expired.
+INSERT INTO public.mechanic_rolls (id, game_id, message_id, engine, skill_used, roll_details, outcome, complication, cycle, created_at) VALUES ('7c1d1f0e-5b7a-4c8e-9a51-2f4d3b6e8a10', '3ae11cca-36ef-46cc-8544-9e5cbcaf1aa9', NULL, 'fate_core', 'Athlétisme', '{"dice": [-1, -1, -1, -1], "total": -4, "shifts": -8, "details": {"reason": "Action risquée.", "difficulty": 4, "skill_name": "Athlétisme", "skill_label": "Médiocre", "skill_value": 0, "difficulty_label": "Bon"}, "outcome": "failure", "skill_total": -4, "complication": false, "opposition_total": null}', 'failure', false, 1, '2026-10-14 13:15:02.000000+00');
 
 
 --

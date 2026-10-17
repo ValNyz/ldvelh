@@ -380,12 +380,13 @@ mechanical_result = await run_mechanical_step(engine, context, message, provider
 5. Sends `SSEEvent.ROLL_RESULT` to frontend for dice display
 
 **Fate Core special case:** If roll outcome is failure and player has fate_points > 0 and aspects, the pipeline **pauses**:
-- Stores pending roll in `mechanic_rolls` table (with `message_id = NULL`)
+- Stores the roll in `mechanic_rolls` with `status = 'pending'` and the player's message (at most one per game)
 - Sends `SSEEvent.ROLL_PENDING` with `{roll_id, roll, aspects, fate_points}`
 - Closes the SSE stream and returns
 - Frontend shows aspect invocation modal → player selects aspects
 - Frontend sends new `POST /chat` with `roll_id + invoked_aspects`
-- Backend loads pending roll, applies +2/aspect bonus, recalculates outcome, continues to narration
+- Backend validates the invocation (known aspects, enough fate points), applies +2/aspect to the original roll, recalculates outcome and narrates the stored message; the commit claims the roll (`status = 'resolved'`) once
+- Any other `POST /chat` while the roll waits gets the same `roll_pending` again, and `GET /games/{id}` returns it as `state.pending_roll` so the modal comes back after a reload
 
 **Step 3: Build narrator prompts**
 

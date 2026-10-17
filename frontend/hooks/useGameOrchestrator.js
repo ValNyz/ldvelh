@@ -17,6 +17,14 @@ const PROTOCOL = {
 	ARRIVAL_TOKEN: '__ARRIVEE__',
 };
 
+/** Aspect invocation modal data, from a roll_pending event or a loaded game's pending_roll. */
+const toInvocationData = (pending) => ({
+	rollId: pending.roll_id,
+	roll: pending.roll,
+	aspects: pending.aspects,
+	fatePoints: pending.fate_points,
+});
+
 // ============================================================================
 // GAME ORCHESTRATOR HOOK
 // ============================================================================
@@ -149,12 +157,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		onRollPending: (data) => {
 			// Fate Core: roll failed, player can invoke aspects
 			endTurn();
-			setInvocationData({
-				rollId: data.roll_id,
-				roll: data.roll,
-				aspects: data.aspects,
-				fatePoints: data.fate_points,
-			});
+			setInvocationData(toInvocationData(data));
 		},
 		onWarning: (message) => {
 			gs.setWarning(message);
@@ -263,6 +266,8 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			if (data.state) {
 				gs.replaceGameState(data.state);
 			}
+			// A Fate roll still waiting for an invocation: show its modal again (#32).
+			setInvocationData(data.state?.pending_roll ? toInvocationData(data.state.pending_roll) : null);
 
 			const loadedMessages = data.messages || [];
 			gs.setMessages(loadedMessages);

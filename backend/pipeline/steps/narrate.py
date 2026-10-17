@@ -55,9 +55,11 @@ async def narrate(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration
 
     # Build engine + genre-aware prompts
     system_prompt = build_narrator_system_prompt(engine_type, genre=prepared.context.genre)
-    context_prompt = build_narrator_context_prompt(
-        prepared.context, engine_type, arbitration.mechanical
-    )
+    context = prepared.context
+    if arbitration.player_message:
+        # Resumed roll: narrate the stored action, whatever the resume request carried (#32).
+        context = context.model_copy(update={"player_input": arbitration.player_message})
+    context_prompt = build_narrator_context_prompt(context, engine_type, arbitration.mechanical)
     logger.debug(f"[CHAT] context prompt: {len(context_prompt)} chars")
 
     # Multi-turn messages (history + context prompt); assistant history wrapped

@@ -1,7 +1,8 @@
 """Commit step: every write of the turn in ONE transaction, dice effects included.
 
 Order: roll effects, narration state and deltas, engine snapshot and messages,
-roll log, engine lock. A failure anywhere rolls the whole turn back (#16, #20).
+roll log (or claim of the resumed pending roll), engine lock. A failure anywhere
+rolls the whole turn back (#16, #20); a pending roll claimed twice fails the turn (#32).
 """
 
 import json
@@ -9,6 +10,7 @@ import logging
 from dataclasses import asdict, dataclass
 from uuid import UUID
 
+from domain.errors import TurnError
 from domain.turn import AppliedDeltas, NarrationState
 from pipeline.context import TurnContext
 from pipeline.steps.arbitrate import Arbitration
@@ -64,11 +66,14 @@ async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
 
 async def _log_roll(conn, ctx: TurnContext, arbitration: Arbitration,
                     assistant_msg_id: UUID, cycle: int) -> None:
-    """Log the roll with its message, or link the resumed pending roll to it."""
+    """Log the roll with its message, or claim the resumed pending roll for it."""
     roll = arbitration.mechanical.roll
     if arbitration.resumed_roll_id:
-        await turns.update_mechanic_roll(conn, arbitration.resumed_roll_id, roll.model_dump(),
-                                         roll.outcome, assistant_msg_id)
+        claimed = await turns.claim_pending_roll(conn, ctx.request.game_id,
+                                                 arbitration.resumed_roll_id, roll.model_dump(),
+                                                 roll.outcome, assistant_msg_id)
+        if not claimed:
+            raise TurnError("roll_not_pending", "Ce jet n'est plus en attente.")
         return
     await turns.log_mechanic_roll(conn, ctx.request.game_id, message_id=assistant_msg_id,
                                   engine=ctx.snapshot.engine, roll=roll, cycle=cycle)
@@ -93,7 +98,7 @@ async def commit_turn(ctx: TurnContext, prepared: Prepared, arbitration: Arbitra
         _, assistant_msg_id = await turns.save_turn_messages(
             conn, game_id,
             # Keep the protocol token (e.g. __ARRIVEE__) so the chat history hides it.
-            user_message=ctx.request.message,
+            user_message=arbitration.player_message or ctx.request.message,
             assistant_message=narrated.display_text,
             state=state, narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot,
         )

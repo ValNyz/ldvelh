@@ -74,5 +74,11 @@
     "skill": "Athlétisme",
     "skill_total": 2,
     "total": -4
+  },
+  "saved_user_message": "Je tente un saut impossible.",
+  "stored_roll": {
+    "linked": true,
+    "outcome": "failure",
+    "status": "resolved"
   }
 }

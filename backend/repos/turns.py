@@ -175,44 +175,53 @@ async def lock_engine(conn, game_id: UUID) -> None:
     await _populator(game_id).lock_engine(conn)
 
 
-async def log_mechanic_roll(conn, game_id: UUID, *, message_id: UUID | None, engine: str,
+async def log_mechanic_roll(conn, game_id: UUID, *, message_id: UUID, engine: str,
                             roll: RollResult, cycle: int | None) -> UUID:
-    """Log a roll (message_id None while it waits for an aspect invocation)."""
+    """Log a resolved roll with the assistant message that narrated it."""
     return await _populator(game_id).log_mechanic_roll(
         conn, game_id, message_id, engine, roll.details.get("skill_name"),
         roll.model_dump(), roll.outcome, roll.complication, cycle,
     )
 
 
-async def load_pending_roll(conn, game_id: UUID, roll_id: UUID) -> dict | None:
-    """A roll still waiting for its message (aspect invocation resume)."""
+async def store_pending_roll(conn, game_id: UUID, roll: RollResult, player_message: str,
+                             cycle: int) -> UUID:
+    """A failed Fate roll waiting for an aspect invocation (at most one per game)."""
+    # Only Fate Core pauses a roll for an invocation.
+    return await conn.fetchval(
+        """INSERT INTO mechanic_rolls
+           (game_id, message_id, engine, skill_used, roll_details, outcome, complication,
+            cycle, status, player_message)
+           VALUES ($1, NULL, 'fate_core', $2, $3, $4, $5, $6, 'pending', $7)
+           RETURNING id""",
+        game_id, roll.details.get("skill_name"), roll.model_dump(), roll.outcome,
+        roll.complication, cycle, player_message,
+    )
+
+
+async def get_pending_roll(conn, game_id: UUID) -> dict | None:
+    """The game's roll waiting for an invocation: {"id", "roll", "player_message"}."""
     row = await conn.fetchrow(
-        """SELECT id, roll_details, outcome, engine, skill_used, cycle
-        FROM mechanic_rolls
-        WHERE id = $1 AND game_id = $2 AND message_id IS NULL""",
-        roll_id, game_id,
+        """SELECT id, roll_details, player_message FROM mechanic_rolls
+        WHERE game_id = $1 AND status = 'pending'""",
+        game_id,
     )
     if not row:
         return None
-    details = row["roll_details"]
-    if isinstance(details, str):
-        details = parse_json(details)
-    return {
-        "id": row["id"],
-        "roll_details": details,
-        "outcome": row["outcome"],
-        "engine": row["engine"],
-        "skill_used": row["skill_used"],
-        "cycle": row["cycle"],
-    }
+    roll = row["roll_details"]
+    if isinstance(roll, str):
+        roll = parse_json(roll)
+    return {"id": row["id"], "roll": roll, "player_message": row["player_message"] or ""}
 
 
-async def update_mechanic_roll(conn, roll_id: UUID, roll_details: dict, outcome: str,
-                               message_id: UUID | None) -> None:
-    """Final details and outcome of a resumed roll, linked to its message."""
-    await conn.execute(
+async def claim_pending_roll(conn, game_id: UUID, roll_id: UUID, roll_details: dict,
+                             outcome: str, message_id: UUID) -> bool:
+    """Resolve the pending roll with its final details; False if it was no longer pending."""
+    claimed = await conn.fetchval(
         """UPDATE mechanic_rolls
-        SET roll_details = $1, outcome = $2, message_id = $3
-        WHERE id = $4""",
-        roll_details, outcome, message_id, roll_id,
+        SET status = 'resolved', roll_details = $3, outcome = $4, message_id = $5
+        WHERE id = $1 AND game_id = $2 AND status = 'pending'
+        RETURNING id""",
+        roll_id, game_id, roll_details, outcome, message_id,
     )
+    return claimed is not None

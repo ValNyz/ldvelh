@@ -1,11 +1,11 @@
 """C-19: rows written by the pre-refactor code must stay readable and playable.
 
 The fixture is a frozen data-only dump (see make_legacy_fixture.py; header records the
-schema version it was taken at). It is loaded into a schema built by ALL current
-migrations, so this guards "legacy-shaped rows are readable/playable by the current schema
-and code". It does NOT prove that a migration preserved data: migrations never run over
-these rows (a pinned-version migrate-over harness is deferred to the first phase that
-ships a migration).
+schema version it was taken at). Every migration newer than that version is replayed over
+it: their down sections run on the empty schema, the dump is loaded, then their up sections
+run over the legacy rows, all in one transaction. So this guards both "legacy-shaped rows
+are readable/playable by the current schema and code" and "the newer migrations keep
+(or convert) legacy data", e.g. a roll left pending before #32 becomes expired.
 
 Replica mode (see load_legacy_game) means triggers do not run on load: regenerate the
 fixture when a migration adds triggers or derived tables, or they will be missing here.
@@ -22,11 +22,25 @@ from tests.characterization.harness import ChatHarness
 from tests.conftest import _db_unavailable
 
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_game.sql"
+MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
+LEGACY_PENDING_ROLL = "7c1d1f0e-5b7a-4c8e-9a51-2f4d3b6e8a10"
 
 
 def legacy_schema_version() -> str:
     """Latest migration version applied when the dump was taken (2nd header line)."""
     return FIXTURE.read_text(encoding="utf-8").splitlines()[1].split()[-1]
+
+
+def newer_migrations(version: str) -> list[tuple[str, str]]:
+    """(up, down) SQL of every dbmate migration newer than `version`, oldest first."""
+    sections = []
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        if path.name.split("_", 1)[0] <= version:
+            continue
+        text = path.read_text(encoding="utf-8")
+        up, down = text.split("-- migrate:down", 1)
+        sections.append((up.split("-- migrate:up", 1)[1], down))
+    return sections
 
 
 async def load_legacy_game(pool) -> tuple[str, str]:
@@ -38,12 +52,19 @@ async def load_legacy_game(pool) -> tuple[str, str]:
         # The dump has circular FKs (games <-> locations) and already contains the rows the
         # entity_registry triggers would create: load it as a replica (no FK checks, no
         # triggers), scoped to this transaction. Needs a superuser, as in the test DB.
+        # The migrations newer than the dump go down first and up again over its rows.
+        migrations = newer_migrations(legacy_schema_version())
         async with conn.transaction():
+            for _, down in reversed(migrations):
+                await conn.execute(down)
             try:
                 await conn.execute("SET LOCAL session_replication_role = replica")
             except asyncpg.InsufficientPrivilegeError as exc:
                 _db_unavailable(f"C-19 needs a superuser role to load the legacy dump: {exc}")
             await conn.execute(sql)
+            await conn.execute("SET LOCAL session_replication_role = origin")
+            for up, _ in migrations:
+                await conn.execute(up)
         email = await conn.fetchval(
             "SELECT u.email FROM users u JOIN games g ON g.user_id = u.id WHERE g.id = $1::uuid",
             game_id)
@@ -81,7 +102,8 @@ async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, l
         aspects = await conn.fetchval("SELECT aspects FROM character_fate WHERE game_id = $1::uuid", game_id)
         rolls = await conn.fetchval("SELECT COUNT(*) FROM mechanic_rolls WHERE game_id = $1::uuid", game_id)
     assert aspects and len(aspects) >= 2, aspects
-    assert rolls == 1
+    assert rolls == 2
+    assert body["state"]["pending_roll"] is None
 
     events = await h.chat(game_id, "Je reprends ma partie.")
     await h.drain()
@@ -89,3 +111,14 @@ async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, l
 
     r = await client.get(f"/api/games/{game_id}", headers=h.headers)
     assert len(r.json()["messages"]) > before
+
+
+async def test_legacy_pending_rows_are_expired(test_pool, legacy_game):
+    """#32: a roll left without a message by the old code is expired, the resolved one kept."""
+    game_id, _ = legacy_game
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id::text, status, message_id IS NULL AS orphan FROM mechanic_rolls"
+            " WHERE game_id = $1::uuid ORDER BY created_at", game_id)
+    assert [(r["status"], r["orphan"]) for r in rows] == [("resolved", False), ("expired", True)]
+    assert rows[1]["id"] == LEGACY_PENDING_ROLL

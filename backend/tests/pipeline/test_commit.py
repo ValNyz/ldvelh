@@ -148,3 +148,35 @@ async def test_commit_failure_sends_one_error_and_no_done(harness, fate_game,  #
     assert types.count("error") == 1
     assert "done" not in types
     assert await _engine_state(harness.pool, UUID(game_id)) == before
+
+
+async def test_commit_failure_on_resumed_roll_keeps_it_pending(harness, fate_game,  # noqa: F811
+                                                               monkeypatch):
+    """A resumed roll whose commit fails stays pending, fate points untouched (#16, #32)."""
+    game_id = fate_game
+    harness.llm._responses["mechanical"] = payloads.mechanical(
+        requires_test=True, skill="Athlétisme", skill_value=0, difficulty=4)
+    monkeypatch.setattr(fate_core, "random", SimpleNamespace(choice=lambda seq: -1))
+    events = await harness.chat(game_id, "Je tente un saut impossible.")
+    roll_id = next(e["roll_id"] for e in events if e["type"] == "roll_pending")
+    async with harness.pool.acquire() as conn:
+        fp_before = await conn.fetchval(
+            "SELECT fate_points FROM character_fate WHERE game_id = $1", UUID(game_id))
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(turns, "save_turn_messages", boom)
+    resumed = await harness.chat(game_id, "Je tente un saut impossible.", roll_id=roll_id,
+                                 invoked_aspects=["Pilote déchu en quête de rédemption"])
+    await harness.drain()
+
+    types = [e["type"] for e in resumed]
+    assert types.count("error") == 1
+    assert "done" not in types
+    async with harness.pool.acquire() as conn:
+        stored = await turns.get_pending_roll(conn, UUID(game_id))
+        fp_after = await conn.fetchval(
+            "SELECT fate_points FROM character_fate WHERE game_id = $1", UUID(game_id))
+    assert stored is not None and str(stored["id"]) == roll_id
+    assert fp_after == fp_before

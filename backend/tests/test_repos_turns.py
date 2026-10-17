@@ -31,14 +31,20 @@ async def _save(pool, game_id, user_message, assistant_message, state=None,
         )
 
 
-async def _load_pending(pool, game_id, roll_id):
+async def _store_pending(pool, game_id, roll, message="Je saute.", cycle=1):
     async with pool.acquire() as conn:
-        return await turns.load_pending_roll(conn, game_id, roll_id)
+        return await turns.store_pending_roll(conn, game_id, roll, message, cycle)
 
 
-async def _update(pool, roll_id, roll_details, outcome, message_id=None):
+async def _get_pending(pool, game_id):
     async with pool.acquire() as conn:
-        await turns.update_mechanic_roll(conn, roll_id, roll_details, outcome, message_id)
+        return await turns.get_pending_roll(conn, game_id)
+
+
+async def _claim(pool, game_id, roll_id, roll_details, outcome, message_id):
+    async with pool.acquire() as conn:
+        return await turns.claim_pending_roll(conn, game_id, roll_id, roll_details, outcome,
+                                              message_id)
 
 
 # =============================================================================
@@ -373,66 +379,58 @@ class TestMechanicRolls:
         assert roll_id is not None
         assert isinstance(roll_id, UUID)
 
-    async def test_load_pending_roll(self, client, test_user, test_pool):
+    async def test_store_and_get_pending_roll(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         roll = make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat", skill_total=1,
                          shifts=-3, details={"difficulty": 4})
-        roll_id = await log_roll(test_pool, game_id, roll)
+        roll_id = await _store_pending(test_pool, game_id, roll, message="Je frappe.", cycle=2)
 
-        pending = await _load_pending(test_pool, game_id, roll_id)
-        assert pending is not None
-        assert pending["id"] == roll_id
-        assert pending["outcome"] == "failure"
-        assert pending["roll_details"]["skill_total"] == 1
-
-    async def test_load_pending_roll_not_found_after_link(self, client, test_user, test_pool):
-        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        roll_id = await log_roll(test_pool, game_id, make_roll([0], 0, "failure", skill="Combat"))
-        _, aid = await _save(test_pool, game_id, "test", "response")
-        await _update(test_pool, roll_id, {"dice": [0], "total": 0}, "tie", message_id=aid)
-
-        # message_id is no longer NULL: not pending anymore
-        assert await _load_pending(test_pool, game_id, roll_id) is None
-
-    async def test_update_mechanic_roll(self, client, test_user, test_pool):
-        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        original = {"dice": [-1, 0, 0, -1], "total": -2, "outcome": "failure"}
-        roll_id = await log_roll(test_pool, game_id,
-                             make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat"))
-
-        updated = {**original, "outcome": "success", "details": {"invoked_aspects": ["A"]}}
-        await _update(test_pool, roll_id, updated, "success")
-
-        pending = await _load_pending(test_pool, game_id, roll_id)
-        assert pending["outcome"] == "success"
-        assert pending["roll_details"]["details"]["invoked_aspects"] == ["A"]
-
-    async def test_roll_details_round_trip(self, client, test_user, test_pool):
-        """Roll details stored as JSONB read back as a dict."""
-        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        roll_id = await log_roll(test_pool, game_id,
-                             make_roll([3, 5], 8, "success", skill="Combat", shifts=2,
-                                       details={"difficulty": 6}))
-
-        pending = await _load_pending(test_pool, game_id, roll_id)
-        assert pending is not None
-        assert isinstance(pending["roll_details"], dict)
-        assert pending["roll_details"]["total"] == 8
-        assert pending["roll_details"]["dice"] == [3, 5]
-
-    async def test_update_roll_details_round_trip(self, client, test_user, test_pool):
-        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        roll_id = await log_roll(test_pool, game_id,
-                             make_roll([1, 2], 3, "tie", skill="Empathie"))
-        new_details = {"dice": [1, 2], "total": 5, "aspect_invoked": "Ancien soldat", "bonus": 2}
-        await _update(test_pool, roll_id, new_details, "success")
-
+        pending = await _get_pending(test_pool, game_id)
+        assert pending == {"id": roll_id, "roll": roll.model_dump(), "player_message": "Je frappe."}
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT roll_details, outcome FROM mechanic_rolls WHERE id = $1", roll_id)
-        assert isinstance(row["roll_details"], dict)
-        assert row["roll_details"]["aspect_invoked"] == "Ancien soldat"
-        assert row["outcome"] == "success"
+            row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE id = $1", roll_id)
+        assert (row["status"], row["message_id"], row["engine"], row["skill_used"],
+                row["outcome"], row["cycle"]) == ("pending", None, "fate_core", "Combat",
+                                                  "failure", 2)
+
+    async def test_no_pending_roll(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        _, aid = await _save(test_pool, game_id, "test", "response")
+        await log_roll(test_pool, game_id, make_roll([0], 0, "tie"), message_id=aid)
+        assert await _get_pending(test_pool, game_id) is None
+
+    async def test_one_pending_roll_per_game(self, client, test_user, test_pool):
+        import asyncpg
+
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        await _store_pending(test_pool, game_id, make_roll([0], 0, "failure"))
+        with pytest.raises(asyncpg.UniqueViolationError):
+            await _store_pending(test_pool, game_id, make_roll([0], 0, "failure"))
+
+    async def test_claim_resolves_once(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        roll_id = await _store_pending(test_pool, game_id,
+                                       make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat"))
+        _, aid = await _save(test_pool, game_id, "test", "response")
+        final = {"dice": [-1, 0, 0, -1], "total": -2, "details": {"invoked_aspects": ["A"]}}
+
+        assert await _claim(test_pool, game_id, roll_id, final, "success", aid) is True
+        assert await _get_pending(test_pool, game_id) is None
+        async with test_pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE id = $1", roll_id)
+        assert (row["status"], row["outcome"], row["message_id"]) == ("resolved", "success", aid)
+        assert row["roll_details"]["details"]["invoked_aspects"] == ["A"]
+        # Second claim of the same roll: refused, nothing changes.
+        assert await _claim(test_pool, game_id, roll_id, {"dice": []}, "tie", aid) is False
+
+    async def test_claim_checks_the_game(self, client, test_user, test_pool):
+        from uuid import uuid4
+
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        roll_id = await _store_pending(test_pool, game_id, make_roll([0], 0, "failure"))
+        _, aid = await _save(test_pool, game_id, "test", "response")
+        assert await _claim(test_pool, uuid4(), roll_id, {}, "tie", aid) is False
+        assert (await _get_pending(test_pool, game_id))["id"] == roll_id
 
 
 # =============================================================================

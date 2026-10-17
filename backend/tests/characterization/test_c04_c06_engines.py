@@ -1,6 +1,7 @@
 """C-04..C-06: rule engines, Fate aspect invocation (pending roll + resume), compels."""
 
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 
@@ -101,10 +102,20 @@ async def test_c05_fate_invocation_pending_then_resume(harness, monkeypatch):
     aspect_name = aspect["name"] if isinstance(aspect, dict) else aspect
 
     fp_before = await _fate_points(harness, game_id)
-    resumed = await harness.chat(game_id, "Je tente un saut impossible.",
+    # #32: the resume narrates and saves the stored action, not the message it carries.
+    resumed = await harness.chat(game_id, "autre chose",
                                  roll_id=roll_id, invoked_aspects=[aspect_name])
     await harness.drain()
+    async with harness.pool.acquire() as conn:
+        stored = await conn.fetchrow(
+            "SELECT status, outcome, message_id IS NOT NULL AS linked FROM mechanic_rolls"
+            " WHERE id = $1", UUID(roll_id))
+        saved_user_message = await conn.fetchval(
+            "SELECT content FROM messages WHERE game_id = $1 AND role = 'user'"
+            " ORDER BY created_at DESC, sequence DESC LIMIT 1", game_id)
     assert_snapshot("c05_fate_invocation", {
+        "stored_roll": dict(stored),
+        "saved_user_message": saved_user_message,
         "first": harness.summarize(events),
         "pending_roll": {k: pending[0]["roll"][k] for k in ("dice", "total", "skill_total", "outcome", "shifts")},
         "pending_fate_points": pending[0]["fate_points"],
