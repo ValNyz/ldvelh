@@ -8,17 +8,11 @@ import json
 from typing import TYPE_CHECKING
 
 from prompts.shared import COHERENCE_RULES
-from prompts.examples import NARRATION_OUTPUT_TEMPLATE, NARRATION_EXAMPLE_NEUTRAL
 from services.engine import get_engine
 
 if TYPE_CHECKING:
     from schema.engine import MechanicalResult
     from schema.narration import NarrationContext
-
-# Serialize examples as proper JSON
-_json = lambda d: json.dumps(d, indent=2, ensure_ascii=False)
-_TEMPLATE = _json(NARRATION_OUTPUT_TEMPLATE)
-_EX_NEUTRAL = _json(NARRATION_EXAMPLE_NEUTRAL)
 
 
 # =============================================================================
@@ -64,7 +58,7 @@ Le protagoniste a un compagnon (IA, animal, esprit, objet animé — selon le co
 - Tu gères l'heure précise (format "HHhMM")
 - Le temps avance naturellement selon les actions
 - Tu peux faire des ellipses narratives si approprié
-- Pour passer au jour suivant, remplis `day_transition`
+- Pour passer au jour suivant, remplis `day_transition` : `null` ou `{{"new_date": "Jeudi 16 Mars 2847", "night_summary": "..."}}` (le cycle est calculé par le serveur)
 
 ### Espace
 - Utilise UNIQUEMENT les lieux existants (fournis dans le contexte)
@@ -216,10 +210,6 @@ Description de l'environnement à la 2e personne. Tu vois, tu entends, tu sens.
 La scène se termine sur un état ouvert — jamais de résolution non validée.
 ```
 
-## EXEMPLES
-
-Un exemple de scène neutre est fourni dans les exemples du contexte.
-
 ## RAPPELS CRITIQUES
 
 1. **Noms EXACTS** : Copier depuis le contexte
@@ -234,12 +224,10 @@ Un exemple de scène neutre est fourni dans les exemples du contexte.
 # =============================================================================
 
 # Default fallback tone (used when no genre is set)
-_DEFAULT_TONE = """## TON ET STYLE
-Monde indifférent, quotidien banal, personnages occupés par leurs propres problèmes.
+_DEFAULT_TONE = """Monde indifférent, quotidien banal, personnages occupés par leurs propres problèmes.
 Le protagoniste n'est la priorité de personne."""
 
-_DEFAULT_FRICTION = """## FRICTION NARRATIVE (CRITIQUE)
-**Ratio obligatoire** : Sur 5 scènes, 2-3 neutres/frustrantes, 1-2 positives, 0-1 tendue.
+_DEFAULT_FRICTION = """**Ratio obligatoire** : Sur 5 scènes, 2-3 neutres/frustrantes, 1-2 positives, 0-1 tendue.
 Le monde est indifférent. Les actions peuvent échouer. Les relations sont lentes."""
 
 
@@ -531,11 +519,15 @@ def build_narrator_context_prompt(
     lines.append("## FORMAT DE RÉPONSE ATTENDU (rappel)")
     lines.append("")
     lines.append("```json")
+    compel = (
+        '  "compel_aspect": null,\n  "compel_result": null,\n'
+        if engine_type == "fate_core" else ""
+    )
     lines.append("""{
   "narrative_length": "short | medium | long",
   "narrative_text": "...",
   "time": {"new_time": "HHhMM", "ellipse": false},
-  "day_transition": null,
+  "day_transition": null ou {"new_date": "Jeudi 16 Mars 2847", "night_summary": "..."},
   "current_location": "Nom EXACT",
   "npcs_present": [],
   "credit_delta": null,
@@ -544,9 +536,7 @@ def build_narrator_context_prompt(
   "events_mentioned": [],
   "info_requests": [],
   "extraction_triggers": [],
-  "compel_aspect": null,
-  "compel_result": null,
-  "scene_mood": "2-3 mots",
+""" + compel + """  "scene_mood": "2-3 mots",
   "narrator_notes": "Notes courtes"
 }""")
     lines.append("```")

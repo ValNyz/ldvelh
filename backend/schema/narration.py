@@ -6,7 +6,7 @@ Input/Output models for the narrator LLM
 import logging
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .core import (
     EntityRef,
@@ -285,11 +285,21 @@ class TimeProgression(BaseModel):
 
 
 class DayTransition(BaseModel):
-    """Transition to a new day"""
+    """Transition to a new day; the server computes the cycle and a missing date (#16)."""
 
-    new_cycle: int
-    new_date: str  # "Jeudi 16 Mars 2847"
+    new_cycle: int | None = None  # Ignored: the cycle always advances by exactly one
+    new_date: str | None = None  # "Jeudi 16 Mars 2847"
     night_summary: Phrase | None = None  # 150 chars
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_loose_shapes(cls, data):
+        """`true` means "next day"; a bare string is the new date."""
+        if data is True:
+            return {}
+        if isinstance(data, str):
+            return {"new_date": data}
+        return data
 
 
 class CreditDelta(BaseModel):
@@ -436,3 +446,46 @@ class NarrationOutput(BaseModel):
     # === META ===
     scene_mood: Tag | None = None  # 50 chars - mood in 2-3 words
     narrator_notes: Text | None = None  # 300 chars - internal notes
+
+
+# =============================================================================
+# LENIENT PARSING
+# =============================================================================
+
+OPTIONAL_NARRATION_FIELDS = (
+    "day_transition", "credit_delta", "entity_reveals", "inventory_hints",
+    "events_mentioned", "info_requests", "extraction_triggers", "compel_aspect",
+    "compel_result",
+)
+
+NARRATION_INVALID_MESSAGE = "La réponse du narrateur était inutilisable. Réessaie."
+
+
+class NarrationInvalid(ValueError):
+    """The narrator output cannot be used even after dropping optional fields."""
+
+
+def parse_narration(parsed: dict, *, current_time: str,
+                    current_location: str) -> tuple[NarrationOutput, list[str]]:
+    """Validate the narrator JSON; optional fields that fail are dropped, not the turn.
+
+    Returns the narration and the names of the dropped fields. `time` and
+    `current_location` default to the current state. Raises NarrationInvalid when
+    `narrative_text` is missing or the output is still invalid after dropping.
+    """
+    data = dict(parsed)
+    data.setdefault("time", {"new_time": current_time, "ellipse": False})
+    data.setdefault("current_location", current_location)
+    try:
+        return NarrationOutput.model_validate(data), []
+    except ValidationError as first:
+        failing = {str(err["loc"][0]) for err in first.errors() if err["loc"]}
+        dropped = [f for f in OPTIONAL_NARRATION_FIELDS if f in failing and f in data]
+        if not dropped or failing - set(dropped):
+            raise NarrationInvalid(str(first)) from first
+        for field in dropped:
+            del data[field]
+        try:
+            return NarrationOutput.model_validate(data), dropped
+        except ValidationError as second:
+            raise NarrationInvalid(str(second)) from second

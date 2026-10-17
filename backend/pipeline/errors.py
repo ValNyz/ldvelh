@@ -7,6 +7,7 @@ from pydantic import ValidationError
 from domain.errors import TurnError
 from pipeline.narration_stream import ProviderCallFailed
 from pipeline.ports import EventSink
+from schema.narration import NARRATION_INVALID_MESSAGE, NarrationInvalid
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,8 @@ def to_turn_error(exc: BaseException, provider_name: str | None, ref: str) -> Tu
         return exc
     if isinstance(exc, ProviderCallFailed):
         return _provider_error(exc, provider_name)
-    if isinstance(exc, ValidationError):
-        return TurnError("narration_invalid",
-                         "La réponse du narrateur était inutilisable. Réessaie.")
+    if isinstance(exc, (ValidationError, NarrationInvalid)):
+        return TurnError("narration_invalid", NARRATION_INVALID_MESSAGE)
     return TurnError(
         "internal",
         f"Erreur interne (réf. {ref}). Réessaie ; si ça persiste, signale cette référence.",

@@ -166,10 +166,10 @@ async def test_c09_day_transition(harness, world_game):
     {"new_cycle": 7, "new_date": "Jour 7"},
 ], ids=["no_date", "no_cycle", "extra_key", "new_cycle_ignored"])
 async def test_c09b_day_transition_strictness(harness, world_game, bad, request):
-    """Issue #16: record how odd day_transition shapes behave (observation only).
+    """Issue #16 (fixed): odd day_transition shapes no longer discard the turn.
 
-    A missing field discards the whole turn (error event, cycle unchanged); extra keys are
-    accepted; the payload's new_cycle value is ignored (cycle becomes current + 1)."""
+    A missing new_cycle or new_date is tolerated, extra keys are accepted and the
+    payload's new_cycle value is ignored (cycle becomes current + 1)."""
     events = await _turn(harness, world_game, _narration(day_transition=bad), "Je dors.")
     async with harness.pool.acquire() as conn:
         cycle = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1", world_game)

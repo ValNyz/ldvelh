@@ -5,6 +5,7 @@ from pydantic import BaseModel, ValidationError
 
 from pipeline.errors import TurnError, report_error, to_turn_error
 from pipeline.narration_stream import ProviderCallFailed
+from schema.narration import NarrationInvalid
 
 
 class _StatusError(Exception):
@@ -52,6 +53,13 @@ def test_validation_error_is_narration_invalid():
     with pytest.raises(ValidationError) as info:
         _Model.model_validate({"x": "pas un nombre"})
     err = to_turn_error(info.value, "anthropic", "abc123")
+    assert err.code == "narration_invalid"
+    assert err.message == "La réponse du narrateur était inutilisable. Réessaie."
+    assert err.recoverable is True
+
+
+def test_narration_invalid_maps_to_french_error():
+    err = to_turn_error(NarrationInvalid("narrative_text missing"), "anthropic", "abc123")
     assert err.code == "narration_invalid"
     assert err.message == "La réponse du narrateur était inutilisable. Réessaie."
     assert err.recoverable is True

@@ -65,7 +65,10 @@ async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
     current_date = await KnowledgeGraphReader(None, game_id).get_current_date(conn)
     new_date = current_date
     if narration.day_transition:
-        new_date = getattr(narration.day_transition, "new_date", current_date)
+        new_date = narration.day_transition.new_date
+        if not new_date:
+            new_date = f"Jour {new_cycle}"
+            logger.warning(f"[GAME] day_transition without new_date, using '{new_date}'")
 
     location_id = None
     if location:

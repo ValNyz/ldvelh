@@ -1,10 +1,9 @@
 {
-  "cycle": 1,
-  "errors": [
-    "La réponse du narrateur était inutilisable. Réessaie."
-  ],
+  "cycle": 2,
+  "errors": [],
   "sse": [
     "chunk*",
-    "error"
+    "done",
+    "saved"
   ]
 }

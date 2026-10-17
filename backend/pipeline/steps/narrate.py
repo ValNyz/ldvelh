@@ -1,4 +1,4 @@
-"""Narrate step: prompts, streamed narration and its strict validation."""
+"""Narrate step: prompts, streamed narration and its lenient validation."""
 
 import logging
 from dataclasses import dataclass
@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from llm.session import Purpose
 from pipeline import narration_stream
 from pipeline.context import TurnContext
-from pipeline.errors import TurnError
 from pipeline.steps.arbitrate import Arbitration
 from pipeline.steps.load import Prepared
 from prompts.narrator_prompt import build_narrator_context_prompt, build_narrator_system_prompt
 from schema import NarrationOutput
+from schema.narration import NarrationInvalid, parse_narration
 from services.game_service import GameService
 
 logger = logging.getLogger(__name__)
@@ -38,14 +38,15 @@ def _log_llm_context(system_prompt: str, llm_messages: list[dict]) -> None:
 
 def _validate(ctx: TurnContext, parsed: dict | None) -> NarrationOutput:
     if not parsed:
-        raise TurnError("narration_invalid",
-                        "La réponse du narrateur était inutilisable. Réessaie.")
-    # Fill missing required fields with current game state
-    if "time" not in parsed:
-        parsed["time"] = {"new_time": ctx.snapshot.current_time, "ellipse": False}
-    if "current_location" not in parsed:
-        parsed["current_location"] = ctx.snapshot.current_location_name or ""
-    return NarrationOutput.model_validate(parsed)
+        raise NarrationInvalid("empty narrator output")
+    narration, dropped = parse_narration(
+        parsed, current_time=ctx.snapshot.current_time,
+        current_location=ctx.snapshot.current_location_name or "",
+    )
+    if dropped:
+        # Logged only: nothing about dropped fields reaches the player.
+        logger.warning(f"[NARRATE] Dropped invalid optional fields: {dropped}")
+    return narration
 
 
 async def narrate(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration) -> Narrated:

@@ -1451,3 +1451,38 @@ class TestNarratorProtagonistIdentity:
         ctx = _make_context(world_description="A bleak orbital station")
         prompt = build_narrator_context_prompt(ctx)
         assert "A bleak orbital station" in prompt
+
+
+# =============================================================================
+# SYSTEM PROMPT AND REMINDER CONSISTENCY (#44)
+# =============================================================================
+
+
+def test_system_prompt_headings_appear_once():
+    from prompts.narrator_prompt import build_narrator_system_prompt
+
+    prompt = build_narrator_system_prompt("none")
+    assert prompt.count("## TON ET STYLE") == 1
+    assert prompt.count("## FRICTION NARRATIVE") == 1
+
+
+def test_system_prompt_announces_no_missing_example():
+    from prompts.narrator_prompt import build_narrator_system_prompt
+
+    assert "exemple de scène neutre" not in build_narrator_system_prompt("none")
+
+
+@pytest.mark.parametrize("engine, shown", [
+    ("none", False), ("narrative", False), ("d6", False), ("fate_core", True),
+])
+def test_reminder_shows_compel_only_for_fate(engine, shown):
+    prompt = build_narrator_context_prompt(_make_context(), engine)
+    assert ("compel_aspect" in prompt) is shown
+    assert ("compel_result" in prompt) is shown
+
+
+def test_prompt_documents_day_transition():
+    from prompts.narrator_prompt import build_narrator_system_prompt
+
+    assert '{"new_date":' in build_narrator_system_prompt("none")
+    assert '{"new_date":' in build_narrator_context_prompt(_make_context(), "none")
