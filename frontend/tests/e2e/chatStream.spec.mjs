@@ -75,3 +75,20 @@ test('a 401 refreshes the session once and the turn goes through', async ({ page
 	const chats = api.calls.filter(c => c.path === '/chat');
 	expect(chats).toHaveLength(2);
 });
+
+test('a non-recoverable stream error is shown without Réessayer', async ({ page }) => {
+	const message = 'Ton action est enregistrée, mais l’affichage a échoué. Recharge la partie.';
+	await openGame(page, [{ __sse: [{ type: 'error', error: message, code: 'saved_display_failed', recoverable: false }] }]);
+	await send(page, 'J’ouvre la porte.');
+	await expect(page.getByText(message)).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Réessayer' })).toHaveCount(0);
+	await expect(input(page)).toBeEnabled();
+	await page.screenshot({ path: test.info().outputPath('non-recoverable-error.png') });
+});
+
+test('a server error flagged recoverable keeps Réessayer', async ({ page }) => {
+	await openGame(page, [{ __sse: [{ type: 'error', error: 'Le modèle a échoué.', code: 'llm_failed', recoverable: true }] }]);
+	await send(page, 'J’ouvre la porte.');
+	await expect(page.getByText('Le modèle a échoué.')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Réessayer' })).toBeVisible();
+});

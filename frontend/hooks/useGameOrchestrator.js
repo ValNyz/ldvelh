@@ -168,9 +168,10 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		onWarning: (message) => {
 			gs.setWarning(message);
 		},
-		onError: (err, details) => {
+		onError: (err, details, meta = {}) => {
 			endTurn();
-			gs.setError({ message: err, details, recoverable: true });
+			// Missing flag (client-side errors) means recoverable; the server says false when replaying would not help.
+			gs.setError({ message: err, details, recoverable: meta.recoverable !== false, code: meta.code });
 		}
 	});
 

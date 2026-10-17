@@ -36,7 +36,7 @@ export function useStreaming({
 				case 'done': onDone?.(data.displayText, data.state); break;
 				case 'saved': onSaved?.(); break;
 				case 'save_unconfirmed': onSaveUnconfirmed?.(); break;
-				case 'error': onError?.(data.error, data.details, { status: data.status, interrupted: !!data.interrupted }); break;
+				case 'error': onError?.(data.error, data.details, { status: data.status, interrupted: !!data.interrupted, recoverable: data.recoverable, code: data.code }); break;
 				case 'roll_result': onRollResult?.(data.roll); break;
 				case 'roll_pending': onRollPending?.(data); break;
 				case 'status': onStatus?.(data); break;
