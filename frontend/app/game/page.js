@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 
 // Hooks
 import { useGameState, useGames } from '../../hooks/useGameState';
@@ -9,6 +10,8 @@ import { useGameOrchestrator } from '../../hooks/useGameOrchestrator';
 import { usePreferences } from '../../hooks/usePreferences';
 import { useTooltips } from '../../hooks/useTooltips';
 import { useWorldData } from '../../hooks/useWorldData';
+import { useWizardSession } from '../../hooks/useWizardSession';
+import { draftKey, localDraftStore } from '../../lib/game/draftStores.mjs';
 
 // Auth
 import { useAuthContext } from '../../lib/AuthContext';
@@ -27,26 +30,26 @@ import { InventorySidebar, WorldSidebar } from '../../components/game/Sidebars';
 import CharacterSheet from '../../components/game/CharacterSheet';
 import AspectInvocationModal from '../../components/game/AspectInvocationModal';
 
-export default function Home() {
-	// =========================================================================
-	// AUTH GUARD
-	// =========================================================================
-
+// Auth guard only: the game screen and its hooks render once the player is signed in (#53).
+export default function GamePage() {
 	const { user, isAuthenticated, isLoading: authLoading, logout } = useAuthContext();
+	const router = useRouter();
 
-	if (authLoading) {
+	useEffect(() => {
+		if (!authLoading && !isAuthenticated) router.replace('/login/');
+	}, [authLoading, isAuthenticated, router]);
+
+	if (authLoading || !isAuthenticated) {
 		return (
 			<div className="min-h-screen bg-surface-container-lowest flex items-center justify-center">
 				<div className="w-10 h-10 border-4 border-gray-700 rounded-full border-t-primary animate-spin" />
 			</div>
 		);
 	}
+	return <GameScreen user={user} logout={logout} />;
+}
 
-	if (!isAuthenticated) {
-		if (typeof window !== 'undefined') window.location.href = '/login/';
-		return null;
-	}
-
+function GameScreen({ user, logout }) {
 	// =========================================================================
 	// HOOKS
 	// =========================================================================
@@ -76,6 +79,18 @@ export default function Home() {
 		tooltips: { refresh: refreshTooltips },
 		world: { refresh: refreshWorld },
 		preferences: prefs,
+	});
+
+	// World being created: draft kept in this browser, per user
+	const draftStore = useMemo(
+		() => localDraftStore(() => window.localStorage, draftKey(user.id)),
+		[user.id],
+	);
+	const wizardSession = useWizardSession({
+		store: draftStore,
+		openWizard: orch.handleNewGame,
+		closeWizard: orch.handleWizardCancel,
+		completeWizard: orch.handleWizardComplete,
 	});
 
 	// =========================================================================
@@ -139,8 +154,8 @@ export default function Home() {
 	if (phaseHook.isWizard) {
 		return (
 			<WizardContainer
-				onComplete={orch.handleWizardComplete}
-				onCancel={orch.handleWizardCancel}
+				key={wizardSession.wizardKey}
+				{...wizardSession.wizard}
 				loading={gs.loading}
 				preferences={prefs}
 			/>
@@ -157,7 +172,10 @@ export default function Home() {
 					loading={gamesHook.loadingList}
 					error={gs.error?.message}
 					onSelect={orch.handleLoadGame}
-					onNew={orch.handleNewGame}
+					onNew={wizardSession.startNew}
+					draft={wizardSession.resumable}
+					onResumeDraft={wizardSession.resume}
+					onDiscardDraft={wizardSession.discard}
 					onDelete={orch.handleDeleteGame}
 					onSettings={openSettings}
 					onLogout={() => { logout(); window.location.href = '/login/'; }}

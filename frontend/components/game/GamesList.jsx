@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import DraftCard from './DraftCard';
 
 export default function GamesList({
 	parties,
@@ -10,7 +11,10 @@ export default function GamesList({
 	onNew,
 	onDelete,
 	onSettings,
-	onLogout
+	onLogout,
+	draft,
+	onResumeDraft,
+	onDiscardDraft,
 }) {
 	const [confirmDelete, setConfirmDelete] = useState(null);
 
@@ -87,6 +91,11 @@ export default function GamesList({
 							)}
 						</button>
 					</div>
+
+					{/* World being created */}
+					{draft && (
+						<DraftCard draft={draft} onResume={onResumeDraft} onDiscard={onDiscardDraft} formatDate={formatDate} />
+					)}
 
 					{/* Error */}
 					{error && (

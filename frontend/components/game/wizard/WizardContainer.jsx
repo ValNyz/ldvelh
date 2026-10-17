@@ -10,30 +10,25 @@ import { D6_ATTRIBUTES, getD6Skills, getFateSkills } from '../../../lib/game/eng
 import { d6SkillsForSubmit } from '../../../lib/game/d6.mjs';
 import { TEXT_PAUSE_MS } from '../../../lib/game/formHistory.mjs';
 import {
+	INITIAL_WIZARD_FORM, WIZARD_STEPS as STEPS, WIZARD_STEP_LABELS as STEP_LABELS,
+} from '../../../lib/game/wizardForm.mjs';
+import {
 	baseOf, isAiValue, markSuggestions, rememberFill, withoutSuggestions,
 } from '../../../lib/game/enhanceBase.mjs';
 
-const STEPS = ['engine', 'world', 'character'];
-const STEP_LABELS = ['Moteur', 'Monde', 'Personnage'];
-
-const INITIAL_FORM = {
-	engine: 'none',
-	worldConfig: {
-		genre: 'sci_fi',
-		difficulty: 'moderate',
-		duration: 'medium',
-		hardcore: false,
-		lore: '',
-	},
-	characterData: {},
-	manualEntities: {},
-};
-
-export default function WizardContainer({ onComplete, onCancel, loading, preferences }) {
-	const [step, setStep] = useState(0);
+/**
+ * @param {Object} [props.initialDraft] - { step, form } to start from (a saved draft)
+ * @param {Function} [props.onSnapshot] - ({ step, form }) on every change, to save a draft
+ */
+export default function WizardContainer({ onComplete, onCancel, loading, preferences, initialDraft, onSnapshot }) {
+	const [step, setStep] = useState(initialDraft?.step ?? 0);
 	// One history for the whole form: undo / redo covers player and AI changes.
-	const form = useFormHistory(INITIAL_FORM);
+	const form = useFormHistory(initialDraft?.form ?? INITIAL_WIZARD_FORM);
 	const { engine, worldConfig, characterData, manualEntities } = form.state;
+
+	useEffect(() => {
+		onSnapshot?.({ step, form: form.state });
+	}, [step, form.state, onSnapshot]);
 	const [enhancing, setEnhancing] = useState(null); // scope being enhanced
 	const [enhanceError, setEnhanceError] = useState(null);
 	// AI fills per scope ({ base, result }), so a re-roll starts from the player's own state.

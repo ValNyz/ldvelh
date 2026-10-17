@@ -209,12 +209,14 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		phase.setGamePhase(phase.GAME_PHASE.WIZARD);
 	}, [gs, phase]);
 
-	const handleWizardComplete = useCallback(async ({ engine, worldConfig, characterData, manualEntities }) => {
+	// onCreated: called once the game exists (e.g. to drop the wizard draft)
+	const handleWizardComplete = useCallback(async ({ engine, worldConfig, characterData, manualEntities }, { onCreated } = {}) => {
 		gs.setLoading(true);
 		gs.setError(null);
 		gs.setWarning(null);
 		try {
 			const id = await games.createGame(engine);
+			onCreated?.();
 			gs.setGameId(id);
 			gs.setGameName(MESSAGES.NEW_GAME_NAME);
 

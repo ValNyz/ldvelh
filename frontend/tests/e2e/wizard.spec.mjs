@@ -1,8 +1,9 @@
 // Creation wizard: AI fill of each step, undo / redo over the whole form, D6 skills, payload sent.
 import { test, expect } from '@playwright/test';
 import { mockApi } from './mockApi.mjs';
-
-const SHOTS = 'test-results/screens';
+import {
+	SHOTS, descriptionField, enhanceButton, loreField, openWizard, redoButton, suggestions, undoButton,
+} from './wizardPage.mjs';
 
 const WORLD_FILL = {
 	world_config: {
@@ -26,19 +27,6 @@ const CHARACTER_FILL = {
 	},
 	cost: null,
 };
-
-const loreField = (page) => page.getByPlaceholder(/cyberpunk sous une pluie éternelle/);
-const descriptionField = (page) => page.getByPlaceholder(/ancienne pilote de course/);
-const enhanceButton = (page) => page.getByRole('button', { name: /avec l'IA|Nouvelle version/ });
-const suggestions = (page) => page.getByLabel("Suggéré par l'IA");
-const undoButton = (page) => page.getByRole('button', { name: /Défaire/ });
-const redoButton = (page) => page.getByRole('button', { name: /Refaire/ });
-
-async function openWizard(page) {
-	await page.goto('/game/');
-	await page.getByRole('button', { name: /Nouvelle aventure/ }).click();
-	await expect(page.getByText('Moteur', { exact: true })).toBeVisible();
-}
 
 test('AI fill, undo / redo across steps, D6 skills and the creation payload', async ({ page }) => {
 	const api = await mockApi(page, {
