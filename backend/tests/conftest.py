@@ -296,7 +296,6 @@ async def test_pool():
     assert_safe_test_db_url(TEST_DB_URL)
     import asyncpg
     import json
-    import pytest
 
     _try_dbmate_setup()
 
