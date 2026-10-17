@@ -9,8 +9,10 @@ from pydantic import ValidationError
 from domain.game import GameSnapshot
 from kg.reader import KnowledgeGraphReader
 from pipeline import narration_stream
+from pipeline.narration_stream import NarrationStream
 from pipeline.context import InitParams, TurnContext
 from pipeline.errors import TurnError
+from pipeline.uncancellable import finish_despite_cancel
 from prompts.world_generation_prompt import get_full_generation_prompt
 from repos import games as games_repo
 from schema import WorldGeneration
@@ -149,6 +151,15 @@ async def run_init(ctx: TurnContext) -> None:
 
     game_service = GameService(ctx.pool)
     init_result = await game_service.process_init(game_id, world_gen)
+    # World saved (one transaction): what follows completes even if the client leaves (#20).
+    await finish_despite_cancel(
+        _after_world_saved(ctx, game_service, init, init_result, result), ref=ctx.ref)
+
+
+async def _after_world_saved(ctx: TurnContext, game_service: GameService, init: InitParams,
+                             init_result: dict, result: NarrationStream) -> None:
+    """Engine setup, done payload, duration and initial Director, once the world is saved."""
+    game_id = ctx.request.game_id
     await _setup_engine(ctx, game_service, init)
     state = await game_service.load_game_state(game_id)
     payload = build_world_payload(state, init_result, init, result.parsed, result.cost)

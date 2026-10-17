@@ -8,6 +8,8 @@ from uuid import UUID
 from api import routes
 from api.streaming import SSEEvent, SSEWriter
 from config import get_settings
+from pipeline import turn
+from services.game_service import GameService
 from tests.characterization import payloads
 from tests.characterization.conftest import harness, llm_mode, scripted_llm  # noqa: F401
 from tests.pipeline.test_commit import _engine_state, _stress_on_every_roll, fate_game  # noqa: F401
@@ -204,3 +206,48 @@ async def test_http_disconnect_cancels_the_turn(harness, fate_game, monkeypatch)
     assert not any(b'"type": "done"' in chunk for chunk in sent)
     assert routes._get_game_lock(game_id).locked() is False
     assert await _game_state(harness.pool, game_id) == before
+
+
+async def test_disconnect_during_respond_still_schedules_and_keeps_the_turn(  # noqa: F811
+        harness, fate_game, test_user, monkeypatch):  # noqa: F811
+    """The turn is committed before respond: a disconnect then cancels nothing (#20)."""
+    game_id = UUID(fate_game)
+    before = await _game_state(harness.pool, game_id)
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_load = GameService.load_game_state
+    gated = False
+
+    async def gated_load(self, gid):
+        nonlocal gated
+        if not gated:
+            gated = True
+            entered.set()
+            await release.wait()
+        return await original_load(self, gid)
+
+    scheduled: list[str] = []
+    original_schedule = turn.schedule_background
+
+    async def spy_schedule(ctx, narrated, committed):
+        scheduled.append(narrated.display_text)
+        await original_schedule(ctx, narrated, committed)
+
+    monkeypatch.setattr(GameService, "load_game_state", gated_load)
+    monkeypatch.setattr(turn, "schedule_background", spy_schedule)
+
+    writer = routes.start_chat(routes.ChatRequest(message="Je regarde autour.", gameId=game_id),
+                               harness.pool, get_settings(), test_user["id"])
+    stream = writer.iterate()
+    await asyncio.wait_for(_read_until_chunk(stream), TIMEOUT)
+    await asyncio.wait_for(entered.wait(), TIMEOUT)  # respond is reading the saved state
+    await stream.aclose()
+    await asyncio.sleep(0.01)
+    release.set()
+
+    await asyncio.wait({writer._task}, timeout=TIMEOUT)
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+    assert writer._task.cancelled()  # the cancel was delivered...
+    assert len(scheduled) == 1  # ...yet extraction/Director were still scheduled
+    after = await _game_state(harness.pool, game_id)
+    assert after["messages"] == before["messages"] + 2
+    assert routes._get_game_lock(game_id).locked() is False
