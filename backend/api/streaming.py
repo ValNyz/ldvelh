@@ -15,6 +15,9 @@ from uuid import uuid4
 
 from fastapi.responses import StreamingResponse
 
+from domain.errors import TurnError
+from pipeline.errors import SAVED_DISPLAY_FAILED, to_turn_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -196,10 +199,21 @@ class SSEWriter:
                 except Exception as e:
                     logger.error(f"[SSE:{self._stream_id}] Erreur iteration: {e}")
                     cause = f"server-side stream error ({type(e).__name__})"
+                    yield self._stream_error_line(e)
                     break
         finally:
             if not finished:
                 self._on_disconnect(cause)
+
+    def _stream_error_line(self, exc: Exception) -> str:
+        """The one error event sent when the stream itself fails (French, with the ref)."""
+        if self._done_queued:  # committed: a retryable error would make the turn play twice
+            error = TurnError("saved_display_failed", SAVED_DISPLAY_FAILED, recoverable=False)
+        else:
+            error = to_turn_error(exc, None, self._stream_id)
+        payload = {"type": SSEEvent.ERROR.value, "error": error.message, "details": None,
+                   "recoverable": error.recoverable, "code": error.code, "ref": self._stream_id}
+        return f"data: {json.dumps(payload)}\n\n"
 
     def _on_disconnect(self, cause: str) -> None:
         """Stream ended early: drop further events and cancel the turn unless DONE was queued."""

@@ -9,16 +9,22 @@ While a roll waits, any other message gets the same roll_pending again: it canno
 be dodged (#32).
 """
 
+import logging
 from dataclasses import dataclass
 from uuid import UUID
 
+import asyncpg
+
 from domain.errors import TurnError
-from domain.turn import PendingRoll
+from domain.turn import InvocationOffer, PendingRoll
 from pipeline.context import TurnContext
 from pipeline.steps.load import Prepared
 from repos import turns
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
 from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
+from services.pending_roll import load_pending_roll
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -61,16 +67,32 @@ async def _offer_invocation(ctx: TurnContext, prepared: Prepared,
     offer = ctx.engine.invocation_offer(mechanical.roll, prepared.context.engine_stats)
     if offer is None:
         return False
-    async with ctx.pool.acquire() as conn:
-        roll_id = await turns.store_pending_roll(
-            conn, ctx.request.game_id, mechanical.roll, prepared.player_message,
-            ctx.snapshot.current_cycle,
-        )
-    pending = PendingRoll(id=roll_id, roll=mechanical.roll.model_dump(),
-                          player_message=prepared.player_message, aspects=offer.aspects,
-                          fate_points=offer.fate_points)
+    pending = await _store_or_existing_pending(ctx, prepared, mechanical, offer)
     await ctx.sink.send_roll_pending(pending.offer())
     return True
+
+
+async def _store_or_existing_pending(ctx: TurnContext, prepared: Prepared,
+                                     mechanical: MechanicalResult,
+                                     offer: InvocationOffer) -> PendingRoll:
+    """Store the new pending roll; if one was stored since load (one per game), that one."""
+    game_id = ctx.request.game_id
+    async with ctx.pool.acquire() as conn:
+        try:
+            roll_id = await turns.store_pending_roll(
+                conn, game_id, mechanical.roll, prepared.player_message,
+                ctx.snapshot.current_cycle,
+            )
+        except asyncpg.UniqueViolationError:
+            existing = await load_pending_roll(conn, game_id, ctx.engine)
+            if existing is None:  # resolved meanwhile: nothing coherent to offer
+                raise
+            logger.warning(f"[TURN:{ctx.ref}] A roll was already pending for game "
+                           f"{game_id}: offering it again, this roll is dropped")
+            return existing
+    return PendingRoll(id=roll_id, roll=mechanical.roll.model_dump(),
+                       player_message=prepared.player_message, aspects=offer.aspects,
+                       fate_points=offer.fate_points)
 
 
 async def _roll_dice(ctx: TurnContext, prepared: Prepared):

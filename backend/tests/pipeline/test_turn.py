@@ -19,12 +19,22 @@ class _Session:
         return "scripted-model"
 
 
+class _Pool:
+    """The commit's connection: acquired before the shielded commit, released after it."""
+
+    async def acquire(self):
+        return object()
+
+    async def release(self, conn):
+        pass
+
+
 def _ctx() -> TurnContext:
     game_id = uuid4()
     snapshot = GameSnapshot(id=game_id, world_created=True, current_cycle=1,
                             current_time="08h00", current_location_name="Bar")
     return TurnContext(request=TurnRequest(game_id=game_id, user_id=uuid4(), message="Je regarde."),
-                       snapshot=snapshot, session=_Session(), sink=None, pool=None, engine=None,
+                       snapshot=snapshot, session=_Session(), sink=None, pool=_Pool(), engine=None,
                        ref="test")
 
 

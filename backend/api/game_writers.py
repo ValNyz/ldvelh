@@ -1,0 +1,42 @@
+"""Writers of the accepted /chat requests per game, while their task runs (C-13, #20, #79).
+
+A game is busy when its lock is held, unless every one of these writers lost its client.
+Every accepted writer stays registered until its own task is done (done callback), so
+an entry cannot leak (task cancelled before its first step) nor vanish early (a queued
+resend cancelled while an older, client-less turn still holds the lock).
+"""
+
+import asyncio
+
+from api.streaming import SSEWriter
+
+_writers: dict[str, list[SSEWriter]] = {}
+
+
+def register(key: str, writer: SSEWriter, task: asyncio.Task) -> None:
+    """Track `writer` for game `key` until `task` is done."""
+    _writers.setdefault(key, []).append(writer)
+    task.add_done_callback(lambda _task: _unregister(key, writer))
+
+
+def _unregister(key: str, writer: SSEWriter) -> None:
+    writers = _writers.get(key)
+    if writers is None:
+        return
+    writers[:] = [w for w in writers if w is not writer]  # only this writer's own entry
+    if not writers:
+        del _writers[key]
+
+
+def all_clients_gone(key: str) -> bool:
+    """True when the game has accepted requests and none of them still has its client.
+
+    No writer at all is False: the lock is then held by something else (e.g. a rollback).
+    """
+    writers = _writers.get(key)
+    return bool(writers) and all(w.disconnected for w in writers)
+
+
+def writers_of(key: str) -> list[SSEWriter]:
+    """The registered writers of a game (a copy)."""
+    return list(_writers.get(key, ()))

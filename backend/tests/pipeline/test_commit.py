@@ -61,8 +61,11 @@ async def test_failure_mid_commit_rolls_back_everything(harness, fate_game, monk
     # have all been written when it fails, so every assertion below can catch a leak.
     monkeypatch.setattr(turns, "lock_engine", boom)
     with pytest.raises(RuntimeError):
-        await commit_turn(ctx, Prepared(player_input="Je saute.", player_message="Je saute.",
-                                        is_arrival=False, context=None), arbitration, narrated)
+        async with pool.acquire() as conn:
+            await commit_turn(ctx, conn, Prepared(player_input="Je saute.",
+                                                  player_message="Je saute.",
+                                                  is_arrival=False, context=None),
+                              arbitration, narrated)
 
     assert await engine_state(pool, game_id) == before
 

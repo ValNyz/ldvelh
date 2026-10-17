@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from services.engine import get_engine
 
 from api.dependencies import get_pool, get_settings_dep, get_current_user
+from api import game_writers
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from llm.session import LLMSession
@@ -271,8 +272,6 @@ async def rollback_game(
 
 # Per-game locks to prevent concurrent _handle_chat for the same game
 _game_locks: dict[str, asyncio.Lock] = {}
-# Writer of the latest accepted /chat per game: lets a resend pass once its client left
-_game_writers: dict[str, SSEWriter] = {}
 
 
 def _get_game_lock(game_id: UUID) -> asyncio.Lock:
@@ -307,14 +306,12 @@ def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
     writer = SSEWriter()
     key = str(request.gameId)
     lock = _get_game_lock(request.gameId)
-    current = _game_writers.get(key)
-    if lock.locked() and not (current is not None and current.disconnected):
+    if lock.locked() and not game_writers.all_clients_gone(key):
         # Reject if another live request is already processing this game (C-13).
-        # A holder whose client is gone is being cancelled: queue behind it instead.
+        # Requests whose client is gone are being cancelled: queue behind them instead.
         writer.attach(asyncio.create_task(_reject_busy(writer)))
         return writer
-    _game_writers[key] = writer
-    writer.attach(asyncio.create_task(
+    task = asyncio.create_task(
         _handle_chat_locked(
             lock=lock,
             request=request,
@@ -323,7 +320,10 @@ def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
             settings=settings,
             user_id=user_id,
         )
-    ))
+    )
+    # Registered before the task runs, removed when it is done, even if cancelled first.
+    game_writers.register(key, writer, task)
+    writer.attach(task)
     return writer
 
 
@@ -338,13 +338,8 @@ async def _reject_busy(sse_writer: SSEWriter):
 
 async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):
     """Acquire game lock then delegate to _handle_chat."""
-    try:
-        async with lock:
-            await _handle_chat(**kwargs)
-    finally:
-        key = str(kwargs["request"].gameId)
-        if _game_writers.get(key) is kwargs["sink"]:
-            del _game_writers[key]
+    async with lock:
+        await _handle_chat(**kwargs)
 
 
 async def _api_key_or_raise(pool: asyncpg.Pool, user_id: UUID, provider_name: str) -> str:

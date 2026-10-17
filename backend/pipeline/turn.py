@@ -48,14 +48,20 @@ async def run_turn(ctx: TurnContext) -> None:
         _log_halted(ctx, started)
         return
     narrated = await narrate(ctx, prepared, arbitration)
-    # A started commit, and what follows it, completes even if the client leaves (#20).
-    await finish_despite_cancel(_commit_and_finish(ctx, prepared, arbitration, narrated, started),
-                                ref=ctx.ref)
+    # Waiting for a connection stays cancellable (exhausted pool, #79); once it is held,
+    # the commit and what follows it complete even if the client leaves (#20).
+    conn = await ctx.pool.acquire()
+    await finish_despite_cancel(
+        _commit_and_finish(ctx, conn, prepared, arbitration, narrated, started), ref=ctx.ref)
 
 
-async def _commit_and_finish(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration,
-                             narrated: Narrated, started: float) -> None:
-    committed = await commit_turn(ctx, prepared, arbitration, narrated)
+async def _commit_and_finish(ctx: TurnContext, conn, prepared: Prepared,
+                             arbitration: Arbitration, narrated: Narrated,
+                             started: float) -> None:
+    try:
+        committed = await commit_turn(ctx, conn, prepared, arbitration, narrated)
+    finally:
+        await ctx.pool.release(conn)
     # Saved: a failure from here on must not invite a resend.
     await finish_saved(_after_commit(ctx, narrated, arbitration, committed, started), ref=ctx.ref)
 

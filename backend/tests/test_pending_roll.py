@@ -203,3 +203,26 @@ async def test_fate_points_spent_elsewhere_before_commit(harness, pending, monke
     assert len(await _messages(harness, game_id)) == before
     async with harness.pool.acquire() as conn:
         assert (await turns.get_pending_roll(conn, game_id))["id"] == UUID(event["roll_id"])
+
+
+async def test_concurrent_pending_roll_is_offered_again(harness, pending, monkeypatch):
+    """A pending roll stored after load (unique index hit): the stored one is offered again."""
+    from pipeline.steps import load
+
+    game_id, event = pending
+
+    async def stale_load(*args, **kwargs):
+        return None  # load ran before the other pending roll was stored
+
+    monkeypatch.setattr(load, "load_pending_roll", stale_load)
+    events = await harness.chat(game_id, "Je fais autre chose.")
+    await harness.drain()
+
+    assert harness.summarize(events) == ["roll_pending"], events
+    assert events[0]["roll_id"] == event["roll_id"]
+    assert events[0]["roll"] == event["roll"]
+    async with harness.pool.acquire() as conn:
+        pending_rows = await conn.fetchval(
+            "SELECT count(*) FROM mechanic_rolls WHERE game_id = $1 AND status = 'pending'",
+            UUID(game_id))
+    assert pending_rows == 1

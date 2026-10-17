@@ -39,6 +39,7 @@ ldvelh/
 │   ├── api/
 │   │   ├── routes.py          # Endpoints; _handle_chat is a thin adapter (lock, session, error report)
 │   │   ├── streaming.py       # SSEWriter, SSE event types
+│   │   ├── game_writers.py    # Accepted /chat writers per game (busy check, C-13)
 │   │   ├── auth.py            # Auth endpoints (register, login, verify)
 │   │   ├── tooltips.py        # Tooltip endpoints
 │   │   └── dependencies.py    # FastAPI dependency injection
@@ -246,7 +247,9 @@ INIT mode is detected when the game snapshot has `world_created == False`.
    - Calls `game_service.process_init(game_id, world_gen)` which calls `WorldPopulator.populate()`
    - Sets engine + creates engine character if engine != "none"
    - Loads canonical state, builds `SSEDonePayload` with `world_info`
+   - Starts the initial Director (30 s timeout) as its own task and waits for it, so a connected client gets its `status` events first
    - Sends `SSEEvent.DONE` then `SSEEvent.SAVED`
+   - A client gone after the world is saved: engine setup and duration still complete; the Director finishes in the background and the game lock is released without waiting for it (#79)
 
 #### 2.6 Backend: WorldPopulator.populate()
 
@@ -373,11 +376,11 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 
 A turn that stops on a pending roll (HALT) logs `[TURN] game= engine= provider= halted=roll_pending ms=` instead (no tokens, no cost: nothing was narrated). `[CHAT] Deltas applied` (DEBUG) always has the shape `{"credit": {amount, description, applied, new_balance, error} | null, "compel": {...} | null}`. Story text never reaches WARNING or above: a pydantic `ValidationError` cause is logged as its field paths and error types (`utils/log_safe.py`; the full traceback only at DEBUG with `LOG_PROMPTS=true`), the arbiter's `reason` is DEBUG-only, and an unparsable narration logs its length at ERROR and an excerpt at DEBUG with `LOG_PROMPTS=true`. A failure after the save is logged once, at ERROR, by `report_error` (or by `finish_despite_cancel` when the client is gone), with its cause.
 
-**Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Once the commit has started, the commit itself, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work. Likewise, once `done` is queued on the writer, a disconnect no longer cancels the turn, and everything after the commit is shielded.
+**Disconnect.** `start_chat` attaches the turn task to its `SSEWriter` (`attach`); closing the stream (Cancel, tab closed) marks it `disconnected` and cancels the task. Nothing is committed, the game lock is released, and the next message is accepted at once (a writer whose client is gone does not count as busy; the new turn queues behind it). Every accepted writer is registered in `api/game_writers.py` from `start_chat` until its own task is done (done callback), so a task cancelled before its first step leaves no entry, and a queued resend cancelled meanwhile does not make the next message look busy while an older client-less turn still holds the lock (#79). The commit's connection is acquired before the shield, so a disconnect while the pool is exhausted still cancels the turn (nothing saved). Once the commit has started, the commit itself, `respond` and `schedule` run under `finish_despite_cancel` (`pipeline/uncancellable.py`): a disconnect at that moment does not lose the done payload or the background work. A failure there is logged; a `BaseException` that is not an `Exception` is logged, then re-raised. Likewise, once `done` is queued on the writer, a disconnect no longer cancels the turn, and everything after the commit is shielded.
 
 **Step 1: Load context**
 
-The pending roll is loaded first: on a resume (`roll_id` of the pending roll), the stored action is the turn's input from the start, for the context, the narrator and the saved user message, whatever the request carried. Otherwise the received message is used (`__ARRIVEE__` is narrated as the genre's arrival text and saved as the token).
+The pending roll is loaded first: on a resume (`roll_id` of the pending roll), the stored action is the turn's input from the start, for the context, the narrator and the saved user message, whatever the request carried. Otherwise the received message is used (`__ARRIVEE__` is narrated as the genre's arrival text and saved as the token). A new pending roll that hits the one-pending-per-game index (another one was stored after load) is dropped and the stored one is offered again (`roll_pending`), as for any message while a roll waits (#79).
 
 ```python
 builder = ContextBuilder(pool, game_id)
@@ -894,7 +897,7 @@ GameState:
 
 ### SSEWriter
 
-Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `send_progress`, `send_done`, etc.) and consumed by `iterate()` which yields `data: {json}\n\n` lines. Includes 60-second keepalive timeout. `attach(task)` ties the turn task to the writer; when the client closes the stream, `disconnected` becomes true and the task is cancelled (see 3.2, Disconnect).
+Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `send_progress`, `send_done`, etc.) and consumed by `iterate()` which yields `data: {json}\n\n` lines. Includes 60-second keepalive timeout. `attach(task)` ties the turn task to the writer; when the client closes the stream, `disconnected` becomes true and the task is cancelled (see 3.2, Disconnect). If the stream itself fails server-side (e.g. an event that cannot be serialized), one `error` event is sent before the stream closes: `code: internal` with the stream `ref`, or `saved_display_failed` (not recoverable) once `done` was queued, then the turn is cancelled as on a disconnect (unless `done` was queued).
 
 ### Frontend Handling
 

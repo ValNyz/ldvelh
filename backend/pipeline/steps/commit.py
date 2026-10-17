@@ -85,13 +85,14 @@ async def _log_roll(conn, ctx: TurnContext, arbitration: Arbitration,
                                   engine=ctx.snapshot.engine, roll=roll, cycle=cycle)
 
 
-async def commit_turn(ctx: TurnContext, prepared: Prepared, arbitration: Arbitration,
+async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: Arbitration,
                       narrated: Narrated) -> Committed:
+    """The turn's transaction, on a connection the caller acquired (and releases)."""
     game_id = ctx.request.game_id
     mechanical = arbitration.mechanical
     roll = mechanical.roll if mechanical else None
 
-    async with ctx.pool.acquire() as conn, conn.transaction():
+    async with conn.transaction():
         if roll:
             await ctx.engine.apply_roll_result(conn, game_id, roll, ctx.snapshot.current_cycle)
         state, applied = await _apply_narration(conn, game_id, narrated.narration,

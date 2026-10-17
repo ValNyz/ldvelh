@@ -5,7 +5,7 @@ import json
 import logging
 from uuid import UUID
 
-from api import routes
+from api import game_writers, routes
 from api.streaming import SSEEvent, SSEWriter
 from config import get_settings
 from pipeline import turn
@@ -72,7 +72,11 @@ async def test_internal_stream_error_is_logged_as_server_side(caplog):
         lines = [line async for line in writer.iterate()]
 
     await asyncio.wait({task}, timeout=1.0)
-    assert lines == []
+    assert len(lines) == 1  # the client is told, once, before the stream closes
+    error = json.loads(lines[0][6:])
+    assert error["type"] == "error"
+    assert (error["code"], error["ref"], error["recoverable"]) == ("internal", writer.stream_id, True)
+    assert error["error"].startswith("Erreur interne (réf. ")
     assert task.cancelled()
     assert "server-side stream error (TypeError)" in caplog.text
     assert "client disconnected" not in caplog.text
@@ -334,3 +338,164 @@ async def test_disconnect_after_world_saved_finishes_the_init(harness, test_user
     assert fate_rows == 1
     assert plans == 1
     assert routes._get_game_lock(game_id).locked() is False
+
+
+async def test_stream_error_after_done_reports_the_turn_as_saved():
+    """DONE queued: the turn is committed, so the error must not invite a resend."""
+    writer = SSEWriter()
+    await writer.send_done("Fin.", None)
+    await writer.send(SSEEvent.STATUS, {"bad": object()})
+
+    lines = [line async for line in writer.iterate()]
+
+    error = json.loads(lines[-1][6:])
+    assert (error["code"], error["recoverable"]) == ("saved_display_failed", False)
+    assert error["ref"] == writer.stream_id
+
+
+async def test_writer_entry_removed_when_cancelled_before_first_step(harness, fate_game, test_user):
+    game_id = fate_game
+    writer = routes.start_chat(routes.ChatRequest(message="Je regarde.", gameId=game_id),
+                               harness.pool, get_settings(), test_user["id"])
+    writer._task.cancel()  # before the task ran a single step
+    await asyncio.wait({writer._task}, timeout=TIMEOUT)
+    await asyncio.sleep(0)  # done callbacks run on the loop iteration after the task ends
+
+    assert writer._task.cancelled()
+    assert game_writers.writers_of(str(game_id)) == []
+
+
+def _gate_commit(monkeypatch) -> tuple[asyncio.Event, asyncio.Event]:
+    """The first commit waits on `release` once its transaction is open (`entered`)."""
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_save = turns.save_turn_messages
+    gated = False
+
+    async def gated_save(*args, **kwargs):
+        nonlocal gated
+        if not gated:
+            gated = True
+            entered.set()
+            await release.wait()
+        return await original_save(*args, **kwargs)
+
+    monkeypatch.setattr(turns, "save_turn_messages", gated_save)
+    return entered, release
+
+
+async def _client_leaves_while_waiting(writer: SSEWriter) -> None:
+    """The response task is cancelled while the stream waits for its first event."""
+    reading = asyncio.create_task(anext(writer.iterate()))
+    await asyncio.sleep(0.01)
+    reading.cancel()
+    await asyncio.wait({reading, writer._task}, timeout=TIMEOUT)
+
+
+async def test_cancelled_resend_does_not_make_the_next_request_busy(
+        harness, fate_game, test_user, monkeypatch):
+    """First turn unwinding (lock held), resend cancelled while queued: a third request passes."""
+    game_id = UUID(fate_game)
+    settings = get_settings()
+    entered, release = _gate_commit(monkeypatch)
+
+    first = routes.start_chat(routes.ChatRequest(message="Je regarde.", gameId=game_id),
+                              harness.pool, settings, test_user["id"])
+    stream = first.iterate()
+    await asyncio.wait_for(_read_until_chunk(stream), TIMEOUT)
+    await asyncio.wait_for(entered.wait(), TIMEOUT)
+    await stream.aclose()  # the commit finishes despite the cancel: the lock stays held
+
+    resend = routes.start_chat(routes.ChatRequest(message="Je regarde encore.", gameId=game_id),
+                               harness.pool, settings, test_user["id"])
+    await _client_leaves_while_waiting(resend)
+    assert resend._task.cancelled()
+    assert routes._get_game_lock(game_id).locked()
+
+    third = routes.start_chat(routes.ChatRequest(message="Je sors.", gameId=game_id),
+                              harness.pool, settings, test_user["id"])
+    release.set()
+    events = await asyncio.wait_for(_read_all(third), TIMEOUT)
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+
+    types = [e["type"] for e in events]
+    assert "error" not in types and "done" in types, events
+    await asyncio.sleep(0)  # done callbacks run on the loop iteration after the task ends
+    assert game_writers.writers_of(str(game_id)) == []
+
+
+async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
+        harness, fate_game, test_user, monkeypatch):
+    """Exhausted pool at commit time: a disconnect cancels the wait, nothing is saved."""
+    game_id = UUID(fate_game)
+    before = await _game_state(harness.pool, game_id)
+    gate = asyncio.Event()
+    harness.llm.stream_gate = gate
+    narrated = asyncio.Event()
+    original_narrate = turn.narrate
+
+    async def spy_narrate(*args, **kwargs):
+        result = await original_narrate(*args, **kwargs)
+        narrated.set()
+        return result
+
+    monkeypatch.setattr(turn, "narrate", spy_narrate)
+    writer = routes.start_chat(routes.ChatRequest(message="Je regarde autour.", gameId=game_id),
+                               harness.pool, get_settings(), test_user["id"])
+    stream = writer.iterate()
+    await asyncio.wait_for(_read_until_chunk(stream), TIMEOUT)
+    held = [await harness.pool.acquire() for _ in range(harness.pool.get_max_size())]
+    try:
+        harness.llm.stream_gate = None
+        gate.set()
+        await asyncio.wait_for(narrated.wait(), TIMEOUT)
+        await asyncio.sleep(0.05)  # the commit is now waiting for a connection
+        await stream.aclose()
+        await asyncio.wait({writer._task}, timeout=TIMEOUT)
+        assert writer._task.cancelled()  # done while the pool is still exhausted
+    finally:
+        for conn in held:
+            await harness.pool.release(conn)
+
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+    assert await _game_state(harness.pool, game_id) == before
+    assert routes._get_game_lock(game_id).locked() is False
+
+
+async def test_disconnect_during_initial_director_releases_the_lock(
+        harness, test_user, monkeypatch):
+    """INIT: a client gone during the initial Director does not hold the game lock for it."""
+    from pipeline import init_flow
+
+    game_id = UUID(await harness.create_game("fate_core"))
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_director = init_flow.run_director
+
+    async def gated_director(**kwargs):
+        entered.set()
+        await release.wait()
+        return await original_director(**kwargs)
+
+    monkeypatch.setattr(init_flow, "run_director", gated_director)
+    request = routes.ChatRequest(
+        message="__INIT__", gameId=game_id, engine="fate_core",
+        world_config={"genre": "sci_fi", "difficulty": "moderate", "duration": "short"},
+        character_data=payloads.CHARACTER_DATA["fate_core"])
+    writer = routes.start_chat(request, harness.pool, get_settings(), test_user["id"])
+    stream = writer.iterate()
+    await asyncio.wait_for(anext(stream), TIMEOUT)
+    await asyncio.wait_for(entered.wait(), TIMEOUT)
+    await stream.aclose()
+
+    await asyncio.wait({writer._task}, timeout=TIMEOUT)
+    try:
+        assert writer._task.cancelled()  # without waiting for the Director...
+        assert routes._get_game_lock(game_id).locked() is False
+    finally:
+        release.set()
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+    async with harness.pool.acquire() as conn:  # ...which still completes in the background
+        snapshot = await get_snapshot(conn, game_id)
+        plans = await conn.fetchval(
+            "SELECT count(*) FROM director_plans WHERE game_id = $1", game_id)
+    assert snapshot.world_created is True
+    assert plans == 1

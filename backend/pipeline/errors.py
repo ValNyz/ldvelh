@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import Awaitable
+from typing import TypeVar
 
 from pydantic import ValidationError
 
@@ -14,11 +15,13 @@ from utils.log_safe import has_validation_error, log_exception
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
+
 SAVED_DISPLAY_FAILED = ("Ton action est enregistrée, mais l'affichage a échoué. "
                         "Recharge la partie.")
 
 
-async def finish_saved(step: Awaitable[None], *, ref: str) -> None:
+async def finish_saved(step: Awaitable[T], *, ref: str) -> T:
     """Run what follows a save: any failure there is reported as saved, never retryable.
 
     A retryable message would make the player resend an action already saved (played twice).
@@ -26,7 +29,7 @@ async def finish_saved(step: Awaitable[None], *, ref: str) -> None:
     gone, `finish_despite_cancel` does), so each failure is logged exactly once.
     """
     try:
-        await step
+        return await step
     except Exception as exc:
         raise TurnError("saved_display_failed", SAVED_DISPLAY_FAILED,
                         recoverable=False) from exc
