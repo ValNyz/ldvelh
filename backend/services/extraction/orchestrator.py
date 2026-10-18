@@ -26,7 +26,7 @@ from .locations import LocationsExtractor
 from .narrative_arcs import NarrativeArcsExtractor
 from .organizations import OrganizationsExtractor
 from .progression import ProgressionExtractor
-from .resolver import resolve_entities, build_span_annotations
+from .resolver import ResolutionMap, resolve_entities, build_span_annotations
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,49 @@ EXTRACTOR_MAP = {
     "narrative_arcs": NarrativeArcsExtractor,
     "progression": ProgressionExtractor,
 }
+
+TYPE_TO_EXTRACTOR = {
+    "character": "characters",
+    "location": "locations",
+    "organization": "organizations",
+    "object": "inventory",
+}
+
+
+async def resolver_triggers(
+    conn: asyncpg.Connection, game_id: UUID, resolution_map: ResolutionMap
+) -> set[str]:
+    """Extractors implied by mappings that are new and not yet in the game's registry."""
+    candidates = [m for m in resolution_map.mappings
+                  if m.is_new and m.entity_type in TYPE_TO_EXTRACTOR]
+    if not candidates:
+        return set()
+    rows = await conn.fetch(
+        "SELECT LOWER(name) AS name FROM entity_registry WHERE game_id = $1", game_id
+    )
+    known = {r["name"] for r in rows}
+    return {TYPE_TO_EXTRACTOR[m.entity_type] for m in candidates
+            if m.canonical.lower() not in known}
+
+
+async def _compute_triggers(
+    pool: asyncpg.Pool,
+    game_id: UUID,
+    triggers: list[str] | None,
+    resolution_map: ResolutionMap | None,
+) -> set[str]:
+    """Narrator triggers plus resolver-inferred ones (new entities only), logged by origin."""
+    narrator = {t for t in (triggers or []) if t in EXTRACTOR_MAP}
+    inferred: set[str] = set()
+    if resolution_map:
+        async with pool.acquire() as conn:
+            inferred = await resolver_triggers(conn, game_id, resolution_map)
+    logger.info(
+        f"[EXTRACTION] Triggers for game {game_id}: "
+        f"narrator={sorted(narrator)} resolver={sorted(inferred)}"
+    )
+    return narrator | inferred
+
 
 async def run_resolve_and_extract(
     pool: asyncpg.Pool,
@@ -106,26 +149,9 @@ async def run_resolve_and_extract(
         # Phase 2: Extractors
         # Combine narrator triggers + resolver-inferred triggers from new entities
         # =====================================================================
-        trigger_set = set(t for t in (triggers or []) if t in EXTRACTOR_MAP)
-
-        # Resolver can infer additional extractors from new entity types
-        if resolution_map:
-            TYPE_TO_EXTRACTOR = {
-                "character": "characters",
-                "location": "locations",
-                "organization": "organizations",
-                "object": "inventory",
-            }
-            for mapping in resolution_map.mappings:
-                extractor = TYPE_TO_EXTRACTOR.get(mapping.entity_type)
-                if extractor and extractor not in trigger_set:
-                    trigger_set.add(extractor)
-                    logger.info(
-                        f"[EXTRACTION] Resolver added trigger '{extractor}' "
-                        f"(entity: {mapping.canonical})"
-                    )
-
-        valid_triggers = list(trigger_set)
+        valid_triggers = sorted(await _compute_triggers(
+            pool, game_id, triggers, resolution_map
+        ))
 
         if valid_triggers and message_content:
             logger.info(
