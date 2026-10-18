@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
 from startup_checks import check_startup_config
+from workers import supervisor
 
 import logging
 
@@ -42,6 +43,13 @@ async def _seed_dev_user(pool: asyncpg.Pool, settings) -> None:
         logger.info(f"[STARTUP] Dev user created: {email}")
 
 
+# Server-side safety nets on every pooled connection (milliseconds): a transaction left idle
+# 30 s is killed, a statement running 60 s is cancelled.
+POOL_SERVER_SETTINGS = {
+    "idle_in_transaction_session_timeout": "30000",
+    "statement_timeout": "60000",
+}
+
 # Pool de connexions global
 db_pool: asyncpg.Pool | None = None
 
@@ -65,6 +73,7 @@ async def lifespan(app: FastAPI):
     db_pool = await asyncpg.create_pool(
         settings.database_url, min_size=2, max_size=10,
         command_timeout=60, init=_init_connection,
+        server_settings=POOL_SERVER_SETTINGS,
     )
     print("[STARTUP] Pool de connexions créé")
 
@@ -74,7 +83,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: fermer le pool
+    # Shutdown: let background jobs finish (they use the pool), then close it
+    await supervisor.drain(settings.supervisor_drain_timeout)
     print("[SHUTDOWN] Fermeture du pool de connexions...")
     if db_pool:
         await db_pool.close()

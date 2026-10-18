@@ -33,6 +33,8 @@ services:
       dockerfile: backend/Dockerfile
       network: host
     restart: unless-stopped
+    # Room for the shutdown drain of background jobs (SUPERVISOR_DRAIN_TIMEOUT) plus the cancel grace.
+    stop_grace_period: 30s
     depends_on:
       db:
         condition: service_healthy

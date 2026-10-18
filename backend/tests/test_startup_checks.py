@@ -113,3 +113,18 @@ async def test_lifespan_refuses_to_start_before_touching_the_db(monkeypatch):
     with pytest.raises(RuntimeError, match="JWT_SECRET"):
         async with main.lifespan(main.app):
             pass
+
+
+@pytest.mark.parametrize("env, name", [
+    ({"WEB_CONCURRENCY": "2"}, "WEB_CONCURRENCY"),
+    ({"UVICORN_WORKERS": "4"}, "UVICORN_WORKERS"),
+    ({"WEB_CONCURRENCY": " 2 "}, "WEB_CONCURRENCY"),
+])
+def test_more_than_one_worker_is_refused(env, name):
+    errors = startup_config_errors(STRONG, FERNET, debug=False, env=env)
+    assert len(errors) == 1 and name in errors[0]
+
+
+@pytest.mark.parametrize("env", [{}, {"WEB_CONCURRENCY": "1"}])
+def test_one_worker_or_unset_passes(env):
+    assert startup_config_errors(STRONG, FERNET, debug=False, env=env) == []

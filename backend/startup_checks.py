@@ -1,6 +1,8 @@
 """Secrets validation run before the backend accepts traffic (fail-closed, #39)."""
 
 import binascii
+import os
+from collections.abc import Mapping
 
 from cryptography.fernet import Fernet
 
@@ -52,13 +54,29 @@ def _encryption_key_error(key: str, debug: bool) -> str | None:
     return None
 
 
-def startup_config_errors(jwt_secret: str, encryption_key: str, *, debug: bool) -> list[str]:
+_WORKER_COUNT_VARIABLES = ("WEB_CONCURRENCY", "UVICORN_WORKERS")
+
+
+def worker_count_error(env: Mapping[str, str]) -> str | None:
+    """Refuse a multi-worker start: game locks and the task supervisor are per process."""
+    for name in _WORKER_COUNT_VARIABLES:
+        value = env.get(name)
+        if value is not None and value.strip() != "1":
+            return (f"{name}={value}: LDVELH runs a single uvicorn worker (in-process game "
+                    "locks and task supervisor); unset it or set it to 1.")
+    return None
+
+
+def startup_config_errors(jwt_secret: str, encryption_key: str, *, debug: bool,
+                          env: Mapping[str, str] | None = None) -> list[str]:
     """Every reason the backend must not start; empty when the configuration is acceptable.
 
     The JWT secret is checked whatever DEBUG says. ENCRYPTION_KEY (saved API keys) may only
-    be missing in debug mode; when set, it must be a valid, unpublished Fernet key.
+    be missing in debug mode; when set, it must be a valid, unpublished Fernet key. `env`
+    (default `os.environ`) is checked for a multi-worker setting.
     """
-    errors = [_jwt_secret_error(jwt_secret), _encryption_key_error(encryption_key, debug)]
+    errors = [_jwt_secret_error(jwt_secret), _encryption_key_error(encryption_key, debug),
+              worker_count_error(os.environ if env is None else env)]
     return [error for error in errors if error]
 
 
