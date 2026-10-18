@@ -11,8 +11,9 @@ SET world_gen_example = replace(world_gen_example,
       '"name": "Valentin"', '"name": "{{PROTAGONIST_NAME}}"')
 WHERE world_gen_example LIKE '%"name": "Valentin"%';
 
--- 2. find_entity trims tabs and newlines as well as spaces, like Python's str.strip() in
--- EntityRegistry.resolve, so " PROTAGONIST\n" resolves on both sides of one extraction.
+-- 2. find_entity trims space, tab, CR and LF (not every Unicode whitespace, unlike Python's
+-- str.strip() in EntityRegistry.resolve), so " PROTAGONIST\n" resolves on both sides of one
+-- extraction.
 CREATE OR REPLACE FUNCTION public.find_entity(p_game_id uuid, p_name text, p_type character varying DEFAULT NULL::character varying) RETURNS uuid
     LANGUAGE plpgsql STABLE
     AS $$
