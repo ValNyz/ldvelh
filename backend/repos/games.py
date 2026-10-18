@@ -4,7 +4,7 @@ from uuid import UUID
 
 from domain.game import DirectorSchedule, GameSnapshot
 from kg.reader import KnowledgeGraphReader
-from schema.core import DEFAULT_GAME_TIME
+from schema import DEFAULT_GAME_TIME
 
 
 async def get_director_schedule(conn, game_id: UUID) -> DirectorSchedule:

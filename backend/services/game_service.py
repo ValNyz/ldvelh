@@ -18,8 +18,7 @@ from llm.usage import cost_from_stored
 from kg.reader import KnowledgeGraphReader
 from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
-from schema import WorldGeneration
-from schema.core import DEFAULT_GAME_TIME
+from schema import DEFAULT_GAME_TIME, WorldGeneration
 from services.engine import get_engine
 from services.pending_roll import load_pending_roll
 from repos import games as games_repo

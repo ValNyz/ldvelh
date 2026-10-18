@@ -3,7 +3,7 @@
 import json
 import logging
 
-from schema.core import DEFAULT_GAME_TIME
+from schema import DEFAULT_GAME_TIME
 from tests.characterization import payloads
 
 

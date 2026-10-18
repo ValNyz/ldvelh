@@ -33,6 +33,10 @@ from .core import (
     # Type aliases
     Cycle,
     EntityRef,
+    GameTime,
+    StrList,
+    DEFAULT_GAME_TIME,
+    # Protagonist
     DEFAULT_PROTAGONIST_NAME,
     PROTAGONIST_REF,
     is_protagonist_ref,
@@ -247,6 +251,9 @@ __all__ = [
     # =========================================================================
     "Cycle",
     "EntityRef",
+    "GameTime",
+    "StrList",
+    "DEFAULT_GAME_TIME",
     "DEFAULT_PROTAGONIST_NAME",
     "PROTAGONIST_REF",
     "is_protagonist_ref",

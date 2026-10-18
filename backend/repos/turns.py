@@ -7,13 +7,13 @@ in one transaction, so a failure anywhere leaves nothing behind (#20).
 import logging
 from uuid import UUID
 
+from config import get_settings
 from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
-from schema.core import DEFAULT_GAME_TIME
+from schema import DEFAULT_GAME_TIME
 from schema.engine import RollResult
 from schema.narration import NarrationOutput
-from config import get_settings
 from utils.json_utils import parse_json
 from utils.log_safe import log_cause
 

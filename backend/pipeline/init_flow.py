@@ -17,8 +17,7 @@ from pipeline.errors import TurnError, finish_saved
 from pipeline.uncancellable import finish_despite_cancel
 from prompts.world_generation_prompt import get_full_generation_prompt
 from repos import games as games_repo
-from schema import WorldGeneration
-from schema.core import DEFAULT_GAME_TIME
+from schema import DEFAULT_GAME_TIME, WorldGeneration
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
