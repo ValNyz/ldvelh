@@ -108,6 +108,25 @@ def _known_invocations(invoked: Sequence[str], aspects: Sequence[str]) -> list[s
     return unique
 
 
+async def _apply_aspect_renames(conn, game_id: UUID, renames) -> tuple[list[dict], list[dict]]:
+    """Apply the extractor's aspect renames: (applied, failed) as {"old", "new"[, "reason"]}."""
+    applied, failed = [], []
+    for rename in renames or []:
+        rename = rename if isinstance(rename, dict) else {}
+        old = str(rename.get("old_name") or "").strip()
+        new = str(rename.get("new_name") or "").strip()
+        item = {"old": old, "new": new}
+        if not old or not new:
+            failed.append({**item, "reason": "blank_name"})
+        elif await rename_aspect(conn, game_id, old, new):
+            applied.append(item)
+        else:
+            failed.append({**item, "reason": "no_such_aspect"})
+    for item in failed:
+        logger.warning(f"[FATE] Aspect rename skipped ({item['reason']})")
+    return applied, failed
+
+
 TURN_STATE_KEYS = ("stress_physical", "stress_mental", "consequences", "fate_points")
 
 
@@ -716,20 +735,14 @@ Inclure un encadré markdown après la narration de la complication :
     ) -> dict:
         changes = {}
 
-        # Aspect renames
-        for rename in extraction.get("aspect_renames", []):
-            old_name = rename.get("old_name", "")
-            new_name = rename.get("new_name", "")
-            if not old_name or not new_name:
-                continue
-
-            # In place: the aspect keeps its kind and position
-            await rename_aspect(conn, game_id, old_name, new_name)
-        if extraction.get("aspect_renames"):
-            changes["aspect_renames"] = [
-                {"old": r.get("old_name"), "new": r.get("new_name")}
-                for r in extraction["aspect_renames"]
-            ]
+        # Aspect renames (in place: kind and position kept); a blank name or an unknown
+        # aspect is reported as failed, the rest of the progression still applies
+        applied, failed = await _apply_aspect_renames(
+            conn, game_id, extraction.get("aspect_renames", []))
+        if applied:
+            changes["aspect_renames"] = applied
+        if failed:
+            changes["aspect_renames_failed"] = failed
 
         # New stunts
         for stunt in extraction.get("new_stunts", []):

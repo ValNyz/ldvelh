@@ -6,6 +6,7 @@ character_fate.aspects (jsonb) into aspects_fate (up / down / up).
 """
 
 from pathlib import Path
+from uuid import UUID
 
 import asyncpg
 import pytest
@@ -28,14 +29,14 @@ def _wizard(high_concept="", trouble="", other=()):
             "skills": {"Combat": 2}}
 
 
-async def _fate_character(harness, data: dict) -> str:
-    game_id = await harness.create_game("fate_core")
+async def _fate_character(harness, data: dict) -> UUID:
+    game_id = UUID(await harness.create_game("fate_core"))
     async with harness.pool.acquire() as conn:
         await FATE.create_character(conn, game_id, data)
     return game_id
 
 
-async def _sheet_aspects(harness, game_id: str) -> list[dict]:
+async def _sheet_aspects(harness, game_id: UUID) -> list[dict]:
     async with harness.pool.acquire() as conn:
         return (await FATE.get_sheet_display(conn, game_id))["aspects"]
 
@@ -111,3 +112,37 @@ async def test_migration_down_then_up_keeps_aspects(harness):
                 "WHERE table_name = 'character_fate' AND column_name = 'aspects'") == 0
         finally:
             await tr.rollback()
+
+
+async def _skill_level(harness, game_id: UUID, name: str) -> int:
+    async with harness.pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT level FROM skills_fate WHERE game_id = $1 AND name = $2", game_id, name)
+
+
+async def test_blank_rename_is_a_failed_item_and_keeps_the_rest_of_the_progression(harness):
+    game_id = await _fate_character(harness, _wizard(high_concept="Pilote", trouble="Dettes"))
+    async with harness.pool.acquire() as conn:
+        changes = await FATE.apply_progression(conn, game_id, {
+            "aspect_renames": [{"old_name": "Dettes", "new_name": "   "},
+                               {"old_name": " Pilote ", "new_name": " Pilote chevronné "}],
+            "skill_upgrades": [{"skill_name": "Combat", "new_level": 3}],
+        })
+    assert changes["aspect_renames"] == [{"old": "Pilote", "new": "Pilote chevronné"}]
+    assert changes["aspect_renames_failed"] == [
+        {"old": "Dettes", "new": "", "reason": "blank_name"}]
+    assert changes["skill_upgrades"] == [{"skill": "Combat", "level": 3}]
+    assert await _skill_level(harness, game_id, "Combat") == 3
+    assert await _sheet_aspects(harness, game_id) == [
+        {"type": "high_concept", "name": "Pilote chevronné"}, {"type": "trouble", "name": "Dettes"}]
+
+
+async def test_rename_of_an_unknown_aspect_is_reported_failed_not_applied(harness):
+    game_id = await _fate_character(harness, _wizard(high_concept="Pilote"))
+    async with harness.pool.acquire() as conn:
+        changes = await FATE.apply_progression(conn, game_id, {"aspect_renames": [
+            {"old_name": "Inconnu", "new_name": "Autre"}]})
+    assert "aspect_renames" not in changes
+    assert changes["aspect_renames_failed"] == [
+        {"old": "Inconnu", "new": "Autre", "reason": "no_such_aspect"}]
+    assert await _sheet_aspects(harness, game_id) == [{"type": "high_concept", "name": "Pilote"}]
