@@ -4,6 +4,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import asyncpg
 import pytest
 
 from services.extraction import orchestrator
@@ -151,9 +152,9 @@ async def _assistant_message(test_pool, test_user):
     return game_id, assistant_id
 
 
-async def _reapply(test_pool, game_id, assistant_message_id):
+async def _reapply(test_pool, game_id, assistant_message_id, character_error=None):
     populator = MagicMock()
-    populator.mark_character_known = AsyncMock()
+    populator.mark_character_known = AsyncMock(side_effect=character_error)
     populator.mark_location_accessible = AsyncMock()
     with patch.object(orchestrator, "KnowledgeGraphPopulator", return_value=populator), \
             patch.object(orchestrator, "resolve_entities",
@@ -187,3 +188,15 @@ async def test_reveals_without_source_message_are_applied(test_pool, test_user):
     populator = await _reapply(test_pool, game_id, None)
     populator.mark_character_known.assert_awaited_once()
     populator.mark_location_accessible.assert_awaited_once()
+
+
+async def test_a_failing_reveal_does_not_stop_the_next_one(test_pool, test_user, caplog):
+    game_id, message_id = await _assistant_message(test_pool, test_user)
+    with caplog.at_level(logging.WARNING):
+        populator = await _reapply(test_pool, game_id, message_id,
+                                   character_error=asyncpg.UniqueViolationError("L'inconnu"))
+    populator.mark_character_known.assert_awaited_once()
+    populator.mark_location_accessible.assert_awaited_once()
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("entity_reveal character item failed" in w for w in warnings)
+    assert not any("L'inconnu" in w for w in warnings)

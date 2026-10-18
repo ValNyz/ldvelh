@@ -18,6 +18,7 @@ import asyncpg
 from config import get_settings
 from llm.session import LLMSession
 
+from kg.item_writes import write_item
 from kg.populator import KnowledgeGraphPopulator
 from repos import turns as turns_repo
 from utils.log_safe import log_exception, safe_repr, safe_text
@@ -52,13 +53,21 @@ TYPE_TO_EXTRACTOR = {
 async def _apply_entity_reveals(
     conn: asyncpg.Connection, populator: KnowledgeGraphPopulator, entity_reveals: list
 ) -> None:
+    """Each reveal in its own savepoint: a failing one is rolled back alone and logged."""
+    errors: list[str] = []
     for reveal in entity_reveals:
         etype = reveal.get("entity_type")
         current_name = reveal.get("current_name")
         if etype == "character" and current_name:
-            await populator.mark_character_known(conn, current_name, reveal.get("real_name"))
+            await write_item(conn, errors, "entity_reveal character",
+                             lambda name=current_name, real=reveal.get("real_name"):
+                             populator.mark_character_known(conn, name, real),
+                             "[EXTRACTION] ")
         elif etype == "location" and current_name:
-            await populator.mark_location_accessible(conn, current_name)
+            await write_item(conn, errors, "entity_reveal location",
+                             lambda name=current_name:
+                             populator.mark_location_accessible(conn, name),
+                             "[EXTRACTION] ")
 
 
 async def resolver_triggers(
