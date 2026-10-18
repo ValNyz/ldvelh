@@ -26,10 +26,26 @@ from schema import (
 )
 from schema.entity_changes import bound_changes
 
+from .upsert_sql import ARRAY, TEXT, guarded_set
+
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
 logger = logging.getLogger(__name__)
+
+# ON CONFLICT ... DO UPDATE SET lists of the entity upserts (#87): a re-listed entity
+# never wipes a stored value with NULL/''/[], and never changes known_by_protagonist.
+_CHARACTER_UPSERT_SET = guarded_set("characters", {
+    "species": TEXT, "description": TEXT, "traits": ARRAY, "mood": TEXT,
+    "occupation": TEXT, "workplace_id": None, "residence_id": None,
+})
+_LOCATION_UPSERT_SET = guarded_set("locations", {
+    "parent_id": None, "location_type": TEXT, "sector": TEXT,
+    "description": TEXT, "atmosphere": TEXT,
+})
+_ORGANIZATION_UPSERT_SET = guarded_set("organizations", {
+    "org_type": TEXT, "domain": TEXT, "description": TEXT, "headquarters_id": None,
+})
 
 
 # =============================================================================
@@ -374,7 +390,11 @@ class KnowledgeGraphPopulator:
         workplace_id: UUID | None = None,
         residence_id: UUID | None = None,
     ) -> UUID:
-        """Insert character (NPC) into dedicated table."""
+        """Insert character (NPC) into dedicated table.
+
+        An existing character (same name) keeps its known_by_protagonist and unknown_name,
+        and only takes the non-blank fields of `data` (#87).
+        """
         # Check if this name matches an existing character's unknown_name
         existing = await conn.fetchval(
             "SELECT id FROM characters"
@@ -389,7 +409,7 @@ class KnowledgeGraphPopulator:
             return existing
 
         return await conn.fetchval(
-            """INSERT INTO characters (
+            f"""INSERT INTO characters (
                 game_id, name, known_by_protagonist, unknown_name,
                 species, gender, pronouns, age, description,
                 traits, mood, occupation, origin,
@@ -398,15 +418,7 @@ class KnowledgeGraphPopulator:
                 details, created_cycle
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
             ON CONFLICT (game_id, name) DO UPDATE SET
-                known_by_protagonist = EXCLUDED.known_by_protagonist,
-                species = COALESCE(EXCLUDED.species, characters.species),
-                description = COALESCE(EXCLUDED.description, characters.description),
-                traits = EXCLUDED.traits,
-                mood = COALESCE(EXCLUDED.mood, characters.mood),
-                occupation = COALESCE(EXCLUDED.occupation, characters.occupation),
-                workplace_id = COALESCE(EXCLUDED.workplace_id, characters.workplace_id),
-                residence_id = COALESCE(EXCLUDED.residence_id, characters.residence_id),
-                updated_at = NOW()
+                {_CHARACTER_UPSERT_SET}
             RETURNING id""",
             self.game_id,
             data.name,
@@ -439,19 +451,14 @@ class KnowledgeGraphPopulator:
     ) -> UUID:
         """Insert location into dedicated table."""
         return await conn.fetchval(
-            """INSERT INTO locations (
+            f"""INSERT INTO locations (
                 game_id, name, parent_id,
                 location_type, sector, description, atmosphere, accessible,
                 notable_features, typical_crowd, operating_hours, price_range,
                 ambient, details, created_cycle
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             ON CONFLICT (game_id, name) DO UPDATE SET
-                parent_id = COALESCE(EXCLUDED.parent_id, locations.parent_id),
-                location_type = COALESCE(EXCLUDED.location_type, locations.location_type),
-                sector = COALESCE(EXCLUDED.sector, locations.sector),
-                description = COALESCE(EXCLUDED.description, locations.description),
-                atmosphere = COALESCE(EXCLUDED.atmosphere, locations.atmosphere),
-                updated_at = NOW()
+                {_LOCATION_UPSERT_SET}
             RETURNING id""",
             self.game_id,
             data.name,
@@ -479,17 +486,13 @@ class KnowledgeGraphPopulator:
     ) -> UUID:
         """Insert organization into dedicated table."""
         return await conn.fetchval(
-            """INSERT INTO organizations (
+            f"""INSERT INTO organizations (
                 game_id, name, org_type, domain, size, description,
                 reputation, headquarters_id, founding_cycle,
                 ambient, details, created_cycle
             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
             ON CONFLICT (game_id, name) DO UPDATE SET
-                org_type = COALESCE(EXCLUDED.org_type, organizations.org_type),
-                domain = COALESCE(EXCLUDED.domain, organizations.domain),
-                description = COALESCE(EXCLUDED.description, organizations.description),
-                headquarters_id = COALESCE(EXCLUDED.headquarters_id, organizations.headquarters_id),
-                updated_at = NOW()
+                {_ORGANIZATION_UPSERT_SET}
             RETURNING id""",
             self.game_id,
             data.name,

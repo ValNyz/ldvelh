@@ -69,6 +69,13 @@ class EntityCreation(BaseModel):
     def _normalize_entity_type(cls, v):
         return normalize_entity_type(v)
 
+    @model_validator(mode="after")
+    def _unknown_name_means_hidden(self):
+        """An unknown_name without an explicit flag describes someone not yet named (#87)."""
+        if "known_by_protagonist" not in self.model_fields_set and self.unknown_name:
+            self.known_by_protagonist = False
+        return self
+
 
 class EntityUpdate(BaseModel):
     """An update to an existing entity"""
