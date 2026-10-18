@@ -1,10 +1,13 @@
 """Game repository: DB reads that build domain objects."""
 
+import logging
 from uuid import UUID
 
 from domain.game import DirectorSchedule, GameSnapshot, difficulty_from_world_config
 from kg.reader import KnowledgeGraphReader
 from schema import DEFAULT_GAME_TIME
+
+logger = logging.getLogger(__name__)
 
 
 async def get_director_schedule(conn, game_id: UUID) -> DirectorSchedule:
@@ -36,6 +39,9 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
     if not game or not game["active"]:
         return None
     protagonist = await reader.get_protagonist(conn)
+    difficulty, unknown = difficulty_from_world_config(game["world_config"])
+    if unknown:
+        logger.warning(f"Unknown stored difficulty for game {game_id}: using {difficulty}")
     return GameSnapshot(
         id=game_id,
         name=game["name"],
@@ -47,7 +53,7 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
         current_location_name=await reader.get_current_location_name(conn),
         engine=game["engine"],
         engine_locked=bool(game["engine_locked"]),
-        difficulty=difficulty_from_world_config(game["world_config"], game_id),
+        difficulty=difficulty,
         genre_id=game["genre_id"],
         world_name=game["world_name"],
         protagonist_name=(protagonist or {}).get("name"),

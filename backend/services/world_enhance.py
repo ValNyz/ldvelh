@@ -11,6 +11,7 @@ form already holds, so the result can always be loaded back into the wizard.
 import logging
 import re
 
+from domain.game import ARBITER_DIFFICULTIES
 from config import get_settings
 from llm.session import LLMSession, Purpose
 from prompts.world_enhance_prompt import SYSTEM_PROMPTS, build_user_message
@@ -26,7 +27,7 @@ from services.engine.engine_data import (
 
 logger = logging.getLogger(__name__)
 
-DIFFICULTIES = ("easy", "moderate", "hard", "brutal")
+DIFFICULTIES = ARBITER_DIFFICULTIES  # the wizard offers the arbiter's scale
 DURATIONS = ("short", "medium", "long")
 GENDERS = ("", "male", "female", "non-binary", "other")
 ENTITY_KINDS = ("npcs", "locations", "organizations")

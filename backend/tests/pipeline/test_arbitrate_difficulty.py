@@ -1,13 +1,13 @@
 """The wizard difficulty reaches the mechanical arbiter (#137)."""
 
-import json
 import logging
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 
 from domain.game import DEFAULT_DIFFICULTY, difficulty_from_world_config
 from pipeline.steps import arbitrate
+from repos.games import get_snapshot
 from tests.characterization import payloads
 
 
@@ -52,20 +52,25 @@ async def test_legacy_game_sends_moderate(harness, test_pool, fate_game, arbiter
     assert arbiter_inputs == ["moderate"]
 
 
-@pytest.mark.parametrize("config, expected", [
-    ({"difficulty": "easy"}, "easy"),
-    ({"difficulty": "brutal"}, "brutal"),
-    (None, DEFAULT_DIFFICULTY),
-    ({}, DEFAULT_DIFFICULTY),
+@pytest.mark.parametrize("config, expected, unknown", [
+    ({"difficulty": "easy"}, "easy", False),
+    ({"difficulty": "brutal"}, "brutal", False),
+    (None, DEFAULT_DIFFICULTY, False),
+    ({}, DEFAULT_DIFFICULTY, False),
+    ({"difficulty": "nightmare"}, DEFAULT_DIFFICULTY, True),
+    ("not-an-object", DEFAULT_DIFFICULTY, True),
+    (["hard"], DEFAULT_DIFFICULTY, True),
 ])
-def test_known_values_and_defaults(config, expected):
-    assert difficulty_from_world_config(config, uuid4()) == expected
+def test_mapping_is_pure(config, expected, unknown):
+    assert difficulty_from_world_config(config) == (expected, unknown)
 
 
-def test_unknown_value_defaults_with_game_id_only(caplog):
-    game_id = uuid4()
-    with caplog.at_level(logging.WARNING):
-        assert difficulty_from_world_config({"difficulty": "nightmare-story"}, game_id) \
-            == "moderate"
-    assert str(game_id) in caplog.text
+async def test_unknown_value_warns_with_game_id_only(harness, test_pool, fate_game, caplog):
+    async with test_pool.acquire() as conn:
+        await conn.execute("UPDATE games SET world_config = $2 WHERE id = $1", UUID(fate_game),
+                           {"difficulty": "nightmare-story"})
+        with caplog.at_level(logging.WARNING, logger="repos.games"):
+            snapshot = await get_snapshot(conn, UUID(fate_game))
+    assert snapshot.difficulty == "moderate"
+    assert fate_game in caplog.text
     assert "nightmare" not in caplog.text

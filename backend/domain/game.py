@@ -5,33 +5,33 @@ services.state_normalizer drops fields the pipeline needs (#9), so the pipeline
 never reads it.
 """
 
-import logging
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-
-logger = logging.getLogger(__name__)
 
 # The wizard offers the arbiter's own scale (schema.engine.MechanicalDecision).
 ARBITER_DIFFICULTIES = ("easy", "moderate", "hard", "brutal")
 DEFAULT_DIFFICULTY = "moderate"
 
 
-def difficulty_from_world_config(world_config: dict | None, game_id: UUID) -> str:
-    """The arbiter's difficulty for a game's stored wizard world_config (#137).
+def difficulty_from_world_config(world_config: object) -> tuple[str, bool]:
+    """The arbiter's difficulty for a game's stored wizard world_config (#137), and
+    whether a stored value was unknown (the caller logs it).
 
-    Games without stored parameters (created before #88) and unknown values get the
-    default; an unknown value is logged with the game id only.
+    Games without stored parameters (created before #88) get the default silently; an
+    unknown value, or a world_config that is not an object, gets it flagged.
     """
-    value = (world_config or {}).get("difficulty")
+    if world_config is None:
+        return DEFAULT_DIFFICULTY, False
+    if not isinstance(world_config, dict):
+        return DEFAULT_DIFFICULTY, True
+    value = world_config.get("difficulty")
     if value is None:
-        return DEFAULT_DIFFICULTY
+        return DEFAULT_DIFFICULTY, False
     if value not in ARBITER_DIFFICULTIES:
-        logger.warning(f"Unknown stored difficulty for game {game_id}: using "
-                       f"{DEFAULT_DIFFICULTY}")
-        return DEFAULT_DIFFICULTY
-    return value
+        return DEFAULT_DIFFICULTY, True
+    return value, False
 
 
 class DirectorSchedule(BaseModel):
