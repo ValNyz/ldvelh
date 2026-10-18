@@ -797,6 +797,12 @@ Stored in `users.preferences` JSONB column. Includes:
 - `active_provider`, `active_model` — LLM provider selection
 - `api_keys` — encrypted per-provider API keys
 
+A PATCH is rejected (422) when `api_keys` is not `{provider: key|null}`, has more than 10 entries or a key over 512 characters, or when the patch exceeds 16 384 serialized characters (`api/request_types.py`).
+
+### Request validation
+
+Bad client input (malformed `messageId`, rename over 255 characters or blank, `engine` outside `EngineType` on `POST /games` and `/chat`, malformed e-mail, `display_name` over 100) answers 422 `{"detail": "Requête invalide : champ : problème."}` in French, built by one `RequestValidationError` handler (`api/http_errors.py`): field names and error kinds only, never the submitted value. The e-mail check is a shape check (no `email-validator` dependency).
+
 ---
 
 ## 9. Knowledge Graph Layer

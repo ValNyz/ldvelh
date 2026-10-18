@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
+from api.request_types import DisplayName, Email, Preferences
 from config import get_settings
 from services import auth_service
 from utils.crypto import encrypt_value, decrypt_value, mask_api_key
@@ -35,10 +36,10 @@ password_check_limiter = shared_limiter(max_requests=5, window_seconds=600)
 
 
 class RegisterRequest(BaseModel):
-    email: str
+    email: Email
     password: str
     password_confirm: str
-    display_name: str | None = None
+    display_name: DisplayName | None = None
 
 
 class LoginRequest(BaseModel):
@@ -68,7 +69,7 @@ class UpdateProfileRequest(BaseModel):
 
 
 class PreferencesUpdate(BaseModel):
-    preferences: dict
+    preferences: Preferences
 
 
 # =============================================================================

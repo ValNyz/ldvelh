@@ -10,10 +10,11 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel
-from services.engine import get_engine
+from services.engine import EngineType, get_engine
 
 from api.dependencies import get_pool, get_settings_dep, get_current_user
 from api import game_writers
+from api.request_types import GameName
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from llm.session import LLMSession
@@ -81,7 +82,7 @@ class ChatRequest(BaseModel):
     provider: str = "anthropic"
     model: str | None = None
     # Engine params (init mode only)
-    engine: str | None = None  # "none", "narrative", "fate_core", "d6"
+    engine: EngineType | None = None
     world_config: dict | None = None  # genre, difficulty, hardcore, lore
     character_data: dict | None = None  # engine-specific character stats
     manual_entities: dict | None = None  # user-defined NPCs/locations/orgs
@@ -93,14 +94,14 @@ class ChatRequest(BaseModel):
 class RollbackRequest(BaseModel):
     """Requête de rollback"""
 
-    messageId: str | None = None  # Preferred: UUID of the message to rollback from
+    messageId: UUID | None = None  # Preferred: UUID of the message to rollback from
     fromIndex: int | None = None  # Legacy: index-based rollback
 
 
 class RenameRequest(BaseModel):
     """Requête de renommage (the game id is the path parameter only)"""
 
-    name: str
+    name: GameName
 
 
 # =============================================================================
@@ -146,7 +147,7 @@ async def load_game(
 class CreateGameRequest(BaseModel):
     """Optional params for game creation."""
 
-    engine: str | None = None  # "none", "narrative", "fate_core", "d6"
+    engine: EngineType | None = None
 
 
 @router.post("/games")
@@ -157,7 +158,7 @@ async def create_game(
 ):
     """Create a new game for the current user."""
     service = GameService(pool)
-    engine = request.engine if request else None
+    engine = request.engine.value if request and request.engine else None
     game_id = await service.create_game(user["id"], engine=engine)
     return {"gameId": str(game_id)}
 
@@ -273,7 +274,7 @@ async def rollback_game(
     # Acquire game lock to prevent race with in-flight extraction
     lock = _get_game_lock(game_id)
     async with lock:
-        msg_id = UUID(request.messageId) if request.messageId else None
+        msg_id = request.messageId
         try:
             result = await service.rollback_to_message(
                 game_id, message_id=msg_id, keep_until_index=request.fromIndex
@@ -398,7 +399,7 @@ def _turn_request(request: ChatRequest, user_id: UUID) -> TurnRequest:
         roll_id=request.roll_id,
         invoked_aspects=tuple(request.invoked_aspects or ()),
         init=InitParams(
-            engine=request.engine,
+            engine=request.engine.value if request.engine else None,
             world_config=request.world_config,
             character_data=request.character_data,
             manual_entities=request.manual_entities,
