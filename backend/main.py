@@ -94,6 +94,7 @@ async def lifespan(app: FastAPI):
 
 
 async def _close_resources() -> None:
+    global db_pool
     from services.llm_providers import close_shared_clients
 
     try:
@@ -101,6 +102,7 @@ async def _close_resources() -> None:
         if db_pool:
             await db_pool.close()
     finally:
+        db_pool = None
         await close_shared_clients()
 
 
