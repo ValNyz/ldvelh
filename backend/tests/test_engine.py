@@ -406,6 +406,29 @@ class TestD6Dice:
         # Complication happens ~1/6 of the time
         assert found_complication, "Should find at least one complication in 200 rolls"
 
+    def test_roll_d6_pool_wild_one_applies_single_penalty(self, monkeypatch):
+        """Wild 1: the wild die counts as 0 and the flag is set; regular dice stay intact."""
+        rolls = iter([6, 5, 1])  # two regular dice, then the wild die
+        monkeypatch.setattr("services.engine.d6.random.randint", lambda a, b: next(rolls))
+        pool = roll_d6_pool(3, 2)
+        assert pool["regular_dice"] == [6, 5]  # highest die NOT removed
+        assert pool["wild_die_rolls"] == [1]
+        assert pool["wild_total"] == 0
+        assert pool["complication"] is True
+        assert pool["total"] == 6 + 5 + 0 + 2
+
+    def test_wild_one_complication_reaches_narrator(self, monkeypatch):
+        rolls = iter([6, 5, 1])
+        monkeypatch.setattr("services.engine.d6.random.randint", lambda a, b: next(rolls))
+        engine = D6Engine()
+        roll = engine.roll_dice(MechanicalDecision(
+            requires_test=True, skill="Tir", skill_value="3D", difficulty=10,
+        ))
+        assert roll.complication is True
+        assert roll.total == 11
+        assert roll.outcome == "success"
+        assert "COMPLICATION" in engine.build_narrator_addon(roll)
+
     def test_roll_d6_pool_explosion(self):
         """Wild die=6 should explode."""
         found_explosion = False

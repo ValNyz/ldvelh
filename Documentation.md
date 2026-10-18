@@ -571,13 +571,13 @@ All engine-specific logic goes through the `BaseEngine` interface.
 | `none` | `engine/none.py` | None | Free narrative, no mechanics, no stats |
 | `narrative` | `engine/narrative.py` | None | Traits-based resistance, LLM judges difficulty |
 | `fate_core` | `engine/fate_core.py` | 4dF | Aspects, stress/consequences, skill pyramid, fate points, aspect invocation |
-| `d6` | `engine/d6.py` | NdD6 | Attributes + skills, wild die (6=explode, 1=complication), wound track, force points |
+| `d6` | `engine/d6.py` | NdD6 | Attributes + skills, wild die (6=explode, 1=complication: wild die counts as 0), wound track, force points |
 
 ### Dice Rolling
 
 **Fate Core:** 4 Fudge dice (each: -1, 0, or +1) + skill value. Outcome: fail (<0 shifts), tie (0), success (1-2 shifts), success with style (3+ shifts).
 
-**D6:** Roll NdD6 based on skill dice code (e.g. "3D+2"). One die is the "wild die": if it rolls 6, it explodes (reroll and add); if it rolls 1, it's a complication (remove highest normal die).
+**D6:** Roll NdD6 based on skill dice code (e.g. "3D+2"). One die is the "wild die": if it rolls 6, it explodes (reroll and add); if it rolls 1, it's a complication with a single penalty: the wild die counts as 0, the other dice are kept, and a complication flag is passed to the narrator.
 
 ### Aspect Invocation (Fate Core)
 

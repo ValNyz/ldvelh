@@ -46,7 +46,8 @@ def roll_d6_pool(num_dice: int, pip_bonus: int = 0) -> dict:
 
     The last die is the wild die:
     - If wild die = 6: explodes (reroll and add, keep exploding on 6)
-    - If wild die = 1: complication (remove wild die AND highest regular die)
+    - If wild die = 1: complication, ONE penalty only (OpenD6): the wild die counts
+      as 0 and the flag is passed to the narrator; the regular dice are kept.
 
     Returns dict with all roll details.
     """
@@ -69,11 +70,9 @@ def roll_d6_pool(num_dice: int, pip_bonus: int = 0) -> dict:
     complication = False
 
     if wild_value == 1:
-        # Complication: wild die counts as 0, remove highest regular die
+        # Single penalty: the wild die counts as 0; the highest regular die is kept
         complication = True
         wild_total = 0
-        if regular_dice:
-            regular_dice.remove(max(regular_dice))
     elif wild_value == 6:
         # Exploding: keep rolling while getting 6
         wild_total = wild_value

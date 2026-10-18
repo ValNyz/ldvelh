@@ -172,7 +172,7 @@ function D6RollDetails({ roll }) {
 			)}
 			{roll.complication && (
 				<div className="text-xs text-red-400 font-semibold">
-					Complication ! Le dé sauvage tombe sur 1 — le dé le plus haut est retiré.
+					Complication ! Le dé sauvage tombe sur 1 : il compte pour 0, les autres dés sont conservés.
 				</div>
 			)}
 
