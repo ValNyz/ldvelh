@@ -5,7 +5,7 @@ LDVELH - Configuration
 import os
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,9 +80,10 @@ class Settings(BaseSettings):
     resolution_context_window: int = 10
 
     # Background job supervisor (#19, #94)
-    # At least 1: a zero limit would block every background job silently.
+    # Read from SUPERVISOR_MAX_GAMES when Settings() is built (checked at least 1 below).
     supervisor_max_running_games: int = Field(
-        default=int(os.getenv("SUPERVISOR_MAX_GAMES", "3")), ge=1, validate_default=True)
+        default=3,
+        validation_alias=AliasChoices("SUPERVISOR_MAX_GAMES", "supervisor_max_running_games"))
     supervisor_drain_timeout: float = float(os.getenv("SUPERVISOR_DRAIN_TIMEOUT", "20.0"))
     supervisor_cancel_timeout: float = float(os.getenv("SUPERVISOR_CANCEL_TIMEOUT", "10.0"))
 
@@ -92,6 +93,14 @@ class Settings(BaseSettings):
     log_prompts: bool = os.getenv("LOG_PROMPTS", "false").lower() == "true"
 
     model_config = SettingsConfigDict(env_file=".env")
+
+    @field_validator("supervisor_max_running_games")
+    @classmethod
+    def _at_least_one_game(cls, value: int) -> int:
+        # A zero limit would block every background job silently.
+        if value < 1:
+            raise ValueError(f"SUPERVISOR_MAX_GAMES must be at least 1, got {value}")
+        return value
 
 
 @lru_cache

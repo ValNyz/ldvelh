@@ -257,11 +257,18 @@ def test_zero_game_limit_is_rejected(monkeypatch):
         supervisor.reset()
 
 
-def test_settings_reject_a_zero_game_limit():
+def test_settings_reject_a_zero_game_limit(monkeypatch):
     from pydantic import ValidationError
 
     from config import Settings
 
-    with pytest.raises(ValidationError):
-        Settings(supervisor_max_running_games=0)
-    assert Settings().supervisor_max_running_games >= 1
+    monkeypatch.delenv("SUPERVISOR_MAX_GAMES", raising=False)
+    assert Settings(_env_file=None).supervisor_max_running_games == 3
+    monkeypatch.setenv("SUPERVISOR_MAX_GAMES", "5")
+    assert Settings(_env_file=None).supervisor_max_running_games == 5
+    monkeypatch.setenv("SUPERVISOR_MAX_GAMES", "0")
+    with pytest.raises(ValidationError, match="SUPERVISOR_MAX_GAMES must be at least 1"):
+        Settings(_env_file=None)
+    monkeypatch.delenv("SUPERVISOR_MAX_GAMES")
+    with pytest.raises(ValidationError, match="SUPERVISOR_MAX_GAMES must be at least 1"):
+        Settings(_env_file=None, supervisor_max_running_games=0)
