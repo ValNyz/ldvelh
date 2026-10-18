@@ -5,6 +5,7 @@ Enums, primitive types, base models, normalization functions
 
 import json
 import logging
+import re
 from enum import Enum
 from typing import Annotated, Any
 
@@ -59,6 +60,32 @@ def _truncate(max_len: int):
 
     return _inner
 
+
+_CLOCK = re.compile(r"(\d{1,2})\s*[hH:]\s*(\d{1,2})")
+
+
+def _game_time(v: Any, info: ValidationInfo | None) -> str | None:
+    """Normalise an in-game clock time to 'HHhMM', or None when unusable.
+
+    Accepts `9h5`, `09:05`, `21H30`; rejects anything else (out-of-range hours or
+    minutes, prose such as "vers 10h"). Never raises: the caller keeps the previous
+    time on None (#86).
+    """
+    if v is None:
+        return None
+    match = _CLOCK.fullmatch(v.strip()) if isinstance(v, str) else None
+    if match and int(match[1]) < 24 and int(match[2]) < 60:
+        return f"{int(match[1]):02d}h{int(match[2]):02d}"
+    field = info.field_name if info else "?"
+    # No value at WARNING: it is story text (#77); a preview only with LOG_PROMPTS.
+    logger.warning(f"[GameTime] {field}: unusable time ignored")
+    if get_settings().log_prompts:
+        logger.debug(f"[GameTime] {field} was: \"{str(v)[:30]}\"")
+    return None
+
+
+GameTime = Annotated[str | None, BeforeValidator(_game_time)]
+"""'HHhMM' (5 chars, the width of the time columns), or None when the LLM output is unusable"""
 
 Label = Annotated[str, BeforeValidator(_truncate(30)), StringConstraints(max_length=30)]
 """30 chars - 2-3 words (pronouns, gender, tags)"""

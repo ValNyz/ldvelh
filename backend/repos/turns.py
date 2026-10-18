@@ -18,6 +18,8 @@ from utils.log_safe import log_cause
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TIME = "08h00"  # Same fallback as repos/games.py for a game without a time
+
 
 def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
     # Built without a pool: the methods used here only take `conn`.
@@ -60,11 +62,15 @@ async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
                                 current_cycle: int) -> NarrationState:
     """Cycle, date, time and location from the narration; stub events and locations."""
     new_cycle = current_cycle + 1 if narration.day_transition else current_cycle
-    new_time = narration.time.new_time if narration.time else ""
+    reader = KnowledgeGraphReader(None, game_id)
+    # An unusable narrator time is None (schema/core.py GameTime): keep the game's time.
+    new_time = narration.time.new_time if narration.time else None
+    if new_time is None:
+        new_time = await reader.get_current_time(conn) or DEFAULT_TIME
     location = narration.current_location
     populator = _populator(game_id)
 
-    current_date = await KnowledgeGraphReader(None, game_id).get_current_date(conn)
+    current_date = await reader.get_current_date(conn)
     new_date = current_date
     if narration.day_transition:
         new_date = narration.day_transition.new_date

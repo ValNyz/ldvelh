@@ -146,7 +146,7 @@ STORY = "Le dragon de verre murmure"
 
 def _invalid_narration() -> NarrationInvalid:
     with pytest.raises(NarrationInvalid) as info:
-        parse_narration({"narrative_text": STORY, "time": {"new_time": {"text": STORY}}},
+        parse_narration({"narrative_text": STORY, "time": STORY},
                         current_time="10:00", current_location="Quai")
     return info.value
 
@@ -164,4 +164,4 @@ async def test_validation_error_cause_never_leaks_story_text(caplog):
     logged = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(logged) == 2
     assert STORY not in _formatted(logged)
-    assert "time.new_time: string_type" in _formatted(logged)  # the cause is still described
+    assert "time: model_type" in _formatted(logged)  # the cause is still described

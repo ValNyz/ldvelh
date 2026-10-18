@@ -12,6 +12,7 @@ from utils.log_safe import validation_summary
 
 from .core import (
     EntityRef,
+    GameTime,
     Name,
     Phrase,
     Tag,
@@ -286,7 +287,10 @@ class NarrationContext(BaseModel):
 class TimeProgression(BaseModel):
     """Time progression"""
 
-    new_time: str = Field(..., description="New time: 'HHhMM'")
+    new_time: GameTime = Field(
+        default=None,
+        description="New time: 'HHhMM'; None when unusable (the game keeps its time, #86)",
+    )
     ellipse: bool = Field(
         default=False,
         description="True if significant time skip (narrative ellipsis)",
@@ -298,7 +302,7 @@ class DayTransition(BaseModel):
     """Transition to a new day; the server computes the cycle and a missing date (#16)."""
 
     new_cycle: int | None = None  # Ignored: the cycle always advances by exactly one
-    new_date: str | None = None  # "Jeudi 16 Mars 2847"
+    new_date: Tag | None = None  # "Jeudi 16 Mars 2847"; 50 chars (column width)
     night_summary: Phrase | None = None  # 150 chars
 
     @model_validator(mode="before")
@@ -372,7 +376,7 @@ class EventHint(BaseModel):
     """Lightweight event hint — formalized at batch extraction time"""
 
     title: str = Field(..., max_length=100)
-    planned_time: str | None = None  # "HHhMM"
+    planned_time: GameTime = None  # "HHhMM"
     planned_cycle: int | None = None
     location: str | None = None  # Location name
 

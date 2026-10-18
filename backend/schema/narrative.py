@@ -12,12 +12,12 @@ from .core import (
     EventType,
     FactType,
     FullText,
+    GameTime,
     LongText,
     Name,
     ParticipantRole,
     Phrase,
     ShortText,
-    Tag,
     Text,
     normalize_arc_domain,
     normalize_fact_type,
@@ -50,7 +50,7 @@ class FactData(BaseModel):
     """
 
     cycle: Cycle
-    time: str | None = None
+    time: GameTime = None
     fact_type: FactType
     description: FullText  # 500 chars
     location_ref: EntityRef | None = None
@@ -136,7 +136,7 @@ class EventScheduled(BaseModel):
     title: Phrase  # 150 chars
     description: Text | None = None  # 300 chars
     planned_cycle: Cycle = Field(..., ge=1)
-    time: Tag | None = None
+    time: GameTime = None
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
 

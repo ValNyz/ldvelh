@@ -88,7 +88,7 @@ def test_non_object_output_is_invalid():
 def test_invalid_required_field_alongside_optional_is_invalid():
     # credit_delta is droppable but time is not: nothing is salvaged.
     with pytest.raises(NarrationInvalid):
-        parse_narration(_raw(credit_delta={"amount": "x"}, time={"ellipse": False}), **_KW)
+        parse_narration(_raw(credit_delta={"amount": "x"}, time="oops"), **_KW)
 
 
 def test_narrate_validate_rejects_non_object_as_narration_invalid():

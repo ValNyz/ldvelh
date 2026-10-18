@@ -15,6 +15,7 @@ from .core import (
     EntityType,
     EventType,
     FullText,
+    GameTime,
     Name,
     Phrase,
     ShortText,
@@ -255,7 +256,7 @@ class EventScheduledExtraction(BaseModel):
     title: Phrase  # 150 chars
     description: Text | None = None  # 300 chars
     planned_cycle: Cycle = Field(..., ge=1)
-    time: str | None = None
+    time: GameTime = None
     location_ref: EntityRef | None = None
     participants: list[EntityRef] = Field(default_factory=list)
 
@@ -298,7 +299,7 @@ class NarrativeExtraction(BaseModel):
 
     # Context
     cycle: Cycle = Field(default=1)
-    time: str | None = None
+    time: GameTime = None
     current_location_ref: EntityRef | None = None
 
     # Facts (immutable events)
