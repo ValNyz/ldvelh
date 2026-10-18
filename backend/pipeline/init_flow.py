@@ -129,9 +129,12 @@ def _start_initial_director(ctx: TurnContext) -> asyncio.Task | None:
 async def _run_initial_director(ctx: TurnContext) -> None:
     """Initial Director run, streamed to the client; a failure is only a warning."""
     try:
+        # The world was just saved: its game time is the arrival time.
+        async with ctx.pool.acquire() as conn:
+            saved = await games_repo.get_snapshot(conn, ctx.request.game_id)
         await asyncio.wait_for(
             run_director(pool=ctx.pool, game_id=ctx.request.game_id, current_cycle=1,
-                         current_time="08h00", session=ctx.session, sse_writer=ctx.sink),
+                         current_time=saved.current_time if saved else "08h00", session=ctx.session, sse_writer=ctx.sink),
             timeout=DIRECTOR_INIT_TIMEOUT,
         )
         logger.info("[CHAT] Initial Director run completed")

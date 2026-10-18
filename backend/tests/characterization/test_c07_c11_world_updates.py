@@ -241,10 +241,11 @@ async def test_c11_director_plan_written(harness, world_game, monkeypatch):
         {**json.loads(payloads.DIRECTOR), "narrator_guidance": guidance}, ensure_ascii=False)
     harness.llm.calls.clear()
     per_turn = []
-    # The init plan is written at 08h00 and the medium interval is 6 in-game hours (#9):
-    # 10h15 is too early, 15h00 triggers the Director, 16h00 is too early again.
-    for msg, new_time in (("Premier tour.", "10h15"), ("Deuxième tour.", "15h00"),
-                          ("Troisième tour.", "16h00")):
+    # The init plan is written at the arrival time, 11h42 (#89), and the medium interval is
+    # 6 in-game hours (#9): 13h00 is too early, 18h00 triggers the Director, 19h00 is too
+    # early again.
+    for msg, new_time in (("Premier tour.", "13h00"), ("Deuxième tour.", "18h00"),
+                          ("Troisième tour.", "19h00")):
         harness.llm.calls.clear()
         await _turn(harness, world_game, _narration(
             time={"new_time": new_time, "ellipse": False, "ellipse_summary": None}), msg)
@@ -269,3 +270,14 @@ async def test_c11_director_plan_written(harness, world_game, monkeypatch):
         "guidance_in_narrator_prompt_per_turn": guidance_in_prompt,
     })
 
+
+async def test_c11b_initial_plan_uses_arrival_time(harness, world_game):
+    """#89: the initial Director plan is stamped with the arrival time, not a fixed 08h00."""
+    async with harness.pool.acquire() as conn:
+        arrival = await conn.fetchval(
+            "SELECT time FROM chronology WHERE game_id = $1 AND cycle = 0", world_game)
+        first_plan = await conn.fetchval(
+            "SELECT ig_time FROM director_plans WHERE game_id = $1 ORDER BY created_at LIMIT 1",
+            world_game)
+    assert arrival == "11h42"
+    assert first_plan == arrival
