@@ -78,6 +78,11 @@ class Settings(BaseSettings):
     max_tokens_resolution: int = 1000
     resolution_context_window: int = 10
 
+    # Background job supervisor (#19, #94)
+    supervisor_max_running_games: int = int(os.getenv("SUPERVISOR_MAX_GAMES", "3"))
+    supervisor_drain_timeout: float = float(os.getenv("SUPERVISOR_DRAIN_TIMEOUT", "20.0"))
+    supervisor_cancel_timeout: float = float(os.getenv("SUPERVISOR_CANCEL_TIMEOUT", "10.0"))
+
     # App
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
     # Dump the narrator prompts and generated JSON at DEBUG (story text: off by default).

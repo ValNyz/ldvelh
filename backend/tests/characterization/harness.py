@@ -27,24 +27,29 @@ class ChatHarness:
         return events
 
     async def drain(self, timeout: float = 10.0) -> None:
-        """Wait for fire-and-forget tasks (extraction, director) spawned by the turn.
+        """Wait for the background jobs (extraction, director) spawned by the turn.
 
-        Waits on every other task in the loop: production code only spawns turn-scoped
-        tasks (api/routes.py create_task calls) and has no app-level background loop under
-        the ASGI test client, so nothing long-lived is swept in. The bounded retry loop
-        also covers tasks spawned by tasks.
+        Waits first on the supervisor's jobs (workers/supervisor.py), then on every other
+        task in the loop: there is no app-level background loop under the ASGI test
+        client, so nothing long-lived is swept in. The bounded retry loop also covers
+        tasks spawned by tasks.
 
         Fails loudly: raises AssertionError if tasks are still pending afterwards, and
         re-raises the first exception from any task it waited on (cancellations ignored).
         """
+        # Imported here: this module loads as a pytest plugin while tests/ precedes backend/
+        # on sys.path, where `workers` would resolve to the tests/workers package.
+        from workers import supervisor
+
+        waited = await supervisor.wait_idle(timeout=timeout)
         current = asyncio.current_task()
-        waited: set[asyncio.Task] = set()
+        swept: dict[asyncio.Task, None] = {}
         pending: list[asyncio.Task] = []
         for _ in range(5):
             pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
             if not pending:
                 break
-            waited.update(pending)
+            swept.update(dict.fromkeys(pending))
             await asyncio.wait(pending, timeout=timeout)
         pending = [t for t in asyncio.all_tasks() if t is not current and not t.done()]
         if pending:
@@ -52,7 +57,7 @@ class ChatHarness:
                 "drain(): tasks still pending: "
                 + ", ".join(f"{t.get_name()} {t.get_coro()!r}" for t in pending)
             )
-        for t in waited:
+        for t in [*waited, *swept]:
             if t.done() and not t.cancelled() and t.exception() is not None:
                 raise t.exception()
 

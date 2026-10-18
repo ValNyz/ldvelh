@@ -70,6 +70,14 @@ def _isolated_dynamic_pricing():
     pricing._DYNAMIC_PRICING.update(saved)
 
 
+@pytest.fixture(autouse=True)
+def _reset_supervisor():
+    """Each test runs on its own event loop: forget the jobs and semaphore of the last one."""
+    from workers import supervisor
+
+    supervisor.reset()
+
+
 @pytest.fixture
 def world_generation_example():
     """Exemple complet de génération de monde (parsed as dict)"""
