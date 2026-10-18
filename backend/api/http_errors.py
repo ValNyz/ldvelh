@@ -9,8 +9,8 @@ from utils.rate_limit import RateLimited
 
 # Same status and body as the HTTPException the service used to raise.
 _ANSWERS = {
-    GameNotFound: (404, "Game not found"),
-    GameAccessDenied: (403, "Access denied"),
+    GameNotFound: (404, "Partie introuvable."),
+    GameAccessDenied: (403, "Accès refusé."),
 }
 
 
@@ -38,7 +38,11 @@ _TYPE_MESSAGES = {
 
 
 def _field_problem(error: dict) -> str:
-    """One French clause per error: field path and kind only, never the submitted value."""
+    """One French clause per error: field path and kind only, never the submitted value.
+
+    Keep it that way: validators must not put the input in their ValueError text, and
+    the loc of a free-form dict field must stay the field itself (never a client key).
+    """
     field = ".".join(str(p) for p in error["loc"] if p != "body") or "requête"
     if error["type"] == "value_error":
         # Our own validators raise French messages; strip pydantic's prefix.

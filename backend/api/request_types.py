@@ -1,4 +1,6 @@
 """Bounded request field types, sized to the DB columns they end up in.
+A test (tests/test_api_input_validation.py) reads the column widths from information_schema
+and asserts these bounds equal them.
 
 Unlike schema/core.py (which truncates LLM output), a client value over the bound is
 rejected: the RequestValidationError handler (api/http_errors.py) answers 422 in French.
@@ -16,11 +18,11 @@ DisplayName = Annotated[str, StringConstraints(max_length=100)]
 
 # Shape check only (the verification email proves the address). email-validator is not
 # a dependency and would pull dnspython for no extra guarantee.
-_EMAIL_SHAPE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_EMAIL_SHAPE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
 
 def _check_email(value: str) -> str:
-    if not _EMAIL_SHAPE.match(value):
+    if not _EMAIL_SHAPE.fullmatch(value):
         raise ValueError("adresse e-mail invalide")
     return value
 
@@ -32,6 +34,7 @@ API_KEY_MAX_LENGTH = 512
 API_KEYS_MAX_ENTRIES = 10
 # Whole preferences patch, serialized: a few UI settings, never a document store.
 PREFERENCES_MAX_BYTES = 16_384
+PREFERENCES_MAX_KEYS = 50
 
 
 def check_preferences(value: dict) -> dict:
@@ -45,11 +48,16 @@ def check_preferences(value: dict) -> dict:
         for key in keys.values():
             if key is not None and (not isinstance(key, str) or len(key) > API_KEY_MAX_LENGTH):
                 raise ValueError("clé d'API invalide ou trop longue")
+    return check_preferences_size(value)
+
+
+def check_preferences_size(value: dict) -> dict:
+    """Size cap, applied to a patch and again to the merged result stored in the DB."""
     try:
         size = len(json.dumps(value, ensure_ascii=False))
     except (TypeError, ValueError):
         raise ValueError("préférences invalides") from None
-    if size > PREFERENCES_MAX_BYTES:
+    if size > PREFERENCES_MAX_BYTES or len(value) > PREFERENCES_MAX_KEYS:
         raise ValueError(f"préférences trop volumineuses (max {PREFERENCES_MAX_BYTES} caractères)")
     return value
 

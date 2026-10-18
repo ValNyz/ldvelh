@@ -194,10 +194,10 @@ async def test_ownership_errors_keep_their_http_shape(client, test_user, second_
     """GameNotFound / GameAccessDenied (domain) answer 404 / 403 with the same body (#78)."""
     missing = await client.delete("/api/games/00000000-0000-0000-0000-000000000000",
                                   headers=auth_headers(test_user["token"]))
-    assert (missing.status_code, missing.json()) == (404, {"detail": "Game not found"})
+    assert (missing.status_code, missing.json()) == (404, {"detail": "Partie introuvable."})
 
     game_id = (await client.post("/api/games",
                                  headers=auth_headers(test_user["token"]))).json()["gameId"]
     denied = await client.post("/api/chat", json={"gameId": game_id, "message": "Salut"},
                                headers=auth_headers(second_user["token"]))
-    assert (denied.status_code, denied.json()) == (403, {"detail": "Access denied"})
+    assert (denied.status_code, denied.json()) == (403, {"detail": "Accès refusé."})

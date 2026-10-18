@@ -94,7 +94,7 @@ async def test_enhance_requires_auth(client):
 
 async def test_enhance_rejects_unknown_scope_engine_and_provider(client, test_user, world_llm):
     h = auth_headers(test_user["token"])
-    assert (await client.post("/api/world/enhance", json=_body(engine="gurps"), headers=h)).status_code == 400
+    assert (await client.post("/api/world/enhance", json=_body(engine="gurps"), headers=h)).status_code == 422
     assert (await client.post("/api/world/enhance", json=_body(provider="nope"), headers=h)).status_code == 400
     assert (await client.post("/api/world/enhance", json=_body(scope="lore"), headers=h)).status_code == 400
     assert world_llm.calls == []

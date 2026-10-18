@@ -36,18 +36,18 @@ async def get_current_user(
 ) -> dict:
     """Extract and validate JWT from Authorization header. Returns user dict."""
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid token")
+        raise HTTPException(status_code=401, detail="Jeton manquant ou invalide.")
 
     token = authorization[7:]  # Strip "Bearer "
     from services.auth_service import InvalidSession, decode_token, session_claims
     try:
         user_id, version, session_start = session_claims(decode_token(token))
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
+        raise HTTPException(status_code=401, detail="Jeton expiré.")
     except jwt.PyJWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="Jeton invalide.")
     except InvalidSession as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
+        raise HTTPException(status_code=401, detail="Session expirée. Reconnecte-toi.")
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -56,9 +56,9 @@ async def get_current_user(
             user_id,
         )
     if not row:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(status_code=401, detail="Utilisateur introuvable.")
     if row["token_version"] != version:  # password changed or logged out since (#83)
-        raise HTTPException(status_code=401, detail="Session revoked")
+        raise HTTPException(status_code=401, detail="Session révoquée. Reconnecte-toi.")
 
     return {
         "id": row["id"],

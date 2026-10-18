@@ -17,9 +17,10 @@ from api import routes
 from api.dependencies import get_current_user, get_pool
 from llm.session import LLMSession
 from repos.llm_models import load_catalog
+from schema.engine import EngineType
 from services.llm_providers import _CLASSES
 from services.world_enhance import (
-    ENGINES, SCOPES, WorldEnhanceFailed, enhance,
+    SCOPES, WorldEnhanceFailed, enhance,
 )
 from utils.rate_limit import shared_limiter
 
@@ -55,7 +56,7 @@ class WizardState(BaseModel):
 
 class WorldEnhanceRequest(BaseModel):
     scope: str = "world"  # "world" | "character"
-    engine: str = "none"
+    engine: EngineType = EngineType.NONE
     provider: str = "anthropic"
     model: str | None = None
     current: WizardState = Field(default_factory=WizardState)
@@ -75,8 +76,6 @@ async def world_enhance(
     if request.scope not in SCOPES:
         raise HTTPException(status_code=400, detail=f"Étape inconnue : {request.scope}")
 
-    if request.engine not in ENGINES:
-        raise HTTPException(status_code=400, detail=f"Moteur inconnu : {request.engine}")
     if request.provider not in _CLASSES:
         raise HTTPException(status_code=400, detail=f"Fournisseur inconnu : {request.provider}")
 
@@ -102,7 +101,7 @@ async def world_enhance(
     session = LLMSession(request.provider, api_key, request.model,
                          catalog=await load_catalog(pool), user_id=user["id"])
     try:
-        result, cost = await enhance(session, request.scope, request.engine, genres, current)
+        result, cost = await enhance(session, request.scope, request.engine.value, genres, current)
     except WorldEnhanceFailed:
         raise HTTPException(
             status_code=502,

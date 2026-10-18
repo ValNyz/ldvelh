@@ -147,6 +147,7 @@ async def load_game(
 class CreateGameRequest(BaseModel):
     """Optional params for game creation."""
 
+    # None = no engine chosen yet: the DB default (none) applies; the wizard sets it later.
     engine: EngineType | None = None
 
 

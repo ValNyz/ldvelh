@@ -65,5 +65,5 @@ async def get_genre(
             genre_id, user["id"],
         )
     if not row:
-        raise HTTPException(status_code=404, detail="Genre not found")
+        raise HTTPException(status_code=404, detail="Genre introuvable.")
     return dict(row)

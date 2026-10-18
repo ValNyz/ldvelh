@@ -158,7 +158,7 @@ async def test_other_user_is_denied_and_changes_nothing(client, test_pool, test_
     method, url, kwargs = _request(method, path, game_id)
     resp = await client.request(method, url, headers=auth_headers(second_user["token"]), **kwargs)
 
-    assert (resp.status_code, resp.json()) == (403, {"detail": "Access denied"})
+    assert (resp.status_code, resp.json()) == (403, {"detail": "Accès refusé."})
     assert await _owner_view(client, test_user, game_id) == before
     assert before[0] == 200 and before[2] > 0
 
@@ -169,7 +169,7 @@ async def test_tooltips_unknown_game_is_not_found(client, test_user, method, pat
     method, url, kwargs = _request(method, path, "00000000-0000-0000-0000-000000000000")
     resp = await client.request(method, url, headers=auth_headers(test_user["token"]), **kwargs)
 
-    assert (resp.status_code, resp.json()) == (404, {"detail": "Game not found"})
+    assert (resp.status_code, resp.json()) == (404, {"detail": "Partie introuvable."})
 
 
 @pytest.mark.asyncio

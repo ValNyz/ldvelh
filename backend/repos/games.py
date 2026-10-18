@@ -4,7 +4,7 @@ from uuid import UUID
 
 from domain.game import DirectorSchedule, GameSnapshot
 from kg.reader import KnowledgeGraphReader
-from schema import DEFAULT_GAME_TIME
+from schema import DEFAULT_GAME_TIME, coerce_engine
 
 
 async def get_director_schedule(conn, game_id: UUID) -> DirectorSchedule:
@@ -45,7 +45,7 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
         current_time=game["current_time"] or DEFAULT_GAME_TIME,
         current_location_id=game["current_location_id"],
         current_location_name=await reader.get_current_location_name(conn),
-        engine=game["engine"] or "none",
+        engine=coerce_engine(game["engine"], game_id).value,
         engine_locked=bool(game["engine_locked"]),
         genre_id=game["genre_id"],
         world_name=game["world_name"],

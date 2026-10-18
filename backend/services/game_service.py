@@ -19,7 +19,7 @@ from kg.reader import KnowledgeGraphReader
 from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
 from schema import DEFAULT_GAME_TIME, WorldGeneration
-from services.engine import get_engine
+from services.engine import coerce_engine, get_engine
 from services.pending_roll import load_pending_roll
 from repos import games as games_repo
 from repos import turns
@@ -138,7 +138,7 @@ class GameService:
             ai_data = await self._load_companion(reader, conn)
 
             # Engine stats
-            engine_type = game.get("engine", "none")
+            engine_type = coerce_engine(game.get("engine"), game_id)
             engine = get_engine(engine_type)
             engine_stats = None
             if engine_type != "none":
@@ -158,7 +158,7 @@ class GameService:
             "current_location": location_name,
             "npcs_present": [],  # Ephemeral, set by narration response
             "last_extraction_time": game.get("last_extraction_time"),
-            "engine": engine_type,
+            "engine": engine_type.value,
             "engine_locked": game.get("engine_locked", False),
         }
 
@@ -703,7 +703,7 @@ class GameService:
                 await turns.expire_pending_rolls(conn, game_id)
 
                 game = await reader.get_game(conn)
-                engine_type = game.get("engine", "none") if game else "none"
+                engine_type = coerce_engine(game.get("engine") if game else None, game_id)
                 if engine_type != "none":
                     if engine_snapshot is not None:  # {} is a valid empty turn state
                         engine = get_engine(engine_type)

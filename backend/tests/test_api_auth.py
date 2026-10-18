@@ -53,7 +53,7 @@ async def test_register_password_mismatch(client):
         "password_confirm": "different123",
     })
     assert resp.status_code == 400
-    assert "do not match" in resp.json()["detail"]
+    assert "ne correspondent pas" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

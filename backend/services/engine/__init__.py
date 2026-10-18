@@ -3,7 +3,7 @@ LDVELH - Engine Service
 Strategy pattern: get_engine(engine_type) returns the correct engine implementation.
 """
 
-from schema.engine import EngineType
+from schema.engine import EngineType, coerce_engine
 
 from .base import BaseEngine
 from .none import NoneEngine
@@ -25,7 +25,7 @@ _instances: dict[EngineType, BaseEngine] = {}
 def get_engine(engine_type: str | EngineType) -> BaseEngine:
     """Get the engine implementation for the given type."""
     if isinstance(engine_type, str):
-        engine_type = EngineType(engine_type)
+        engine_type = coerce_engine(engine_type)
 
     if engine_type not in _instances:
         _instances[engine_type] = _ENGINE_MAP[engine_type]()
@@ -33,4 +33,4 @@ def get_engine(engine_type: str | EngineType) -> BaseEngine:
     return _instances[engine_type]
 
 
-__all__ = ["BaseEngine", "get_engine", "EngineType"]
+__all__ = ["BaseEngine", "get_engine", "EngineType", "coerce_engine"]

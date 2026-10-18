@@ -157,6 +157,7 @@ from .extraction import (
 # =============================================================================
 from .engine import (
     EngineType,
+    coerce_engine,
     WorldConfig,
     # Fate Core
     FateAspect,
@@ -347,6 +348,7 @@ __all__ = [
     # ENGINE
     # =========================================================================
     "EngineType",
+    "coerce_engine",
     "WorldConfig",
     "FateAspect",
     "FateCharacterData",

@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
+from schema.engine import coerce_engine
 from utils.json_utils import parse_json
 
 from .semantic_keys import ARRIVAL_KEY_LIKE, arrival_key
@@ -936,7 +937,7 @@ class KnowledgeGraphReader:
         result = await conn.fetchval(
             "SELECT engine FROM games WHERE id = $1", self.game_id
         )
-        return result or "none"
+        return coerce_engine(result, self.game_id).value
 
     async def get_world_config(self, conn: Connection) -> dict | None:
         """Get the world configuration for this game."""

@@ -3,6 +3,7 @@ LDVELH - Engine Schema Models
 Defines engine types, world config, character data, and roll models.
 """
 
+import logging
 from enum import Enum
 from typing import Optional
 
@@ -19,6 +20,24 @@ class EngineType(str, Enum):
     NARRATIVE = "narrative"
     FATE_CORE = "fate_core"
     D6 = "d6"
+
+
+logger = logging.getLogger(__name__)
+
+
+def coerce_engine(value: "str | EngineType | None", game_id=None) -> EngineType:
+    """Stored engine value -> EngineType; an unknown or empty one is treated as 'none'.
+
+    The single graceful path for data read back from the DB (#91): a game saved with an
+    engine we do not know still loads. The stored value is data, not user input.
+    """
+    if not value:
+        return EngineType.NONE
+    try:
+        return EngineType(value)
+    except ValueError:
+        logger.warning("Unknown engine %r on game %s, treated as 'none'", value, game_id)
+        return EngineType.NONE
 
 
 # =============================================================================

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
-from api.request_types import DisplayName, Email, Preferences
+from api.request_types import DisplayName, Email, Preferences, check_preferences_size
 from config import get_settings
 from services import auth_service
 from utils.crypto import encrypt_value, decrypt_value, mask_api_key
@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 ALLOWED_PROVIDERS = {"anthropic", "mistral", "wandb", "nebius", "nous"}
+
+# auth_service.register ValueError text -> (status, French detail)
+_REGISTER_ERRORS = {
+    "Password must be at least 6 characters": (400, "Le mot de passe doit faire au moins 6 caractères."),
+    "Display name already taken": (409, "Ce pseudo est déjà pris."),
+    "Email already registered": (409, "Cette adresse e-mail est déjà utilisée."),
+}
 
 # Each resend sends an email (#82).
 resend_limiter = shared_limiter(max_requests=3, window_seconds=600)
@@ -65,7 +72,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    display_name: str | None = None
+    display_name: DisplayName | None = None
 
 
 class PreferencesUpdate(BaseModel):
@@ -134,10 +141,10 @@ async def register(
 ):
     """Register a new user account."""
     if not get_settings().registration_enabled:
-        raise HTTPException(status_code=403, detail="Registration is disabled")
+        raise HTTPException(status_code=403, detail="Les inscriptions sont désactivées.")
     auth_limiter.check(raw_request)
     if request.password != request.password_confirm:
-        raise HTTPException(status_code=400, detail="Passwords do not match")
+        raise HTTPException(status_code=400, detail="Les mots de passe ne correspondent pas.")
     try:
         async with pool.acquire() as conn:
             result = await auth_service.register(
@@ -148,9 +155,8 @@ async def register(
             "user": _build_user_response(result, {}),
         }
     except ValueError as e:
-        msg = str(e)
-        status = 409 if "already" in msg else 400
-        raise HTTPException(status_code=status, detail=msg)
+        status, detail = _REGISTER_ERRORS.get(str(e), (400, "Inscription impossible."))
+        raise HTTPException(status_code=status, detail=detail)
 
 
 @router.post("/login")
@@ -165,7 +171,7 @@ async def login(
         result = await auth_service.authenticate(conn, request.identifier, request.password)
 
     if not result:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="E-mail ou mot de passe incorrect.")
 
     async with pool.acquire() as conn:
         prefs = await _get_user_preferences(conn, result["id"])
@@ -220,8 +226,6 @@ async def update_profile(
     """Update current user's profile (display name)."""
     if request.display_name is not None:
         name = request.display_name.strip()
-        if len(name) > 100:
-            raise HTTPException(status_code=400, detail="Display name too long (max 100)")
         async with pool.acquire() as conn:
             await conn.execute(
                 "UPDATE users SET display_name = $1 WHERE id = $2",
@@ -249,7 +253,7 @@ async def verify_email(
 ):
     """Verify email using the token from the verification link."""
     if not token or len(token) < 10:
-        raise HTTPException(status_code=400, detail="Invalid verification token")
+        raise HTTPException(status_code=400, detail="Lien de vérification invalide.")
 
     async with pool.acquire() as conn:
         result = await auth_service.verify_email(conn, token)
@@ -257,7 +261,7 @@ async def verify_email(
     if not result:
         raise HTTPException(
             status_code=400,
-            detail="Invalid or expired verification token. Request a new one.",
+            detail="Lien de vérification invalide ou expiré. Demande-en un nouveau.",
         )
 
     return {
@@ -280,7 +284,7 @@ async def resend_verification(
     if not sent:
         raise HTTPException(
             status_code=400,
-            detail="Email already verified or sending failed",
+            detail="E-mail déjà vérifié ou envoi impossible.",
         )
 
     return {"success": True, "message": "Verification email sent"}
@@ -299,9 +303,9 @@ async def change_password(
 ):
     """Change the current user's password and revoke the other sessions."""
     if request.new_password != request.new_password_confirm:
-        raise HTTPException(status_code=400, detail="New passwords do not match")
+        raise HTTPException(status_code=400, detail="Les nouveaux mots de passe ne correspondent pas.")
     if len(request.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        raise HTTPException(status_code=400, detail="Le mot de passe doit faire au moins 6 caractères.")
 
     password_check_limiter.hit(f"user:{user['id']}")
     # Every other session is revoked; this device continues with the returned token (#83).
@@ -309,7 +313,7 @@ async def change_password(
         token = await auth_service.change_password(
             conn, user["id"], user["email"], request.current_password, request.new_password)
     if token is None:
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
+        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect.")
 
     return {"success": True, "token": token}
 
@@ -349,7 +353,7 @@ async def update_preferences(
             if provider not in ALLOWED_PROVIDERS:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Unknown provider: {provider}. Allowed: {', '.join(ALLOWED_PROVIDERS)}"
+                    detail=f"Fournisseur inconnu. Autorisés : {', '.join(sorted(ALLOWED_PROVIDERS))}."
                 )
             if key_value is None or key_value == "":
                 # Remove the key
@@ -366,6 +370,11 @@ async def update_preferences(
             current.pop(key, None)
         else:
             current[key] = value
+
+    try:
+        check_preferences_size(current)  # the stored result, not just this patch
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=f"Requête invalide : {e}.") from e
 
     # Save to DB
     async with pool.acquire() as conn:

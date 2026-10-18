@@ -26,7 +26,6 @@ from services.engine.engine_data import (
 
 logger = logging.getLogger(__name__)
 
-ENGINES = ("none", "narrative", "fate_core", "d6")
 DIFFICULTIES = ("easy", "moderate", "hard", "brutal")
 DURATIONS = ("short", "medium", "long")
 GENDERS = ("", "male", "female", "non-binary", "other")
