@@ -9,6 +9,7 @@ import pytest
 
 import main
 from config import get_settings
+from tests.conftest import TEST_DB_URL
 from workers import supervisor
 
 
@@ -25,6 +26,7 @@ def fake_pool(monkeypatch):
     calls = []
 
     async def create_pool(*args, **kwargs):
+        calls.append(("create_pool", kwargs))
         return _FakePool(calls)
 
     async def seed(pool, settings):
@@ -43,7 +45,8 @@ async def test_lifespan_drains_before_closing_the_pool(fake_pool, monkeypatch):
     monkeypatch.setattr(supervisor, "drain", spy)
     async with main.lifespan(main.app):
         pass
-    assert fake_pool == ["drain", "pool.close"]
+    assert fake_pool[1:] == ["drain", "pool.close"]
+    assert fake_pool[0][1]["server_settings"] == main.POOL_SERVER_SETTINGS
 
 
 async def test_lifespan_cancels_a_stuck_job_at_shutdown(fake_pool, monkeypatch, caplog):
@@ -54,12 +57,10 @@ async def test_lifespan_cancels_a_stuck_job_at_shutdown(fake_pool, monkeypatch, 
         await asyncio.sleep(0)
     assert task.cancelled()
     assert "Cancelled at shutdown" in caplog.text
-    assert fake_pool == ["pool.close"]
+    assert fake_pool[1:] == ["pool.close"]
 
 
 async def test_pool_connections_carry_the_server_side_timeouts(test_pool):
-    from tests.conftest import TEST_DB_URL
-
     pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=1,
                                      server_settings=main.POOL_SERVER_SETTINGS)
     try:
@@ -68,3 +69,34 @@ async def test_pool_connections_carry_the_server_side_timeouts(test_pool):
             assert await conn.fetchval("SHOW statement_timeout") == "1min"
     finally:
         await pool.close()
+
+
+async def test_pool_closes_when_the_drain_raises(fake_pool, monkeypatch):
+    async def failing(timeout):
+        raise RuntimeError("drain broke")
+
+    monkeypatch.setattr(supervisor, "drain", failing)
+    with pytest.raises(RuntimeError, match="drain broke"):  # the error still propagates
+        async with main.lifespan(main.app):
+            pass
+    assert "pool.close" in fake_pool
+
+
+async def test_drain_and_close_still_run_when_the_body_raises(fake_pool, monkeypatch):
+    async def spy(timeout):
+        fake_pool.append("drain")
+
+    monkeypatch.setattr(supervisor, "drain", spy)
+    with pytest.raises(ValueError):
+        async with main.lifespan(main.app):
+            raise ValueError("body")
+    assert fake_pool[1:] == ["drain", "pool.close"]
+
+
+@pytest.mark.parametrize("name", ["WEB_CONCURRENCY", "UVICORN_WORKERS"])
+async def test_multi_worker_start_is_refused_before_the_pool_exists(fake_pool, monkeypatch, name):
+    monkeypatch.setenv(name, "2")
+    with pytest.raises(RuntimeError, match=name):
+        async with main.lifespan(main.app):
+            pass
+    assert fake_pool == []  # no pool created, nothing to close

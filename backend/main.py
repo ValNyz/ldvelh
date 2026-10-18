@@ -81,17 +81,27 @@ async def lifespan(app: FastAPI):
     if settings.debug:
         await _seed_dev_user(db_pool, settings)
 
-    yield
+    try:
+        yield
+    finally:
+        # Shutdown: let background jobs finish (they use the pool), then always close
+        # the pool and the shared clients, even if the body or the drain raised.
+        try:
+            await supervisor.drain(settings.supervisor_drain_timeout)
+        finally:
+            await _close_resources()
+        print("[SHUTDOWN] Terminé")
 
-    # Shutdown: let background jobs finish (they use the pool), then close it
-    await supervisor.drain(settings.supervisor_drain_timeout)
-    print("[SHUTDOWN] Fermeture du pool de connexions...")
-    if db_pool:
-        await db_pool.close()
+
+async def _close_resources() -> None:
     from services.llm_providers import close_shared_clients
 
-    await close_shared_clients()
-    print("[SHUTDOWN] Terminé")
+    try:
+        print("[SHUTDOWN] Fermeture du pool de connexions...")
+        if db_pool:
+            await db_pool.close()
+    finally:
+        await close_shared_clients()
 
 
 # Création de l'application
