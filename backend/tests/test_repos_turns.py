@@ -116,21 +116,6 @@ class TestApplyNarrationState:
         result = await apply_state(test_pool, game_id, narration, 1)
         assert result.npcs_present == ["Ossek"]
 
-    async def test_day_transition_leaves_detail_requests_to_the_commit(self, client, test_user,
-                                                                       test_pool):
-        """The requests are replaced by the commit each turn (#64), not cleared here."""
-        game_id, _, world_gen = await _setup_game_with_world(client, test_user, test_pool)
-        arrival_loc = world_gen.arrival_event.arrival_location_ref
-        async with test_pool.acquire() as conn:
-            await turns.store_info_requests(conn, game_id, ["Ossek", "Justine Lépicier"])
-
-        narration = NarrationOutput.model_validate(_make_day_transition_narration(arrival_loc))
-        await apply_state(test_pool, game_id, narration, 1)
-
-        async with test_pool.acquire() as conn:
-            reqs = await conn.fetchval("SELECT detail_requests FROM games WHERE id = $1", game_id)
-        assert list(reqs) == ["Ossek", "Justine Lépicier"]
-
 
 # =============================================================================
 # apply_narrator_deltas

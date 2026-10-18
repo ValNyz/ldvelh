@@ -113,7 +113,7 @@ async def test_c08_info_requests_prefetch(harness, world_game, monkeypatch):
         return block.split("\\n\\n", 1)[0].split("\\n")[:3]
 
     # Turn A: nothing requested. Turn B: narrator requests a location. Turn C: prefetched
-    # details should reach the context. Turn D: no new request (is the request still live?).
+    # details should reach the context. Turn D: no new request, so it must no longer carry the block.
     await _turn(harness, world_game, payloads.NARRATION, "Je regarde.")
     await _turn(harness, world_game, _narration(info_requests=["Le Quart de Cycle"]), "Je demande.")
     harness.llm.calls.clear()

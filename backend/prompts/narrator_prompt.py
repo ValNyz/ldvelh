@@ -181,9 +181,9 @@ Ils sont appliqués **immédiatement** — pas besoin d'extraction séparée.
 
 ### `info_requests` — Demande de détails pour le prochain tour
 - Liste de noms EXACTS d'entités (PNJs, lieux, organisations)
-- Les détails complets seront fournis dans le contexte au prochain tour
+- Les détails complets seront fournis dans le contexte au prochain tour UNIQUEMENT
 - Utile quand tu as besoin de plus d'infos sur un personnage ou un lieu
-- Persist pour tout le cycle en cours
+- Ils ne sont PAS conservés ensuite : si tu en as encore besoin au tour suivant, demande-les de nouveau
 - **Liste vide `[]` par défaut**
 
 

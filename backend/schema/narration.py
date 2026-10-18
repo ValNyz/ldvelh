@@ -493,7 +493,7 @@ class NarrationOutput(BaseModel):
     # === INFO REQUESTS (prefetch for next turn) ===
     info_requests: list[EntityRef] = Field(
         default_factory=list,
-        description="Entity names to load in detail for next turn context",
+        description="Entity names to load in detail for the next turn context only",
     )
 
     # === EXTRACTION TRIGGERS ===

@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from services.game_service import _stored_info_requests
 from tests.characterization import payloads
 from tests.characterization.harness import spy_narration
 
@@ -82,3 +83,41 @@ async def test_rollback_of_requesting_turn_drops_its_requests(harness, world_gam
     assert await _stored(harness, world_game) == [PLACE]
     await _rollback_last_turn(harness, world_game)                       # undo B
     assert await _stored(harness, world_game) == []
+
+
+async def test_failed_turn_keeps_the_pending_requests(harness, world_game, monkeypatch):
+    from repos import turns
+
+    await _turn(harness, world_game, _narration(info_requests=[PLACE]))  # A asks
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("commit failed")
+
+    monkeypatch.setattr(turns, "save_turn_messages", boom)
+    await _turn(harness, world_game, _narration())                       # B: commit fails
+    assert await _stored(harness, world_game) == [PLACE]
+
+
+async def test_rollback_to_a_message_without_the_key_restores_nothing(harness, world_game):
+    await _turn(harness, world_game, _narration())                       # A
+    await _turn(harness, world_game, _narration(info_requests=[PLACE]))  # B asks
+    async with harness.pool.acquire() as conn:
+        await conn.execute(  # A as saved before #64: no info_requests key
+            "UPDATE messages SET narrator_deltas = narrator_deltas - 'info_requests'"
+            " WHERE game_id = $1", world_game)
+    await _turn(harness, world_game, _narration())                       # C
+    await _rollback_last_turn(harness, world_game)                       # undo C: keep B
+    assert await _stored(harness, world_game) == []
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ({"info_requests": ["A", "B"]}, ["A", "B"]),
+    ('{"info_requests": ["A"]}', ["A"]),
+    ({}, []),
+    (None, []),
+    ("not json", []),
+    ({"info_requests": None}, []),
+    ({"info_requests": ["A", 3, None]}, ["A"]),
+])
+def test_stored_info_requests_tolerates_any_stored_shape(raw, expected):
+    assert _stored_info_requests(raw) == expected
