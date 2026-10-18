@@ -5,7 +5,7 @@ LDVELH - Configuration
 import os
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,12 +80,16 @@ class Settings(BaseSettings):
     resolution_context_window: int = 10
 
     # Background job supervisor (#19, #94)
-    # Read from SUPERVISOR_MAX_GAMES when Settings() is built (checked at least 1 below).
+    # Read from their env var when Settings() is built (checked by the validators below).
     supervisor_max_running_games: int = Field(
         default=3,
         validation_alias=AliasChoices("SUPERVISOR_MAX_GAMES", "supervisor_max_running_games"))
-    supervisor_drain_timeout: float = float(os.getenv("SUPERVISOR_DRAIN_TIMEOUT", "20.0"))
-    supervisor_cancel_timeout: float = float(os.getenv("SUPERVISOR_CANCEL_TIMEOUT", "10.0"))
+    supervisor_drain_timeout: float = Field(
+        default=20.0,
+        validation_alias=AliasChoices("SUPERVISOR_DRAIN_TIMEOUT", "supervisor_drain_timeout"))
+    supervisor_cancel_timeout: float = Field(
+        default=10.0,
+        validation_alias=AliasChoices("SUPERVISOR_CANCEL_TIMEOUT", "supervisor_cancel_timeout"))
 
     # App
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
@@ -100,6 +104,14 @@ class Settings(BaseSettings):
         # A zero limit would block every background job silently.
         if value < 1:
             raise ValueError(f"SUPERVISOR_MAX_GAMES must be at least 1, got {value}")
+        return value
+
+    @field_validator("supervisor_drain_timeout", "supervisor_cancel_timeout")
+    @classmethod
+    def _positive_timeout(cls, value: float, info: ValidationInfo) -> float:
+        if not value > 0:  # also rejects NaN
+            env_var = info.field_name.upper()  # these env vars match their field names
+            raise ValueError(f"{env_var} must be greater than 0, got {value}")
         return value
 
 

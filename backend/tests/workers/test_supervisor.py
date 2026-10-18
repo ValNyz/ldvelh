@@ -257,18 +257,27 @@ def test_zero_game_limit_is_rejected(monkeypatch):
         supervisor.reset()
 
 
-def test_settings_reject_a_zero_game_limit(monkeypatch):
+@pytest.mark.parametrize("env_var, field, default, override, invalid, message", [
+    ("SUPERVISOR_MAX_GAMES", "supervisor_max_running_games", 3, "5", "0",
+     "SUPERVISOR_MAX_GAMES must be at least 1"),
+    ("SUPERVISOR_DRAIN_TIMEOUT", "supervisor_drain_timeout", 20.0, "2.5", "0",
+     "SUPERVISOR_DRAIN_TIMEOUT must be greater than 0"),
+    ("SUPERVISOR_CANCEL_TIMEOUT", "supervisor_cancel_timeout", 10.0, "1.5", "-1",
+     "SUPERVISOR_CANCEL_TIMEOUT must be greater than 0"),
+])
+def test_supervisor_settings_are_read_at_construction(monkeypatch, env_var, field, default,
+                                                      override, invalid, message):
     from pydantic import ValidationError
 
     from config import Settings
 
-    monkeypatch.delenv("SUPERVISOR_MAX_GAMES", raising=False)
-    assert Settings(_env_file=None).supervisor_max_running_games == 3
-    monkeypatch.setenv("SUPERVISOR_MAX_GAMES", "5")
-    assert Settings(_env_file=None).supervisor_max_running_games == 5
-    monkeypatch.setenv("SUPERVISOR_MAX_GAMES", "0")
-    with pytest.raises(ValidationError, match="SUPERVISOR_MAX_GAMES must be at least 1"):
+    monkeypatch.delenv(env_var, raising=False)
+    assert getattr(Settings(_env_file=None), field) == default
+    monkeypatch.setenv(env_var, override)
+    assert getattr(Settings(_env_file=None), field) == float(override)
+    monkeypatch.setenv(env_var, invalid)
+    with pytest.raises(ValidationError, match=message):
         Settings(_env_file=None)
-    monkeypatch.delenv("SUPERVISOR_MAX_GAMES")
-    with pytest.raises(ValidationError, match="SUPERVISOR_MAX_GAMES must be at least 1"):
-        Settings(_env_file=None, supervisor_max_running_games=0)
+    monkeypatch.delenv(env_var)
+    with pytest.raises(ValidationError, match=message):
+        Settings(_env_file=None, **{field: invalid})
