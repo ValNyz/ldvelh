@@ -449,6 +449,11 @@ RENAME_CASES = [
                  "Kira Weiß a fui. Kira Weiß rit.", id="sharp-s-in-wizard-name"),
     pytest.param("Weiß", "Kira", "Weiß a fui. weiß rit.", "Kira a fui. Kira rit.",
                  id="sharp-s-in-model-name"),
+    # "ß" written "SS"/"ss": re.IGNORECASE never folds it, so the casefold spelling is matched too.
+    pytest.param("Weiß", "Kira", "WEISS rit. Weiss dort.", "Kira rit. Kira dort.",
+                 id="sharp-s-written-ss"),
+    pytest.param("Kira", "Kira Weiß", "KIRA WEISS part. Kira rit.",
+                 "KIRA WEISS part. Kira Weiß rit.", id="sharp-s-written-ss-in-target"),
     pytest.param("Strauß", "Strauß Kemal", "Strauß Kemal part. Strauß rit.",
                  "Strauß Kemal part. Strauß Kemal rit.", id="sharp-s-prefix"),
     pytest.param("İlker", "İlker Kaya", "İlker Kaya part. İlker rit. ilker dort.",
@@ -479,6 +484,27 @@ def test_rename_is_whole_name_and_idempotent(model_name, wizard_name, before, af
     assert out["initial_relations"][0]["source_ref"] == expected_ref
     again = apply_chosen_name(out, {"name": wizard_name})  # idempotent
     assert again == out
+
+
+def test_wizard_name_rule_matches_the_shared_cases():
+    """The wizard (frontend/tests/wizardForm.test.mjs) and the API apply one rule: same cases, same
+    message, from one fixture."""
+    import json
+    from pathlib import Path
+
+    from fastapi import HTTPException
+
+    from api.routes import INVALID_PC_NAME, _reject_unusable_wizard_name
+
+    fixture = Path(__file__).resolve().parents[2] / "frontend/tests/fixtures/protagonist-names.json"
+    cases = json.loads(fixture.read_text(encoding="utf-8"))
+    assert INVALID_PC_NAME == cases["message"]
+    for name in cases["accepted"]:
+        _reject_unusable_wizard_name({"name": name})
+    for name in cases["refused"]:
+        with pytest.raises(HTTPException) as exc:
+            _reject_unusable_wizard_name({"name": name})
+        assert (exc.value.status_code, exc.value.detail) == (400, cases["message"]), name
 
 
 @pytest.mark.parametrize("wizard", ["valentin", "Kira"], ids=["no-rename", "rename"])

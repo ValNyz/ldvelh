@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from enum import Enum
-from typing import Annotated, Any
+from typing import Annotated, Any, TypeGuard
 
 from pydantic import (
     BaseModel,
@@ -477,8 +477,12 @@ def is_protagonist_ref(name: str | None) -> bool:
 DEFAULT_PROTAGONIST_NAME = "Alex"
 
 
-def is_usable_protagonist_name(name: object) -> bool:
-    """A real name: not blank, no '<'/'>' (a copied prompt marker), not PROTAGONIST_REF."""
+def is_usable_protagonist_name(name: object) -> TypeGuard[str]:
+    """A real name: not blank, no '<'/'>' (a copied prompt marker), not PROTAGONIST_REF.
+
+    The wizard applies the same rule (frontend/lib/game/wizardForm.mjs); the shared cases are
+    in frontend/tests/fixtures/protagonist-names.json.
+    """
     return (isinstance(name, str) and bool(name.strip()) and "<" not in name
             and ">" not in name and not is_protagonist_ref(name))
 

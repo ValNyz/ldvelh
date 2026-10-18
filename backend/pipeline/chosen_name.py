@@ -17,10 +17,11 @@ When the model named the PC differently, its mentions follow the rename:
 - a free-text form that also appears as a word in another entity's name is not
   rewritten (only exact references are).
 
-The regex is built from the original strings, never from their casefold: casefold()
+The regex is built from the original strings, never from their casefold alone: casefold()
 rewrites "ß" to "ss", "İ" to "i̇" and "ς" to "σ", which `re.IGNORECASE` (simple case
 folding) would never match again, so "Kira Weiß" would not be recognised as the target.
-casefold() only serves to compare whole names.
+When the casefold spells a name differently it is added as a second spelling of the same
+name, so "WEISS" and "Weiss" are "Weiß" too. Whole names are compared with casefold().
 
 Known limits, on purpose:
 - hyphenated compounds are distinct names: '-' counts as part of a name, so renaming
@@ -38,6 +39,7 @@ same rename pass, and a WARNING without story text is logged.
 import logging
 import re
 from collections.abc import Callable
+from typing import cast
 
 from schema.core import DEFAULT_PROTAGONIST_NAME, is_protagonist_ref, is_usable_protagonist_name
 
@@ -71,7 +73,8 @@ def apply_chosen_name(parsed: dict | None, character: dict | None) -> dict | Non
     # PROTAGONIST_REF references already resolve to the PC: never rename them.
     old = previous.strip() if isinstance(previous, str) and not is_protagonist_ref(previous) else ""
     if old and old.casefold() != name.casefold():
-        renamed = _walk(parsed, _renamer(old, name, _other_entity_names(parsed)))
+        # _walk keeps the container types: a dict comes back as a dict.
+        renamed = cast(dict, _walk(parsed, _renamer(old, name, _other_entity_names(parsed))))
     else:
         renamed = {**parsed, "protagonist": dict(protagonist)}
     renamed["protagonist"]["name"] = name
@@ -100,11 +103,12 @@ def _renamer(old: str, new: str, other_names: list[str]) -> Callable[[str], str]
             if not any(re.search(_whole(form), n, re.IGNORECASE) for n in other_names)]
     references = [old, *(form for form in free if form != old)]
     # Longest first, the wizard's name included (kept as is, so a mention is matched once, as a
-    # whole). Named groups tell which original string matched, whatever its case in the text.
-    alternatives = sorted([*targets, new], key=len, reverse=True)
-    pattern = re.compile("|".join(f"(?P<a{i}>{_whole(a)})" for i, a in enumerate(alternatives)),
+    # whole). Named groups tell which original name matched, whatever its spelling in the text.
+    spellings = sorted(((form, s) for form in [*targets, new] for s in _spellings(form)),
+                       key=lambda fs: len(fs[1]), reverse=True)
+    pattern = re.compile("|".join(f"(?P<a{i}>{_whole(s)})" for i, (_, s) in enumerate(spellings)),
                          re.IGNORECASE)
-    by_group = {f"a{i}": a for i, a in enumerate(alternatives)}
+    by_group = {f"a{i}": form for i, (form, _) in enumerate(spellings)}
 
     def replacement(m: re.Match) -> str:
         form = by_group[str(m.lastgroup)]
@@ -118,6 +122,12 @@ def _renamer(old: str, new: str, other_names: list[str]) -> Callable[[str], str]
     return rewrite
 
 
+def _spellings(name: str) -> list[str]:
+    """The name, plus its casefold when `re.IGNORECASE` would not match it ("Weiß" -> "weiss")."""
+    folded = name.casefold()
+    return [name] if re.fullmatch(_whole(name), folded, re.IGNORECASE) else [name, folded]
+
+
 def _other_entity_names(parsed: dict) -> list[str]:
     names = [item.get("name") for key in _ENTITY_LISTS for item in parsed.get(key) or []
              if isinstance(item, dict)]
@@ -127,7 +137,7 @@ def _other_entity_names(parsed: dict) -> list[str]:
     return [n for n in names if isinstance(n, str)]
 
 
-def _walk(value, rewrite: Callable[[str], str]):
+def _walk(value: object, rewrite: Callable[[str], str]) -> object:
     if isinstance(value, dict):
         return {k: _walk(v, rewrite) for k, v in value.items()}
     if isinstance(value, list):

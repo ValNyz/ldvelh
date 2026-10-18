@@ -1,0 +1,6 @@
+{
+  "_comment": "Wizard PC name rule (#28), shared by backend (schema.core.is_usable_protagonist_name, api.routes.INVALID_PC_NAME) and frontend (lib/game/wizardForm.mjs). Blank is accepted; '<', '>' and the reserved reference (trimmed, lower-cased) are refused.",
+  "message": "Nom du protagoniste invalide : les caractères < et > et le nom « PROTAGONIST » sont réservés.",
+  "accepted": ["", "   ", "Kira", " Kira Voss ", "N'Diaye", "N’Diaye (fils)", "Protagoniste", "protagonıst"],
+  "refused": ["<prénom inventé>", "Kira <x>", "Kira>", "PROTAGONIST", " protagonist ", "\tProtagonist\n"]
+}
