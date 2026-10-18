@@ -32,14 +32,14 @@ class TestCoreTruncation:
         from schema.core import _truncate
 
         fn = _truncate(50)
-        assert fn(None) is None
+        assert fn(None, None) is None
 
     def test_truncate_short_string_unchanged(self):
         """Short string under limit is returned as-is."""
         from schema.core import _truncate
 
         fn = _truncate(50)
-        assert fn("hello") == "hello"
+        assert fn("hello", None) == "hello"
 
     def test_truncate_long_string_with_spaces(self):
         """Long string is truncated at word boundary with ellipsis."""
@@ -47,7 +47,8 @@ class TestCoreTruncation:
 
         fn = _truncate(30)
         text = "This is a fairly long text that exceeds the limit"
-        result = fn(text)
+        result = fn(text, None)
+        assert result is not None
         assert len(result) <= 30
         assert result.endswith("...")
 
@@ -57,7 +58,8 @@ class TestCoreTruncation:
 
         fn = _truncate(20)
         text = "a" * 100
-        result = fn(text)
+        result = fn(text, None)
+        assert result is not None
         assert len(result) <= 20
         assert result.endswith("...")
 
@@ -66,7 +68,7 @@ class TestCoreTruncation:
         from schema.core import _truncate
 
         fn = _truncate(50)
-        assert fn(12345) == "12345"
+        assert fn(12345, None) == "12345"
 
     def test_label_truncation_at_30(self):
         """Label type truncates at 30 chars."""
@@ -75,6 +77,21 @@ class TestCoreTruncation:
         long_name = "A" * 100
         companion = CompanionData(name=long_name)
         assert len(companion.name) <= 30
+
+    def test_truncate_logs_field_name(self, caplog):
+        """The warning names the truncated field, optional fields included, without the value."""
+        from pydantic import BaseModel
+        from schema.core import Label
+
+        class Sample(BaseModel):
+            required: Label
+            optional: Label | None = None
+
+        with caplog.at_level("WARNING", logger="schema.core"):
+            Sample(required="secret-a " * 5, optional="secret-b " * 5)
+        messages = [r.getMessage() for r in caplog.records if "[Truncate]" in r.getMessage()]
+        assert [m.split(":")[0] for m in messages] == ["[Truncate] required", "[Truncate] optional"]
+        assert not any("secret" in m for m in messages)
 
     def test_tag_truncation_at_50(self):
         """Tag type truncates at 50 chars."""

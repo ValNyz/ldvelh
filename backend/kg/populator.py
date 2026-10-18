@@ -5,7 +5,6 @@ Write operations for all game data tables.
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING

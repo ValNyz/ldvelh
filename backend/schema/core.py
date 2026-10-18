@@ -42,7 +42,8 @@ logger = logging.getLogger(__name__)
 def _truncate(max_len: int):
     """Factory to create a truncation function."""
 
-    def _inner(v: Any, info: ValidationInfo | None = None) -> str | None:
+    # `info` has no default: pydantic passes it only to validators that require it.
+    def _inner(v: Any, info: ValidationInfo | None) -> str | None:
         if v is None:
             return None
         v = str(v)
