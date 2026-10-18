@@ -65,3 +65,31 @@ def check_preferences_size(value: dict) -> dict:
 
 
 Preferences = Annotated[dict, AfterValidator(check_preferences)]
+
+
+# Wizard form parts (world_config, character_data, manual_entities): sent to /world/enhance
+# and with __INIT__, then stored on the game until its world exists (#88). Far above what
+# the wizard produces: an oversized form is refused before any LLM call or write.
+WIZARD_FORM_MAX_CHARS = 20_000
+WIZARD_ENTITIES_MAX_PER_KIND = 20
+
+
+def check_wizard_form_size(value: dict) -> dict:
+    try:
+        size = len(json.dumps(value, ensure_ascii=False))
+    except (TypeError, ValueError):
+        raise ValueError("formulaire invalide") from None
+    if size > WIZARD_FORM_MAX_CHARS:
+        raise ValueError(f"formulaire trop long (max {WIZARD_FORM_MAX_CHARS} caractères)")
+    return value
+
+
+def check_manual_entities(value: dict) -> dict:
+    for items in value.values():
+        if isinstance(items, list) and len(items) > WIZARD_ENTITIES_MAX_PER_KIND:
+            raise ValueError(f"trop d'entités d'un même type (max {WIZARD_ENTITIES_MAX_PER_KIND})")
+    return check_wizard_form_size(value)
+
+
+WizardPart = Annotated[dict, AfterValidator(check_wizard_form_size)]
+ManualEntities = Annotated[dict, AfterValidator(check_manual_entities)]

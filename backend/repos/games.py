@@ -90,3 +90,32 @@ async def set_engine(conn, game_id: UUID, engine_type: str, world_config: dict |
            WHERE id = $3""",
         engine_type, world_config, game_id,
     )
+
+
+async def save_init_params(conn, game_id: UUID, *, engine: str | None,
+                           world_config: dict | None, character_data: dict | None,
+                           manual_entities: dict | None) -> None:
+    """Store the wizard parameters of a game whose world is not created yet (#88).
+
+    A None field keeps its stored value; a created world is never touched.
+    """
+    await conn.execute(
+        """UPDATE games SET engine = COALESCE($2, engine),
+                            world_config = COALESCE($3, world_config),
+                            character_data = COALESCE($4, character_data),
+                            manual_entities = COALESCE($5, manual_entities),
+                            updated_at = NOW()
+           WHERE id = $1
+             AND NOT EXISTS (SELECT 1 FROM protagonists WHERE game_id = $1)""",
+        game_id, engine, world_config, character_data, manual_entities,
+    )
+
+
+async def get_init_params(conn, game_id: UUID) -> dict:
+    """The stored wizard parameters: world_config, character_data, manual_entities (the
+    engine is on the snapshot, coerced by the reader)."""
+    row = await conn.fetchrow(
+        "SELECT world_config, character_data, manual_entities FROM games WHERE id = $1",
+        game_id,
+    )
+    return dict(row) if row else {}

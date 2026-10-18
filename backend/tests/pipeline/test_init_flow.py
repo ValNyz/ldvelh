@@ -124,15 +124,32 @@ async def test_resolve_genre_from_wizard_slug_is_stored(test_pool, test_user, se
     assert stored == genre["id"]
 
 
-async def test_resolve_genre_prefers_the_game_genre(test_pool, test_user, seeded_genres):
+async def test_resolve_genre_wizard_slug_replaces_an_earlier_attempt(test_pool, test_user,
+                                                                     seeded_genres):
+    """#88: a failed attempt stored sci_fi; the retry's wizard slug (edited) wins."""
+    ctx, _ = await _ctx(test_pool, test_user, {}, _init())
+    async with test_pool.acquire() as conn:
+        sci_fi = await conn.fetchval("SELECT id FROM genres WHERE slug = 'sci_fi'")
+        await conn.execute("UPDATE games SET genre_id = $1 WHERE id = $2", sci_fi,
+                           ctx.request.game_id)
+        snapshot = await get_snapshot(conn, ctx.request.game_id)
+        genre = await init_flow.resolve_genre(conn, snapshot,
+                                              _init(world_config={"genre": "dark_fantasy"}))
+        stored = await conn.fetchval("SELECT genre_id FROM games WHERE id = $1",
+                                     ctx.request.game_id)
+    assert genre["slug"] == "dark_fantasy"
+    assert stored == genre["id"]
+
+
+async def test_resolve_genre_without_a_slug_keeps_the_game_genre(test_pool, seeded_genres):
     async with test_pool.acquire() as conn:
         genre_id = await conn.fetchval("SELECT id FROM genres WHERE slug = 'sci_fi'")
     snapshot = GameSnapshot(id=uuid4(), world_created=False, current_cycle=0,
                             current_time="08h00", genre_id=genre_id)
     async with test_pool.acquire() as conn:
-        genre = await init_flow.resolve_genre(conn, snapshot,
-                                              _init(world_config={"genre": "dark_fantasy"}))
-    assert genre["slug"] == "sci_fi"
+        for config in (None, {"genre": "no_such_genre"}):
+            genre = await init_flow.resolve_genre(conn, snapshot, _init(world_config=config))
+            assert genre["slug"] == "sci_fi"
 
 
 @pytest.mark.parametrize("model_name", ["<prénom inventé>", "Kira <x>", "", "  ", "PROTAGONIST"])

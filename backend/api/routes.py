@@ -14,7 +14,7 @@ from services.engine import EngineType, get_engine
 
 from api.dependencies import get_pool, get_settings_dep, get_current_user
 from api import game_writers
-from api.request_types import GameName
+from api.request_types import GameName, ManualEntities, WizardPart
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from llm.session import LLMSession
@@ -81,11 +81,11 @@ class ChatRequest(BaseModel):
     gameState: GameState | None = None
     provider: str = "anthropic"
     model: str | None = None
-    # Engine params (init mode only)
+    # Wizard params (init mode only); stored on the game, a bare retry reuses them (#88)
     engine: EngineType | None = None
-    world_config: dict | None = None  # genre, difficulty, hardcore, lore
-    character_data: dict | None = None  # engine-specific character stats
-    manual_entities: dict | None = None  # user-defined NPCs/locations/orgs
+    world_config: WizardPart | None = None  # genre, difficulty, duration, hardcore, lore
+    character_data: WizardPart | None = None  # engine-specific character stats
+    manual_entities: ManualEntities | None = None  # user-defined NPCs/locations/orgs
     # Fate Core aspect invocation resume
     roll_id: UUID | None = None  # pending roll to resume
     invoked_aspects: list[str] | None = None  # aspects invoked (+2 each)

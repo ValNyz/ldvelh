@@ -2,14 +2,13 @@
 
 import asyncio
 import logging
-from dataclasses import replace
 from uuid import UUID
 
 from pydantic import ValidationError
 
 from config import get_settings
 from domain.game import GameSnapshot
-from pipeline import director_runs, narration_stream
+from pipeline import director_runs, init_params, narration_stream
 from pipeline.chosen_name import apply_chosen_name, chosen_name
 from pipeline.narration_stream import NarrationStream
 from pipeline.context import InitParams, TurnContext
@@ -38,14 +37,15 @@ WORLD_GEN_FAILED = "Échec de génération du monde. Réessaie."
 
 
 async def resolve_genre(conn, snapshot: GameSnapshot, init: InitParams) -> dict | None:
-    """The game's genre, else the wizard slug's genre, then stored on the game."""
-    if snapshot.genre_id:
-        return await games_repo.get_genre(conn, snapshot.genre_id)
+    """The wizard slug's genre, stored on the game, else the game's genre.
+
+    The slug wins over a genre stored by an earlier, failed attempt: the player may have
+    changed it before retrying (#88)."""
     slug = (init.world_config or {}).get("genre")
-    if not slug:
-        return None
-    genre = await games_repo.get_genre_by_slug(conn, slug)
-    if genre:
+    genre = await games_repo.get_genre_by_slug(conn, slug) if slug else None
+    if genre is None:
+        return await games_repo.get_genre(conn, snapshot.genre_id)
+    if genre["id"] != snapshot.genre_id:
         await games_repo.set_game_genre(conn, snapshot.id, genre["id"])
     return genre
 
@@ -152,12 +152,9 @@ async def run_init(ctx: TurnContext) -> None:
     """Generate the world. Catches nothing: the API adapter reports failures."""
     logger.info("[CHAT] Mode: INIT (World Builder)")
     game_id = ctx.request.game_id
-    base = ctx.request.init or InitParams(engine=None, world_config=None, character_data=None,
-                                          manual_entities=None)
-    # Engine from the wizard, else the game's engine.
-    init = replace(base, engine=base.engine or ctx.snapshot.engine)
-
     async with ctx.pool.acquire() as conn:
+        # Stored before the paid call: a retry without parameters reuses them (#88).
+        init = await init_params.resolve(conn, game_id, ctx.request.init, ctx.snapshot.engine)
         genre = await resolve_genre(conn, ctx.snapshot, init)
     prompt = _build_prompt(ctx.request.message, init, init.engine, genre)
 

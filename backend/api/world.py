@@ -6,7 +6,6 @@ an empty text has the step invented from the form's other choices.
 - scope "character": the character description fills the character step.
 """
 
-import json
 import logging
 
 import asyncpg
@@ -14,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
 
 from api import routes
+from api.request_types import ManualEntities, WizardPart, check_wizard_form_size
 from api.dependencies import get_current_user, get_pool
 from llm.session import LLMSession
 from repos.llm_models import load_catalog
@@ -32,25 +32,16 @@ router = APIRouter(tags=["world"])
 enhance_limiter = shared_limiter(max_requests=10, window_seconds=60)
 
 
-# Far above what the wizard produces: an oversized form is refused before any LLM call.
-MAX_FORM_CHARS = 20_000
-MAX_ENTITIES_PER_KIND = 20
-
-
 class WizardState(BaseModel):
-    """The wizard form as it stands (same shape as the /chat init fields)."""
+    """The wizard form as it stands (same fields and bounds as the /chat init fields)."""
 
-    world_config: dict | None = None
-    character_data: dict | None = None
-    manual_entities: dict | None = None
+    world_config: WizardPart | None = None
+    character_data: WizardPart | None = None
+    manual_entities: ManualEntities | None = None
 
     @model_validator(mode="after")
     def _bounded(self):
-        if len(json.dumps(self.model_dump(), ensure_ascii=False)) > MAX_FORM_CHARS:
-            raise ValueError(f"formulaire trop long (max {MAX_FORM_CHARS} caractères)")
-        for items in (self.manual_entities or {}).values():
-            if isinstance(items, list) and len(items) > MAX_ENTITIES_PER_KIND:
-                raise ValueError(f"trop d'entités d'un même type (max {MAX_ENTITIES_PER_KIND})")
+        check_wizard_form_size(self.model_dump())  # the whole form, as one LLM input
         return self
 
 
