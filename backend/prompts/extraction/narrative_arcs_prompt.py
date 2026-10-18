@@ -5,6 +5,8 @@ Handles arcs, relations (cross-entity), events, segment summary, and world-state
 
 from schema.extraction import NarrativeArcsExtraction
 
+from schema.core import PROTAGONIST_REF
+
 from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
 
 SYSTEM_PROMPT = f"""Tu es l'extracteur d'ARCS NARRATIFS d'un jeu de rôle narratif sur une station spatiale.
@@ -44,7 +46,7 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
         {{
             "cycle": 5,
             "relation": {{
-                "source_ref": "Valentin",
+                "source_ref": "{PROTAGONIST_REF}",
                 "target_ref": "Marie",
                 "relation_type": "knows",
                 "known_by_protagonist": true,
@@ -55,7 +57,7 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
     ],
     "relations_updated": [
         {{
-            "source_ref": "Valentin",
+            "source_ref": "{PROTAGONIST_REF}",
             "target_ref": "Marie",
             "relation_type": "knows",
             "new_level": 4,
@@ -65,7 +67,7 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
     ],
     "relations_ended": [
         {{
-            "source_ref": "Valentin",
+            "source_ref": "{PROTAGONIST_REF}",
             "target_ref": "Ancien collègue",
             "relation_type": "colleague_of",
             "cycle": 5,
@@ -86,11 +88,11 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
     "facts": [
         {{
             "fact_type": "decision",
-            "description": "Valentin décide d'aider Marie avec le rapport",
-            "semantic_key": "valentin:decide:aider_marie_rapport",
+            "description": "Kira décide d'aider Marie avec le rapport",
+            "semantic_key": "kira:decide:aider_marie_rapport",
             "importance": 3,
             "participants": [
-                {{"entity_ref": "Valentin", "role": "actor"}},
+                {{"entity_ref": "{PROTAGONIST_REF}", "role": "actor"}},
                 {{"entity_ref": "Marie", "role": "target"}}
             ]
         }}

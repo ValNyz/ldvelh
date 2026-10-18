@@ -130,7 +130,7 @@ async def test_director_stores_plan(test_pool, test_user):
     """Director stores a plan in DB after world gen."""
     from services.game_service import GameService
     from schema import WorldGeneration
-    from prompts.examples import WORLD_GENERATION_EXAMPLE
+    from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
     service = GameService(test_pool)
     game_id = await service.create_game(test_user["id"])
@@ -200,7 +200,7 @@ async def test_director_plan_read_by_context_builder(test_pool, test_user):
     from services.game_service import GameService
     from services.context_builder import ContextBuilder
     from schema import WorldGeneration
-    from prompts.examples import WORLD_GENERATION_EXAMPLE
+    from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
     service = GameService(test_pool)
     game_id = await service.create_game(test_user["id"])
@@ -255,7 +255,7 @@ async def test_director_plan_string_fallback(test_pool, test_user):
     from services.game_service import GameService
     from services.context_builder import ContextBuilder
     from schema import WorldGeneration
-    from prompts.examples import WORLD_GENERATION_EXAMPLE
+    from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
     service = GameService(test_pool)
     game_id = await service.create_game(test_user["id"])
@@ -294,7 +294,7 @@ async def test_director_handles_empty_llm_result(test_pool, test_user):
     """Director handles empty LLM result gracefully."""
     from services.game_service import GameService
     from schema import WorldGeneration
-    from prompts.examples import WORLD_GENERATION_EXAMPLE
+    from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
     service = GameService(test_pool)
     game_id = await service.create_game(test_user["id"])
@@ -374,7 +374,7 @@ class TestDirectorGuards:
         from services.director_service import run_director
         from services.game_service import GameService
         from schema import WorldGeneration
-        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
         service = GameService(test_pool)
         game_id = await service.create_game(test_user["id"])
@@ -418,7 +418,7 @@ async def test_director_cost_is_recorded(test_pool, test_user):
     from services.director_service import run_director
     from services.game_service import GameService
     from schema import WorldGeneration
-    from prompts.examples import WORLD_GENERATION_EXAMPLE
+    from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
     from tests.test_llm_session import FakeProvider
 
     service = GameService(test_pool)

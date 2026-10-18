@@ -23,6 +23,7 @@ class ProgressionExtractor(BaseExtractor):
     extraction_type = "progression"
     tool_name = "extract_progression"
     tool_description = "Extract character progression from narrative text"
+    writes_entity_refs = False  # engine stats only
 
     async def run(self, message_content: str, narrator_deltas: dict, trigger_cycle: int, resolution_map=None) -> dict:
         """Override run() to short-circuit for engines without progression."""

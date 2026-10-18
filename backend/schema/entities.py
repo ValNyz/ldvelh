@@ -70,7 +70,7 @@ class WorldData(BaseModel):
 class ProtagonistData(BaseModel):
     """The player character"""
 
-    name: Tag = "Valentin"
+    name: Tag  # required: chosen in the wizard or invented by the world builder (#28)
     credits: int = Field(default=1400, ge=0)
     # Profile
     gender: str | None = None

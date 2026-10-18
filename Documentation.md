@@ -85,7 +85,6 @@ ldvelh/
 │   │   ├── narrator_prompt.py # System + context prompts for narration
 │   │   ├── world_generation_prompt.py # World gen prompts
 │   │   ├── mechanical_prompt.py       # Mechanical decision prompts
-│   │   ├── examples.py        # Single source of truth for JSON examples
 │   │   └── extraction/        # Per-extractor prompt modules
 │   ├── schema/                # Pydantic models
 │   │   ├── core.py            # Base types (Name, ShortText, etc.)
@@ -841,6 +840,8 @@ Key methods: `create_game`, `delete_game`, `rename_game`, `create_character`, `c
 ### Entity Registry
 
 PostgreSQL triggers auto-register entities (characters, locations, organizations) into `entity_registry` on INSERT. This provides a unified ID lookup for cross-table references (relations, facts, arcs, chronology participants).
+
+The player character is referenced by type, not by name (#28): the reserved reference `PROTAGONIST` (`schema.core.PROTAGONIST_REF`) resolves to the game's `entity_type='protagonist'` row in `EntityRegistry.resolve` and in the SQL `find_entity()` (used by `create_fact` and `end_relation`). The real PC name still resolves. Extraction prompts teach the token in every reference field and the extractor user prompt names the PC for free text (`prompts/extraction/shared.py::protagonist_section`). Facts the populator writes about the PC use role-based keys (`kg/semantic_keys.py`: `protagonist:arrival:*`, `protagonist:use:*`). The PC name has no default: the wizard's name, else the one the world builder invents.
 
 ### WorldPopulator
 

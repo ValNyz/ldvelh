@@ -1,6 +1,6 @@
 """
 Configuration pytest et fixtures partagées
-Importe les exemples depuis prompts/examples.py
+Importe les exemples depuis tests/prompt_examples.py
 """
 
 import json
@@ -26,10 +26,10 @@ pytest_plugins = ["tests.plugins.chat", "tests.plugins.catalog", "tests.plugins.
 
 
 # =============================================================================
-# FIXTURES - Exemples importés depuis prompts/examples.py
+# FIXTURES - Exemples importés depuis tests/prompt_examples.py
 # =============================================================================
 
-from prompts.examples import (
+from tests.prompt_examples import (
     # World Generation
     WORLD_GENERATION_EXAMPLE,
     # Narration

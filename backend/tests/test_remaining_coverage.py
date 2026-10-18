@@ -107,6 +107,7 @@ class TestCoreTruncation:
 
         long_backstory = "word " * 300  # 1500 chars
         p = ProtagonistData(
+            name="Kira",
             skills=[
                 {"name": "skill_a", "level": 3},
                 {"name": "skill_b", "level": 2},
@@ -288,6 +289,7 @@ class TestEntitiesValidators:
         from schema.entities import ProtagonistData
 
         p = ProtagonistData(
+            name="Kira",
             skills=[
                 {"name": "a", "level": 1},
                 {"name": "b", "level": 2},
@@ -301,6 +303,7 @@ class TestEntitiesValidators:
         from schema.entities import ProtagonistData
 
         p = ProtagonistData(
+            name="Kira",
             skills=[
                 {"name": "a", "level": 1},
                 {"name": "b", "level": 2},
@@ -314,6 +317,7 @@ class TestEntitiesValidators:
         from schema.entities import ProtagonistData
 
         p = ProtagonistData(
+            name="Kira",
             skills=[
                 {"name": "a", "level": 1},
                 {"name": "b", "level": 2},
@@ -327,6 +331,7 @@ class TestEntitiesValidators:
         from schema.entities import ProtagonistData
 
         p = ProtagonistData(
+            name="Kira",
             skills=[
                 {"name": "a", "level": 1},
                 {"name": "b", "level": 2},
@@ -340,6 +345,7 @@ class TestEntitiesValidators:
         from schema.entities import ProtagonistData
 
         p = ProtagonistData(
+            name="Kira",
             skills=[
                 {"name": "a", "level": 1},
                 {"name": "b", "level": 2},

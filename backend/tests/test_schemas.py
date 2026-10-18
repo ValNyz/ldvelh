@@ -1,5 +1,5 @@
 """
-Tests des schémas Pydantic avec les exemples JSON importés depuis prompts/examples.py
+Tests des schémas Pydantic avec les exemples JSON importés depuis tests/prompt_examples.py
 Vérifie que les exemples donnés au LLM sont valides selon nos schémas.
 """
 
@@ -550,7 +550,8 @@ class TestStrList:
         lambda v: CharacterData(name="N", traits=v).traits,
         lambda v: CompanionData(name="C", traits=v).traits,
         lambda v: LocationData(name="L", notable_features=v).notable_features,
-        lambda v: ProtagonistData(skills=[{"name": "a", "level": 2}, {"name": "b", "level": 3}],
+        lambda v: ProtagonistData(name="Kira",
+                                  skills=[{"name": "a", "level": 2}, {"name": "b", "level": 3}],
                                   hobbies=v).hobbies,
     ])
     @pytest.mark.parametrize("raw,expected", [

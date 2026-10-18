@@ -777,7 +777,7 @@ class TestFateCoreJSONBRoundTrip:
         from services.game_service import GameService
         from services.engine.fate_core import FateCoreEngine
         from schema import WorldGeneration
-        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
         import json as json_mod
 
         service = GameService(test_pool)
@@ -814,7 +814,7 @@ class TestFateCoreJSONBRoundTrip:
         from services.game_service import GameService
         from services.engine.fate_core import FateCoreEngine
         from schema import WorldGeneration
-        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
         import json as json_mod
 
         service = GameService(test_pool)
@@ -857,7 +857,7 @@ class TestD6JSONBRoundTrip:
         from services.game_service import GameService
         from services.engine.d6 import D6Engine
         from schema import WorldGeneration
-        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
         import json as json_mod
 
         service = GameService(test_pool)
@@ -892,7 +892,7 @@ class TestD6JSONBRoundTrip:
         from services.game_service import GameService
         from services.engine.d6 import D6Engine
         from schema import WorldGeneration
-        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
         import json as json_mod
 
         service = GameService(test_pool)
@@ -932,7 +932,7 @@ class TestNarrativeJSONBRoundTrip:
         from services.game_service import GameService
         from services.engine.narrative import NarrativeEngine
         from schema import WorldGeneration
-        from prompts.examples import WORLD_GENERATION_EXAMPLE
+        from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
         import json as json_mod
 
         service = GameService(test_pool)

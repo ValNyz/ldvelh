@@ -18,7 +18,7 @@ import pytest
 from unittest.mock import MagicMock
 
 from helpers import apply_deltas, apply_state, auth_headers, save_pair, store_requests
-from prompts.examples import WORLD_GENERATION_EXAMPLE
+from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
 
@@ -1623,7 +1623,7 @@ class TestExtractionPopulator:
         async with test_pool.acquire() as conn:
             fact = await conn.fetchrow(
                 "SELECT description FROM facts"
-                " WHERE game_id = $1 AND semantic_key LIKE 'valentin:use:%'",
+                " WHERE game_id = $1 AND semantic_key LIKE 'protagonist:use:%'",
                 game_id,
             )
         assert fact is not None

@@ -5,6 +5,8 @@ Handles object creation with canonical_name dedup, inventory changes, and invent
 
 from schema.extraction import InventoryExtraction
 
+from schema.core import PROTAGONIST_REF
+
 from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
 
 SYSTEM_PROMPT = f"""Tu es l'extracteur d'INVENTAIRE d'un jeu de rôle narratif sur une station spatiale.
@@ -45,11 +47,11 @@ Tu analyses les textes narratifs et crées les fiches d'objets acquis et les cha
     "facts": [
         {{
             "fact_type": "acquisition",
-            "description": "Valentin reçoit une carte d'accès niveau 2 de l'accueil",
-            "semantic_key": "valentin:receives:carte_acces_2",
+            "description": "Kira reçoit une carte d'accès niveau 2 de l'accueil",
+            "semantic_key": "kira:receives:carte_acces_2",
             "importance": 3,
             "participants": [
-                {{"entity_ref": "Valentin", "role": "actor"}}
+                {{"entity_ref": "{PROTAGONIST_REF}", "role": "actor"}}
             ]
         }}
     ]

@@ -1,7 +1,7 @@
 """
-LDVELH - Exemples JSON pour les prompts
-Centralisés ici pour être utilisés à la fois dans les prompts ET les tests.
-Format : colonnes directes (pas d'EAV attributes).
+LDVELH - Test fixtures: JSON examples shaped like the LLM outputs.
+No prompt reads them (the prompts carry their own inline examples); moved here from
+prompts/ (#28). Format: direct columns (no EAV attributes).
 """
 
 # =============================================================================
@@ -473,7 +473,7 @@ EXTRACTION_FACTS_EXAMPLE = {
             "importance": 4,
             "participants": [
                 {"entity_ref": "Marie", "role": "actor"},
-                {"entity_ref": "Valentin", "role": "witness"},
+                {"entity_ref": "PROTAGONIST", "role": "witness"},
             ],
         }
     ],
@@ -484,7 +484,7 @@ EXTRACTION_RELATIONS_EXAMPLE = {
         {
             "cycle": 5,
             "relation": {
-                "source_ref": "Valentin",
+                "source_ref": "PROTAGONIST",
                 "target_ref": "Marie",
                 "relation_type": "knows",
                 "known_by_protagonist": True,
@@ -495,7 +495,7 @@ EXTRACTION_RELATIONS_EXAMPLE = {
     ],
     "relations_updated": [
         {
-            "source_ref": "Valentin",
+            "source_ref": "PROTAGONIST",
             "target_ref": "Marie",
             "relation_type": "knows",
             "new_level": 4,

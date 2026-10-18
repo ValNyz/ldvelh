@@ -507,7 +507,6 @@ ENTITY_TYPE_SYNONYMS = {
     "main_character": "protagonist",
     "main": "protagonist",
     "self": "protagonist",
-    "valentin": "protagonist",
     # character
     "character": "character",
     "npc": "character",

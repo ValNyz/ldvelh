@@ -457,8 +457,18 @@ def normalize_org_size(value: Any) -> str:
 Cycle = Annotated[
     int, Field(description="Cycle number. Negative=past, 1=arrival, positive=future")
 ]
+# Reserved entity reference to the player character (#28). It resolves by type (the
+# entity_registry row with entity_type='protagonist'), whatever the PC is called:
+# EntityRegistry.resolve in Python and find_entity() in SQL (migration
+# 20261018000003_protagonist_ref) map it. Prompts write it in every reference field.
+PROTAGONIST_REF = "PROTAGONIST"
+
 EntityRef = Annotated[
-    str, Field(description="Reference to an entity by name (case-insensitive)")
+    str,
+    Field(
+        description="Reference to an entity by name (case-insensitive); "
+        f'"{PROTAGONIST_REF}" for the player character'
+    ),
 ]
 
 

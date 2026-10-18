@@ -145,8 +145,8 @@ class NarrativeArcsExtractor(BaseExtractor):
                 context = COALESCE($5, context),
                 known_by_protagonist = COALESCE($6, known_by_protagonist)
             WHERE game_id = $1
-              AND source_id = (SELECT id FROM entity_registry WHERE game_id=$1 AND LOWER(name)=LOWER($2) LIMIT 1)
-              AND target_id = (SELECT id FROM entity_registry WHERE game_id=$1 AND LOWER(name)=LOWER($3) LIMIT 1)
+              AND source_id = find_entity($1, $2)
+              AND target_id = find_entity($1, $3)
               AND end_cycle IS NULL""",
             self.game_id,
             ru.source_ref, ru.target_ref,

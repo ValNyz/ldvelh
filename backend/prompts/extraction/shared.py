@@ -3,6 +3,8 @@ LDVELH - Shared Extraction Rules
 Common instructions for all specialized extractors.
 """
 
+from schema.core import PROTAGONIST_REF
+
 STRICT_KEYS_RULE = """## STRICT KEY CONSTRAINT
 
 You MUST use EXACTLY the JSON keys listed in the output format.
@@ -11,11 +13,25 @@ You MUST use EXACTLY the JSON keys listed in the output format.
 - Do NOT nest data in unplanned sub-objects
 - If some information has no matching key, ignore it"""
 
-ENTITY_MATCHING_RULE = """## ENTITY NAME MATCHING
+ENTITY_MATCHING_RULE = f"""## ENTITY NAME MATCHING
 
 - Use EXACT names from the known entities list when referencing existing entities
 - Case-insensitive matching, but prefer the canonical casing from the list
-- For new entities, use the name as it appears in the narrative text"""
+- For new entities, use the name as it appears in the narrative text
+- The player character is ALWAYS referenced as "{PROTAGONIST_REF}" in reference fields
+  (source_ref, target_ref, entity_ref, involved_entities, participants), never by name.
+  In free text (description, summary) use the name given in the PROTAGONIST section
+  (the examples call the player character Kira)"""
+
+
+def protagonist_section(name: str | None) -> str:
+    """User-prompt section naming the player character, empty before world generation."""
+    if not name:
+        return ""
+    return (
+        f"\n\n## PROTAGONIST\nThe player character is {name}: write \"{PROTAGONIST_REF}\""
+        f" in reference fields, \"{name}\" in free text."
+    )
 
 FACT_RULES = """## FACTS (Entity Knowledge Only)
 

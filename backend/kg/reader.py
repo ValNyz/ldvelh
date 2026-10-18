@@ -12,6 +12,8 @@ from uuid import UUID
 
 from utils.json_utils import parse_json
 
+from .semantic_keys import ARRIVAL_KEY_LIKE, arrival_key
+
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
@@ -166,6 +168,12 @@ class KnowledgeGraphReader:
     # =========================================================================
     # PROTAGONIST
     # =========================================================================
+
+    async def get_protagonist_name(self, conn: Connection) -> str | None:
+        """The PC's name, None before the world is generated."""
+        return await conn.fetchval(
+            "SELECT name FROM protagonists WHERE game_id = $1", self.game_id
+        )
 
     async def get_protagonist(self, conn: Connection) -> dict | None:
         """Get protagonist with all fields."""
@@ -751,8 +759,9 @@ class KnowledgeGraphReader:
         facts = await conn.fetch(
             """SELECT semantic_key, description FROM facts
                WHERE game_id = $1 AND cycle = 1
-                 AND semantic_key LIKE 'valentin:arrival:%'""",
+                 AND semantic_key LIKE $2""",
             self.game_id,
+            ARRIVAL_KEY_LIKE,
         )
 
         if not chrono and not facts:
@@ -773,15 +782,15 @@ class KnowledgeGraphReader:
         for fact in facts:
             key = fact["semantic_key"]
             desc = fact["description"]
-            if key == "valentin:arrival:station":
+            if key == arrival_key("station"):
                 result["arrival_description"] = desc
-            elif key == "valentin:arrival:incident":
+            elif key == arrival_key("incident"):
                 result["incident"] = desc
-            elif key == "valentin:arrival:mood" and desc.startswith(
+            elif key == arrival_key("mood") and desc.startswith(
                 "État à l'arrivée : "
             ):
                 result["initial_mood"] = desc[19:]
-            elif key == "valentin:arrival:need" and desc.startswith(
+            elif key == arrival_key("need") and desc.startswith(
                 "Besoin immédiat : "
             ):
                 result["immediate_need"] = desc[18:]

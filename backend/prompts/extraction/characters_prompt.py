@@ -5,6 +5,8 @@ Handles character CRUD, ambient updates, skills, and character-related facts.
 
 from schema.extraction import CharactersExtraction
 
+from schema.core import PROTAGONIST_REF
+
 from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
 
 SYSTEM_PROMPT = f"""Tu es l'extracteur de PERSONNAGES d'un jeu de rôle narratif sur une station spatiale.
@@ -72,7 +74,7 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux personn
             "importance": 4,
             "participants": [
                 {{"entity_ref": "Marie", "role": "actor"}},
-                {{"entity_ref": "Valentin", "role": "witness"}}
+                {{"entity_ref": "{PROTAGONIST_REF}", "role": "witness"}}
             ]
         }}
     ]

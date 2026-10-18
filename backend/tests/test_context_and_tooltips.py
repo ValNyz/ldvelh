@@ -16,7 +16,7 @@ from uuid import UUID
 import pytest
 
 from helpers import apply_state, auth_headers, save_pair
-from prompts.examples import WORLD_GENERATION_EXAMPLE
+from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
 

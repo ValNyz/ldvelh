@@ -33,6 +33,7 @@ from .core import (
     # Type aliases
     Cycle,
     EntityRef,
+    PROTAGONIST_REF,
     # Base models
     Skill,
     TemporalValidationMixin,
@@ -243,6 +244,7 @@ __all__ = [
     # =========================================================================
     "Cycle",
     "EntityRef",
+    "PROTAGONIST_REF",
     "Skill",
     "TemporalValidationMixin",
     # =========================================================================

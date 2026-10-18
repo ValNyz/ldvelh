@@ -135,3 +135,24 @@ async def test_legacy_users_start_at_token_version_zero(client, test_pool, legac
     me = await client.get("/api/auth/me",
                           headers={"Authorization": f"Bearer {login.json()['token']}"})
     assert me.status_code == 200
+
+
+async def test_legacy_arrival_facts_get_protagonist_keys(test_pool, legacy_game):
+    """#28: the migration renames the system semantic keys valentin:* to protagonist:*."""
+    from uuid import UUID
+
+    from kg.reader import KnowledgeGraphReader
+
+    game_id, _ = legacy_game
+    async with test_pool.acquire() as conn:
+        keys = await conn.fetch(
+            "SELECT semantic_key FROM facts WHERE game_id = $1::uuid AND cycle = 1"
+            " ORDER BY semantic_key", game_id)
+        arrival = await KnowledgeGraphReader(test_pool, UUID(game_id)).get_arrival_event(conn)
+    assert [k["semantic_key"] for k in keys] == [
+        "protagonist:arrival:incident", "protagonist:arrival:mood", "protagonist:arrival:need",
+        "protagonist:arrival:sensory", "protagonist:arrival:station"]
+    assert arrival["arrival_description"].startswith("Arrivée sur la station via navette cargo")
+    assert arrival["initial_mood"] == "fatigué, nauséeux, décalé"
+    assert arrival["immediate_need"] == "Trouver l'appartement et dormir"
+    assert arrival["incident"] == "Systèmes bagages en panne, attente indéterminée"

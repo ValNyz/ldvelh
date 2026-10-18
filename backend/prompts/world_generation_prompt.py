@@ -5,6 +5,7 @@ Genre-aware: tone, friction, vocabulary, and example come from the genres DB tab
 """
 
 from prompts.shared import COHERENCE_RULES
+from schema.core import PROTAGONIST_REF
 
 
 # =============================================================================
@@ -274,7 +275,7 @@ def _build_manual_entities_section(manual_entities: dict) -> list[str]:
 
 
 def build_world_generation_user_prompt(
-    protagonist_name: str = "Valentin",
+    protagonist_name: str | None = None,
     mandatory_npcs: list[dict] | None = None,
     theme_preferences: str | None = None,
     employer_preference: str = "employed",
@@ -312,8 +313,11 @@ def build_world_generation_user_prompt(
     if manual_entities:
         parts.extend(_build_manual_entities_section(manual_entities))
 
+    # No name chosen in the wizard: the model invents one (#28, no hardcoded default).
     parts.append("## PERSONNAGE PRINCIPAL")
-    parts.append(f"Nom : {protagonist_name}")
+    parts.append(f"Nom : {protagonist_name}" if protagonist_name
+                 else "Nom : à inventer (adapté au monde), à écrire dans protagonist.name")
+    subject = protagonist_name or "Le protagoniste"
     if character_data:
         if character_data.get("gender"):
             parts.append(f"Genre : {character_data['gender']}")
@@ -327,21 +331,21 @@ def build_world_generation_user_prompt(
     if employer_preference == "unemployed":
         parts.extend([
             "## EMPLOI",
-            f"{protagonist_name} arrive SANS emploi. Il devra en chercher un.",
+            f"{subject} arrive SANS emploi. Il devra en chercher un.",
             "Ne génère PAS d'organisation avec is_employer=true.",
             "",
         ])
     elif employer_preference == "freelance":
         parts.extend([
             "## EMPLOI",
-            f"{protagonist_name} est freelance/indépendant.",
+            f"{subject} est freelance/indépendant.",
             "Génère des clients potentiels plutôt qu'un employeur unique.",
             "",
         ])
     else:
         parts.extend([
             "## EMPLOI",
-            f"{protagonist_name} a un emploi.",
+            f"{subject} a un emploi.",
             "Génère une organisation employeur avec is_employer=true.",
             "",
         ])
@@ -388,6 +392,8 @@ def build_world_generation_user_prompt(
         "### RÉFÉRENCES (CRITIQUE)",
         "□ Chaque *_ref = nom EXACT d'un lieu dans 'locations'",
         "⚠️ NE JAMAIS inventer un nom dans un *_ref",
+        f"□ Le personnage principal se référence \"{PROTAGONIST_REF}\" dans source_ref,"
+        " target_ref et involved_entities",
         "",
         "### Friction",
         "□ Au moins 1 PNJ pas immédiatement sympathique",
@@ -406,7 +412,7 @@ def build_world_generation_user_prompt(
 
 
 def get_full_generation_prompt(
-    protagonist_name: str = "Valentin",
+    protagonist_name: str | None = None,
     mandatory_npcs: list[dict] | None = None,
     theme_preferences: str | None = None,
     employer_preference: str = "employed",

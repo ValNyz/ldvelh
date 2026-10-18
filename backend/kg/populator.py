@@ -18,6 +18,7 @@ from schema import (
     LocationData,
     NarrativeArcData,
     ObjectData,
+    PROTAGONIST_REF,
     OrganizationData,
     ProtagonistData,
     RelationData,
@@ -32,6 +33,8 @@ if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
 logger = logging.getLogger(__name__)
+
+_PROTAGONIST_KEY = PROTAGONIST_REF.lower()
 
 # ON CONFLICT ... DO UPDATE SET lists of the entity upserts (#87): a re-listed entity
 # never wipes a stored value with NULL/''/[], and never changes known_by_protagonist.
@@ -73,7 +76,12 @@ class EntityRegistry:
         self._names_by_id[entity_id] = name
 
     def resolve(self, name: str) -> UUID | None:
-        return self._by_name.get(name.lower().strip())
+        """UUID of a name; PROTAGONIST_REF resolves to the protagonist row by type (#28)."""
+        key = name.lower().strip()
+        if key == _PROTAGONIST_KEY:
+            protagonists = self._by_type.get(EntityType.PROTAGONIST.value)
+            return protagonists[0] if protagonists else None
+        return self._by_name.get(key)
 
     def resolve_strict(self, name: str) -> UUID:
         result = self.resolve(name)
@@ -96,7 +104,7 @@ class EntityRegistry:
         self._names_by_id.clear()
 
     def __contains__(self, name: str) -> bool:
-        return name.lower().strip() in self._by_name
+        return self.resolve(name) is not None
 
 
 # =============================================================================

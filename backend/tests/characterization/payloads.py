@@ -1,7 +1,7 @@
 """Scripted LLM payloads reused across characterization scenarios.
 
 World and narration payloads are FROZEN copies under fixtures/ (taken from
-prompts/examples.py), so reworking the prompt examples does not churn snapshots.
+tests/prompt_examples.py), so reworking the prompt examples does not churn snapshots.
 test_harness_smoke validates them against the current Pydantic schemas, so schema
 drift still shows up there.
 """

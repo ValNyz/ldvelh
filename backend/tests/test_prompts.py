@@ -45,7 +45,7 @@ class TestExtractionExampleKeys:
 
     def test_example_keys_match_documented_keys(self):
         """Keys in JSON examples match documented schema."""
-        from prompts.examples import (
+        from tests.prompt_examples import (
             EXTRACTION_PROTAGONIST_STATE_EXAMPLE,
             EXTRACTION_ENTITIES_EXAMPLE,
             EXTRACTION_FACTS_EXAMPLE,
@@ -188,7 +188,7 @@ class TestWorldGenerationPromptBuilder:
         prompt = build_world_generation_user_prompt()
 
         assert "PERSONNAGE PRINCIPAL" in prompt
-        assert "Valentin" in prompt
+        assert "Nom : à inventer" in prompt  # no default PC name (#28)
         assert "EMPLOI" in prompt
         assert "CHECKLIST FINALE" in prompt
 

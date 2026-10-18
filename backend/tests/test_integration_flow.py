@@ -9,7 +9,7 @@ import json
 import pytest
 
 from helpers import apply_deltas, apply_state, auth_headers, log_roll, make_roll, save_pair
-from prompts.examples import WORLD_GENERATION_EXAMPLE
+from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
 

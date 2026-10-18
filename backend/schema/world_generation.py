@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
     DEFAULT_GAME_TIME,
+    PROTAGONIST_REF,
     EntityRef,
     GameTime,
     Mood,
@@ -523,7 +524,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         )
 
         if not has_residence:
-            logger.warning("[Validation] No residence location found for Valentin")
+            logger.warning("[Validation] No residence location found for the protagonist")
         if not has_arrival:
             logger.warning("[Validation] No arrival location (dock, terminal) found")
         return v
@@ -697,7 +698,8 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     def _build_name_registry(self) -> set[str]:
         """Build a set of all known entity names (lowercase)"""
-        known = {self.protagonist.name.lower(), self.companion.name.lower()}
+        known = {self.protagonist.name.lower(), self.companion.name.lower(),
+                 PROTAGONIST_REF.lower()}
         known.add(self.world.name.lower())
         known.update(c.name.lower() for c in self.characters)
         known.update(loc.name.lower() for loc in self.locations)

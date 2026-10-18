@@ -19,6 +19,7 @@ from kg.item_writes import write_item, write_items
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
 from config import get_settings
+from prompts.extraction.shared import protagonist_section
 from schema import EntityType, FactData
 from schema.extraction import AmbientUpdate, EntityCreation, EntityUpdate
 from utils.log_safe import log_cause, log_exception, safe_text
@@ -39,6 +40,7 @@ class BaseExtractor(ABC):
     extraction_type: str  # "characters", "locations", etc.
     tool_name: str  # Tool name for LLM call
     tool_description: str  # Tool description for LLM call
+    writes_entity_refs = True  # its output references entities: name the PC in the prompt
 
     def __init__(self, pool: Pool, game_id: UUID, session: "LLMSession"):
         self.pool = pool
@@ -69,6 +71,9 @@ class BaseExtractor(ABC):
                     context, message_content, trigger_cycle,
                     resolution_map=resolution_map,
                 )
+                if self.writes_entity_refs:
+                    user_prompt += protagonist_section(
+                        await self.reader.get_protagonist_name(conn))
 
                 # 3. Get tool schema
                 schema = self._get_tool_schema()

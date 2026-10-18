@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from prompts.examples import WORLD_GENERATION_EXAMPLE
+from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
 

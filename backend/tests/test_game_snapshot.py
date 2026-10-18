@@ -23,7 +23,7 @@ async def test_new_game_snapshot(test_pool, test_user):
 async def test_snapshot_after_world_gen_has_world_and_protagonist(test_pool, test_user):
     from services.game_service import GameService
     from schema import WorldGeneration
-    from prompts.examples import WORLD_GENERATION_EXAMPLE
+    from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
     service = GameService(test_pool)
     game_id = await service.create_game(test_user["id"])
     await service.process_init(game_id, WorldGeneration.model_validate(json.loads(WORLD_GENERATION_EXAMPLE)))

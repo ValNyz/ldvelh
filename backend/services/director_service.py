@@ -103,7 +103,7 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
         if arc_id and arc_update.involved_entities:
             for entity_name in arc_update.involved_entities:
                 entity_id = await conn.fetchval(
-                    "SELECT id FROM entity_registry WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
+                    "SELECT find_entity($1, $2)",  # maps PROTAGONIST_REF too (#28)
                     game_id, entity_name,
                 )
                 if entity_id:

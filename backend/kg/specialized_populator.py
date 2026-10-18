@@ -27,10 +27,12 @@ from schema import (
     ObjectCreation,
     ObjectData,
     OrganizationData,
+    PROTAGONIST_REF,
     RelationType,
 )
 from .item_writes import write_item, write_items
 from .populator import KnowledgeGraphPopulator
+from .semantic_keys import arrival_key, use_key
 
 if TYPE_CHECKING:
     from asyncpg import Connection
@@ -272,9 +274,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 time=getattr(arrival, "time", None),
                 importance=4,
                 participants=[
-                    FactParticipant(entity_ref="Valentin", role="actor")
+                    FactParticipant(entity_ref=PROTAGONIST_REF, role="actor")
                 ],
-                semantic_key="valentin:arrival:station",
+                semantic_key=arrival_key("station"),
             ),
         )
 
@@ -310,7 +312,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     location_ref=arrival.arrival_location_ref,
                     importance=2,
                     participants=[],
-                    semantic_key="valentin:arrival:sensory",
+                    semantic_key=arrival_key("sensory"),
                 ),
             )
 
@@ -325,9 +327,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     location_ref=arrival.arrival_location_ref,
                     importance=3,
                     participants=[
-                        FactParticipant(entity_ref="Valentin", role="actor")
+                        FactParticipant(entity_ref=PROTAGONIST_REF, role="actor")
                     ],
-                    semantic_key="valentin:arrival:incident",
+                    semantic_key=arrival_key("incident"),
                 ),
             )
 
@@ -341,9 +343,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     description=f"État à l'arrivée : {mood}",
                     importance=2,
                     participants=[
-                        FactParticipant(entity_ref="Valentin", role="actor")
+                        FactParticipant(entity_ref=PROTAGONIST_REF, role="actor")
                     ],
-                    semantic_key="valentin:arrival:mood",
+                    semantic_key=arrival_key("mood"),
                 ),
             )
 
@@ -357,9 +359,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     description=f"Besoin immédiat : {need}",
                     importance=2,
                     participants=[
-                        FactParticipant(entity_ref="Valentin", role="actor")
+                        FactParticipant(entity_ref=PROTAGONIST_REF, role="actor")
                     ],
-                    semantic_key="valentin:arrival:need",
+                    semantic_key=arrival_key("need"),
                 ),
             )
 
@@ -765,7 +767,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 )
 
         elif change.action == "use" and change.object_ref:
-            safe_key = change.object_ref.lower().replace(" ", "_")[:30]
             await self.create_fact(
                 conn,
                 FactData(
@@ -777,9 +778,9 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     ).strip(),
                     importance=2,
                     participants=[
-                        FactParticipant(entity_ref="Valentin", role="actor")
+                        FactParticipant(entity_ref=PROTAGONIST_REF, role="actor")
                     ],
-                    semantic_key=f"valentin:use:{safe_key}",
+                    semantic_key=use_key(change.object_ref),
                 ),
             )
 

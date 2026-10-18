@@ -33,7 +33,6 @@ from services.engine import get_engine
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROTAGONIST_NAME = "Valentin"
 DIRECTOR_INIT_TIMEOUT = 30.0
 WORLD_GEN_FAILED = "Échec de génération du monde. Réessaie."
 
@@ -51,11 +50,26 @@ async def resolve_genre(conn, snapshot: GameSnapshot, init: InitParams) -> dict 
     return genre
 
 
+def _chosen_name(character: dict | None) -> str | None:
+    """PC name typed in the wizard; None when left blank (the world builder invents one)."""
+    name = (character or {}).get("name")
+    return (name.strip() or None) if isinstance(name, str) else None
+
+
+def with_chosen_name(parsed: dict | None, character: dict | None) -> dict | None:
+    """Fill protagonist.name from the wizard when the world builder left it out (#28)."""
+    name = _chosen_name(character)
+    protagonist = (parsed or {}).get("protagonist")
+    if name and isinstance(protagonist, dict) and not protagonist.get("name"):
+        protagonist["name"] = name
+    return parsed
+
+
 def _build_prompt(message: str, init: InitParams, engine: str, genre: dict | None) -> dict:
     manual = init.manual_entities
     character = init.character_data
     return get_full_generation_prompt(
-        protagonist_name=(character or {}).get("name") or DEFAULT_PROTAGONIST_NAME,
+        protagonist_name=_chosen_name(character),
         mandatory_npcs=manual["npcs"] if manual and "npcs" in manual else None,
         theme_preferences=message if message and not message.startswith("__") else None,
         employer_preference="employed",
@@ -167,7 +181,7 @@ async def run_init(ctx: TurnContext) -> None:
         messages=[{"role": "user", "content": prompt["user"]}],
         world_gen=True, temperature=1.0,
     )
-    world_gen = _validate_world(result.parsed, result.raw)
+    world_gen = _validate_world(with_chosen_name(result.parsed, init.character_data), result.raw)
 
     # Waiting for a connection stays cancellable; once it is held, the world save (one
     # transaction: world, engine, character, duration) and the initial Director start
