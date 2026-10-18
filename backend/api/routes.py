@@ -64,21 +64,16 @@ def _reject_unusable_wizard_name(character_data: dict | None) -> None:
 # =============================================================================
 
 
-class GameState(BaseModel):
-    """Client-side game state"""
-
-    game: dict | None = None
-    player: dict | None = None
-    ai: dict | None = None
-    world_created: bool = False
-
-
 class ChatRequest(BaseModel):
-    """Requête de chat"""
+    """Requête de chat.
+
+    Unknown fields are ignored (pydantic default), not refused: a frontend cached before
+    #55 still sends gameState (the server always reloads the state) and must keep working
+    during a deploy.
+    """
 
     message: str
     gameId: UUID
-    gameState: GameState | None = None
     provider: str = "anthropic"
     model: str | None = None
     # Wizard params (init mode only); stored on the game, a bare retry reuses them (#88)

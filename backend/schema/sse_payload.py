@@ -4,6 +4,8 @@ Typed models for SSE done event payloads.
 Ensures consistent contract between backend and frontend.
 """
 
+from uuid import UUID
+
 from pydantic import BaseModel, Field
 
 
@@ -75,10 +77,12 @@ class WorldInfo(BaseModel):
 
 
 class SSEMeta(BaseModel):
-    """Debug and billing metadata."""
+    """Billing metadata, and the turn's saved messages (edit / regenerate it, #55)."""
 
     narration_cost: dict | None = None
     mechanical_cost: dict | None = None
+    user_message_id: UUID | None = None
+    assistant_message_id: UUID | None = None
 
 
 class SSEUIHints(BaseModel):

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Committed:
     state: NarrationState
+    user_message_id: UUID
     assistant_message_id: UUID
     narrator_deltas: dict
 
@@ -104,7 +105,7 @@ async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: A
         engine_snapshot = None
         if ctx.snapshot.engine != "none":
             engine_snapshot = await ctx.engine.snapshot_turn_state(conn, game_id)
-        _, assistant_msg_id = await turns.save_turn_messages(
+        user_msg_id, assistant_msg_id = await turns.save_turn_messages(
             conn, game_id,
             # Protocol token kept (chat history hides it), stored action on a resume.
             user_message=prepared.player_message,
@@ -116,5 +117,5 @@ async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: A
         if ctx.snapshot.engine != "none" and not ctx.snapshot.engine_locked:
             await turns.lock_engine(conn, game_id)
 
-    return Committed(state=state, assistant_message_id=assistant_msg_id,
+    return Committed(state=state, user_message_id=user_msg_id, assistant_message_id=assistant_msg_id,
                      narrator_deltas=narrator_deltas)

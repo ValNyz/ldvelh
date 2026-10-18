@@ -20,7 +20,7 @@ def _client_state() -> dict:
 
 
 def _committed() -> Committed:
-    return Committed(state=STATE, assistant_message_id=uuid4(),
+    return Committed(state=STATE, user_message_id=uuid4(), assistant_message_id=uuid4(),
                      narrator_deltas={})
 
 
@@ -56,9 +56,17 @@ def test_done_payload_carries_state_costs_and_hints():
     assert game["npcs_present"] == ["Mira"] and game["game_date"] == "Jour 2"
 
 
-def test_done_payload_without_costs_has_no_meta():
+def test_done_payload_without_costs_has_only_the_message_ids():
     payload = build_done_payload(_client_state(), _committed(), "fate_core",
                                  _narrated(None), None)
-    assert payload.meta is None
+    assert payload.meta.narration_cost is None and payload.meta.mechanical_cost is None
     assert payload.ui is None
     assert payload.game_state.engine == "fate_core"
+
+
+def test_done_payload_names_the_saved_messages():
+    committed = _committed()
+    payload = build_done_payload(_client_state(), committed, "none", _narrated(None), None)
+    assert payload.meta.user_message_id == committed.user_message_id
+    assert payload.meta.assistant_message_id == committed.assistant_message_id
+    assert payload.meta.narration_cost is None

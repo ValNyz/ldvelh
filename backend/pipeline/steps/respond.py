@@ -38,9 +38,9 @@ def build_done_payload(client_state: dict, committed: Committed, engine_type: st
             engine=engine_type if engine_type != "none" else None,
             engine_stats=client_state["player"].get("engine_stats"),
         ),
-        meta=SSEMeta(narration_cost=narration_cost, mechanical_cost=mech_cost)
-        if narration_cost or mech_cost
-        else None,
+        meta=SSEMeta(narration_cost=narration_cost, mechanical_cost=mech_cost,
+                     user_message_id=committed.user_message_id,
+                     assistant_message_id=committed.assistant_message_id),
         ui=SSEUIHints(inventory_hints=[h.model_dump() for h in hints]) if hints else None,
     )
 
@@ -50,5 +50,5 @@ async def respond(ctx: TurnContext, narrated: Narrated, arbitration: Arbitration
     state = await ctx.games.load_game_state(ctx.request.game_id)
     payload = build_done_payload(state, committed, ctx.snapshot.engine, narrated,
                                  arbitration.mechanical)
-    await ctx.sink.send_done(narrated.display_text, payload.model_dump(exclude_none=True))
+    await ctx.sink.send_done(narrated.display_text, payload.model_dump(mode="json", exclude_none=True))
     await ctx.sink.send_saved()
