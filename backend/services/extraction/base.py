@@ -21,7 +21,7 @@ from kg.specialized_populator import ExtractionPopulator
 from config import get_settings
 from schema import EntityType, FactData
 from schema.extraction import AmbientUpdate, EntityCreation, EntityUpdate
-from utils.log_safe import log_exception, safe_text
+from utils.log_safe import log_cause, log_exception, safe_text
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
@@ -118,13 +118,15 @@ class BaseExtractor(ABC):
             except Exception as pop_err:
                 error = f"populate: {safe_text(pop_err)}"
                 stats = {"errors": [error]}
-                logger.warning(f"[{et}] Populate failed (rolled back): {safe_text(pop_err)}")
+                log_cause(logger, logging.WARNING, f"[{et}] Populate failed (rolled back)",
+                          pop_err, debug_detail=get_settings().log_prompts)
 
             # Log extraction for auditing
             try:
                 await self.populator.log_extraction(conn, cycle, stats)
             except Exception as log_err:
-                logger.warning(f"[{et}] Log failed: {safe_text(log_err)}")
+                log_cause(logger, logging.WARNING, f"[{et}] Log failed", log_err,
+                          debug_detail=get_settings().log_prompts)
         return stats, error
 
     async def _write_item(

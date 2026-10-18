@@ -12,7 +12,9 @@ from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
 from schema.engine import RollResult
 from schema.narration import NarrationOutput
+from config import get_settings
 from utils.json_utils import parse_json
+from utils.log_safe import log_cause
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +111,8 @@ async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict
             await conn.execute(
                 "UPDATE character_fate SET fate_points = $1 WHERE game_id = $2", new_fp, game_id)
     except Exception as e:
-        logger.warning(f"[COMPEL] FP adjustment failed: {e}")
+        log_cause(logger, logging.WARNING, "[COMPEL] FP adjustment failed", e,
+                  debug_detail=get_settings().log_prompts)
         return None
     return {
         "result": narration.compel_result,

@@ -11,7 +11,7 @@ from domain.errors import TurnError
 from pipeline.narration_stream import ProviderCallFailed
 from pipeline.ports import EventSink
 from schema.narration import NARRATION_INVALID_MESSAGE, NarrationInvalid
-from utils.log_safe import has_validation_error, log_exception
+from utils.log_safe import has_sensitive_error, log_exception
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +92,9 @@ async def report_error(sink: EventSink, exc: BaseException, *,
         else:
             logger.log(level, message)
     else:
-        # log_exception appends the redacted cause chain itself when it holds a ValidationError.
-        shown = type(exc).__name__ if has_validation_error(exc) else repr(exc)
+        # log_exception appends the redacted cause chain itself when it holds a validation
+        # or database error (their text may quote story text).
+        shown = type(exc).__name__ if has_sensitive_error(exc) else repr(exc)
         log_exception(logger, logging.ERROR, f"[TURN:{ref}] {error.code}: {shown}", exc,
                       debug_detail=detail)
     await sink.send_error(error.message, recoverable=error.recoverable, code=error.code, ref=ref)

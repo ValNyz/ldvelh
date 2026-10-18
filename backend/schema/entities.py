@@ -9,6 +9,26 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
+from .columns import (
+    CharacterAge,
+    CharacterGender,
+    CharacterMood,
+    CharacterOccupation,
+    CharacterOrigin,
+    CharacterPronouns,
+    CharacterSpecies,
+    CharacterUnknownName,
+    LocationAtmosphere,
+    LocationOperatingHours,
+    LocationPriceRange,
+    LocationSector,
+    LocationType,
+    LocationTypicalCrowd,
+    OrganizationDomain,
+    OrganizationReputation,
+    OrganizationSize,
+    OrganizationType,
+)
 from .core import (
     Backstory,
     Cycle,
@@ -123,17 +143,17 @@ class CharacterData(BaseModel):
     name: Name
     # Identity
     known_by_protagonist: bool = False
-    unknown_name: Name | None = None
-    species: Tag | None = None
-    gender: Label | None = None
-    pronouns: Label | None = None
-    age: Label | None = None
+    unknown_name: CharacterUnknownName | None = None
+    species: CharacterSpecies | None = None
+    gender: CharacterGender | None = None
+    pronouns: CharacterPronouns | None = None
+    age: CharacterAge | None = None
     description: Text | None = None
     # Personality & state
     traits: list[str] = Field(default_factory=list)
-    mood: Mood | None = None
-    occupation: Name | None = None
-    origin: Name | None = None
+    mood: CharacterMood | None = None
+    occupation: CharacterOccupation | None = None
+    origin: CharacterOrigin | None = None
     # Related locations
     workplace_ref: EntityRef | None = None
     residence_ref: EntityRef | None = None
@@ -167,15 +187,15 @@ class LocationData(BaseModel):
     # Hierarchy
     parent_location_ref: EntityRef | None = None
     # Properties
-    location_type: Tag | None = None
-    sector: Tag | None = None
+    location_type: LocationType | None = None
+    sector: LocationSector | None = None
     description: Text | None = None
-    atmosphere: Mood | None = None
+    atmosphere: LocationAtmosphere | None = None
     accessible: bool = True
     notable_features: list[str] = Field(default_factory=list)
-    typical_crowd: ShortText | None = None
-    operating_hours: Tag | None = None
-    price_range: Tag | None = None
+    typical_crowd: LocationTypicalCrowd | None = None
+    operating_hours: LocationOperatingHours | None = None
+    price_range: LocationPriceRange | None = None
     # Narrative
     ambient: ShortText | None = None
     # Flexible
@@ -221,11 +241,11 @@ class OrganizationData(BaseModel):
     """A company, faction, or group"""
 
     name: Name
-    org_type: Tag | None = None
-    domain: Tag | None = None
-    size: Tag | None = None
+    org_type: OrganizationType | None = None
+    domain: OrganizationDomain | None = None
+    size: OrganizationSize | None = None
     description: Text | None = None
-    reputation: ShortText | None = None
+    reputation: OrganizationReputation | None = None
     headquarters_ref: EntityRef | None = None
     founding_cycle: Cycle | None = None
     ambient: ShortText | None = None

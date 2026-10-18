@@ -2,8 +2,9 @@
 LDVELH - Entity field changes (EntityUpdate.changes)
 
 The LLM sends `changes` as a free dict of column -> value. Each column an update may
-touch is typed here with the bound of its database column (same text types as the
-creation models in entities.py), so an over-long or mistyped value never reaches SQL.
+touch is typed here: varchar columns with their exact width (schema/columns.py, shared
+with the creation models in entities.py so the two cannot drift), text columns with the
+creation models' product caps, so an over-long or mistyped value never reaches SQL.
 Fields are bounded one by one: an invalid field is dropped (and logged by name), the
 valid fields of the same update are kept.
 """
@@ -15,7 +16,27 @@ from uuid import UUID
 
 from pydantic import BaseModel, BeforeValidator, ValidationError
 
-from .core import Cycle, EntityType, Label, Mood, Name, ShortText, Tag, Text
+from .columns import (
+    CharacterAge,
+    CharacterGender,
+    CharacterMood,
+    CharacterOccupation,
+    CharacterOrigin,
+    CharacterPronouns,
+    CharacterSpecies,
+    CharacterUnknownName,
+    LocationAtmosphere,
+    LocationOperatingHours,
+    LocationPriceRange,
+    LocationSector,
+    LocationType,
+    LocationTypicalCrowd,
+    OrganizationDomain,
+    OrganizationReputation,
+    OrganizationSize,
+    OrganizationType,
+)
+from .core import Cycle, EntityType, ShortText, Text
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +59,16 @@ class CharacterChanges(BaseModel):
     """Columns of `characters` an update may set."""
 
     known_by_protagonist: bool | None = None
-    unknown_name: Name | None = None
-    species: Tag | None = None
-    gender: Label | None = None
-    pronouns: Label | None = None
-    age: Label | None = None
+    unknown_name: CharacterUnknownName | None = None
+    species: CharacterSpecies | None = None
+    gender: CharacterGender | None = None
+    pronouns: CharacterPronouns | None = None
+    age: CharacterAge | None = None
     description: Text | None = None
     traits: StrList | None = None
-    mood: Mood | None = None
-    occupation: Name | None = None
-    origin: Name | None = None
+    mood: CharacterMood | None = None
+    occupation: CharacterOccupation | None = None
+    origin: CharacterOrigin | None = None
     workplace_id: UUID | None = None
     residence_id: UUID | None = None
     romantic_potential: bool | None = None
@@ -58,26 +79,26 @@ class CharacterChanges(BaseModel):
 class LocationChanges(BaseModel):
     """Columns of `locations` an update may set."""
 
-    location_type: Tag | None = None
-    sector: Tag | None = None
+    location_type: LocationType | None = None
+    sector: LocationSector | None = None
     description: Text | None = None
-    atmosphere: Mood | None = None
+    atmosphere: LocationAtmosphere | None = None
     accessible: bool | None = None
     notable_features: StrList | None = None
-    typical_crowd: ShortText | None = None
-    operating_hours: Tag | None = None
-    price_range: Tag | None = None
+    typical_crowd: LocationTypicalCrowd | None = None
+    operating_hours: LocationOperatingHours | None = None
+    price_range: LocationPriceRange | None = None
     ambient: ShortText | None = None
 
 
 class OrganizationChanges(BaseModel):
     """Columns of `organizations` an update may set."""
 
-    org_type: Tag | None = None
-    domain: Tag | None = None
-    size: Tag | None = None
+    org_type: OrganizationType | None = None
+    domain: OrganizationDomain | None = None
+    size: OrganizationSize | None = None
     description: Text | None = None
-    reputation: ShortText | None = None
+    reputation: OrganizationReputation | None = None
     headquarters_id: UUID | None = None
     founding_cycle: Cycle | None = None
     ambient: ShortText | None = None

@@ -39,7 +39,7 @@ async def test_over_long_changes_are_bounded_and_the_rest_is_kept(test_pool, tes
         "entities_updated": [{"entity_ref": "Voss", "changes": {
             "age": STORY,                      # varchar(30)
             "pronouns": "il ou elle selon les jours, surtout il",  # varchar(30)
-            "gender": "x" * 60,                # varchar(50)
+            "gender": "g" * 45 + " " + "x" * 20,  # varchar(50): cut to its width
             "mood": "inquiet",
             "workplace_id": "Le bar du quai",  # uuid column: dropped, not sent to SQL
         }}],
@@ -52,7 +52,7 @@ async def test_over_long_changes_are_bounded_and_the_rest_is_kept(test_pool, tes
     voss = await _character(test_pool, game_id, "Voss")
     assert voss["mood"] == "inquiet"
     assert 0 < len(voss["age"]) <= 30 and len(voss["pronouns"]) <= 30
-    assert len(voss["gender"]) <= 50
+    assert voss["gender"].startswith("g" * 45) and len(voss["gender"]) <= 50
     assert voss["workplace_id"] is None
     shown = "\n".join(r.getMessage() for r in caplog.records if r.levelno >= logging.INFO)
     assert "trente-six" not in shown and "Le bar du quai" not in shown
@@ -143,3 +143,45 @@ async def test_process_extraction_isolates_a_failed_item(test_pool, test_user):
         logged = await conn.fetchval(
             "SELECT errors FROM extraction_logs WHERE game_id = $1", game_id)
     assert logged == [error]
+
+
+def _max_length(field) -> int | None:
+    """max_length of a field, looking inside `X | None` and Annotated metadata."""
+    from typing import get_args
+
+    def walk(tp):
+        for m in getattr(tp, "__metadata__", ()):
+            if getattr(m, "max_length", None):
+                return m.max_length
+        return next((w for w in map(walk, get_args(tp)) if w), None)
+
+    direct = [m.max_length for m in field.metadata if getattr(m, "max_length", None)]
+    return direct[0] if direct else walk(field.annotation)
+
+
+async def test_model_widths_match_the_db_columns(test_pool):
+    """Every bounded field of the creation and update models has its column's exact width."""
+    from schema.entities import CharacterData, LocationData, OrganizationData
+    from schema.entity_changes import CHANGES_MODELS
+
+    creation = {EntityType.CHARACTER: CharacterData, EntityType.LOCATION: LocationData,
+                EntityType.ORGANIZATION: OrganizationData}
+    tables = {EntityType.CHARACTER: "characters", EntityType.LOCATION: "locations",
+              EntityType.ORGANIZATION: "organizations"}
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT table_name, column_name, character_maximum_length FROM information_schema.columns"
+            " WHERE table_name = ANY($1::text[]) AND data_type = 'character varying'",
+            list(tables.values()))
+    widths = {(r["table_name"], r["column_name"]): r["character_maximum_length"] for r in rows}
+
+    for entity_type, changes_model in CHANGES_MODELS.items():
+        table = tables[entity_type]
+        for name, field in changes_model.model_fields.items():
+            width = widths.get((table, name))
+            if width is None:
+                continue  # text / uuid / bool / int column: no width
+            assert _max_length(field) == width, (table, name)
+            data_field = creation[entity_type].model_fields.get(name)
+            if data_field is not None:
+                assert _max_length(data_field) == width, (table, name, "creation model")

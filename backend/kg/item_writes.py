@@ -11,7 +11,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
-from utils.log_safe import safe_text
+from config import get_settings
+from utils.log_safe import log_cause, safe_text
 
 if TYPE_CHECKING:
     from asyncpg import Connection
@@ -28,7 +29,9 @@ async def write_item(
     """Run one item's writes in a SAVEPOINT. Returns write()'s result, None on failure.
 
     A failed item is rolled back to its savepoint and recorded in `errors` as
-    "<label>: <cause>" (story text kept out by safe_text). This also covers an SQL error
+    "<label>: <cause>". The cause is safe_text: a validation or database error is
+    summarised (field paths / exception class, SQLSTATE, constraint, table, column), never
+    its message, which can quote the rejected story value. This also covers an SQL error
     swallowed inside write(): the trailing probe statement raises in the aborted savepoint,
     which is then rolled back like any other failure.
 
@@ -44,7 +47,8 @@ async def write_item(
     except Exception as e:
         await savepoint.rollback()
         errors.append(f"{label}: {safe_text(e)}")
-        logger.warning(f"{log_prefix}{label} item failed: {safe_text(e)}")
+        log_cause(logger, logging.WARNING, f"{log_prefix}{label} item failed", e,
+                  debug_detail=get_settings().log_prompts)
         return None
     await savepoint.commit()
     return result
