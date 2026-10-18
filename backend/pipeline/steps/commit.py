@@ -45,6 +45,7 @@ def _stored_deltas(narration: NarrationOutput, applied: AppliedDeltas | None,
         credit_delta=_stored_credit(applied),
         inventory_hints=[h.model_dump() for h in narration.inventory_hints],
         entity_reveals=[r.model_dump() for r in narration.entity_reveals],
+        info_requests=narration.info_requests,
         extraction_triggers=narration.extraction_triggers,
         cost=cost if cost else None,
     ).model_dump(exclude_none=True)
@@ -63,8 +64,9 @@ async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
     if narration.credit_delta or narration.entity_reveals or narration.compel_result:
         applied = await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
         logger.debug(_deltas_log_line(applied))
+    # Always replace: the details the turn consumed are dropped, the narrator re-requests (#64).
+    await turns.store_info_requests(conn, game_id, narration.info_requests)
     if narration.info_requests:
-        await turns.store_info_requests(conn, game_id, narration.info_requests)
         logger.info(f"[CHAT] Info requests stored: {len(narration.info_requests)}")
         logger.debug(f"[CHAT] Info requests: {narration.info_requests}")
     return state, applied

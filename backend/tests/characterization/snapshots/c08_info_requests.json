@@ -3,7 +3,7 @@
     false,
     false,
     true,
-    true
+    false
   ],
   "details_section_turn_c": [
     "",
@@ -19,7 +19,5 @@
     "done",
     "saved"
   ],
-  "stored_detail_requests": [
-    "Le Quart de Cycle"
-  ]
+  "stored_detail_requests": []
 }

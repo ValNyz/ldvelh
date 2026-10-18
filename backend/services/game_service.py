@@ -35,6 +35,15 @@ from schema.sse_payload import (
 logger = logging.getLogger(__name__)
 
 
+def _stored_info_requests(narrator_deltas) -> list[str]:
+    """The detail requests a stored turn left behind; none for messages saved before #64."""
+    if isinstance(narrator_deltas, str):
+        narrator_deltas = parse_json(narrator_deltas)
+    if not isinstance(narrator_deltas, dict):
+        return []
+    return [r for r in narrator_deltas.get("info_requests") or [] if isinstance(r, str)]
+
+
 class RollbackRejected(ValueError):
     """The requested rollback is refused; `reason` names why (player text lives in api/)."""
 
@@ -646,6 +655,7 @@ class GameService:
             restore_date = None
             restore_time = None
             restore_location_id = None
+            restore_requests: list[str] = []
             engine_snapshot = None
             for i in range(keep_until_index - 1, -1, -1):
                 m = messages[i]
@@ -653,6 +663,7 @@ class GameService:
                     restore_date = m.get("game_date")
                     restore_time = m.get("time")
                     restore_location_id = m.get("location_id")
+                    restore_requests = _stored_info_requests(m.get("narrator_deltas"))
                     # Not part of get_messages (never sent to the client).
                     engine_snapshot = await reader.get_message_engine_snapshot(conn, m["id"])
                     break
@@ -681,11 +692,12 @@ class GameService:
                            "current_date" = $3,
                            "current_time" = $4,
                            current_location_id = $5,
+                           detail_requests = $6,
                            last_extraction_time = NULL,
                            updated_at = NOW()
                        WHERE id = $1""",
                     game_id, target_cycle, restore_date,
-                    restore_time, restore_location_id,
+                    restore_time, restore_location_id, restore_requests,
                 )
 
                 rollback_result = await populator.rollback_to_cycle(conn, target_cycle)

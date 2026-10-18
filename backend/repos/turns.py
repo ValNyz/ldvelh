@@ -88,9 +88,6 @@ async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
     await populator.update_game_state(
         conn, cycle=new_cycle, date=new_date, time=new_time, location_id=location_id,
     )
-    # Reset detail_requests on day transition (new cycle = fresh slate)
-    if narration.day_transition:
-        await populator.clear_detail_requests(conn)
 
     return NarrationState(
         cycle=new_cycle,
@@ -151,7 +148,7 @@ async def apply_narrator_deltas(conn, game_id: UUID, narration: NarrationOutput,
 
 
 async def store_info_requests(conn, game_id: UUID, requests: list[str]) -> None:
-    """Narrator info requests, loaded into the next turn's context."""
+    """The details the next turn's context loads, replacing the previous set (one turn only)."""
     await conn.execute("UPDATE games SET detail_requests = $1 WHERE id = $2", requests, game_id)
 
 

@@ -411,7 +411,7 @@ Loads from DB via `KnowledgeGraphReader`:
 | Active arcs | `get_active_arcs()` | Narrative arcs in progress |
 | Upcoming events | `get_upcoming_events()` | Scheduled events |
 | Recent facts | `get_facts()` | Important facts |
-| Requested details | `get_entity_details_by_name()` | Entities the narrator requested last turn |
+| Requested details | `get_entity_details_by_name()` | Entities the narrator requested last turn only: the set is replaced by every commit (empty when the turn requested nothing), so details are injected for one turn unless requested again (#64) |
 | Cycle summaries | `get_chronology()` | History before conversation window |
 | Engine stats | `engine.get_stats()` | Fate/D6/Narrative character data |
 
@@ -734,7 +734,8 @@ Calls `GameService.rollback_to_message(game_id, keep_until_index)`:
 1. Deletes messages after `keep_until_index`
 2. Rolls the KG back to the kept message's cycle with the SQL function `rollback_to_cycle` (rows stamped with a later cycle are deleted; narrative arcs by `created_cycle`, #85)
 3. Restores engine snapshot from last remaining message (if present)
-4. Returns updated state and remaining messages
+4. Restores `games.detail_requests` with the `info_requests` stored in the kept message's `narrator_deltas` (none for older messages), so the details the rolled-back turn consumed are available again and those it requested are dropped (#64)
+5. Returns updated state and remaining messages
 
 A refused rollback raises `RollbackRejected(reason)`; the route answers 400 with a fixed French `detail` per reason (`arrival_scene`: "Impossible de revenir avant la scène d'arrivée."), never the exception text (#80).
 

@@ -110,6 +110,8 @@ class NarratorDeltasStored(BaseModel):
     credit_delta: dict | None = None
     inventory_hints: list[dict] = Field(default_factory=list)
     entity_reveals: list[dict] = Field(default_factory=list)
+    # Details this turn asked for (games.detail_requests after it): rollback restores them.
+    info_requests: list[str] = Field(default_factory=list)
     # -- Extraction triggers --
     extraction_triggers: list[str] = Field(default_factory=list)
     # -- Billing --

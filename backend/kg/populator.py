@@ -197,22 +197,6 @@ class KnowledgeGraphPopulator:
             f"UPDATE games SET {', '.join(sets)} WHERE id = $1", *params
         )
 
-    async def update_detail_requests(
-        self, conn: Connection, requests: list[str]
-    ) -> None:
-        """Store entity detail requests for next turn."""
-        await conn.execute(
-            "UPDATE games SET detail_requests = $1 WHERE id = $2",
-            requests, self.game_id,
-        )
-
-    async def clear_detail_requests(self, conn: Connection) -> None:
-        """Clear entity detail requests (on cycle change)."""
-        await conn.execute(
-            "UPDATE games SET detail_requests = '{}' WHERE id = $1",
-            self.game_id,
-        )
-
     async def create_stub_event(
         self, conn: Connection, event_hint, cycle: int
     ) -> None:
