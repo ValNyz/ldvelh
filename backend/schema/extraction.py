@@ -22,6 +22,7 @@ from .core import (
     Skill,
     Text,
     normalize_entity_type,
+    normalize_relation_type,
 )
 from .narrative import FactData
 from .relations import RelationData, RelationType
@@ -160,6 +161,11 @@ class RelationUpdate(BaseModel):
     new_context: ShortText | None = None  # 200 chars
     now_known: bool | None = None
 
+    @field_validator("relation_type", mode="before")
+    @classmethod
+    def _normalize_relation_type(cls, v):
+        return normalize_relation_type(v)
+
 
 class RelationEnd(BaseModel):
     """A relationship that ended"""
@@ -169,6 +175,11 @@ class RelationEnd(BaseModel):
     relation_type: RelationType
     cycle: Cycle
     reason: ShortText | None = None  # 200 chars
+
+    @field_validator("relation_type", mode="before")
+    @classmethod
+    def _normalize_relation_type(cls, v):
+        return normalize_relation_type(v)
 
 
 # =============================================================================

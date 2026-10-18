@@ -139,19 +139,27 @@ class NarrativeArcsExtractor(BaseExtractor):
 
     async def _update_relation(self, conn: Connection, ru_data: dict, cycle: int) -> bool:
         ru = RelationUpdate.model_validate(ru_data)
-        await conn.execute(
-            """UPDATE relations SET
-                level = COALESCE($4, level),
-                context = COALESCE($5, context),
-                known_by_protagonist = COALESCE($6, known_by_protagonist)
-            WHERE game_id = $1
-              AND source_id = find_entity($1, $2)
-              AND target_id = find_entity($1, $3)
-              AND end_cycle IS NULL""",
+        updated = await conn.fetchval(
+            """WITH upd AS (
+                UPDATE relations SET
+                    level = COALESCE($5, level),
+                    context = COALESCE($6, context),
+                    known_by_protagonist = COALESCE($7, known_by_protagonist)
+                WHERE game_id = $1
+                  AND source_id = find_entity($1, $2)
+                  AND target_id = find_entity($1, $3)
+                  AND type = $4::relation_type
+                  AND end_cycle IS NULL
+                RETURNING 1)
+            SELECT COUNT(*) FROM upd""",
             self.game_id,
-            ru.source_ref, ru.target_ref,
+            ru.source_ref, ru.target_ref, ru.relation_type.value,
             ru.new_level, ru.new_context, ru.now_known,
         )
+        if not updated:
+            # Constant message: the refs are story text and must not reach stats["errors"].
+            # Raising lets the per-item savepoint (#24) record the failure.
+            raise LookupError("no active relation matched the update")
         return True
 
     async def _end_relation(self, conn: Connection, re_data: dict, cycle: int) -> bool:
