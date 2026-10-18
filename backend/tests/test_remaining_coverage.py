@@ -125,7 +125,8 @@ class TestNormalizeEnumValueEdgeCases:
         from schema.core import _normalize_enum_value, EntityType, ENTITY_TYPE_SYNONYMS
         from schema.synonyms import ENTITY_TYPE_SYNONYMS
 
-        result = _normalize_enum_value(None, ENTITY_TYPE_SYNONYMS, EntityType, "test")
+        result = _normalize_enum_value(None, ENTITY_TYPE_SYNONYMS, EntityType, "test",
+                                       unknown=None)
         assert result is None
 
     def test_enum_instance_returns_value(self):
@@ -135,13 +136,12 @@ class TestNormalizeEnumValueEdgeCases:
         result = normalize_entity_type(EntityType.CHARACTER)
         assert result == "character"
 
-    def test_unknown_synonym_falls_back(self):
-        """Unknown synonym triggers fallback to first enum value."""
+    def test_unknown_entity_type_is_rejected(self):
+        """An unknown entity type is rejected, never turned into 'protagonist' (#27)."""
         from schema.core import normalize_entity_type
 
-        result = normalize_entity_type("completely_unknown_type_xyz")
-        # Falls back to the first value of EntityType
-        assert result == "protagonist"
+        with pytest.raises(ValueError):
+            normalize_entity_type("completely_unknown_type_xyz")
 
     def test_direct_valid_enum_value_no_synonym(self):
         """Value is a valid enum value but not in synonyms dict."""
@@ -167,11 +167,11 @@ class TestNormalizeEnumValueEdgeCases:
         assert normalize_org_size("large") == "large"
 
     def test_normalize_departure_reason_unknown(self):
-        """Unknown departure reason falls back."""
+        """Unknown departure reason maps to 'other'."""
         from schema.core import normalize_departure_reason
 
         result = normalize_departure_reason("something_weird")
-        assert result == "flight"  # first enum value
+        assert result == "other"
 
 
 class TestTemporalValidationMixin:
@@ -352,8 +352,7 @@ class TestEntitiesValidators:
             ],
             departure_reason="unknown_reason_xyz",
         )
-        # Falls back to first enum value
-        assert p.departure_reason.value == "flight"
+        assert p.departure_reason.value == "other"
 
 
 # =============================================================================
@@ -376,7 +375,7 @@ class TestNarrativeValidators:
         from schema.narrative import FactParticipant
 
         fp = FactParticipant(entity_ref="Bob", role="bystander_unknown_xyz")
-        assert fp.role.value == "actor"  # first enum value
+        assert fp.role.value == "mentioned"
 
     def test_fact_type_normalization(self):
         """FactData normalizes fact_type."""

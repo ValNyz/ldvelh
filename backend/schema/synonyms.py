@@ -11,6 +11,7 @@ Dictionnaires de synonymes pour normalisation des valeurs LLM vers enums valides
 RELATION_TYPE_SYNONYMS = {
     # === SOCIAL ===
     "knows": "knows",
+    "connait": "knows",
     "know": "knows",
     "knowing": "knows",
     "acquainted": "knows",

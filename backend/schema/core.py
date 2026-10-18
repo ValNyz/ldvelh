@@ -334,6 +334,7 @@ class FactType(str, Enum):
     FORESHADOW = "foreshadow"
     DECISION = "decision"
     REALIZATION = "realization"
+    OTHER = "other"
 
 
 class ParticipantRole(str, Enum):
@@ -389,8 +390,14 @@ def _normalize_enum_value(
     synonyms: dict[str, str],
     enum_class: type[Enum],
     field_name: str,
-) -> str:
-    """Normalize a value to a valid enum value using synonym lookup."""
+    *,
+    unknown: str | None,
+) -> str | None:
+    """Normalize a value to a valid enum value using synonym lookup.
+
+    An unknown value maps to `unknown` (WARNING), or raises ValueError when `unknown`
+    is None: it is never silently turned into the enum's first member (#27).
+    """
     if value is None:
         return value
 
@@ -404,11 +411,12 @@ def _normalize_enum_value(
         valid_values = {e.value for e in enum_class}
         if key in valid_values:
             return key
-        fallback = list(enum_class)[0].value
+        if unknown is None:
+            raise ValueError(f"unknown {field_name}")
         logger.warning(
-            f"[Normalizer] Unknown {field_name}='{value}' -> fallback '{fallback}'"
+            f"[Normalizer] Unknown {field_name}={str(value)[:40]!r} -> '{unknown}'"
         )
-        return fallback
+        return unknown
 
     if key != result:
         logger.info(f"[Normalizer] {field_name}: '{value}' -> '{result}'")
@@ -416,42 +424,52 @@ def _normalize_enum_value(
     return result
 
 
-def normalize_entity_type(value: Any) -> str:
-    return _normalize_enum_value(value, ENTITY_TYPE_SYNONYMS, EntityType, "entity_type")
-
-
-def normalize_relation_type(value: Any) -> str:
+def normalize_entity_type(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, RELATION_TYPE_SYNONYMS, RelationType, "relation_type"
+        value, ENTITY_TYPE_SYNONYMS, EntityType, "entity_type", unknown=None
     )
 
 
-def normalize_fact_type(value: Any) -> str:
-    return _normalize_enum_value(value, FACT_TYPE_SYNONYMS, FactType, "fact_type")
-
-
-def normalize_participant_role(value: Any) -> str:
+def normalize_relation_type(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, PARTICIPANT_ROLE_SYNONYMS, ParticipantRole, "participant_role"
+        value, RELATION_TYPE_SYNONYMS, RelationType, "relation_type", unknown=None
     )
 
 
-def normalize_arc_domain(value: Any) -> str:
-    return _normalize_enum_value(value, ARC_DOMAIN_SYNONYMS, ArcDomain, "arc_domain")
-
-
-def normalize_departure_reason(value: Any) -> str:
+def normalize_fact_type(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, DEPARTURE_REASON_SYNONYMS, DepartureReason, "departure_reason"
+        value, FACT_TYPE_SYNONYMS, FactType, "fact_type", unknown="other"
     )
 
 
-def normalize_moment(value: Any) -> str:
-    return _normalize_enum_value(value, MOMENT_SYNONYMS, Moment, "moment")
+def normalize_participant_role(value: Any) -> str | None:
+    return _normalize_enum_value(
+        value, PARTICIPANT_ROLE_SYNONYMS, ParticipantRole, "participant_role",
+        unknown="mentioned",
+    )
 
 
-def normalize_org_size(value: Any) -> str:
-    return _normalize_enum_value(value, ORG_SIZE_SYNONYMS, OrgSize, "org_size")
+def normalize_arc_domain(value: Any) -> str | None:
+    return _normalize_enum_value(
+        value, ARC_DOMAIN_SYNONYMS, ArcDomain, "arc_domain", unknown="personal"
+    )
+
+
+def normalize_departure_reason(value: Any) -> str | None:
+    return _normalize_enum_value(
+        value, DEPARTURE_REASON_SYNONYMS, DepartureReason, "departure_reason",
+        unknown="other",
+    )
+
+
+def normalize_moment(value: Any) -> str | None:
+    return _normalize_enum_value(value, MOMENT_SYNONYMS, Moment, "moment", unknown=None)
+
+
+def normalize_org_size(value: Any) -> str | None:
+    return _normalize_enum_value(
+        value, ORG_SIZE_SYNONYMS, OrgSize, "org_size", unknown="medium"
+    )
 
 
 # =============================================================================

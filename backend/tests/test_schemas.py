@@ -448,6 +448,32 @@ class TestNormalizers:
         """normalize_fact_type gère les synonymes"""
         assert normalize_fact_type(input_val) == expected
 
+    @pytest.mark.parametrize(
+        "func_name,value",
+        [("normalize_entity_type", "vehicle"), ("normalize_relation_type", "sworn_to")],
+    )
+    def test_unknown_value_is_rejected(self, func_name, value):
+        """No fallback to the first member ('protagonist', 'knows') (#27)"""
+        import schema.core as core
+
+        with pytest.raises(ValueError):
+            getattr(core, func_name)(value)
+
+    @pytest.mark.parametrize(
+        "func_name,value,expected",
+        [
+            ("normalize_fact_type", "prophecy", "other"),
+            ("normalize_participant_role", "onlooker_xyz", "mentioned"),
+            ("normalize_departure_reason", "banishment_xyz", "other"),
+            ("normalize_org_size", "gargantuan_xyz", "medium"),
+            ("normalize_arc_domain", "astral_xyz", "personal"),
+        ],
+    )
+    def test_unknown_value_maps_to_explicit_fallback(self, func_name, value, expected):
+        import schema.core as core
+
+        assert getattr(core, func_name)(value) == expected
+
 
 # =============================================================================
 # VALIDATION ERRORS - Tests des rejets
