@@ -1,7 +1,7 @@
 """
 LDVELH - Extraction Orchestrator
 
-Background task launched from routes.py every turn:
+Post-turn background job, queued per game by the supervisor (pipeline/post_turn.py):
 1. Resolver: entity annotations (for tooltips)
 2. Extractors: entity/relation extraction (phase a: entities, phase b: arcs)
 3. Re-apply entity_reveals (fix race condition with the narrator deltas applied at turn commit)
@@ -39,10 +39,6 @@ EXTRACTOR_MAP = {
     "progression": ProgressionExtractor,
 }
 
-# Guard against concurrent extractions for the same game
-_extracting_games: set[str] = set()
-
-
 async def run_resolve_and_extract(
     pool: asyncpg.Pool,
     game_id: UUID,
@@ -59,16 +55,7 @@ async def run_resolve_and_extract(
     Always runs the resolver (for tooltip annotations).
     Only runs extractors if triggers is non-empty.
     Re-applies entity_reveals after extraction to fix race condition.
-    Called via asyncio.create_task from routes.py.
     """
-    key = str(game_id)
-    if key in _extracting_games:
-        logger.warning(
-            f"[EXTRACTION] Skipping: already extracting for game {game_id}"
-        )
-        return {"skipped": True, "reason": "concurrent"}
-    _extracting_games.add(key)
-
     try:
         result = {"resolver": None, "extractors": {}}
         total_cost = 0.0
@@ -247,9 +234,6 @@ async def run_resolve_and_extract(
         log_exception(logger, logging.ERROR, "[EXTRACTION] Orchestrator failed", e,
                       debug_detail=get_settings().log_prompts)
         return {"success": False, "error": safe_text(e)}
-
-    finally:
-        _extracting_games.discard(key)
 
 
 # Backward compat alias

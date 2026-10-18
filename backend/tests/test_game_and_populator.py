@@ -2203,62 +2203,6 @@ class TestExtractionOrchestratorIntegration:
         assert "extractors" in result
         assert len(result["extractors"]) == 0
 
-    @pytest.mark.asyncio
-    async def test_orchestrator_concurrent_guard(self, client, test_user, test_pool):
-        """Concurrent extraction for same game is rejected."""
-        from services.extraction.orchestrator import (
-            run_resolve_and_extract,
-            _extracting_games,
-        )
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Simulate an in-progress extraction
-        key = str(game_id)
-        _extracting_games.add(key)
-        try:
-            result = await run_resolve_and_extract(
-                pool=test_pool,
-                game_id=game_id,
-                trigger_cycle=1,
-                triggers=["characters"],
-                message_content="Test",
-                session=MagicMock(),
-            )
-            assert result.get("skipped") is True
-            assert result.get("reason") == "concurrent"
-        finally:
-            _extracting_games.discard(key)
-
-    @pytest.mark.asyncio
-    async def test_orchestrator_guard_cleared_after_run(
-        self, client, test_user, test_pool
-    ):
-        """Guard is cleared even when orchestrator completes (no lingering lock)."""
-        from services.extraction.orchestrator import (
-            run_resolve_and_extract,
-            _extracting_games,
-        )
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        key = str(game_id)
-        assert key not in _extracting_games
-
-        await run_resolve_and_extract(
-            pool=test_pool,
-            game_id=game_id,
-            trigger_cycle=1,
-            triggers=[],
-            session=MagicMock(),
-        )
-
-        assert key not in _extracting_games
-
 
 # =============================================================================
 # FIRST-TURN RESOLVER REFERENCE

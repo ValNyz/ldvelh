@@ -146,31 +146,6 @@ class TestNarrativeArcsExtraction:
 class TestOrchestrator:
     """Tests for run_triggered_extraction orchestrator."""
 
-    def setup_method(self):
-        from services.extraction.orchestrator import _extracting_games
-        _extracting_games.clear()
-
-    @pytest.mark.asyncio
-    async def test_concurrent_extraction_guard(self):
-        """Second call for same game_id is rejected while first is running."""
-        from services.extraction.orchestrator import (
-            _extracting_games,
-            run_triggered_extraction,
-        )
-
-        key = str(SAMPLE_GAME_ID)
-        _extracting_games.add(key)
-
-        pool, _ = _mock_pool()
-        result = await run_triggered_extraction(
-            pool, SAMPLE_GAME_ID, trigger_cycle=3,
-            triggers=["characters"], session=SESSION,
-        )
-
-        assert result["skipped"] is True
-        assert result["reason"] == "concurrent"
-        _extracting_games.discard(key)
-
     @pytest.mark.asyncio
     async def test_empty_triggers_skipped(self):
         """Empty triggers list returns None immediately."""
@@ -198,29 +173,6 @@ class TestOrchestrator:
 
         # Should complete without error (no valid extractors to run)
         assert result is not None or result is None  # Just verifying no exception
-
-    @pytest.mark.asyncio
-    async def test_guard_cleared_after_completion(self):
-        """The _extracting_games guard is cleared even on failure."""
-        from services.extraction.orchestrator import _extracting_games
-
-        # Patch CharactersExtractor to raise during run
-        with patch(
-            "services.extraction.orchestrator.CharactersExtractor"
-        ) as mock_cls:
-            mock_instance = AsyncMock()
-            mock_instance.run = AsyncMock(side_effect=RuntimeError("boom"))
-            mock_cls.return_value = mock_instance
-
-            from services.extraction.orchestrator import run_triggered_extraction
-
-            pool, _ = _mock_pool()
-            await run_triggered_extraction(
-                pool, SAMPLE_GAME_ID, trigger_cycle=3,
-                triggers=["characters"], session=SESSION,
-            )
-
-        assert str(SAMPLE_GAME_ID) not in _extracting_games
 
     @pytest.mark.asyncio
     async def test_resolver_called_before_extractors(self):
@@ -524,6 +476,57 @@ class TestExtractorPromptInjection:
         # Progression doesn't inject resolution — it delegates to engine
         assert "ENTITY RESOLUTION MAP" not in user_prompt
         assert user_prompt == "user"
+
+
+class _CountingPool:
+    """Real pool whose acquired connections are counted (`in_use`)."""
+
+    def __init__(self, pool):
+        self._pool = pool
+        self.in_use = 0
+
+    def acquire(self):
+        outer = self
+
+        class _Acquire:
+            async def __aenter__(self):
+                self._cm = outer._pool.acquire()
+                conn = await self._cm.__aenter__()
+                outer.in_use += 1
+                return conn
+
+            async def __aexit__(self, *exc):
+                outer.in_use -= 1
+                return await self._cm.__aexit__(*exc)
+
+        return _Acquire()
+
+    def __getattr__(self, name):
+        return getattr(self._pool, name)
+
+
+class TestExtractorConnections:
+    """#94: an extractor holds no pool connection while the LLM call runs."""
+
+    async def test_no_connection_is_held_across_the_llm_call(self, test_pool, test_user):
+        from llm.session import LLMCall
+        from services.extraction.characters import CharactersExtractor
+        from services.game_service import GameService
+
+        game_id = await GameService(test_pool).create_game(test_user["id"])
+        pool = _CountingPool(test_pool)
+        seen = []
+
+        class _Session:
+            async def extract_structured(self, **kwargs):
+                seen.append(pool.in_use)
+                assert pool.in_use == 0
+                return LLMCall(value={"entities_created": []}, cost=None)
+
+        result = await CharactersExtractor(pool, game_id, _Session()).run("texte", {}, 1)
+
+        assert seen == [0]
+        assert result["success"] is True
 
 
 class TestExtractorErrorsDoNotLeakStory:

@@ -1,37 +1,19 @@
-"""Schedule step: background extraction and Director after the turn (fire and forget)."""
+"""Schedule step: post-turn job on the game's supervisor queue, Director after the turn."""
 
-import asyncio
 import logging
 
+from domain.turn import TurnCommitted
 from pipeline import director_runs
 from pipeline.context import TurnContext
+from pipeline.post_turn import run_post_turn
 from pipeline.steps.commit import Committed
 from pipeline.steps.narrate import Narrated
 from repos.games import get_director_schedule
 from services.director_service import run_director, should_run_director
-from services.extraction import run_resolve_and_extract
 from utils.log_safe import safe_text
+from workers import supervisor
 
 logger = logging.getLogger(__name__)
-
-
-def _schedule_extraction(ctx: TurnContext, narrated: Narrated, committed: Committed) -> None:
-    """Resolver (always) + extractors (if triggered)."""
-    triggers = narrated.narration.extraction_triggers
-    if triggers:
-        logger.info(f"[CHAT] Extraction triggers: {triggers}")
-    asyncio.create_task(
-        run_resolve_and_extract(
-            pool=ctx.pool,
-            game_id=ctx.request.game_id,
-            trigger_cycle=committed.state.cycle,
-            triggers=triggers or None,
-            session=ctx.session,
-            assistant_message_id=committed.assistant_message_id,
-            message_content=narrated.display_text,
-            narrator_deltas=committed.narrator_deltas,
-        )
-    )
 
 
 async def _schedule_director(ctx: TurnContext, committed: Committed) -> None:
@@ -61,8 +43,31 @@ async def _schedule_director(ctx: TurnContext, committed: Committed) -> None:
         logger.info(f"[CHAT] Director triggered at {state.time}")
 
 
+def _enqueue_post_turn(ctx: TurnContext, narrated: Narrated, committed: Committed) -> None:
+    """Resolver (always) + extractors (if triggered), after the game's earlier jobs."""
+    triggers = narrated.narration.extraction_triggers
+    if triggers:
+        logger.info(f"[CHAT] Extraction triggers: {triggers}")
+    event = TurnCommitted(
+        game_id=ctx.request.game_id,
+        previous_cycle=ctx.snapshot.current_cycle,
+        cycle=committed.state.cycle,
+        time=committed.state.time,
+        user_message_id=committed.user_message_id,
+        assistant_message_id=committed.assistant_message_id,
+    )
+    supervisor.enqueue(ctx.request.game_id, "post_turn", run_post_turn(
+        ctx.pool,
+        ctx.session,
+        event,
+        triggers=triggers or None,
+        message_content=narrated.display_text,
+        narrator_deltas=committed.narrator_deltas,
+    ))
+
+
 async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: Committed) -> None:
-    _schedule_extraction(ctx, narrated, committed)
+    _enqueue_post_turn(ctx, narrated, committed)
     try:
         await _schedule_director(ctx, committed)
     except Exception as dir_err:

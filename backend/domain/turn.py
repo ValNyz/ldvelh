@@ -56,3 +56,20 @@ class PendingRoll:
         """What the player sees: the roll_pending event and the loaded game state."""
         return {"roll_id": str(self.id), "roll": self.roll, "aspects": list(self.aspects),
                 "fate_points": self.fate_points, "player_message": self.player_message}
+
+
+@dataclass(frozen=True)
+class TurnCommitted:
+    """A narration turn saved: what the post-turn background job works from."""
+
+    game_id: UUID
+    previous_cycle: int  # cycle at turn start
+    cycle: int  # cycle after the narration
+    time: str
+    user_message_id: UUID
+    assistant_message_id: UUID
+
+    @property
+    def new_cycle(self) -> bool:
+        """The turn started a new in-game day."""
+        return self.cycle > self.previous_cycle

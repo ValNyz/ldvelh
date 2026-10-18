@@ -167,7 +167,6 @@ async def test_empty_response_keeps_the_billed_cost(test_pool, test_user):
 async def test_orchestrator_log_counts_real_outcomes(caplog):
     from services.extraction.orchestrator import (
         EXTRACTOR_MAP,
-        _extracting_games,
         run_triggered_extraction,
     )
 
@@ -184,7 +183,6 @@ async def test_orchestrator_log_counts_real_outcomes(caplog):
         return MagicMock(return_value=inst)
 
     pool = MagicMock()
-    _extracting_games.clear()
     with patch.dict(EXTRACTOR_MAP, {k: _cls(v) for k, v in outcomes.items()}), \
             caplog.at_level(logging.INFO, logger="services.extraction.orchestrator"):
         await run_triggered_extraction(pool, uuid4(), trigger_cycle=1,

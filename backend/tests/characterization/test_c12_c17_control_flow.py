@@ -264,7 +264,6 @@ async def test_c16_provider_error_midstream(harness, world_game):
     assert "done" in harness.summarize(recovery)
 
 
-@pytest.mark.xfail(strict=True, reason="#17: extraction of turn N+1 is skipped while N runs")
 async def test_c17_back_to_back_turns_keep_both_extractions(harness, world_game):
     # Both turns would trigger extraction (resolver reports a new character each time).
     harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
