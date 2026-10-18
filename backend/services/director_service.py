@@ -90,12 +90,14 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
             return
         # Create new arc
         arc_id = await conn.fetchval(
-            """INSERT INTO narrative_arcs (game_id, title, description, domain, intensity)
-               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+            """INSERT INTO narrative_arcs
+                   (game_id, title, description, domain, intensity, created_cycle)
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
             game_id, title,
             arc_update.description or "",
             arc_update.domain or "personal",
             arc_update.intensity or 3,
+            cycle,  # the cycle the Director ran for: rollback deletes by it (#85)
         )
         # Link involved entities via arc_participants
         if arc_id and arc_update.involved_entities:

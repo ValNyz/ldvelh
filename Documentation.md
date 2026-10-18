@@ -730,8 +730,9 @@ All three follow the same pattern: rollback to a message index, then re-send.
 
 Calls `GameService.rollback_to_message(game_id, keep_until_index)`:
 1. Deletes messages after `keep_until_index`
-2. Restores engine snapshot from last remaining message (if present)
-3. Returns updated state and remaining messages
+2. Rolls the KG back to the kept message's cycle with the SQL function `rollback_to_cycle` (rows stamped with a later cycle are deleted; narrative arcs by `created_cycle`, #85)
+3. Restores engine snapshot from last remaining message (if present)
+4. Returns updated state and remaining messages
 
 A refused rollback raises `RollbackRejected(reason)`; the route answers 400 with a fixed French `detail` per reason (`arrival_scene`: "Impossible de revenir avant la scène d'arrivée."), never the exception text (#80).
 

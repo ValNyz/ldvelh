@@ -288,3 +288,36 @@ async def test_c11b_initial_plan_uses_arrival_time(harness, world_game):
             world_game)
     assert arrival == "11h42"
     assert first_plan == arrival
+
+
+async def test_c11c_day_change_director_arc_rolls_back(harness, world_game):
+    """#85: an arc the Director creates after a day-change turn is stamped with the cycle it
+    ran for (the new one) and removed when that turn is rolled back; the world's arcs stay."""
+    title = "Arc du lendemain"
+    harness.llm._responses["director"] = json.dumps({**json.loads(payloads.DIRECTOR), "arc_updates": [
+        {"action": "create", "title": title, "description": "Né pendant la nuit."}]})
+    async with harness.pool.acquire() as conn:
+        world_arcs = await conn.fetchval(
+            "SELECT COUNT(*) FROM narrative_arcs WHERE game_id = $1", world_game)
+    await _turn(harness, world_game, _narration(
+        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}),
+        "Je dors jusqu'au matin.")
+    assert harness.llm.purposes().count("director") == 1
+    async with harness.pool.acquire() as conn:
+        created = await conn.fetchval(
+            "SELECT created_cycle FROM narrative_arcs WHERE game_id = $1 AND title = $2",
+            world_game, title)
+        user_msg = await conn.fetchval(
+            """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
+               ORDER BY created_at DESC LIMIT 1""", world_game)
+    assert world_arcs > 0
+    assert created == 2
+
+    r = await harness.client.post(f"/api/games/{world_game}/rollback",
+                                  json={"messageId": str(user_msg)}, headers=harness.headers)
+    assert r.status_code == 200, r.text
+    async with harness.pool.acquire() as conn:
+        titles = [row["title"] for row in await conn.fetch(
+            "SELECT title FROM narrative_arcs WHERE game_id = $1", world_game)]
+    assert title not in titles
+    assert len(titles) == world_arcs

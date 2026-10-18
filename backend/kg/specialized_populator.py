@@ -146,7 +146,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
             # 13. Create narrative arcs
             for arc in world_gen.narrative_arcs:
-                await self.create_narrative_arc(conn, arc)
+                await self.create_narrative_arc(conn, arc, cycle=1)
 
             # 14. Store arrival event
             await self._store_arrival_event(conn, world_gen.arrival_event)
@@ -798,7 +798,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             involved_entities=arc.involved_entities,
             intensity=arc.intensity,
         )
-        return await self.create_narrative_arc(conn, arc_data)
+        return await self.create_narrative_arc(conn, arc_data, cycle)
 
     # =========================================================================
     # EVENT SCHEDULING

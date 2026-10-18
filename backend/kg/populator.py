@@ -929,9 +929,13 @@ class KnowledgeGraphPopulator:
     # =========================================================================
 
     async def create_narrative_arc(
-        self, conn: Connection, arc: NarrativeArcData
+        self, conn: Connection, arc: NarrativeArcData, cycle: int
     ) -> UUID:
-        """Create a narrative arc with participants (dedup by title)."""
+        """Create a narrative arc with participants (dedup by title).
+
+        `cycle` stamps a new arc's created_cycle (rollback deletes by it, #85);
+        an arc that already exists keeps its own.
+        """
         domain = arc.domain if isinstance(arc.domain, str) else str(arc.domain)
 
         # Dedup: check for existing arc with same title
@@ -962,8 +966,9 @@ class KnowledgeGraphPopulator:
 
             arc_id = await conn.fetchval(
                 """INSERT INTO narrative_arcs (
-                    game_id, title, domain, description, intensity, owner_id
-                ) VALUES ($1,$2,$3,$4,$5,$6)
+                    game_id, title, domain, description, intensity, owner_id,
+                    created_cycle
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7)
                 RETURNING id""",
                 self.game_id,
                 arc.title,
@@ -971,6 +976,7 @@ class KnowledgeGraphPopulator:
                 arc.description,
                 arc.intensity,
                 owner_id,
+                cycle,
             )
 
         for entity_name in arc.involved_entities:

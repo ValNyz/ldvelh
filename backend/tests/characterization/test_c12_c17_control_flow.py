@@ -113,6 +113,43 @@ async def test_c12b_back_to_arrival_after_day_change_and_new_place(harness, worl
     assert "done" in harness.summarize(events)
 
 
+async def test_c12e_rollback_keeps_initial_director_arc(harness):
+    """#85 (test B): the initial Director creates an arc before the first turn; two turns
+    at cycle 1, then rolling back only the last one must keep that arc (it was deleted
+    when arcs were rolled back by chronology.created_at)."""
+    import json
+    title = "Arc du Directeur"
+    harness.llm._responses["director"] = json.dumps({**json.loads(payloads.DIRECTOR), "arc_updates": [
+        {"action": "create", "title": title, "description": "Posé avant le premier tour."}]})
+    game_id = await harness.create_game("none")
+    await harness.init_world(game_id)
+    await harness.chat(game_id, "__ARRIVEE__")
+    await harness.drain()
+    harness.llm._responses["director"] = payloads.DIRECTOR
+
+    for msg in ("Premier tour.", "Deuxième tour."):
+        await harness.chat(game_id, msg)
+        await harness.drain()
+    msgs = await _messages(harness, game_id)
+    assert {m["cycle"] for m in msgs} == {1}
+    last_user = [m for m in msgs if m["role"] == "user"][-1]
+    count_sql = "SELECT COUNT(*) FROM narrative_arcs WHERE game_id = $1 AND title = $2"
+    async with harness.pool.acquire() as conn:
+        assert await conn.fetchval(count_sql, game_id, title) == 1
+
+    r = await harness.client.post(f"/api/games/{game_id}/rollback",
+                                  json={"messageId": last_user["id"]}, headers=harness.headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["target_cycle"] == 1
+    async with harness.pool.acquire() as conn:
+        kept = await conn.fetchval(count_sql, game_id, title)
+        stamped = await conn.fetchval(
+            "SELECT created_cycle FROM narrative_arcs WHERE game_id = $1 AND title = $2",
+            game_id, title)
+    assert kept == 1
+    assert stamped == 1  # the cycle the initial Director ran for
+
+
 async def test_c13_busy_game_rejected(harness, world_game):
     gate = asyncio.Event()
     started = asyncio.Event()
