@@ -4,7 +4,6 @@ Covers: engine models, dice rolling, engine data, mechanical prompt.
 """
 
 import json
-import random
 
 import pytest
 
@@ -297,28 +296,23 @@ class TestFateCoreDice:
         assert roll.total == sum(roll.dice)
         assert roll.skill_total == roll.total + 3
 
-    def test_roll_outcomes(self):
-        """Test all possible Fate outcomes using seed."""
+    @pytest.mark.parametrize("faces, outcome", [
+        ([-1, -1, -1, -1], "failure"),
+        ([0, 0, 0, 0], "tie"),
+        ([1, 0, 0, 0], "success"),
+        ([1, 1, 1, 0], "success_with_style"),
+    ])
+    def test_roll_outcomes(self, monkeypatch, faces, outcome):
+        """Each Fate outcome from fixed dice (skill 2 vs difficulty 2)."""
         decision = MechanicalDecision(
             requires_test=True, skill="Combat", skill_value=2, difficulty=2
         )
-        outcomes_seen = set()
-        for _ in range(500):
-            roll = self.engine.roll_dice(decision)
-            outcomes_seen.add(roll.outcome)
-            assert roll.shifts == roll.skill_total - 2
-            if roll.shifts < 0:
-                assert roll.outcome == "failure"
-            elif roll.shifts == 0:
-                assert roll.outcome == "tie"
-            elif roll.shifts >= 3:
-                assert roll.outcome == "success_with_style"
-            else:
-                assert roll.outcome == "success"
-
-        # With enough rolls we should see all outcomes
-        assert "failure" in outcomes_seen
-        assert "success" in outcomes_seen
+        it = iter(faces)
+        monkeypatch.setattr("services.engine.fate_core.random.choice", lambda seq: next(it))
+        roll = self.engine.roll_dice(decision)
+        assert roll.dice == faces
+        assert roll.shifts == sum(faces) + 2 - 2
+        assert roll.outcome == outcome
 
     def test_opposed_roll(self):
         decision = MechanicalDecision(
@@ -396,19 +390,6 @@ class TestD6Dice:
         assert len(pool["regular_dice"]) == 0
         assert len(pool["wild_die_rolls"]) >= 1
 
-    def test_roll_d6_pool_complication(self):
-        """Wild die=1 should cause complication."""
-        random.seed(0)  # Find a seed that gives wild die = 1
-        found_complication = False
-        for _ in range(200):
-            pool = roll_d6_pool(3, 0)
-            if pool["complication"]:
-                found_complication = True
-                assert pool["wild_die_rolls"][0] == 1
-                break
-        # Complication happens ~1/6 of the time
-        assert found_complication, "Should find at least one complication in 200 rolls"
-
     def test_roll_d6_pool_wild_one_applies_single_penalty(self, monkeypatch):
         """Wild 1: the wild die counts as 0 and the flag is set; regular dice stay intact."""
         rolls = iter([6, 5, 1])  # two regular dice, then the wild die
@@ -432,16 +413,15 @@ class TestD6Dice:
         assert roll.outcome == "success"
         assert "COMPLICATION" in engine.build_narrator_addon(roll)
 
-    def test_roll_d6_pool_explosion(self):
-        """Wild die=6 should explode."""
-        found_explosion = False
-        for _ in range(200):
-            pool = roll_d6_pool(3, 0)
-            if pool["wild_die_rolls"][0] == 6:
-                found_explosion = True
-                assert len(pool["wild_die_rolls"]) >= 2
-                break
-        assert found_explosion, "Should find at least one explosion in 200 rolls"
+    def test_roll_d6_pool_explosion(self, monkeypatch):
+        """Wild 6 explodes: reroll and add (2 regular dice, wild 6 then 2)."""
+        rolls = iter([3, 4, 6, 2])
+        monkeypatch.setattr("services.engine.d6.random.randint", lambda a, b: next(rolls))
+        pool = roll_d6_pool(3, 0)
+        assert pool["wild_die_rolls"] == [6, 2]
+        assert pool["wild_total"] == 8
+        assert pool["complication"] is False
+        assert pool["total"] == 3 + 4 + 8
 
     def test_roll_dice_basic(self):
         decision = MechanicalDecision(
