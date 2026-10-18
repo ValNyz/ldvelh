@@ -10,7 +10,7 @@ import { D6_ATTRIBUTES, getD6Skills, getFateSkills } from '../../../lib/game/eng
 import { d6SkillsForSubmit } from '../../../lib/game/d6.mjs';
 import { TEXT_PAUSE_MS } from '../../../lib/game/formHistory.mjs';
 import {
-	INITIAL_WIZARD_FORM, WIZARD_STEPS as STEPS, WIZARD_STEP_LABELS as STEP_LABELS,
+	INITIAL_WIZARD_FORM, WIZARD_STEPS as STEPS, WIZARD_STEP_LABELS as STEP_LABELS, protagonistNameError,
 } from '../../../lib/game/wizardForm.mjs';
 import {
 	baseOf, isAiValue, markSuggestions, rememberFill, withoutSuggestions,
@@ -140,8 +140,8 @@ export default function WizardContainer({ onComplete, onCancel, loading, prefere
 	const canProceed = useCallback(() => {
 		if (step === 0) return !!engine;
 		if (step === 1) return !!worldConfig.genre;
-		return true;
-	}, [step, engine, worldConfig]);
+		return !protagonistNameError(characterData.name); // the API would refuse it (400)
+	}, [step, engine, worldConfig, characterData]);
 
 	const handleNext = () => {
 		if (step < STEPS.length - 1) {

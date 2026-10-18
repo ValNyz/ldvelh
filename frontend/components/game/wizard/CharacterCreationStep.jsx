@@ -5,6 +5,7 @@ import {
 	D6_STARTING_SKILL_DICE, D6_MAX_SKILL_DICE_AT_CREATION,
 } from '../../../lib/game/engineConfig';
 import { parseDice, formatDice } from '../../../lib/game/d6.mjs';
+import { protagonistNameError } from '../../../lib/game/wizardForm.mjs';
 import EnhanceButton from './EnhanceButton';
 
 // ============================================================================
@@ -344,6 +345,7 @@ function D6Skills({ data, onChange, genre, attrPips }) {
 // ============================================================================
 
 export default function CharacterCreationStep({ engine, genre, data, onChange, onEnhance, enhancing, enhanceError, enhanceMode }) {
+	const nameError = protagonistNameError(data.name);
 	return (
 		<div className="space-y-6">
 			<h2 className="text-xl font-semibold text-white">Création du personnage</h2>
@@ -384,8 +386,15 @@ export default function CharacterCreationStep({ engine, genre, data, onChange, o
 						value={data.name || ''}
 						onChange={(e) => onChange({ ...data, name: e.target.value })}
 						placeholder="Optionnel — le MJ en inventera un"
-						className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
+						aria-invalid={!!nameError}
+						aria-describedby={nameError ? 'protagonist-name-error' : undefined}
+						className={`w-full px-3 py-2 bg-surface-container border rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 ${
+							nameError ? 'border-red-500/60 focus:ring-red-500/50' : 'border-outline-variant/30 focus:ring-primary/50'
+						}`}
 					/>
+					{nameError && (
+						<p id="protagonist-name-error" role="alert" className="text-xs text-red-400 mt-1">{nameError}</p>
+					)}
 				</div>
 
 				<div className="grid grid-cols-2 gap-4">

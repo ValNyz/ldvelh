@@ -1,22 +1,33 @@
 """The PC name chosen in the wizard is authoritative over the world builder's (#28).
 
-Pure: works on the parsed world JSON before WorldGeneration validation.
+Works on the parsed world JSON before WorldGeneration validation. The input is never
+modified (a changed world is a new dict; an unchanged one is returned as is), and the only
+I/O is a WARNING log when the default name steps in.
 
 When the model named the PC differently, its mentions follow the rename:
 - a string that is exactly the model's name (a reference) becomes the wizard's name;
 - in free text, whole-name mentions of the model's name become the wizard's name and, for
   a multi-word model name, whole-word mentions of its first name become the wizard's first
   name. Matching is case-insensitive, with Unicode word boundaries that also treat '-' as
-  part of a name ("Ana" never hits "Anaïs", "banane" or "Ana-Lou");
+  part of a name ("Ana" never hits "Anaïs", "banane" or "Ana-Lou"); the straight (') and
+  typographic (’) apostrophes are the same character ("N'Diaye" matches "N’Diaye");
 - the wizard's name is matched in the same single pass and kept as is, so the rename
   never rewrites inside it ("Kira" -> "Kira Voss" leaves "Kira Voss" alone) and running
   it twice changes nothing;
 - a free-text form that also appears as a word in another entity's name is not
   rewritten (only exact references are).
 
-Hyphenated compounds are distinct names on purpose: '-' counts as part of a name, so
-renaming "Élodie" leaves "Élodie-Rose" (another person, or a place) untouched, and "Jean"
-never rewrites "Jean-Pierre".
+The regex is built from the original strings, never from their casefold: casefold()
+rewrites "ß" to "ss", "İ" to "i̇" and "ς" to "σ", which `re.IGNORECASE` (simple case
+folding) would never match again, so "Kira Weiß" would not be recognised as the target.
+casefold() only serves to compare whole names.
+
+Known limits, on purpose:
+- hyphenated compounds are distinct names: '-' counts as part of a name, so renaming
+  "Élodie" leaves "Élodie-Rose" (another person, or a place) untouched, and "Jean" never
+  rewrites "Jean-Pierre";
+- surname-only mentions of a multi-word model name are left alone ("Kira Voss" -> "Ana Lo"
+  keeps "Voss rit."), because a bare surname may name another member of the family.
 
 With a blank wizard name the model's name is kept, unless it is unusable (blank, a copied
 "<prénom inventé>" marker or any '<'/'>', or PROTAGONIST_REF): world generation must not
@@ -33,6 +44,8 @@ from schema.core import DEFAULT_PROTAGONIST_NAME, is_protagonist_ref, is_usable_
 logger = logging.getLogger(__name__)
 
 _ENTITY_LISTS = ("characters", "locations", "organizations", "inventory")
+_EITHER_APOSTROPHE = "['’]"
+_APOSTROPHE = re.compile(_EITHER_APOSTROPHE)
 
 
 def chosen_name(character: dict | None) -> str | None:
@@ -57,37 +70,50 @@ def apply_chosen_name(parsed: dict | None, character: dict | None) -> dict | Non
         name = DEFAULT_PROTAGONIST_NAME
     # PROTAGONIST_REF references already resolve to the PC: never rename them.
     old = previous.strip() if isinstance(previous, str) and not is_protagonist_ref(previous) else ""
-    renamed = parsed
     if old and old.casefold() != name.casefold():
         renamed = _walk(parsed, _renamer(old, name, _other_entity_names(parsed)))
+    else:
+        renamed = {**parsed, "protagonist": dict(protagonist)}
     renamed["protagonist"]["name"] = name
     return renamed
 
 
 def _whole(text: str) -> str:
-    """Whole-name pattern: not preceded or followed by a word character or '-'."""
-    return rf"(?<![\w-]){re.escape(text)}(?![\w-])"
+    """Whole-name pattern: not preceded or followed by a word character or '-'; either
+    apostrophe matches the other."""
+    escaped = _APOSTROPHE.sub(_EITHER_APOSTROPHE, re.escape(text))
+    return rf"(?<![\w-]){escaped}(?![\w-])"
+
+
+def _same_name(text: str, name: str) -> bool:
+    """`text` is `name` written differently: other case ("WEISS"/"Weiß") or apostrophe."""
+    return text.casefold() == name.casefold() or bool(re.fullmatch(_whole(name), text, re.IGNORECASE))
 
 
 def _renamer(old: str, new: str, other_names: list[str]) -> Callable[[str], str]:
     """Rewrite one string: exact reference, else whole-name mentions in one regex pass."""
-    forms = {old.casefold(): new}
+    targets = {old: new}
     old_first, new_first = old.split()[0], new.split()[0]
     if old_first.casefold() != old.casefold() and is_usable_protagonist_name(old):
-        forms.setdefault(old_first.casefold(), new_first)
-    free = {form: target for form, target in forms.items()
-            if not any(re.search(_whole(form), n, re.IGNORECASE) for n in other_names)}
-    # Longest first, the wizard's name included: a mention is matched once, as a whole.
-    alternatives = sorted({new.casefold(), *free}, key=len, reverse=True)
-    pattern = re.compile("|".join(_whole(a) for a in alternatives), re.IGNORECASE)
+        targets[old_first] = new_first
+    free = [form for form in targets
+            if not any(re.search(_whole(form), n, re.IGNORECASE) for n in other_names)]
+    references = [old, *(form for form in free if form != old)]
+    # Longest first, the wizard's name included (kept as is, so a mention is matched once, as a
+    # whole). Named groups tell which original string matched, whatever its case in the text.
+    alternatives = sorted([*targets, new], key=len, reverse=True)
+    pattern = re.compile("|".join(f"(?P<a{i}>{_whole(a)})" for i, a in enumerate(alternatives)),
+                         re.IGNORECASE)
+    by_group = {f"a{i}": a for i, a in enumerate(alternatives)}
+
+    def replacement(m: re.Match) -> str:
+        form = by_group[str(m.lastgroup)]
+        return targets[form] if form in free else m.group(0)
 
     def rewrite(value: str) -> str:
-        key = value.strip().casefold()
-        if key == old.casefold() or (key in free and key != new.casefold()):
+        if any(_same_name(value.strip(), ref) for ref in references):
             return new  # the whole string is a reference to the PC
-        if not free:
-            return value
-        return pattern.sub(lambda m: free.get(m.group(0).casefold(), m.group(0)), value)
+        return pattern.sub(replacement, value) if free else value
 
     return rewrite
 

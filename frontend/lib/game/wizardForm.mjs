@@ -18,3 +18,19 @@ export const INITIAL_WIZARD_FORM = Object.freeze({
 	characterData: Object.freeze({}),
 	manualEntities: Object.freeze({}),
 });
+
+export const PROTAGONIST_REF = 'PROTAGONIST';
+export const INVALID_PC_NAME =
+	`Nom du protagoniste invalide : les caractères < et > et le nom « ${PROTAGONIST_REF} » sont réservés.`;
+
+/**
+ * Same rule as the API (schema.core.is_usable_protagonist_name, #28): a typed name must not
+ * contain '<' or '>' nor be the reserved reference. Blank is fine, the world builder invents one.
+ * @returns {string|null} the French message to show, or null when the name is acceptable
+ */
+export function protagonistNameError(name) {
+	const typed = (name || '').trim();
+	if (!typed) return null;
+	const reserved = typed.includes('<') || typed.includes('>') || typed.toUpperCase() === PROTAGONIST_REF;
+	return reserved ? INVALID_PC_NAME : null;
+}

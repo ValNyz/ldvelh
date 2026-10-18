@@ -2,8 +2,8 @@
 import { test, expect } from '@playwright/test';
 import { mockApi } from './mockApi.mjs';
 import {
-	SHOTS, descriptionField, enhanceButton, loreField, nameField, openWizard, redoButton, suggestions,
-	undoButton,
+	SHOTS, characterHeading, descriptionField, enhanceButton, loreField, nameField, openWizard, redoButton,
+	suggestions, undoButton,
 } from './wizardPage.mjs';
 
 const WORLD_FILL = {
@@ -193,4 +193,26 @@ test('empty text invents, a new version starts from the player state, suggestion
 	await expect(nameField(page)).toHaveValue('Nyx');
 	const charCall = api.calls.filter(c => c.path === '/world/enhance').at(-1).body;
 	expect(charCall.current.character_data.description ?? '').toBe('');
+});
+
+test('a reserved protagonist name is refused inline, before any creation call', async ({ page }) => {
+	const api = await mockApi(page);
+	await openWizard(page);
+	await page.getByRole('button', { name: 'Suivant' }).click();
+	await page.getByRole('button', { name: 'Suivant' }).click();
+	await expect(characterHeading(page)).toBeVisible();
+	const create = page.getByRole('button', { name: 'Créer le monde' });
+	const nameError = page.getByRole('alert').filter({ hasText: 'Nom du protagoniste invalide' });
+
+	await nameField(page).fill('<prénom inventé>');
+	await expect(nameError).toBeVisible();
+	await expect(create).toBeDisabled();
+	await page.screenshot({ path: `${SHOTS}/7-invalid-name.png`, fullPage: true, animations: "disabled" });
+	await nameField(page).fill(' protagonist ');
+	await expect(create).toBeDisabled();
+
+	await nameField(page).fill('Kira');
+	await expect(nameError).toHaveCount(0);
+	await expect(create).toBeEnabled();
+	expect(api.calls.filter(c => c.method === 'POST' && c.path !== '/auth/refresh')).toEqual([]); // no game, no /chat
 });

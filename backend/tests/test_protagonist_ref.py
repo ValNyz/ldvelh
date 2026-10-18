@@ -440,6 +440,27 @@ RENAME_CASES = [
                  "Kira, Kira et encore Kira.", id="multiple-occurrences"),
     pytest.param("Valentin Moreau", "Kira Voss", "Valentin Moreau arrive. Valentin a fui.",
                  "Kira Voss arrive. Kira a fui.", id="first-name-mention"),
+    # Surname-only mentions may be another family member: left alone on purpose.
+    pytest.param("Kira Voss", "Ana Lo", "Kira Voss part. Voss rit.", "Ana Lo part. Voss rit.",
+                 id="surname-only-mention-kept"),
+    # Case-folding oddities: casefold() rewrites ß, İ and ς, so the regex must come from the
+    # original strings. Each one combined with the prefix case (wizard name contains model name).
+    pytest.param("Kira", "Kira Weiß", "Kira Weiß a fui. Kira rit.",
+                 "Kira Weiß a fui. Kira Weiß rit.", id="sharp-s-in-wizard-name"),
+    pytest.param("Weiß", "Kira", "Weiß a fui. weiß rit.", "Kira a fui. Kira rit.",
+                 id="sharp-s-in-model-name"),
+    pytest.param("Strauß", "Strauß Kemal", "Strauß Kemal part. Strauß rit.",
+                 "Strauß Kemal part. Strauß Kemal rit.", id="sharp-s-prefix"),
+    pytest.param("İlker", "İlker Kaya", "İlker Kaya part. İlker rit. ilker dort.",
+                 "İlker Kaya part. İlker Kaya rit. İlker Kaya dort.", id="turkish-dotted-i-prefix"),
+    pytest.param("Οδυσσεύς", "Οδυσσεύς Λαέρτη", "Οδυσσεύς Λαέρτη έφυγε. Οδυσσεύς γελά.",
+                 "Οδυσσεύς Λαέρτη έφυγε. Οδυσσεύς Λαέρτη γελά.", id="greek-final-sigma-prefix"),
+    # ' and ’ (U+2019) are the same apostrophe, in both directions.
+    pytest.param("N'Diaye", "Kira", "N’Diaye rit. N'Diaye dort.", "Kira rit. Kira dort.",
+                 id="typographic-apostrophe-in-text"),
+    pytest.param("N’Diaye", "Kira", "N'Diaye rit.", "Kira rit.", id="straight-apostrophe-in-text"),
+    pytest.param("N'Diaye", "Kira N’Diaye", "Kira N'Diaye part. N'Diaye rit.",
+                 "Kira N'Diaye part. Kira N’Diaye rit.", id="apostrophe-prefix"),  # target kept as is
 ]
 
 
@@ -458,6 +479,19 @@ def test_rename_is_whole_name_and_idempotent(model_name, wizard_name, before, af
     assert out["initial_relations"][0]["source_ref"] == expected_ref
     again = apply_chosen_name(out, {"name": wizard_name})  # idempotent
     assert again == out
+
+
+@pytest.mark.parametrize("wizard", ["valentin", "Kira"], ids=["no-rename", "rename"])
+def test_apply_chosen_name_leaves_its_input_untouched(wizard):
+    import copy
+
+    from pipeline.chosen_name import apply_chosen_name
+
+    world = {"protagonist": {"name": "Valentin", "backstory": "Valentin a fui."}}
+    before = copy.deepcopy(world)
+    out = apply_chosen_name(world, {"name": wizard})
+    assert out is not None and out["protagonist"]["name"] == wizard
+    assert world == before
 
 
 @pytest.mark.parametrize("name", ["<prénom inventé>", "Kira <inventé>"])
