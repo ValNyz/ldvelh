@@ -68,6 +68,7 @@ ldvelh/
 │   │   │   ├── none.py        # NoneEngine (free narrative, no mechanics)
 │   │   │   ├── narrative.py   # NarrativeEngine (traits-based resistance)
 │   │   │   ├── fate_core.py   # FateCoreEngine (4dF, aspects, stress)
+│   │   │   ├── fate_aspects.py# Protagonist aspects with their kind (aspects_fate table, #93)
 │   │   │   ├── d6.py          # D6Engine (NdD6, wild die, wounds)
 │   │   │   ├── mechanical_service.py  # Mechanical LLM step
 │   │   │   └── engine_data.py # Canonical skill/attribute lists per genre
@@ -137,6 +138,7 @@ ldvelh/
 │       ├── AuthContext.js     # Auth context provider
 │       └── game/
 │           ├── gameState.js   # Default state, merge utilities
+│           ├── characterSheet.mjs # Character sheet display from player.sheet (#93)
 │           └── engineConfig.js# Engine options, genre/difficulty constants
 ├── schema.sql                 # Canonical DB schema
 └── db/migrations/             # Incremental migrations (dbmate format)
