@@ -202,6 +202,36 @@ async def test_c10_extraction_writes_entities(harness, world_game):
     })
 
 
+async def test_c10b_day_change_turn_extraction_rolls_back(harness, world_game):
+    """#84: a day-change turn is extracted with the NEW cycle, so rolling back its player
+    message removes the entity its extraction created."""
+    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
+    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    await _turn(harness, world_game, _narration(
+        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}),
+        "Je dors jusqu'au matin.")
+    async with harness.pool.acquire() as conn:
+        game_cycle = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1",
+                                         world_game)
+        created = await conn.fetchval(
+            "SELECT created_cycle FROM characters WHERE game_id = $1 AND name = $2",
+            world_game, payloads.NEW_CHARACTER_NAME)
+        user_msg = await conn.fetchval(
+            """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
+               ORDER BY created_at DESC LIMIT 1""", world_game)
+    assert game_cycle == 2
+    assert created == 2
+
+    r = await harness.client.post(f"/api/games/{world_game}/rollback",
+                                  json={"messageId": str(user_msg)}, headers=harness.headers)
+    assert r.status_code == 200, r.text
+    async with harness.pool.acquire() as conn:
+        left = await conn.fetchval(
+            "SELECT COUNT(*) FROM characters WHERE game_id = $1 AND name = $2",
+            world_game, payloads.NEW_CHARACTER_NAME)
+    assert left == 0
+
+
 async def test_c11_director_plan_written(harness, world_game, monkeypatch):
     narration_calls = spy_narration(monkeypatch)
     # Distinct guidance: a default plan already exists from init, so a unique marker
@@ -238,3 +268,4 @@ async def test_c11_director_plan_written(harness, world_game, monkeypatch):
         "last_director_time": last_time,
         "guidance_in_narrator_prompt_per_turn": guidance_in_prompt,
     })
+

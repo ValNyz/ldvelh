@@ -24,7 +24,7 @@ def _schedule_extraction(ctx: TurnContext, narrated: Narrated, committed: Commit
         run_resolve_and_extract(
             pool=ctx.pool,
             game_id=ctx.request.game_id,
-            trigger_cycle=ctx.snapshot.current_cycle,
+            trigger_cycle=committed.state.cycle,
             triggers=triggers or None,
             session=ctx.session,
             assistant_message_id=committed.assistant_message_id,
