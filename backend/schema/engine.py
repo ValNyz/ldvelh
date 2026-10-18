@@ -5,9 +5,11 @@ Defines engine types, world config, character data, and roll models.
 
 import logging
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+from domain.game import ARBITER_DIFFICULTIES, DEFAULT_DIFFICULTY
 
 
 # =============================================================================
@@ -49,7 +51,7 @@ class WorldConfig(BaseModel):
     """World configuration set during game creation wizard."""
 
     genre: str  # genre slug (presets: sci_fi, dark_fantasy, cosmic_horror, cyberpunk)
-    difficulty: str = "moderate"  # easy, moderate, hard, brutal
+    difficulty: Literal[*ARBITER_DIFFICULTIES] = DEFAULT_DIFFICULTY
     hardcore: bool = False
     lore: str | None = None
     custom_rules: str | None = None

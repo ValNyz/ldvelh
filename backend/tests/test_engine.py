@@ -101,6 +101,15 @@ class TestWorldConfig:
         assert wc.genre == "fantasy"
         assert wc.hardcore is True
 
+    def test_difficulty_is_the_arbiter_scale(self):
+        from pydantic import ValidationError
+
+        from domain.game import ARBITER_DIFFICULTIES
+        assert [WorldConfig(genre="g", difficulty=d).difficulty
+                for d in ARBITER_DIFFICULTIES] == list(ARBITER_DIFFICULTIES)
+        with pytest.raises(ValidationError):
+            WorldConfig(genre="g", difficulty="normal")
+
 
 # =============================================================================
 # FATE CORE MODELS

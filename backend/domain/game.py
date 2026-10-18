@@ -10,7 +10,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
-# The wizard offers the arbiter's own scale (schema.engine.MechanicalDecision).
+# The one difficulty scale: the wizard offers it (schema.engine.WorldConfig.difficulty,
+# frontend engineConfig.DIFFICULTIES) and the arbiter reads it as "World difficulty"
+# (prompts/mechanical_prompt.build_mechanical_context).
 ARBITER_DIFFICULTIES = ("easy", "moderate", "hard", "brutal")
 DEFAULT_DIFFICULTY = "moderate"
 
