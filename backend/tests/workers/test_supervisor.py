@@ -243,3 +243,25 @@ async def test_queue_depth_warning(caplog):
     assert any(f"[SUPERVISOR] game={g} queue depth=4" in r.getMessage() for r in caplog.records)
     release.set()
     await supervisor.wait_idle(g, timeout=TIMEOUT)
+
+
+def test_zero_game_limit_is_rejected(monkeypatch):
+    with pytest.raises(ValueError, match="at least 1"):
+        supervisor.reset(max_running_games=0)
+
+    class _Settings:
+        supervisor_max_running_games = 0
+
+    monkeypatch.setattr(supervisor, "get_settings", lambda: _Settings())
+    with pytest.raises(ValueError, match="at least 1"):
+        supervisor.reset()
+
+
+def test_settings_reject_a_zero_game_limit():
+    from pydantic import ValidationError
+
+    from config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(supervisor_max_running_games=0)
+    assert Settings().supervisor_max_running_games >= 1

@@ -4,6 +4,9 @@ Every background job (post-turn extraction, Director runs...) goes through `enqu
 the task is referenced until it ends, the jobs of one game run one after the other in
 enqueue order, and at most `supervisor_max_running_games` games run a job at once.
 A job never cancels its predecessor; a cancelled or failed predecessor does not block it.
+
+Rule: a job must not await `wait_idle` on its own game, nor a job it enqueued on its own
+game. Successors wait on the current job, so such an await blocks until its timeout.
 """
 
 import asyncio
@@ -27,10 +30,18 @@ _jobs: dict[UUID, list[asyncio.Task]] = {}
 _semaphore: asyncio.Semaphore | None = None
 
 
+def _new_semaphore(max_running_games: int | None) -> asyncio.Semaphore:
+    if max_running_games is None:
+        max_running_games = get_settings().supervisor_max_running_games
+    if max_running_games < 1:  # Semaphore(0) would block every job silently
+        raise ValueError(f"max_running_games must be at least 1, got {max_running_games}")
+    return asyncio.Semaphore(max_running_games)
+
+
 def _slots() -> asyncio.Semaphore:
     global _semaphore
     if _semaphore is None:
-        _semaphore = asyncio.Semaphore(get_settings().supervisor_max_running_games)
+        _semaphore = _new_semaphore(None)
     return _semaphore
 
 
@@ -108,7 +119,11 @@ async def wait_idle(game_id: UUID | None = None, *, timeout: float) -> list[asyn
 
 
 async def cancel_game(game_id: UUID, *, timeout: float) -> int:
-    """Cancel every unfinished job of the game, wait up to `timeout` for them to end."""
+    """Cancel every unfinished job of the game, wait up to `timeout` for them to end.
+
+    The jobs are those unfinished at call time: a job enqueued during the wait is not
+    cancelled (rollback calls this under the game lock, so no turn enqueues meanwhile).
+    """
     tasks = _unfinished(game_id)
     for task in tasks:
         task.cancel()
@@ -146,7 +161,5 @@ def reset(max_running_games: int | None = None) -> None:
     The previous event loop is closed: its tasks and semaphore cannot be reused.
     """
     global _semaphore
+    _semaphore = _new_semaphore(max_running_games)
     _jobs.clear()
-    if max_running_games is None:
-        max_running_games = get_settings().supervisor_max_running_games
-    _semaphore = asyncio.Semaphore(max_running_games)

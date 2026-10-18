@@ -34,7 +34,8 @@ class ChatHarness:
         client, so nothing long-lived is swept in. The bounded retry loop also covers
         tasks spawned by tasks.
 
-        Fails loudly: raises AssertionError if tasks are still pending afterwards, and
+        Fails loudly: raises TimeoutError if supervisor jobs are still unfinished after
+        `timeout`, AssertionError if other tasks are still pending afterwards, and
         re-raises the first exception from any task it waited on (cancellations ignored).
         """
         # Imported here: this module loads as a pytest plugin while tests/ precedes backend/
