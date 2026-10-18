@@ -55,12 +55,16 @@ async def resolver_triggers(
                   if m.is_new and m.entity_type in TYPE_TO_EXTRACTOR]
     if not candidates:
         return set()
+    canonicals = list({m.canonical for m in candidates})
     rows = await conn.fetch(
-        "SELECT LOWER(name) AS name FROM entity_registry WHERE game_id = $1", game_id
+        """SELECT c AS canonical FROM unnest($2::text[]) AS c
+           WHERE EXISTS (SELECT 1 FROM entity_registry
+                         WHERE game_id = $1 AND LOWER(name) = LOWER(c))""",
+        game_id, canonicals,
     )
-    known = {r["name"] for r in rows}
+    known = {r["canonical"] for r in rows}
     return {TYPE_TO_EXTRACTOR[m.entity_type] for m in candidates
-            if m.canonical.lower() not in known}
+            if m.canonical not in known}
 
 
 async def _compute_triggers(
@@ -73,8 +77,13 @@ async def _compute_triggers(
     narrator = {t for t in (triggers or []) if t in EXTRACTOR_MAP}
     inferred: set[str] = set()
     if resolution_map:
-        async with pool.acquire() as conn:
-            inferred = await resolver_triggers(conn, game_id, resolution_map)
+        try:
+            async with pool.acquire() as conn:
+                inferred = await resolver_triggers(conn, game_id, resolution_map)
+        except Exception as e:
+            log_exception(logger, logging.WARNING,
+                          "[EXTRACTION] Resolver trigger lookup failed, using narrator triggers only",
+                          e, debug_detail=get_settings().log_prompts)
     logger.info(
         f"[EXTRACTION] Triggers for game {game_id}: "
         f"narrator={sorted(narrator)} resolver={sorted(inferred)}"

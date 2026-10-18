@@ -92,3 +92,37 @@ async def test_trigger_log_names_both_origins(test_pool, test_user, caplog):
     lines = [r.getMessage() for r in caplog.records if "Triggers for game" in r.getMessage()]
     assert len(lines) == 1
     assert "narrator=['characters']" in lines[0] and "resolver=['locations']" in lines[0]
+
+
+async def test_accent_case_comparison_is_done_in_sql(test_pool, test_user):
+    game_id = await _game(test_pool, test_user, ["écluse"])
+    m = MentionMapping(mention="l'écluse", canonical="Écluse",
+                       entity_type="location", is_new=True)
+    async with test_pool.acquire() as conn:
+        assert await resolver_triggers(conn, game_id, _map(m)) == set()
+
+
+async def test_mix_of_new_and_existing_mappings_triggers_only_the_new_one(test_pool, test_user):
+    game_id = await _game(test_pool, test_user, ["Le Quai 9"])
+    new_char = MentionMapping(mention="Ana", canonical="Ana", entity_type="character",
+                              is_new=True)
+    async with test_pool.acquire() as conn:
+        assert await resolver_triggers(conn, game_id, _map(_quai(), new_char)) == {"characters"}
+
+
+async def test_unknown_entity_type_is_dropped(test_pool, test_user):
+    game_id = await _game(test_pool, test_user)
+    arc = MentionMapping(mention="x", canonical="X", entity_type="arc", is_new=True)
+    async with test_pool.acquire() as conn:
+        assert await resolver_triggers(conn, game_id, _map(arc)) == set()
+
+
+async def test_lookup_failure_keeps_narrator_triggers(test_pool, test_user, caplog, monkeypatch):
+    game_id = await _game(test_pool, test_user)
+    monkeypatch.setattr(orchestrator, "resolver_triggers",
+                        AsyncMock(side_effect=RuntimeError("boom")))
+    with caplog.at_level(logging.INFO, logger="services.extraction.orchestrator"):
+        spies = await _run(test_pool, game_id, _map(_quai()), ["characters"])
+    assert spies["characters"].called and not spies["locations"].called
+    assert any(r.levelno == logging.WARNING and "lookup failed" in r.getMessage()
+               for r in caplog.records)
