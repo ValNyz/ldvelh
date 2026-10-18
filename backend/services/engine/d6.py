@@ -159,6 +159,19 @@ class D6Engine(BaseEngine):
             "force_points": stats.get("force_points", 0),
         }
 
+    async def get_sheet_display(self, conn, game_id: UUID) -> dict:
+        """Sheet for frontend: attribute dice codes and skills (with their attribute)."""
+        stats = await self.get_stats(conn, game_id)
+        if not stats:
+            return {}
+        return {
+            "attributes": stats.get("attributes", {}),
+            "skills": [
+                {"attribute": s["attribute"], "name": s["name"], "dice_value": s["dice_value"]}
+                for s in stats.get("skills", [])
+            ],
+        }
+
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:
         """Create character_d6 row and initial skills."""
         attributes = data.get("attributes", {})

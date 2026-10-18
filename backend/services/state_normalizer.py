@@ -34,6 +34,8 @@ class PlayerState(BaseModel):
     credits: int = Field(default=DEFAULT_STATS["credits"])
     inventory: list[InventoryItem] = Field(default_factory=list)
     engine_stats: Optional[dict] = None
+    # Character sheet (aspects, skills, attributes): engine.get_sheet_display, #93
+    sheet: Optional[dict] = None
 
 
 class GameSessionState(BaseModel):
@@ -111,6 +113,7 @@ def normalize_player(data: Optional[dict]) -> PlayerState:
         credits=int(data.get("credits", DEFAULT_STATS["credits"])),
         inventory=inventory,
         engine_stats=data.get("engine_stats"),
+        sheet=data.get("sheet"),
     )
 
 
@@ -212,6 +215,7 @@ def extract_player_fields(data: dict) -> dict:
         "credits",
         "inventory",
         "engine_stats",
+        "sheet",
     ]
     return {k: data[k] for k in keys if k in data}
 
@@ -293,6 +297,7 @@ def merge_player(
             else prev.credits,
             inventory=update.inventory if update.inventory else prev.inventory,
             engine_stats=update.engine_stats if update.engine_stats else prev.engine_stats,
+            sheet=update.sheet if update.sheet else prev.sheet,
         )
 
     return PlayerState(
@@ -303,6 +308,7 @@ def merge_player(
         engine_stats=update.engine_stats
         if "engine_stats" in update_keys
         else prev.engine_stats,
+        sheet=update.sheet if "sheet" in update_keys else prev.sheet,
     )
 
 

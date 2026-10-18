@@ -143,6 +143,7 @@ class GameService:
             engine_stats = None
             if engine_type != "none":
                 engine_stats = await engine.get_vitals_display(conn, game_id)
+            sheet = await engine.get_sheet_display(conn, game_id)
             # A roll waiting for an aspect invocation comes back with the game (#32).
             pending_roll = await load_pending_roll(conn, game_id, engine)
 
@@ -162,7 +163,8 @@ class GameService:
             "engine_locked": game.get("engine_locked", False),
         }
 
-        player_data = {**stats, "inventory": inventory, "engine_stats": engine_stats}
+        player_data = {**stats, "inventory": inventory, "engine_stats": engine_stats,
+                       "sheet": sheet}
 
         from services.state_normalizer import game_state_to_dict, normalize_game_state
 

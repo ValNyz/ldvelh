@@ -546,6 +546,7 @@ All engine-specific logic goes through the `BaseEngine` interface.
 |--------|------|-------------|
 | `get_stats(conn, game_id)` | async | Load character stats from DB |
 | `get_vitals_display(conn, game_id)` | async | Formatted vitals for frontend |
+| `get_sheet_display(conn, game_id)` | async | Read-only character sheet for frontend (`player.sheet`): Fate `aspects` [{type: high_concept/trouble/other, name}], `skills` [{name, level, label}], `stunts`; D6 `attributes` {name: dice}, `skills` [{attribute, name, dice_value}]; empty by default (narrative, none) |
 | `create_character(conn, game_id, data)` | async | Create engine-specific character |
 | `apply_roll_result(conn, game_id, roll)` | async | Apply mechanical consequences |
 | `snapshot_turn_state(conn, game_id)` | async | Capture the state a turn's own transaction writes (Fate: stress, consequences, fate points; D6: wounds, force points; Narrative: nothing), stored with the assistant message |
@@ -883,7 +884,8 @@ GameState:
     - engine, engine_locked, world_created
   player: PlayerState
     - credits, inventory: [{name, quantity, description}]
-    - engine_stats: dict | None (engine-specific)
+    - engine_stats: dict | None (engine-specific vitals, get_vitals_display)
+    - sheet: dict | None (character sheet, get_sheet_display; {} without one)
   ai: AIState
     - name, personality, voice, quirk, relationship
 ```

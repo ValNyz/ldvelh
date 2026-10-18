@@ -1,6 +1,9 @@
 'use client';
 
 import { FATE_LADDER } from '../../lib/game/engineConfig';
+import {
+	ASPECT_TYPE_LABELS, d6SkillsByAttribute, fateSkillPyramid, formatFateLevel,
+} from '../../lib/game/characterSheet.mjs';
 
 // ============================================================================
 // CHARACTER SHEET SIDEBAR
@@ -12,6 +15,8 @@ export default function CharacterSheet({ isOpen, onClose, gameState }) {
 	const engine = gameState?.game?.engine || 'none';
 	const player = gameState?.player;
 	const stats = player?.engine_stats;
+	// Aspects, skills, attributes: read-only sheet, apart from the vitals (#93)
+	const sheet = player?.sheet || {};
 
 	return (
 		<div className="w-80 bg-surface border-l border-gray-800 flex flex-col overflow-hidden">
@@ -38,8 +43,8 @@ export default function CharacterSheet({ isOpen, onClose, gameState }) {
 				{/* Engine-specific stats */}
 				{engine === 'none' && <NoneSheet />}
 				{engine === 'narrative' && <NarrativeSheet stats={stats} />}
-				{engine === 'fate_core' && <FateCoreSheet stats={stats} />}
-				{engine === 'd6' && <D6Sheet stats={stats} />}
+				{engine === 'fate_core' && <FateCoreSheet stats={stats} sheet={sheet} />}
+				{engine === 'd6' && <D6Sheet stats={stats} sheet={sheet} />}
 
 				{/* Inventory */}
 				{player?.inventory?.length > 0 && (
@@ -124,14 +129,15 @@ function NarrativeSheet({ stats }) {
 // FATE CORE
 // ============================================================================
 
-function FateCoreSheet({ stats }) {
+function FateCoreSheet({ stats, sheet }) {
 	if (!stats) return null;
 
-	const aspects = stats.aspects || [];
+	const aspects = sheet.aspects || [];
 	const stressPhys = stats.stress_physical || [];
 	const stressMent = stats.stress_mental || [];
 	const consequences = stats.consequences || {};
-	const skills = stats.skills || [];
+	const pyramid = fateSkillPyramid(sheet.skills);
+	const stunts = sheet.stunts || [];
 
 	return (
 		<>
@@ -151,7 +157,7 @@ function FateCoreSheet({ stats }) {
 					<div className="space-y-1.5">
 						{aspects.map((a, i) => (
 							<div key={i} className="p-2 bg-primary/10 border border-primary/30 rounded">
-								<span className="text-xs text-primary uppercase">{a.type || 'aspect'}</span>
+								<span className="text-xs text-primary uppercase">{ASPECT_TYPE_LABELS[a.type] || 'Aspect'}</span>
 								<p className="text-gray-200 text-sm">{a.name}</p>
 							</div>
 						))}
@@ -181,16 +187,30 @@ function FateCoreSheet({ stats }) {
 				</Section>
 			)}
 
-			{/* Skills */}
-			{skills.length > 0 && (
+			{/* Skill pyramid */}
+			{pyramid.length > 0 && (
 				<Section title="Compétences">
-					<div className="space-y-0.5">
-						{[...skills].sort((a, b) => (b.level || 0) - (a.level || 0)).map((s, i) => (
-							<div key={i} className="flex justify-between text-sm">
-								<span className="text-gray-300">{s.name}</span>
+					<div className="space-y-1.5">
+						{pyramid.map(({ level, label, skills }) => (
+							<div key={level} className="text-sm">
 								<span className="text-primary font-mono">
-									+{s.level} {FATE_LADDER[s.level] || ''}
+									{formatFateLevel(level)} {label || FATE_LADDER[level] || ''}
 								</span>
+								<p className="text-gray-300">{skills.join(', ')}</p>
+							</div>
+						))}
+					</div>
+				</Section>
+			)}
+
+			{/* Stunts */}
+			{stunts.length > 0 && (
+				<Section title="Prouesses">
+					<div className="space-y-1">
+						{stunts.map((st, i) => (
+							<div key={i} className="text-sm">
+								<p className="text-gray-200">{st?.name || st}</p>
+								{st?.description && <p className="text-gray-400 text-xs">{st.description}</p>}
 							</div>
 						))}
 					</div>
@@ -227,12 +247,11 @@ function StressTrack({ label, boxes }) {
 // D6 SYSTEM
 // ============================================================================
 
-function D6Sheet({ stats }) {
+function D6Sheet({ stats, sheet }) {
 	if (!stats) return null;
 
-	const attributes = stats.attributes || {};
 	const wounds = stats.wounds || {};
-	const skills = stats.skills || [];
+	const { rows, others } = d6SkillsByAttribute(sheet.attributes, sheet.skills);
 	const woundLevels = [
 		{ key: 'stunned', label: 'Étourdi' },
 		{ key: 'wounded', label: 'Blessé' },
@@ -266,31 +285,41 @@ function D6Sheet({ stats }) {
 				</div>
 			</Section>
 
-			{/* Attributes */}
-			<Section title="Attributs">
-				<div className="space-y-1">
-					{Object.entries(attributes).map(([name, val]) => (
-						<div key={name} className="flex justify-between text-sm">
-							<span className="text-gray-300">{name}</span>
-							<span className="text-blue-400 font-mono">{val}</span>
-						</div>
-					))}
-				</div>
-			</Section>
-
-			{/* Skills */}
-			{skills.length > 0 && (
-				<Section title="Compétences">
-					<div className="space-y-0.5">
-						{skills.map((s, i) => (
-							<div key={i} className="flex justify-between text-sm">
-								<span className="text-gray-300">{s.name}</span>
-								<span className="text-blue-400 font-mono text-xs">{s.dice_value}</span>
+			{/* Attributes, each with its skills */}
+			{rows.length > 0 && (
+				<Section title="Attributs et compétences">
+					<div className="space-y-2">
+						{rows.map(({ name, dice, skills }) => (
+							<div key={name}>
+								<div className="flex justify-between text-sm">
+									<span className="text-gray-200 font-medium">{name}</span>
+									<span className="text-blue-400 font-mono">{dice}</span>
+								</div>
+								<D6SkillList skills={skills} />
 							</div>
 						))}
 					</div>
 				</Section>
 			)}
+
+			{others.length > 0 && (
+				<Section title="Autres compétences">
+					<D6SkillList skills={others} />
+				</Section>
+			)}
 		</>
+	);
+}
+
+function D6SkillList({ skills }) {
+	return (
+		<div className="pl-3 space-y-0.5">
+			{skills.map((s, i) => (
+				<div key={i} className="flex justify-between text-sm">
+					<span className="text-gray-400">{s.name}</span>
+					<span className="text-blue-400 font-mono text-xs">{s.dice_value}</span>
+				</div>
+			))}
+		</div>
 	);
 }

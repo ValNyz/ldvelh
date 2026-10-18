@@ -91,6 +91,25 @@ def aspect_names(engine_stats: dict) -> list[str]:
     return names
 
 
+# Aspect list stored in creation order: high concept, then trouble, then the others.
+_POSITIONAL_ASPECT_TYPES = ("high_concept", "trouble")
+
+
+def sheet_aspects(aspects) -> list[dict]:
+    """Aspects as {"type", "name"} for the sheet: a dict keeps its own type, a plain
+    string takes it from its position (high concept, trouble, then "other")."""
+    typed = []
+    for i, aspect in enumerate(aspects or []):
+        kind = aspect.get("type") if isinstance(aspect, dict) else None
+        names = aspect_names({"aspects": [aspect]})
+        if not names:
+            continue
+        if kind is None:
+            kind = _POSITIONAL_ASPECT_TYPES[i] if i < len(_POSITIONAL_ASPECT_TYPES) else "other"
+        typed.append({"type": kind, "name": names[0]})
+    return typed
+
+
 def _known_invocations(invoked: Sequence[str], aspects: Sequence[str]) -> list[str]:
     """Invoked aspects as spelled on the sheet, without duplicates (order kept).
 
@@ -177,6 +196,20 @@ class FateCoreEngine(BaseEngine):
             "consequences": stats.get("consequences", {}),
             "fate_points": stats.get("fate_points", 0),
             "refresh": stats.get("refresh", 0),
+        }
+
+    async def get_sheet_display(self, conn, game_id: UUID) -> dict:
+        """Sheet for frontend: typed aspects, skill pyramid (highest first), stunts."""
+        stats = await self.get_stats(conn, game_id)
+        if not stats:
+            return {}
+        return {
+            "aspects": sheet_aspects(stats.get("aspects")),
+            "skills": [
+                {"name": s["name"], "level": s["level"], "label": s["label"]}
+                for s in stats.get("skills", [])
+            ],
+            "stunts": stats.get("stunts", []),
         }
 
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:

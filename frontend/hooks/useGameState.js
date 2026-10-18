@@ -105,7 +105,8 @@ function mergePlayer(prev, next) {
 	return {
 		credits: next.credits ?? prev.credits,
 		inventory: next.inventory !== undefined ? next.inventory : (prev.inventory || []),
-		engine_stats: next.engine_stats !== undefined ? next.engine_stats : prev.engine_stats
+		engine_stats: next.engine_stats !== undefined ? next.engine_stats : prev.engine_stats,
+		sheet: next.sheet !== undefined ? next.sheet : prev.sheet
 	};
 }
 

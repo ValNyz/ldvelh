@@ -50,6 +50,14 @@ class BaseEngine(ABC):
         """Load engine vitals formatted for frontend display."""
         ...
 
+    async def get_sheet_display(self, conn, game_id: UUID) -> dict:
+        """Load the character sheet (aspects, skills, attributes...) for frontend display.
+
+        Read-only display, refreshed with every game state; vitals stay in
+        get_vitals_display. Default: empty (engines without a sheet).
+        """
+        return {}
+
     @abstractmethod
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:
         """Create engine character tables from wizard data."""
