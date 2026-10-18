@@ -212,10 +212,9 @@ handleWizardComplete(params, { gameId, onCreated })
 2. onCreated(id)               → the wizard draft moves under the game's key (#88)
 3. gs.setGameId(id)
 4. games.loadGames()           → refresh game list
-5. generateWorld(id, params)   → phase GENERATING_WORLD, then startStream('/chat', {
-     message: '__INIT__', gameId: id, gameState: null, provider, model,
-     engine, world_config, character_data, manual_entities
-   })
+5. generateWorld(id, params)   → phase GENERATING_WORLD, then sendChat({
+     message: '__INIT__', engine, world_config, character_data, manual_entities
+   }, id)
 ```
 `generateWorld(id)` without parameters (a retry with no local draft) sends a bare `__INIT__`.
 
@@ -335,11 +334,13 @@ User types message
 ```
 1. Guard: check gameId, sendingRef, isExtracting
 2. sendingRef.current = true (prevent concurrent sends)
-3. setLastUserMessage(content) (for regenerate)
+3. setLastUserMessage(content) (for retry after an error, and the roll resume)
 4. Add user message to UI immediately
 5. gs.setLoading(true), gs.setSaving(true)
-6. startStream('/chat', {gameId, message, gameState, provider, model})
+6. sendChat({message})
 ```
+
+**One /chat body (#55).** Every `/chat` call (turn, `__INIT__`, `__ARRIVEE__`, roll resume, edit / resend / regenerate) goes through `sendChat(extra, gameId)`, whose body comes from `buildChatPayload` (`frontend/lib/game/chatRequest.mjs`): `{gameId, provider, model, ...extra}`. The client game state is not sent: the server always reloads it. `ChatRequest` ignores unknown fields (pydantic default, not `extra='forbid'`), so a frontend cached before #55 that still sends `gameState` keeps working during a deploy.
 
 #### 3.2 Backend: the turn pipeline (LIGHT mode)
 
@@ -359,7 +360,7 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 | `arbitrate` | Mechanical step, dice, pending Fate roll (step 2); may return `HALT` and end the turn |
 | `narrate` | Narrator prompts and message history, streams the narration, parses it leniently (steps 3, 4, 5) |
 | `commit` | Writes everything of the turn in one transaction (step 6) |
-| `respond` | Sends `done` then `saved` |
+| `respond` | Sends `done` then `saved`; `done.state.meta` carries `user_message_id` and `assistant_message_id`, the turn's saved messages (#55) |
 | `schedule` | Starts extraction and the Director in the background |
 
 **Transaction.** The roll is *computed* before the narration (the narrator needs it) but *applied* at commit. `commit_turn` writes roll effects (stress, fate points), narration state, narrator deltas, engine snapshot, both messages, the roll log (or the claim of the resumed pending roll) and the engine lock in a single transaction (`repos/turns.py`). A failure or a cancellation anywhere before it leaves nothing behind (#16, #20). Credit deltas are stored as the ledger applied them (`applied`, `error`), not as the narrator asked (#33); a refused debit is reported to the narrator on the next turn.
@@ -724,15 +725,15 @@ Frontend: gamesHook.loadGames()
 
 ### Three Rollback Scenarios
 
-All three follow the same pattern: rollback to a message index, then re-send.
+All three go through `rollbackThenSend(messageId, content)`: rollback to the action, then send `content` in its place. A message without id (not saved) is refused with "Ce message n'est pas encore enregistré : recharge la partie pour le reprendre." (not recoverable: no "Réessayer"). Loaded messages carry their ids; a turn played in the session gets them from `done.state.meta` (`withTurnIds`, `frontend/lib/game/chatHistory.mjs`): the answer, and the action just before it (#55).
 
-`rollbackTo(messageId)` calls `stateApi.rollback` (`POST /games/{id}/rollback {messageId}`), then shows the returned `messages` and `state`; the invocation modal follows `state.pending_roll` (null after a rollback, which expires the pending roll, #80). A refused rollback shows the server's French message and sends nothing.
+`rollbackTo(messageId)` calls `stateApi.rollback` (`POST /games/{id}/rollback {messageId}`), then shows the returned `messages` and `state`; the invocation modal follows `state.pending_roll` (null after a rollback, which expires the pending roll, #80). A refused rollback shows the server's French message (not recoverable) and sends nothing.
 
-**Edit (modify text):** `handleSubmitEdit(content)`: `rollbackTo(messages[editingIndex].id)`, then `handleSendMessage(content)` (new text).
+**Edit (modify text):** `handleSubmitEdit(content)`: `rollbackThenSend(messages[editingIndex].id, content)` (new text).
 
-**Resend (same text):** `handleResend(index)`: the message must be a user one; `rollbackTo(msg.id)`, then `handleSendMessage(msg.content)`.
+**Resend (same text):** `handleResend(index)`: the message must be a user one; `rollbackThenSend(msg.id, msg.content)`.
 
-**Regenerate (redo last assistant response):** `handleRegenerate()`: `rollbackTo(messages[length - 2].id)`, then `handleSendMessage(lastUserMessage)`.
+**Regenerate (redo last assistant response):** `handleRegenerate()`: the last user message, found scanning backwards (`findLastUserMessage`); `rollbackThenSend(msg.id, msg.content)`. It needs no earlier send in the session, so it works right after loading a saved game.
 
 ### Backend Rollback
 

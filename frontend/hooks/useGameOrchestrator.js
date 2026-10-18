@@ -5,6 +5,8 @@ import { useStreaming } from './useStreaming';
 import { stateApi } from '../lib/api';
 import { invocationFromState, toInvocationData, withPendingPlayerMessage } from '../lib/game/pendingRoll.mjs';
 import { paramsFromServer } from '../lib/game/wizardParams.mjs';
+import { buildChatPayload } from '../lib/game/chatRequest.mjs';
+import { findLastUserMessage, withTurnIds } from '../lib/game/chatHistory.mjs';
 
 // Game content constants (French — the game is in French)
 const MESSAGES = {
@@ -12,6 +14,7 @@ const MESSAGES = {
 	CANCELLED_SUFFIX: '\n\n*(Annulé)*',
 	SAVE_UNCONFIRMED: "La sauvegarde de ce tour n'a pas été confirmée : recharge la partie si le dernier message manque.",
 	ROLLBACK_FAILED: 'Retour en arrière impossible.',
+	MESSAGE_NOT_SAVED: "Ce message n'est pas encore enregistré : recharge la partie pour le reprendre.",
 };
 
 // Protocol tokens for special messages
@@ -116,12 +119,12 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				return;
 			}
 
-			// LIGHT mode: display final narrative
+			// LIGHT mode: display final narrative, with the ids the turn was saved with (#55)
 			const gameData = data?.game_state?.game;
 			gs.setMessages(prev => {
 				const last = prev[prev.length - 1];
 				if (last?.role === 'assistant') {
-					return [...prev.slice(0, -1), {
+					return withTurnIds([...prev.slice(0, -1), {
 						...last,
 						content: displayText || last.content,
 						streaming: false,
@@ -131,7 +134,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 						time: gameData?.time || null,
 						game_date: gameData?.game_date || null,
 						location: gameData?.current_location || null,
-					}];
+					}], data?.meta);
 				}
 				return prev;
 			});
@@ -171,6 +174,11 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		}
 	});
 
+	// The only /chat call: every body is built by buildChatPayload (#55).
+	const sendChat = useCallback((extra, gameId = gs.gameId) => (
+		startStream('/chat', buildChatPayload({ gameId, preferences }, extra))
+	), [startStream, gs.gameId, preferences]);
+
 	// =========================================================================
 	// WORLD GENERATION
 	// =========================================================================
@@ -184,20 +192,16 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		phase.setWorldGenProgress('');
 		phase.setGamePhase(phase.GAME_PHASE.GENERATING_WORLD);
 
-		await startStream('/chat', {
+		await sendChat({
 			message: PROTOCOL.INIT_TOKEN,
-			gameId: id,
-			gameState: null,
-			provider: preferences?.activeProvider || 'anthropic',
-			model: preferences?.activeModel || null,
 			...(params ? {
 				engine: params.engine,
 				world_config: params.worldConfig,
 				character_data: params.characterData,
 				manual_entities: params.manualEntities,
 			} : {}),
-		});
-	}, [startStream, gs, phase, preferences]);
+		}, id);
+	}, [sendChat, gs, phase]);
 
 	/** Retry the world generation of the open game (after a failure, or on reopening it). */
 	const handleRetryWorld = useCallback((params = null) => {
@@ -211,14 +215,8 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		gs.setWarning(null);
 		gs.setMessages([]);
 
-		await startStream('/chat', {
-			message: PROTOCOL.ARRIVAL_TOKEN,
-			gameId: gs.gameId,
-			gameState: gs.gameState,
-			provider: preferences?.activeProvider || 'anthropic',
-			model: preferences?.activeModel || null,
-		});
-	}, [gs.gameId, gs.gameState, startStream, gs, phase, preferences]);
+		await sendChat({ message: PROTOCOL.ARRIVAL_TOKEN });
+	}, [sendChat, gs, phase]);
 
 	// =========================================================================
 	// GAME CRUD HANDLERS
@@ -348,14 +346,8 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		gs.setLoading(true);
 		gs.setSaving(true);
 
-		await startStream('/chat', {
-			gameId: gs.gameId,
-			message: content,
-			gameState: gs.gameState,
-			provider: preferences?.activeProvider || 'anthropic',
-			model: preferences?.activeModel || null,
-		});
-	}, [gs.gameId, gs.gameState, isExtracting, startStream, gs, preferences]);
+		await sendChat({ message: content });
+	}, [gs.gameId, isExtracting, sendChat, gs]);
 
 	const handleCancel = useCallback(() => {
 		if (cancel()) {
@@ -382,7 +374,8 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			result = await stateApi.rollback(gs.gameId, messageId);
 		} catch (e) {
 			console.warn('Rollback failed:', e);
-			gs.setError({ message: e.message || MESSAGES.ROLLBACK_FAILED });
+			// Not recoverable: "Réessayer" would resend the last action, not the rollback.
+			gs.setError({ message: e.message || MESSAGES.ROLLBACK_FAILED, recoverable: false });
 			return false;
 		}
 		gs.setMessages(result.messages || []);
@@ -400,35 +393,34 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		setEditingIndex(null);
 	}, []);
 
-	const handleSubmitEdit = useCallback(async (content) => {
-		if (editingIndex === null) return;
-
-		const targetMsg = gs.messages[editingIndex];
-		if (!targetMsg?.id) return;
-		if (!await rollbackTo(targetMsg.id)) return;
+	// Edit / resend / regenerate: rollback to the action `messageId`, then send `content` in
+	// its place. A message without id (not saved yet) is refused with an error (#55).
+	const rollbackThenSend = useCallback(async (messageId, content) => {
+		if (!messageId) {
+			gs.setError({ message: MESSAGES.MESSAGE_NOT_SAVED, recoverable: false });
+			return;
+		}
+		if (!await rollbackTo(messageId)) return;
 
 		setEditingIndex(null);
 		await handleSendMessage(content);
-	}, [editingIndex, gs.messages, rollbackTo, handleSendMessage]);
+	}, [gs, rollbackTo, handleSendMessage]);
+
+	const handleSubmitEdit = useCallback(async (content) => {
+		const targetMsg = editingIndex === null ? null : gs.messages[editingIndex];
+		if (targetMsg) await rollbackThenSend(targetMsg.id, content);
+	}, [editingIndex, gs.messages, rollbackThenSend]);
 
 	const handleResend = useCallback(async (index) => {
 		const msg = gs.messages[index];
-		if (!msg || msg.role !== 'user' || !msg.id) return;
-		if (!await rollbackTo(msg.id)) return;
+		if (msg?.role === 'user') await rollbackThenSend(msg.id, msg.content);
+	}, [gs.messages, rollbackThenSend]);
 
-		await handleSendMessage(msg.content);
-	}, [gs.messages, rollbackTo, handleSendMessage]);
-
+	// Answer the last action again: works on a just loaded game too (no prior send needed).
 	const handleRegenerate = useCallback(async () => {
-		if (!lastUserMessage) return;
-
-		const lastUserIndex = gs.messages.length - 2;
-		const lastUserMsg = gs.messages[lastUserIndex];
-		if (!lastUserMsg || lastUserMsg.role !== 'user' || !lastUserMsg.id) return;
-		if (!await rollbackTo(lastUserMsg.id)) return;
-
-		await handleSendMessage(lastUserMessage);
-	}, [lastUserMessage, gs.messages, rollbackTo, handleSendMessage]);
+		const msg = findLastUserMessage(gs.messages);
+		if (msg) await rollbackThenSend(msg.id, msg.content);
+	}, [gs.messages, rollbackThenSend]);
 
 	const handleRetry = useCallback(() => {
 		if (lastUserMessage) handleSendMessage(lastUserMessage);
@@ -438,7 +430,8 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	// ASPECT INVOCATION (Fate Core)
 	// =========================================================================
 
-	const handleInvoke = useCallback(async (selectedAspects) => {
+	// Resume the pending roll with the invoked aspects (none: the failure stands).
+	const resumeRoll = useCallback(async (invokedAspects) => {
 		if (!invocationData || !gs.gameId) return;
 
 		setInvocationData(null);
@@ -446,35 +439,15 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		gs.setSaving(true);
 		sendingRef.current = true;
 
-		await startStream('/chat', {
-			gameId: gs.gameId,
+		await sendChat({
 			message: lastUserMessage,
-			gameState: gs.gameState,
-			provider: preferences?.activeProvider || 'anthropic',
-			model: preferences?.activeModel || null,
 			roll_id: invocationData.rollId,
-			invoked_aspects: selectedAspects,
+			invoked_aspects: invokedAspects,
 		});
-	}, [invocationData, gs.gameId, gs.gameState, lastUserMessage, startStream, gs, preferences]);
+	}, [invocationData, gs, lastUserMessage, sendChat]);
 
-	const handleSkipInvocation = useCallback(async () => {
-		if (!invocationData || !gs.gameId) return;
-
-		setInvocationData(null);
-		gs.setLoading(true);
-		gs.setSaving(true);
-		sendingRef.current = true;
-
-		await startStream('/chat', {
-			gameId: gs.gameId,
-			message: lastUserMessage,
-			gameState: gs.gameState,
-			provider: preferences?.activeProvider || 'anthropic',
-			model: preferences?.activeModel || null,
-			roll_id: invocationData.rollId,
-			invoked_aspects: [],
-		});
-	}, [invocationData, gs.gameId, gs.gameState, lastUserMessage, startStream, gs, preferences]);
+	const handleInvoke = useCallback((selectedAspects) => resumeRoll(selectedAspects), [resumeRoll]);
+	const handleSkipInvocation = useCallback(() => resumeRoll([]), [resumeRoll]);
 
 	// =========================================================================
 	// RETURN
