@@ -22,7 +22,7 @@ from services.llm_providers import (
     get_provider,
 )
 from repos.llm_models import ModelCatalog
-from utils import parse_json_response
+from utils import parse_json_response, replace_lone_surrogates
 from utils.log_safe import safe_repr, safe_text
 
 logger = logging.getLogger(__name__)
@@ -223,7 +223,8 @@ class LLMSession:
                     tool_choice={"type": "tool", "name": tool_name},
                     temperature=temperature, max_tokens=max_tokens,
                 )
-                return LLMCall(result.tool_input, self._record(purpose, provider, result.usage))
+                cost = self._record(purpose, provider, result.usage)
+                return LLMCall(replace_lone_surrogates(result.tool_input), cost)
             if mode == StructuredOutputMode.JSON_SCHEMA:
                 result = await provider.complete_with_schema(
                     system_prompt=system_prompt, messages=messages,
@@ -231,7 +232,7 @@ class LLMSession:
                     temperature=temperature, max_tokens=max_tokens,
                 )
                 cost = self._record(purpose, provider, result.usage)  # billed even if unparsable
-                return LLMCall(json.loads(result.content), cost)
+                return LLMCall(replace_lone_surrogates(json.loads(result.content)), cost)
         except NotImplementedError:
             logger.info(f"[LLM] {self.provider_name} has no {mode.value} support, using text")
         except Exception as e:

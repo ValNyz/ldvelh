@@ -9,6 +9,7 @@ from .json_utils import (
     safe_json_dumps,
     parse_json,
     parse_json_list,
+    replace_lone_surrogates,
 )
 
 
@@ -20,4 +21,5 @@ __all__ = [
     "clean_json_string",
     "try_repair_json",
     "safe_json_dumps",
+    "replace_lone_surrogates",
 ]

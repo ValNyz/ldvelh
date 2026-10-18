@@ -191,3 +191,26 @@ async def test_json_schema_invalid_json_is_still_recorded_then_text_fallback():
     assert provider.calls == ["schema", "complete"]
     assert call.value == {"ok": True}
     assert ledger.get_summary()["purposes"]["extraction"]["calls"] == 2
+
+
+class _SurrogateProvider(FakeProvider):
+    """Structured payloads carrying a model-written lone surrogate (#90)."""
+
+    async def complete_with_tools(self, system_prompt, messages, tools, tool_choice, temperature, max_tokens):
+        return ToolResult(tool_name="t", tool_input={"t": "x\ud83d", "n": ["\ude00"]}, usage=self.usage)
+
+    async def complete_with_schema(self, system_prompt, messages, schema_name, schema, temperature, max_tokens):
+        return CompletionResult(content='{"t": "x\\ud83d", "n": ["\\ude00"]}', usage=self.usage)
+
+
+@pytest.mark.parametrize("mode", [StructuredOutputMode.TOOL_USE, StructuredOutputMode.JSON_SCHEMA])
+async def test_structured_extraction_replaces_lone_surrogates(mode):
+    session = LLMSession.from_provider(_SurrogateProvider(mode=mode))
+    call = await session.extract_structured("sys", "user", "t", "d", {}, 0.3, 100)
+    assert call.value == {"t": "x�", "n": ["�"]}
+
+
+async def test_text_extraction_replaces_lone_surrogates():
+    provider = _SurrogateProvider(text='{"t": "x\\ud83d"}', mode=StructuredOutputMode.TEXT)
+    call = await LLMSession.from_provider(provider).extract_structured("sys", "user", "t", "d", {}, 0.3, 100)
+    assert call.value == {"t": "x�"}

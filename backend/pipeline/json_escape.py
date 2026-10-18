@@ -6,7 +6,8 @@ Matches json.loads for every complete escape. A lone surrogate becomes U+FFFD
 
 from enum import Enum
 
-REPLACEMENT_CHAR = "�"
+from utils.json_utils import REPLACEMENT_CHAR
+
 
 _SIMPLE_ESCAPES = {"n": "\n", "r": "\r", "t": "\t", "b": "\b", "f": "\f",
                    '"': '"', "\\": "\\", "/": "/"}
