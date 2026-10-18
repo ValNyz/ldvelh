@@ -5,7 +5,7 @@ Defines engine types, world config, character data, and roll models.
 
 import logging
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 

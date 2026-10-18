@@ -3,7 +3,6 @@ Tests for the game engine system.
 Covers: engine models, dice rolling, engine data, mechanical prompt.
 """
 
-import json
 
 import pytest
 
@@ -28,7 +27,6 @@ from schema.engine import (
     WorldConfig,
 )
 from services.engine import get_engine
-from services.engine.base import BaseEngine
 from services.engine.d6 import D6Engine, parse_dice_code, roll_d6_pool
 from services.engine.engine_data import (
     D6_ATTRIBUTES,
@@ -41,7 +39,7 @@ from services.engine.engine_data import (
     get_d6_skills,
     get_fate_skills,
 )
-from services.engine.fate_core import FATE_LADDER, FateCoreEngine
+from services.engine.fate_core import FateCoreEngine
 from services.engine.narrative import NarrativeEngine
 from services.engine.none import NoneEngine
 
