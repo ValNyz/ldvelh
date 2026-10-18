@@ -229,12 +229,14 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		gs.replaceGameState(null);
 		phase.setWorldGenProgress('');
 		phase.setWorldData(null);
+		setStoredInitParams(null); // the loaded game's server parameters belong to that game
 		phase.setGamePhase(phase.GAME_PHASE.WIZARD);
 	}, [gs, phase]);
 
 	// gameId: the wizard edited the parameters of an existing game (world not created yet).
 	// onCreated(id): called once the game exists (e.g. to attach the wizard draft to it).
 	const handleWizardComplete = useCallback(async (params, { gameId = null, onCreated } = {}) => {
+		setStoredInitParams(null); // never fall back on another game's parameters
 		gs.setLoading(true);
 		gs.setError(null);
 		gs.setWarning(null);
@@ -327,6 +329,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	}, [gs.gameId, games, gs]);
 
 	const handleQuit = useCallback(() => {
+		setStoredInitParams(null);
 		gs.resetGame();
 		phase.resetPhase();
 		games.loadGames();
