@@ -225,7 +225,7 @@ export default function EntityTooltip({ children, data, className = '' }) {
 						{/* Contenu */}
 						<div className="px-3 py-2 space-y-2">
 
-							{/* Relation avec Valentin */}
+							{/* Relation avec le protagoniste */}
 							{relation && (
 								<div className="flex items-center gap-2 text-sm">
 									<span className="text-blue-400">🤝</span>

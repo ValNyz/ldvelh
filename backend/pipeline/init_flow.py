@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from config import get_settings
 from domain.game import GameSnapshot
 from pipeline import director_runs, narration_stream
+from pipeline.chosen_name import apply_chosen_name, chosen_name
 from pipeline.narration_stream import NarrationStream
 from pipeline.context import InitParams, TurnContext
 from pipeline.errors import TurnError, finish_saved
@@ -50,26 +51,11 @@ async def resolve_genre(conn, snapshot: GameSnapshot, init: InitParams) -> dict 
     return genre
 
 
-def _chosen_name(character: dict | None) -> str | None:
-    """PC name typed in the wizard; None when left blank (the world builder invents one)."""
-    name = (character or {}).get("name")
-    return (name.strip() or None) if isinstance(name, str) else None
-
-
-def with_chosen_name(parsed: dict | None, character: dict | None) -> dict | None:
-    """Fill protagonist.name from the wizard when the world builder left it out (#28)."""
-    name = _chosen_name(character)
-    protagonist = (parsed or {}).get("protagonist")
-    if name and isinstance(protagonist, dict) and not protagonist.get("name"):
-        protagonist["name"] = name
-    return parsed
-
-
 def _build_prompt(message: str, init: InitParams, engine: str, genre: dict | None) -> dict:
     manual = init.manual_entities
     character = init.character_data
     return get_full_generation_prompt(
-        protagonist_name=_chosen_name(character),
+        protagonist_name=chosen_name(character),
         mandatory_npcs=manual["npcs"] if manual and "npcs" in manual else None,
         theme_preferences=message if message and not message.startswith("__") else None,
         employer_preference="employed",
@@ -181,7 +167,7 @@ async def run_init(ctx: TurnContext) -> None:
         messages=[{"role": "user", "content": prompt["user"]}],
         world_gen=True, temperature=1.0,
     )
-    world_gen = _validate_world(with_chosen_name(result.parsed, init.character_data), result.raw)
+    world_gen = _validate_world(apply_chosen_name(result.parsed, init.character_data), result.raw)
 
     # Waiting for a connection stays cancellable; once it is held, the world save (one
     # transaction: world, engine, character, duration) and the initial Director start

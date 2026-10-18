@@ -463,6 +463,14 @@ Cycle = Annotated[
 # 20261018000003_protagonist_ref) map it. Prompts write it in every reference field.
 PROTAGONIST_REF = "PROTAGONIST"
 
+
+def is_protagonist_ref(name: str | None) -> bool:
+    """True for the reserved reference, whatever its case and surrounding whitespace.
+
+    The name is reserved: no entity may be created under it (it would be unreachable).
+    """
+    return name is not None and name.strip().lower() == PROTAGONIST_REF.lower()
+
 EntityRef = Annotated[
     str,
     Field(

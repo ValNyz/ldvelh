@@ -5,13 +5,16 @@ Every world here is the canonical example with its PC renamed "Kira", so a lefto
 """
 
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
 from kg.populator import EntityRegistry
+from llm.session import LLMSession
 from schema import PROTAGONIST_REF, EntityType, WorldGeneration
+from services.llm_providers import ToolResult
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
+from tests.test_llm_session import FakeProvider
 
 pytestmark = pytest.mark.integration
 
@@ -19,19 +22,53 @@ PC = "Kira"
 ARRIVAL_WITH_PC = ("station", "incident", "mood", "need")
 
 
-def kira_world() -> WorldGeneration:
-    return WorldGeneration.model_validate(
-        json.loads(WORLD_GENERATION_EXAMPLE.replace("Valentin", PC)))
+class ExtractionProvider(FakeProvider):
+    """Answers every tool call with `payload` and records the user prompts it was sent."""
+
+    def __init__(self, payload: dict):
+        super().__init__()
+        self.payload = payload
+        self.user_prompts: list[str] = []
+
+    async def complete_with_tools(self, system_prompt, messages, tools, tool_choice,
+                                  temperature, max_tokens):
+        self.user_prompts.append(messages[-1]["content"])
+        return ToolResult(tool_name=tools[0]["name"], tool_input=self.payload,
+                          usage=self.usage)
 
 
-async def populate_kira(test_pool, test_user):
+def kira_json() -> dict:
+    return json.loads(WORLD_GENERATION_EXAMPLE.replace("Valentin", PC))
+
+
+async def populate(test_pool, test_user, data: dict) -> tuple[UUID, WorldGeneration]:
     from services.game_service import GameService
 
-    world_gen = kira_world()
+    world_gen = WorldGeneration.model_validate(data)
     service = GameService(test_pool)
     game_id = await service.create_game(test_user["id"])
     await service.process_init(game_id, world_gen)
     return game_id, world_gen
+
+
+async def populate_kira(test_pool, test_user) -> tuple[UUID, WorldGeneration]:
+    return await populate(test_pool, test_user, kira_json())
+
+
+async def run_extractor(extractor_cls, test_pool, game_id, payload: dict, cycle: int = 2):
+    """Run an extractor through its public run() against a provider answering `payload`."""
+    provider = ExtractionProvider(payload)
+    extractor = extractor_cls(test_pool, game_id, LLMSession.from_provider(provider))
+    result = await extractor.run("Kira salue Marie.", {}, cycle)
+    return result, provider
+
+
+async def run_narrative_arcs(test_pool, game_id, payload: dict, cycle: int = 2) -> dict:
+    from services.extraction.narrative_arcs import NarrativeArcsExtractor
+
+    result, _ = await run_extractor(NarrativeArcsExtractor, test_pool, game_id, payload, cycle)
+    assert result["success"], result
+    return result["stats"]
 
 
 async def protagonist_relations(conn, game_id, target: str, rel_type: str):
@@ -54,6 +91,17 @@ async def fact_participants(conn, game_id, semantic_key: str):
         game_id, semantic_key)
 
 
+async def arrival_participants(conn, game_id) -> list[list[tuple]]:
+    return [[(r["name"], r["entity_type"], r["role"])
+             for r in await fact_participants(conn, game_id, f"protagonist:arrival:{part}")]
+            for part in ARRIVAL_WITH_PC]
+
+
+# ---------------------------------------------------------------------------
+# Resolution (Python registry and SQL find_entity)
+# ---------------------------------------------------------------------------
+
+
 def test_registry_resolves_the_token_to_the_protagonist_row():
     registry = EntityRegistry()
     pc_id, npc_id = uuid4(), uuid4()
@@ -61,7 +109,7 @@ def test_registry_resolves_the_token_to_the_protagonist_row():
     registry.register("Marie", npc_id, EntityType.CHARACTER)
 
     assert registry.resolve(PROTAGONIST_REF) == pc_id
-    assert registry.resolve(f"  {PROTAGONIST_REF.lower()} ") == pc_id
+    assert registry.resolve(f"  {PROTAGONIST_REF.lower()}\n") == pc_id
     assert registry.resolve(PC) == pc_id  # the real name still resolves
     assert PROTAGONIST_REF in registry
     assert EntityRegistry().resolve(PROTAGONIST_REF) is None  # no PC registered yet
@@ -74,13 +122,34 @@ def test_entity_ref_schema_tells_the_llm_about_the_token():
     assert PROTAGONIST_REF in schema["properties"]["source_ref"]["description"]
 
 
+async def test_sql_find_entity_maps_the_token(test_pool, test_user):
+    """The SQL side uses the same spelling and trimming as schema.core.PROTAGONIST_REF."""
+    game_id, _ = await populate_kira(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        pc_id = await conn.fetchval(
+            "SELECT id FROM entity_registry WHERE game_id = $1 AND entity_type = 'protagonist'",
+            game_id)
+
+        async def find(name: str, entity_type: str | None = None):
+            return await conn.fetchval("SELECT find_entity($1, $2, $3)",
+                                       game_id, name, entity_type)
+
+        assert await find(PROTAGONIST_REF) == pc_id
+        assert await find(f" {PROTAGONIST_REF.lower()}\n") == pc_id  # like str.strip()
+        assert await find(f"\t{PC} ") == pc_id
+        assert await find(PROTAGONIST_REF, "character") is None
+
+
+# ---------------------------------------------------------------------------
+# World generation
+# ---------------------------------------------------------------------------
+
+
 async def test_world_with_pc_kira_has_kira_in_arrival_facts(test_pool, test_user):
     game_id, _ = await populate_kira(test_pool, test_user)
     async with test_pool.acquire() as conn:
-        for part in ARRIVAL_WITH_PC:
-            rows = await fact_participants(conn, game_id, f"protagonist:arrival:{part}")
-            assert [(r["name"], r["entity_type"], r["role"]) for r in rows] == [
-                (PC, "protagonist", "actor")], part
+        assert await arrival_participants(conn, game_id) == [
+            [(PC, "protagonist", "actor")]] * len(ARRIVAL_WITH_PC)
         legacy = await conn.fetchval(
             "SELECT COUNT(*) FROM facts WHERE game_id = $1 AND semantic_key LIKE 'valentin:%'",
             game_id)
@@ -93,11 +162,61 @@ async def test_arrival_event_reads_the_protagonist_keys(test_pool, test_user):
     game_id, world_gen = await populate_kira(test_pool, test_user)
     async with test_pool.acquire() as conn:
         arrival = await KnowledgeGraphReader(test_pool, game_id).get_arrival_event(conn)
+    assert arrival is not None
     ae = world_gen.arrival_event
     assert arrival["initial_mood"] == ae.initial_mood
     assert arrival["immediate_need"] == ae.immediate_need
     assert arrival["incident"] == ae.optional_incident
     assert ae.arrival_method in arrival["arrival_description"]
+
+
+async def test_world_relations_and_arcs_using_the_token_are_populated(test_pool, test_user):
+    """The path the genre examples teach: initial_relations and arcs reference PROTAGONIST."""
+    data = kira_json()
+    data["initial_relations"].append({"source_ref": PROTAGONIST_REF, "target_ref": "Ossek",
+                                      "relation_type": "knows", "level": 2})
+    arc = data["narrative_arcs"][0]
+    arc["involved_entities"].append(PROTAGONIST_REF)
+    game_id, _ = await populate(test_pool, test_user, data)
+    async with test_pool.acquire() as conn:
+        assert [r["source"] for r in await protagonist_relations(
+            conn, game_id, "Ossek", "knows")] == [PC]
+        involved = await conn.fetch(
+            """SELECT er.name, er.entity_type FROM arc_participants ap
+               JOIN narrative_arcs a ON a.id = ap.arc_id
+               JOIN entity_registry er ON er.id = ap.entity_id
+               WHERE a.game_id = $1 AND a.title = $2""", game_id, arc["title"])
+    assert (PC, "protagonist") in [(r["name"], r["entity_type"]) for r in involved]
+
+
+def test_world_generation_drops_entities_named_after_the_token():
+    data = kira_json()
+    data["characters"].append({**data["characters"][0], "name": f" {PROTAGONIST_REF.lower()}"})
+    world = WorldGeneration.model_validate(data)
+    assert len(world.characters) == len(data["characters"]) - 1
+
+
+async def test_wizard_name_wins_over_the_model_name(harness, test_pool):
+    """Scripted world names the PC "Valentin"; the wizard said Kira: Kira is stored."""
+    game_id = await harness.create_game("none")
+    events = await harness.init_world(game_id, character_data={"name": f" {PC} "})
+    assert "error" not in harness.summarize(events), events
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT name FROM protagonists WHERE game_id = $1::uuid", game_id) == PC
+        assert await arrival_participants(conn, game_id) == [
+            [(PC, "protagonist", "actor")]] * len(ARRIVAL_WITH_PC)
+        # The model's relations written with "Valentin" follow the rename.
+        assert [r["source"] for r in await protagonist_relations(
+            conn, game_id, "Symbiose Tech", "employed_by")] == [PC]
+        assert await conn.fetchval(
+            "SELECT COUNT(*) FROM entity_registry WHERE game_id = $1::uuid"
+            " AND LOWER(name) = 'valentin'", game_id) == 0
+
+
+# ---------------------------------------------------------------------------
+# Extraction
+# ---------------------------------------------------------------------------
 
 
 async def test_item_use_fact_has_the_protagonist(test_pool, test_user):
@@ -111,15 +230,6 @@ async def test_item_use_fact_has_the_protagonist(test_pool, test_user):
     async with test_pool.acquire() as conn:
         rows = await fact_participants(conn, game_id, "protagonist:use:terminal_personnel")
     assert [(r["name"], r["role"]) for r in rows] == [(PC, "actor")]
-
-
-async def run_narrative_arcs(test_pool, game_id, raw: dict, cycle: int = 2) -> dict:
-    from services.extraction.narrative_arcs import NarrativeArcsExtractor
-
-    extractor = NarrativeArcsExtractor(test_pool, game_id, session=None)
-    stats, error = await extractor._populate_committed(raw, cycle)
-    assert error is None and not stats["errors"], stats
-    return stats
 
 
 @pytest.mark.parametrize("source_ref", [PROTAGONIST_REF, PC, PC.upper()])
@@ -167,23 +277,47 @@ async def test_extracted_update_end_and_fact_with_the_token(test_pool, test_user
             conn, game_id, npc, "colleague_of")] == [3]
 
 
-async def test_sql_find_entity_maps_the_token(test_pool, test_user):
-    """The SQL side uses the same spelling as schema.core.PROTAGONIST_REF."""
+async def test_entity_update_with_the_token_reaches_the_protagonist(test_pool, test_user):
+    """An update without entity_type detects the PC through find_entity (skills_changed)."""
+    from kg.specialized_populator import ExtractionPopulator
+    from schema import NarrativeExtraction
+
     game_id, _ = await populate_kira(test_pool, test_user)
+    extraction = NarrativeExtraction.model_validate({"cycle": 2, "entities_updated": [
+        {"entity_ref": PROTAGONIST_REF, "skills_changed": [{"name": "pilotage", "level": 3}]}]})
+    await ExtractionPopulator(test_pool, game_id).process_extraction(extraction)
     async with test_pool.acquire() as conn:
-        pc_id = await conn.fetchval(
-            "SELECT id FROM entity_registry WHERE game_id = $1 AND entity_type = 'protagonist'",
-            game_id)
-        assert await conn.fetchval("SELECT find_entity($1, $2)", game_id, PROTAGONIST_REF) == pc_id
-        assert await conn.fetchval("SELECT find_entity($1, $2)", game_id,
-                                   f" {PROTAGONIST_REF.lower()}") == pc_id
-        assert await conn.fetchval("SELECT find_entity($1, $2)", game_id, PC) == pc_id
+        level = await conn.fetchval(
+            "SELECT level FROM skills WHERE game_id = $1 AND protagonist_id IS NOT NULL"
+            " AND name = 'pilotage' AND end_cycle IS NULL", game_id)
+    assert level == 3
+
+
+async def test_extracted_entity_named_after_the_token_is_skipped(test_pool, test_user):
+    from services.extraction.characters import CharactersExtractor
+
+    game_id, _ = await populate_kira(test_pool, test_user)
+    result, _ = await run_extractor(CharactersExtractor, test_pool, game_id, {
+        "entities_created": [{"name": PROTAGONIST_REF, "data": {"occupation": "pilote"}}]})
+    assert result["stats"]["entities_created"] == 0
+    async with test_pool.acquire() as conn:
         assert await conn.fetchval(
-            "SELECT find_entity($1, $2, 'character')", game_id, PROTAGONIST_REF) is None
+            "SELECT COUNT(*) FROM characters WHERE game_id = $1 AND LOWER(name) = 'protagonist'",
+            game_id) == 0
+
+
+async def test_extractor_user_prompt_names_the_protagonist(test_pool, test_user):
+    from services.extraction.characters import CharactersExtractor
+
+    game_id, _ = await populate_kira(test_pool, test_user)
+    _, provider = await run_extractor(CharactersExtractor, test_pool, game_id, {})
+    [user_prompt] = provider.user_prompts
+    assert f"The player character is {PC}" in user_prompt
+    assert f'"{PROTAGONIST_REF}"' in user_prompt
 
 
 # ---------------------------------------------------------------------------
-# Prompts and defaults
+# Prompts and the PC name
 # ---------------------------------------------------------------------------
 
 
@@ -209,63 +343,72 @@ def test_protagonist_section_injects_the_real_name():
     assert protagonist_section(None) == ""
 
 
-async def test_extractor_user_prompt_names_the_protagonist(test_pool, test_user):
-    from services.extraction.characters import CharactersExtractor
-
-    game_id, _ = await populate_kira(test_pool, test_user)
-    extractor = CharactersExtractor(test_pool, game_id, session=None)
-    seen = {}
-
-    async def fake_call(system_prompt, user_prompt, schema):
-        seen["user"] = user_prompt
-        return {}, None
-
-    extractor._call_llm = fake_call
-    await extractor.run("Kira salue Marie.", {}, 2)
-    assert f"{PC}" in seen["user"] and f'"{PROTAGONIST_REF}"' in seen["user"]
-
-
-def test_protagonist_name_is_required():
+@pytest.mark.parametrize("data", [{}, {"name": ""}, {"name": "   "}])
+def test_protagonist_name_is_required_and_not_blank(data):
     from pydantic import ValidationError
 
     from schema import ProtagonistData
 
     with pytest.raises(ValidationError):
-        ProtagonistData.model_validate({"skills": [{"name": "a", "level": 1},
-                                                   {"name": "b", "level": 2}]})
+        ProtagonistData.model_validate({**data, "skills": [{"name": "a", "level": 1},
+                                                           {"name": "b", "level": 2}]})
 
 
-def test_world_prompt_without_a_chosen_name_asks_the_model_to_invent_one():
-    from prompts.world_generation_prompt import build_world_generation_user_prompt
+def test_chosen_name_is_the_trimmed_wizard_name_or_none():
+    from pipeline.chosen_name import chosen_name
 
-    blank = build_world_generation_user_prompt()
-    assert "valentin" not in blank.lower()
+    assert chosen_name({"name": f"  {PC} "}) == PC
+    assert chosen_name({"name": "  "}) is None
+    assert chosen_name({}) is None and chosen_name(None) is None
+
+
+def test_world_prompt_uses_the_chosen_name_or_asks_to_invent_one():
+    from prompts.world_generation_prompt import (INVENTED_NAME_MARKER,
+                                                 build_world_generation_user_prompt)
+
+    genre = {"world_gen_example": '{"protagonist": {"name": "{{PROTAGONIST_NAME}}"}}'}
+    blank = build_world_generation_user_prompt(genre=genre)
+    assert "valentin" not in blank.lower() and "{{" not in blank
     assert "Nom : à inventer" in blank
-    assert "Nom : Kira" in build_world_generation_user_prompt(protagonist_name=PC)
+    assert f'"name": "{INVENTED_NAME_MARKER}"' in blank
+    named = build_world_generation_user_prompt(protagonist_name=PC, genre=genre)
+    assert "Nom : Kira" in named and '"name": "Kira"' in named
 
 
-def test_init_prompt_uses_the_wizard_name_or_none():
-    from pipeline.context import InitParams
-    from pipeline.init_flow import _build_prompt
+def test_apply_chosen_name_overrides_the_model_name_and_its_mentions():
+    from pipeline.chosen_name import apply_chosen_name
 
-    def params(character):
-        return InitParams(engine=None, world_config=None, character_data=character,
-                          manual_entities=None)
-
-    assert "Nom : Kira" in _build_prompt("", params({"name": PC}), "none", None)["user"]
-    blank = _build_prompt("", params({"name": "  "}), "none", None)["user"]
-    assert "Nom : à inventer" in blank and "valentin" not in blank.lower()
+    out = apply_chosen_name(json.loads(WORLD_GENERATION_EXAMPLE), {"name": PC})
+    assert out is not None
+    assert out["protagonist"]["name"] == PC
+    assert [r["source_ref"] for r in out["initial_relations"]][:2] == [PC, PC]
+    assert "Valentin" not in json.dumps(out, ensure_ascii=False)
 
 
-def test_init_fills_a_missing_protagonist_name_from_the_wizard():
-    from pipeline.init_flow import with_chosen_name
+def test_apply_chosen_name_keeps_an_invented_name_and_fills_a_missing_one():
+    from pipeline.chosen_name import apply_chosen_name
 
-    parsed = json.loads(WORLD_GENERATION_EXAMPLE)
-    del parsed["protagonist"]["name"]
-    assert with_chosen_name(parsed, {"name": PC})["protagonist"]["name"] == PC
-    named = json.loads(WORLD_GENERATION_EXAMPLE)
-    assert with_chosen_name(named, {"name": PC})["protagonist"]["name"] == "Valentin"
-    assert with_chosen_name({"protagonist": {}}, None) == {"protagonist": {}}
+    invented = apply_chosen_name(json.loads(WORLD_GENERATION_EXAMPLE), {"name": " "})
+    assert invented is not None and invented["protagonist"]["name"] == "Valentin"
+    missing = json.loads(WORLD_GENERATION_EXAMPLE)
+    del missing["protagonist"]["name"]
+    filled = apply_chosen_name(missing, {"name": PC})
+    assert filled is not None and filled["protagonist"]["name"] == PC
+    assert apply_chosen_name({"protagonist": {}}, None) == {"protagonist": {}}
+    assert apply_chosen_name(None, {"name": PC}) is None
+
+
+def test_apply_chosen_name_leaves_free_text_alone_when_an_npc_shares_the_name():
+    from pipeline.chosen_name import apply_chosen_name
+
+    parsed = {"protagonist": {"name": "Marc", "backstory": "Marc a fui."},
+              "characters": [{"name": "Marc Dubois", "description": "Le frère de Marc"}],
+              "initial_relations": [{"source_ref": "marc", "target_ref": "Marc Dubois"}]}
+    out = apply_chosen_name(parsed, {"name": PC})
+    assert out is not None
+    assert out["protagonist"] == {"name": PC, "backstory": "Marc a fui."}
+    assert out["characters"][0]["name"] == "Marc Dubois"
+    assert out["initial_relations"] == [{"source_ref": PC, "target_ref": "Marc Dubois"}]
 
 
 def test_world_generation_accepts_the_token_in_initial_relations():

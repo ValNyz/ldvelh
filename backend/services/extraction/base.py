@@ -192,8 +192,7 @@ class BaseExtractor(ABC):
         ec = EntityCreation.model_validate(ec_data)
         if ec.entity_type != entity_type or self._skip_creation(ec):
             return False
-        await self.populator._process_entity_creation(conn, ec, cycle)
-        return True
+        return await self.populator._process_entity_creation(conn, ec, cycle)
 
     async def _update_entity(
         self, conn: Connection, eu_data: dict, cycle: int, entity_type: EntityType

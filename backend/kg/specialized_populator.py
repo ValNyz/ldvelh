@@ -29,6 +29,7 @@ from schema import (
     OrganizationData,
     PROTAGONIST_REF,
     RelationType,
+    is_protagonist_ref,
 )
 from .item_writes import write_item, write_items
 from .populator import KnowledgeGraphPopulator
@@ -431,7 +432,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
                 # One SAVEPOINT per item: a failed item never aborts the others.
                 await items("Entity creation", extraction.entities_created,
-                            lambda e: self._created(self._process_entity_creation(conn, e, cycle)),
+                            lambda e: self._process_entity_creation(conn, e, cycle),
                             "entities_created")
                 await items("Object creation", extraction.objects_created,
                             lambda o: self._created(self._process_object_creation(conn, o, cycle)),
@@ -519,10 +520,14 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
     async def _process_entity_creation(
         self, conn: Connection, creation: EntityCreation, cycle: int
-    ) -> None:
-        """Route entity creation to the correct dedicated table."""
+    ) -> bool:
+        """Route entity creation to the correct dedicated table. True when written."""
         et = creation.entity_type
         data = creation.data or {}
+        if is_protagonist_ref(creation.name):
+            logger.warning(f"[EXTRACT] Skipping {et} named after the reserved reference"
+                           f" '{creation.name}' (#28)")
+            return False
 
         if et == EntityType.CHARACTER:
             char_data = CharacterData(
@@ -576,6 +581,8 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             logger.warning(
                 f"[EXTRACT] Unsupported entity type: {et} for '{creation.name}'"
             )
+            return False
+        return True
 
     async def _process_object_creation(
         self, conn: Connection, obj_creation: ObjectCreation, cycle: int
@@ -694,10 +701,8 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         self, conn: Connection, name: str
     ) -> EntityType | None:
         """Detect entity type from entity_registry."""
-        row = await conn.fetchrow(
-            "SELECT entity_type FROM entity_registry"
-            " WHERE game_id = $1 AND LOWER(name) = LOWER($2)"
-            " LIMIT 1",
+        row = await conn.fetchrow(  # find_entity maps PROTAGONIST_REF too (#28)
+            "SELECT entity_type FROM entity_registry WHERE id = find_entity($1, $2)",
             self.game_id,
             name,
         )

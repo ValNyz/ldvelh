@@ -5,6 +5,7 @@ export const SHOTS = 'test-results/screens';
 
 export const loreField = (page) => page.getByPlaceholder(/cyberpunk sous une pluie éternelle/);
 export const descriptionField = (page) => page.getByPlaceholder(/ancienne pilote de course/);
+export const nameField = (page) => page.getByLabel('Nom du protagoniste');
 export const enhanceButton = (page) => page.getByRole('button', { name: /avec l'IA|Nouvelle version/ });
 export const suggestions = (page) => page.getByLabel("Suggéré par l'IA");
 export const undoButton = (page) => page.getByRole('button', { name: /Défaire/ });

@@ -70,7 +70,8 @@ class WorldData(BaseModel):
 class ProtagonistData(BaseModel):
     """The player character"""
 
-    name: Tag  # required: chosen in the wizard or invented by the world builder (#28)
+    # Required, never blank: chosen in the wizard or invented by the world builder (#28)
+    name: Tag
     credits: int = Field(default=1400, ge=0)
     # Profile
     gender: str | None = None
@@ -87,6 +88,14 @@ class ProtagonistData(BaseModel):
     skills: list[Skill] = Field(default_factory=list, min_length=2, max_length=6)
     # Flexible
     details: dict = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: str) -> str:
+        """A blank name would store an unnamed PC: fail the world instead (#28)."""
+        if not v.strip():
+            raise ValueError("protagonist name must not be blank")
+        return v.strip()
 
     @field_validator("departure_reason", mode="before")
     @classmethod

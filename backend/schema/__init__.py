@@ -34,6 +34,7 @@ from .core import (
     Cycle,
     EntityRef,
     PROTAGONIST_REF,
+    is_protagonist_ref,
     # Base models
     Skill,
     TemporalValidationMixin,
@@ -245,6 +246,7 @@ __all__ = [
     "Cycle",
     "EntityRef",
     "PROTAGONIST_REF",
+    "is_protagonist_ref",
     "Skill",
     "TemporalValidationMixin",
     # =========================================================================

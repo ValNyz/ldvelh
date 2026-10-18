@@ -274,6 +274,17 @@ def _build_manual_entities_section(manual_entities: dict) -> list[str]:
     return parts
 
 
+# Slot for the PC name in the genre examples (migration 20261018000004): a fixed sample name
+# would be copied by the world builder (#28).
+PROTAGONIST_NAME_SLOT = "{{PROTAGONIST_NAME}}"
+INVENTED_NAME_MARKER = "<prénom inventé>"
+
+
+def fill_protagonist_name(example: str, protagonist_name: str | None) -> str:
+    """The genre example with the wizard's PC name, or a visible marker when it is blank."""
+    return example.replace(PROTAGONIST_NAME_SLOT, protagonist_name or INVENTED_NAME_MARKER)
+
+
 def build_world_generation_user_prompt(
     protagonist_name: str | None = None,
     mandatory_npcs: list[dict] | None = None,
@@ -299,7 +310,7 @@ def build_world_generation_user_prompt(
             "## EXEMPLE DE FORMAT ATTENDU",
             "Voici un exemple du JSON attendu. Suis cette structure exactement :",
             "",
-            genre["world_gen_example"],
+            fill_protagonist_name(genre["world_gen_example"], protagonist_name),
             "",
             "---",
             "",

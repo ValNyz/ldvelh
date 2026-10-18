@@ -149,6 +149,7 @@ async def test_legacy_arrival_facts_get_protagonist_keys(test_pool, legacy_game)
             "SELECT semantic_key FROM facts WHERE game_id = $1::uuid AND cycle = 1"
             " ORDER BY semantic_key", game_id)
         arrival = await KnowledgeGraphReader(test_pool, UUID(game_id)).get_arrival_event(conn)
+    assert arrival is not None
     assert [k["semantic_key"] for k in keys] == [
         "protagonist:arrival:incident", "protagonist:arrival:mood", "protagonist:arrival:need",
         "protagonist:arrival:sensory", "protagonist:arrival:station"]

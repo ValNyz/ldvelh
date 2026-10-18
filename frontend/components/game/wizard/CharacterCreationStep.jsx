@@ -378,11 +378,12 @@ export default function CharacterCreationStep({ engine, genre, data, onChange, o
 				</div>
 
 				<div>
-					<label className="block text-sm text-on-surface-variant mb-1">Nom du protagoniste</label>
+					<label htmlFor="protagonist-name" className="block text-sm text-on-surface-variant mb-1">Nom du protagoniste</label>
 					<input
+						id="protagonist-name"
 						value={data.name || ''}
 						onChange={(e) => onChange({ ...data, name: e.target.value })}
-						placeholder="Valentin"
+						placeholder="Optionnel — le MJ en inventera un"
 						className="w-full px-3 py-2 bg-surface-container border border-outline-variant/30 rounded-lg text-on-surface text-sm placeholder:text-on-surface-variant/40 focus:outline-none focus:ring-2 focus:ring-primary/50"
 					/>
 				</div>

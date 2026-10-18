@@ -19,6 +19,7 @@ from .core import (
     Tag,
     TemporalValidationMixin,
     Text,
+    is_protagonist_ref,
 )
 from .entities import (
     CharacterData,
@@ -528,6 +529,17 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         if not has_arrival:
             logger.warning("[Validation] No arrival location (dock, terminal) found")
         return v
+
+    @model_validator(mode="after")
+    def drop_reserved_names(self) -> "WorldGeneration":
+        """No entity may be named after PROTAGONIST_REF: it would be unreachable (#28)."""
+        for field in ("characters", "locations", "organizations", "inventory"):
+            items = getattr(self, field)
+            kept = [item for item in items if not is_protagonist_ref(item.name)]
+            if len(kept) != len(items):
+                logger.warning(f"[Validation] Dropped {field} named '{PROTAGONIST_REF}'")
+                setattr(self, field, kept)
+        return self
 
     @model_validator(mode="after")
     def validate_temporal_coherence_soft(self) -> "WorldGeneration":

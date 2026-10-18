@@ -2,7 +2,8 @@
 import { test, expect } from '@playwright/test';
 import { mockApi } from './mockApi.mjs';
 import {
-	SHOTS, descriptionField, enhanceButton, loreField, openWizard, redoButton, suggestions, undoButton,
+	SHOTS, descriptionField, enhanceButton, loreField, nameField, openWizard, redoButton, suggestions,
+	undoButton,
 } from './wizardPage.mjs';
 
 const WORLD_FILL = {
@@ -73,7 +74,7 @@ test('AI fill, undo / redo across steps, D6 skills and the creation payload', as
 	await expect(page.getByRole('heading', { name: 'Création du personnage' })).toBeVisible();
 	await descriptionField(page).fill('hackeuse en fuite');
 	await enhanceButton(page).click();
-	await expect(page.getByPlaceholder('Valentin')).toHaveValue('Nyx');
+	await expect(nameField(page)).toHaveValue('Nyx');
 	await expect(descriptionField(page)).toHaveValue(CHARACTER_FILL.character_data.description);
 	await expect(page.getByText('Cybernétique', { exact: true })).toBeVisible(); // cyberpunk D6 skill
 	await page.screenshot({ path: `${SHOTS}/3-character-filled.png`, fullPage: true, animations: "disabled" });
@@ -104,7 +105,7 @@ test('AI fill, undo / redo across steps, D6 skills and the creation payload', as
 	// Redo everything, which lands back on the character step
 	for (let i = 0; i < 3; i++) await page.keyboard.press('Control+Y');
 	await expect(page.getByRole('heading', { name: 'Création du personnage' })).toBeVisible();
-	await expect(page.getByPlaceholder('Valentin')).toHaveValue('Nyx');
+	await expect(nameField(page)).toHaveValue('Nyx');
 
 	// Create: the /chat init payload carries duration, character and D6 skills in backend format
 	await page.getByRole('button', { name: 'Créer le monde' }).click();
@@ -189,7 +190,7 @@ test('empty text invents, a new version starts from the player state, suggestion
 	await page.getByRole('button', { name: 'Suivant' }).click();
 	await expect(enhanceButton(page)).toHaveText(/Inventer avec l'IA/);
 	await enhanceButton(page).click();
-	await expect(page.getByPlaceholder('Valentin')).toHaveValue('Nyx');
+	await expect(nameField(page)).toHaveValue('Nyx');
 	const charCall = api.calls.filter(c => c.path === '/world/enhance').at(-1).body;
 	expect(charCall.current.character_data.description ?? '').toBe('');
 });
