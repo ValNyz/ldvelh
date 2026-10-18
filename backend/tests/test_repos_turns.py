@@ -485,3 +485,48 @@ async def test_unusable_time_with_no_stored_time_falls_back_to_the_default(
 
     assert state.time == DEFAULT_GAME_TIME
     assert (await service.load_game_state(game_id))["game"]["time"] == DEFAULT_GAME_TIME
+
+
+# =============================================================================
+# hold_source_message (#23)
+# =============================================================================
+
+
+async def _message_id(pool, user):
+    from services.game_service import GameService
+    game_id = await GameService(pool).create_game(user["id"])
+    _, assistant_id = await _save(pool, game_id, "Je pars.", "Tu pars.")
+    return assistant_id
+
+
+async def test_hold_source_message_true_then_false_after_delete(test_pool, test_user):
+    message_id = await _message_id(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        async with conn.transaction():
+            assert await turns.hold_source_message(conn, message_id) is True
+        await conn.execute("DELETE FROM messages WHERE id = $1", message_id)
+        async with conn.transaction():
+            assert await turns.hold_source_message(conn, message_id) is False
+
+
+async def test_rollback_delete_waits_for_a_held_message(test_pool, test_user):
+    import asyncio
+    message_id = await _message_id(test_pool, test_user)
+
+    async def delete():
+        async with test_pool.acquire() as conn_b:
+            await conn_b.execute("DELETE FROM messages WHERE id = $1", message_id)
+
+    async with test_pool.acquire() as conn_a:
+        tx = conn_a.transaction()
+        await tx.start()
+        try:
+            assert await turns.hold_source_message(conn_a, message_id) is True
+            deleting = asyncio.create_task(delete())
+            await asyncio.sleep(0.2)
+            assert not deleting.done()
+        finally:
+            await tx.commit()
+    await asyncio.wait_for(deleting, 5)
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval("SELECT 1 FROM messages WHERE id = $1", message_id) is None

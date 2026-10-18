@@ -27,7 +27,7 @@ from pipeline import init_flow, turn
 from pipeline.context import InitParams, TurnContext, TurnRequest
 from pipeline.errors import TurnError, report_error
 from utils.rate_limit import hit_all, request_ip, shared_limiter
-from workers import game_locks
+from workers import game_locks, supervisor
 
 logger = logging.getLogger(__name__)
 
@@ -266,12 +266,18 @@ async def rollback_game(
     request: RollbackRequest,
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
+    settings: Settings = Depends(get_settings_dep),
 ):
     """Rollback to a specific message (with ownership check)."""
     service = GameService(pool)
     await service.verify_ownership(game_id, user["id"])
 
+    # Game lock: no turn runs meanwhile; the game's background jobs are cancelled below.
     async with game_locks.hold(game_id):
+        cancelled = await supervisor.cancel_game(
+            game_id, timeout=settings.supervisor_cancel_timeout)
+        if cancelled:
+            logger.info(f"[ROLLBACK] game={game_id} cancelled {cancelled} background job(s)")
         msg_id = request.messageId
         try:
             result = await service.rollback_to_message(

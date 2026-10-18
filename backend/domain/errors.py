@@ -38,3 +38,7 @@ class DisplayNameTaken(RegistrationRejected):
 
 class EmailTaken(RegistrationRejected):
     code = "email_taken"
+
+
+class SourceMessageGone(Exception):
+    """The source message of a background job was deleted (rolled back)."""

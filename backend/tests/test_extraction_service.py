@@ -187,7 +187,8 @@ class TestOrchestrator:
             call_order.append("resolver")
             return None, None
 
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
+                                     source_message_id=None):
             call_order.append("extractor")
             return {"type": "characters", "skipped": True}
 
@@ -223,7 +224,8 @@ class TestOrchestrator:
 
         received_maps = []
 
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
+                                     source_message_id=None):
             received_maps.append(resolution_map)
             return {"type": "test", "success": True, "stats": {}}
 
@@ -266,7 +268,8 @@ class TestOrchestrator:
 
         extractor_called = []
 
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
+                                     source_message_id=None):
             extractor_called.append(resolution_map)
             return {"type": "characters", "success": True, "stats": {}}
 
@@ -305,7 +308,8 @@ class TestOrchestrator:
         async def mock_resolve(*args, **kwargs):
             return ResolutionMap(), {"cost_usd": 0.002}
 
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None):
+        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
+                                     source_message_id=None):
             return {
                 "type": "characters", "success": True, "stats": {},
                 "cost": {"cost_usd": 0.01},

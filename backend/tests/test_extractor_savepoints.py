@@ -192,3 +192,19 @@ async def test_orchestrator_log_counts_real_outcomes(caplog):
     complete = [r.getMessage() for r in caplog.records if "Complete:" in r.getMessage()]
     assert len(complete) == 1
     assert "1 succeeded, 1 partial, 1 failed, 1 skipped (4 extractors)" in complete[0]
+
+
+async def test_populate_skips_when_the_source_message_is_gone(test_pool, test_user):
+    """#23: the source message was rolled back: nothing is written, the run is skipped."""
+    extractor, game_id = await _extractor(
+        test_pool, test_user, {"entities_created": [{"name": "Zeta"}]})
+    result = await extractor.run("texte", {}, 1, source_message_id=uuid4())
+
+    assert result["success"] is False and result["skipped"] is True
+    assert result["error"] == "source_message_gone"
+    assert result["cost"] == {"cost_usd": 0.001}
+    assert "Zeta" not in await _character_names(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        logs = await conn.fetchval(
+            "SELECT COUNT(*) FROM extraction_logs WHERE game_id = $1", game_id)
+    assert logs == 0

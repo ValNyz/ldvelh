@@ -183,6 +183,7 @@ async def run_resolve_and_extract(
                         narrator_deltas=narrator_deltas,
                         trigger_cycle=trigger_cycle,
                         resolution_map=resolution_map,
+                        source_message_id=assistant_message_id,
                     )
                     for t in trigger_names
                 ]

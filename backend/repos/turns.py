@@ -176,6 +176,13 @@ async def save_turn_messages(conn, game_id: UUID, *, user_message: str, assistan
     return user_id, assistant_id
 
 
+async def hold_source_message(conn, message_id: UUID) -> bool:
+    """True if the message exists; it then stays share-locked until the transaction ends,
+    so a rollback deleting it waits for the caller's writes (#23)."""
+    return await conn.fetchval(
+        "SELECT 1 FROM messages WHERE id = $1 FOR SHARE", message_id) is not None
+
+
 async def lock_engine(conn, game_id: UUID) -> None:
     """The engine is immutable once the first narration turn is saved."""
     await _populator(game_id).lock_engine(conn)
