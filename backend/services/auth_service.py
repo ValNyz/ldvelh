@@ -11,6 +11,7 @@ import bcrypt
 import jwt
 
 from config import get_settings
+from domain.errors import DisplayNameTaken, EmailTaken, PasswordTooShort
 from services.email_service import generate_verification_token, send_verification_email
 
 logger = logging.getLogger(__name__)
@@ -115,11 +116,11 @@ async def register(conn, email: str, password: str, display_name: str | None = N
     """
     Register a new user. Returns {id, email, display_name, token, email_verified}.
     Sends a verification email if Resend is configured.
-    Raises ValueError if email already exists or password too short.
+    Raises RegistrationRejected (EmailTaken, DisplayNameTaken, PasswordTooShort).
     """
     email = email.lower().strip()
     if len(password) < 6:
-        raise ValueError("Password must be at least 6 characters")
+        raise PasswordTooShort("Password must be at least 6 characters")
 
     pw_hash = hash_password(password)
     verification_token = generate_verification_token()
@@ -136,8 +137,8 @@ async def register(conn, email: str, password: str, display_name: str | None = N
         err = str(e).lower()
         if "unique" in err or "duplicate" in err:
             if "display_name" in err:
-                raise ValueError("Display name already taken")
-            raise ValueError("Email already registered")
+                raise DisplayNameTaken("Display name already taken")
+            raise EmailTaken("Email already registered")
         raise
 
     # Send verification email (non-blocking, don't fail registration if email fails)

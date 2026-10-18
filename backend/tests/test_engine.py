@@ -72,9 +72,9 @@ class TestEngineType:
         e2 = get_engine("fate_core")
         assert e1 is e2
 
-    def test_get_engine_unknown_falls_back_to_none_engine(self):
-        # Stored data we do not know loads as engine "none" (#91), with a warning.
-        assert get_engine("unknown_engine") is get_engine("none")
+    def test_get_engine_invalid(self):
+        with pytest.raises(ValueError):
+            get_engine("unknown_engine")
 
 
 # =============================================================================

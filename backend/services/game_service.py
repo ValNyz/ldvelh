@@ -18,8 +18,8 @@ from llm.usage import cost_from_stored
 from kg.reader import KnowledgeGraphReader
 from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
-from schema import DEFAULT_GAME_TIME, WorldGeneration
-from services.engine import coerce_engine, get_engine
+from schema import DEFAULT_GAME_TIME, WorldGeneration, coerce_engine
+from services.engine import get_engine
 from services.pending_roll import load_pending_roll
 from repos import games as games_repo
 from repos import turns
@@ -92,7 +92,7 @@ class GameService:
                 "name": g["name"],
                 "current_cycle": g["current_cycle"],
                 "day": g["current_date"] or 1,
-                "engine": g.get("engine", "none"),
+                "engine": coerce_engine(g.get("engine"), g["id"]).value,
                 "created_at": g["created_at"].isoformat() if g["created_at"] else None,
                 "updated_at": g["updated_at"].isoformat() if g["updated_at"] else None,
             }

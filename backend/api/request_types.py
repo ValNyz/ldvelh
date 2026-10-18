@@ -57,7 +57,9 @@ def check_preferences_size(value: dict) -> dict:
         size = len(json.dumps(value, ensure_ascii=False))
     except (TypeError, ValueError):
         raise ValueError("préférences invalides") from None
-    if size > PREFERENCES_MAX_BYTES or len(value) > PREFERENCES_MAX_KEYS:
+    if len(value) > PREFERENCES_MAX_KEYS:
+        raise ValueError(f"trop de préférences (max {PREFERENCES_MAX_KEYS})")
+    if size > PREFERENCES_MAX_BYTES:
         raise ValueError(f"préférences trop volumineuses (max {PREFERENCES_MAX_BYTES} caractères)")
     return value
 

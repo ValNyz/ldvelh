@@ -4,7 +4,10 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from domain.errors import GameAccessDenied, GameNotFound
+from domain.errors import (
+    DisplayNameTaken, EmailTaken, GameAccessDenied, GameNotFound, PasswordTooShort,
+    RegistrationRejected,
+)
 from utils.rate_limit import RateLimited
 
 # Same status and body as the HTTPException the service used to raise.
@@ -12,6 +15,19 @@ _ANSWERS = {
     GameNotFound: (404, "Partie introuvable."),
     GameAccessDenied: (403, "Accès refusé."),
 }
+
+
+# Registration refusals: type -> (status, French detail); the body also carries the code.
+_REGISTRATION_ANSWERS = {
+    PasswordTooShort: (400, "Le mot de passe doit faire au moins 6 caractères."),
+    DisplayNameTaken: (409, "Ce pseudo est déjà pris."),
+    EmailTaken: (409, "Cette adresse e-mail est déjà utilisée."),
+}
+
+
+async def _registration_rejected(request: Request, exc: RegistrationRejected) -> JSONResponse:
+    status, detail = _REGISTRATION_ANSWERS.get(type(exc), (400, "Inscription impossible."))
+    return JSONResponse(status_code=status, content={"detail": detail, "code": exc.code})
 
 
 async def _answer(request: Request, exc: Exception) -> JSONResponse:
@@ -61,5 +77,7 @@ async def _invalid_request(request: Request, exc: RequestValidationError) -> JSO
 def register_domain_error_handlers(app: FastAPI) -> None:
     for error in _ANSWERS:
         app.add_exception_handler(error, _answer)
+    for error in _REGISTRATION_ANSWERS:
+        app.add_exception_handler(error, _registration_rejected)
     app.add_exception_handler(RateLimited, _rate_limited)
     app.add_exception_handler(RequestValidationError, _invalid_request)

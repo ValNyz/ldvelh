@@ -47,10 +47,10 @@ class WizardState(BaseModel):
     @model_validator(mode="after")
     def _bounded(self):
         if len(json.dumps(self.model_dump(), ensure_ascii=False)) > MAX_FORM_CHARS:
-            raise ValueError(f"form larger than {MAX_FORM_CHARS} characters")
-        for kind, items in (self.manual_entities or {}).items():
+            raise ValueError(f"formulaire trop long (max {MAX_FORM_CHARS} caractères)")
+        for items in (self.manual_entities or {}).values():
             if isinstance(items, list) and len(items) > MAX_ENTITIES_PER_KIND:
-                raise ValueError(f"more than {MAX_ENTITIES_PER_KIND} {kind}")
+                raise ValueError(f"trop d'entités d'un même type (max {MAX_ENTITIES_PER_KIND})")
         return self
 
 
@@ -74,10 +74,10 @@ async def world_enhance(
 
     current = request.current.model_dump()
     if request.scope not in SCOPES:
-        raise HTTPException(status_code=400, detail=f"Étape inconnue : {request.scope}")
+        raise HTTPException(status_code=400, detail=f"Étape inconnue. Valeurs possibles : {', '.join(sorted(SCOPES))}.")
 
     if request.provider not in _CLASSES:
-        raise HTTPException(status_code=400, detail=f"Fournisseur inconnu : {request.provider}")
+        raise HTTPException(status_code=400, detail=f"Fournisseur inconnu. Valeurs possibles : {', '.join(sorted(_CLASSES))}.")
 
     api_key = await routes._resolve_user_api_key(pool, user["id"], request.provider)
     if not api_key:

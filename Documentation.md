@@ -803,7 +803,9 @@ A PATCH is rejected (422) when `api_keys` is not `{provider: key|null}`, has mor
 
 Bad client input (malformed `messageId`, rename over 255 characters or blank, `engine` outside `EngineType` on `POST /games` and `/chat`, malformed e-mail, `display_name` over 100) answers 422 `{"detail": "Requête invalide : champ : problème."}` in French, built by one `RequestValidationError` handler (`api/http_errors.py`): field names and error kinds only, never the submitted value. The e-mail check is a shape check (no `email-validator` dependency). `/world/enhance` types `engine` the same way (422 instead of its former hand-written 400). Every `detail` the API returns is French; `code` fields stay machine-readable.
 
-A game whose stored `games.engine` is not an `EngineType` (rows from before this validation; migration `20261018000005` rewrites them to `none`) loads as engine `none` with a WARNING naming the game (`schema.engine.coerce_engine`, used by the engine lookup, the KG reader and the game snapshot).
+A game whose stored `games.engine` is not an `EngineType` (rows from before this validation; migration `20261018000005` rewrites them to `none`) loads as engine `none`. `schema.engine.coerce_engine(value, game_id)` is applied where DB data is read (game load and rollback, the game snapshot, the KG reader, the context builder, the `/games` listing) and logs one WARNING naming the game, never the stored value; `get_engine` itself stays strict and raises on an unknown value.
+
+Registration refusals are typed (`domain/errors.py`: `PasswordTooShort` 400, `DisplayNameTaken` 409, `EmailTaken` 409); `api/http_errors.py` maps each to a French `detail` plus a stable `code` (`password_too_short`, `display_name_taken`, `email_taken`).
 
 ---
 

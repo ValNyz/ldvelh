@@ -25,18 +25,18 @@ class EngineType(str, Enum):
 logger = logging.getLogger(__name__)
 
 
-def coerce_engine(value: "str | EngineType | None", game_id=None) -> EngineType:
+def coerce_engine(value: "str | EngineType | None", game_id) -> EngineType:
     """Stored engine value -> EngineType; an unknown or empty one is treated as 'none'.
 
     The single graceful path for data read back from the DB (#91): a game saved with an
-    engine we do not know still loads. The stored value is data, not user input.
+    engine we do not know still loads. The warning names the game only, never the stored value.
     """
     if not value:
         return EngineType.NONE
     try:
         return EngineType(value)
     except ValueError:
-        logger.warning("Unknown engine %r on game %s, treated as 'none'", value, game_id)
+        logger.warning("Unknown engine on game %s, treated as 'none'", game_id)
         return EngineType.NONE
 
 

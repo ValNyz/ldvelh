@@ -5,6 +5,7 @@ import logging
 import pytest
 
 from helpers import auth_headers
+from test_context_and_tooltips import _create_and_populate, world_gen_data  # noqa: F401
 
 pytestmark = pytest.mark.integration
 
@@ -167,7 +168,7 @@ async def test_preferences_cap_applies_to_the_merged_result(client, test_user):
     assert first.status_code == 200
     second = await client.patch(
         "/api/auth/preferences", json={"preferences": {"b": "y" * 10_000}}, headers=h)
-    _assert_french_no_echo(second)
+    _assert_french_no_echo(second, "preferences")
     stored = (await client.get("/api/auth/preferences", headers=h)).json()["preferences"]
     assert "a" in stored and "b" not in stored
 
@@ -250,8 +251,8 @@ async def test_verify_and_unknown_provider_and_genre_are_french(client, test_use
 def test_coerce_engine():
     from schema import EngineType, coerce_engine
 
-    assert coerce_engine("d6") is EngineType.D6
-    assert coerce_engine(None) is EngineType.NONE and coerce_engine("") is EngineType.NONE
+    assert coerce_engine("d6", "g") is EngineType.D6
+    assert coerce_engine(None, "g") is EngineType.NONE and coerce_engine("", "g") is EngineType.NONE
 
 
 def test_coerce_engine_unknown_warns_with_game_id(caplog):
@@ -259,7 +260,7 @@ def test_coerce_engine_unknown_warns_with_game_id(caplog):
 
     with caplog.at_level(logging.WARNING):
         assert coerce_engine("foo", "game-42") is EngineType.NONE
-    assert "game-42" in caplog.text and "foo" in caplog.text
+    assert "game-42" in caplog.text and "foo" not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -271,7 +272,42 @@ async def test_game_with_stored_unknown_engine_loads_as_none(client, test_user, 
         resp = await client.get(f"/api/games/{game_id}", headers=auth_headers(test_user["token"]))
     assert resp.status_code == 200, resp.text
     assert resp.json()["state"]["game"]["engine"] == "none"
-    assert any(game_id in r.getMessage() and r.levelno == logging.WARNING for r in caplog.records)
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert game_id in warnings[0].getMessage() and "foo" not in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_listing_returns_coerced_engine(client, test_user, test_pool):
+    game_id = await _new_game(client, test_user)
+    async with test_pool.acquire() as conn:
+        await conn.execute("UPDATE games SET engine = 'foo' WHERE id = $1::uuid", game_id)
+    listing = await client.get("/api/games", headers=auth_headers(test_user["token"]))
+    assert listing.json()["games"][0]["engine"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_context_builder_coerces_stored_engine_once(
+        client, test_user, test_pool, world_gen_data, caplog):
+    from services.context_builder import ContextBuilder
+
+    game_id, _, world_gen = await _create_and_populate(client, test_user, test_pool, world_gen_data)
+    async with test_pool.acquire() as conn:
+        await conn.execute("UPDATE games SET engine = 'foo' WHERE id = $1", game_id)
+        with caplog.at_level(logging.WARNING):
+            ctx = await ContextBuilder(test_pool, game_id).build(
+                conn, player_input="x", current_cycle=1, current_time="08h00",
+                current_location_name=world_gen.arrival_event.arrival_location_ref)
+    assert ctx.engine_type == "none"
+    msgs = [r.getMessage() for r in caplog.records if "ngine" in r.getMessage()]
+    assert len(msgs) == 1 and str(game_id) in msgs[0] and "foo" not in msgs[0]
+
+
+def test_get_engine_is_strict():
+    from services.engine import get_engine
+
+    with pytest.raises(ValueError):
+        get_engine("foo")
 
 
 @pytest.mark.asyncio
@@ -286,3 +322,69 @@ async def test_migration_rewrites_invalid_engines(test_pool, client, test_user):
         await conn.execute("UPDATE games SET engine = 'foo' WHERE id = $1::uuid", game_id)
         await conn.execute(up)
         assert await conn.fetchval("SELECT engine FROM games WHERE id = $1::uuid", game_id) == "none"
+
+
+# --- typed register errors, wizard messages, preference caps (#91 round 2) -------------
+
+@pytest.mark.asyncio
+async def test_register_error_mapping(client, test_user):
+    short = await client.post("/api/auth/register", json=_register(
+        password="12345", password_confirm="12345"))
+    assert (short.status_code, short.json()) == (400, {
+        "detail": "Le mot de passe doit faire au moins 6 caractères.", "code": "password_too_short"})
+    email = await client.post("/api/auth/register", json=_register(email="test@example.com"))
+    assert (email.status_code, email.json()) == (409, {
+        "detail": "Cette adresse e-mail est déjà utilisée.", "code": "email_taken"})
+    name = await client.post("/api/auth/register", json=_register(display_name="Test User"))
+    assert (name.status_code, name.json()) == (409, {
+        "detail": "Ce pseudo est déjà pris.", "code": "display_name_taken"})
+
+
+@pytest.mark.asyncio
+async def test_wizard_limits_are_french_and_do_not_echo_keys(client, test_user):
+    h = auth_headers(test_user["token"])
+    many = await client.post("/api/world/enhance", headers=h, json={
+        "current": {"manual_entities": {SECRET: [{"name": "n"}] * 25}}})
+    _assert_french_no_echo(many, "current")
+    big = await client.post("/api/world/enhance", headers=h, json={
+        "current": {"world_config": {"lore": "x" * 25_000}}})
+    _assert_french_no_echo(big, "current")
+    assert "caractères" in big.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_enhance_unknown_scope_and_provider_do_not_echo(client, test_user):
+    h = auth_headers(test_user["token"])
+    for body in ({"scope": SECRET}, {"provider": SECRET}):
+        resp = await client.post("/api/world/enhance", headers=h, json=body)
+        assert resp.status_code == 400 and SECRET not in resp.text
+        assert "inconnu" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_preferences_key_count_cap(client, test_user):
+    h = auth_headers(test_user["token"])
+    one = await client.patch("/api/auth/preferences", headers=h,
+                             json={"preferences": {f"k{i}": 1 for i in range(51)}})
+    _assert_french_no_echo(one, "preferences")
+    assert "max 50" in one.json()["detail"]
+    ok = await client.patch("/api/auth/preferences", headers=h,
+                            json={"preferences": {f"k{i}": 1 for i in range(30)}})
+    assert ok.status_code == 200
+    two = await client.patch("/api/auth/preferences", headers=h,
+                             json={"preferences": {f"m{i}": 1 for i in range(30)}})
+    _assert_french_no_echo(two, "preferences")
+    assert "max 50" in two.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_resend_verification_message_is_french(client, test_user, monkeypatch):
+    from services import auth_service
+
+    async def _sent(*a, **k):
+        return True
+
+    monkeypatch.setattr(auth_service, "resend_verification", _sent)
+    resp = await client.post("/api/auth/resend-verification",
+                             headers=auth_headers(test_user["token"]))
+    assert resp.json()["message"] == "E-mail de vérification envoyé."

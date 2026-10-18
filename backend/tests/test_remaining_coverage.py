@@ -11,6 +11,7 @@ Tests for remaining low-coverage modules:
 """
 
 import secrets
+from domain.errors import DisplayNameTaken, EmailTaken, PasswordTooShort
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -1200,7 +1201,7 @@ class TestAuthServiceRegister:
         from services.auth_service import register
 
         mock_conn = AsyncMock()
-        with pytest.raises(ValueError, match="at least 6 characters"):
+        with pytest.raises(PasswordTooShort):
             await register(mock_conn, "x@x.com", "12345")
 
     @pytest.mark.asyncio
@@ -1212,7 +1213,7 @@ class TestAuthServiceRegister:
         mock_conn.fetchrow.side_effect = Exception("unique constraint violation on email")
 
         with patch("services.auth_service.send_verification_email", new_callable=AsyncMock):
-            with pytest.raises(ValueError, match="Email already registered"):
+            with pytest.raises(EmailTaken):
                 await register(mock_conn, "dup@test.com", "password123")
 
     @pytest.mark.asyncio
@@ -1226,7 +1227,7 @@ class TestAuthServiceRegister:
         )
 
         with patch("services.auth_service.send_verification_email", new_callable=AsyncMock):
-            with pytest.raises(ValueError, match="Display name already taken"):
+            with pytest.raises(DisplayNameTaken):
                 await register(mock_conn, "new2@test.com", "password123", "Taken Name")
 
 

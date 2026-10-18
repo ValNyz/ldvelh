@@ -24,13 +24,6 @@ router = APIRouter()
 
 ALLOWED_PROVIDERS = {"anthropic", "mistral", "wandb", "nebius", "nous"}
 
-# auth_service.register ValueError text -> (status, French detail)
-_REGISTER_ERRORS = {
-    "Password must be at least 6 characters": (400, "Le mot de passe doit faire au moins 6 caractères."),
-    "Display name already taken": (409, "Ce pseudo est déjà pris."),
-    "Email already registered": (409, "Cette adresse e-mail est déjà utilisée."),
-}
-
 # Each resend sends an email (#82).
 resend_limiter = shared_limiter(max_requests=3, window_seconds=600)
 # Current-password checks of a signed-in session (guessing with a stolen token).
@@ -145,18 +138,15 @@ async def register(
     auth_limiter.check(raw_request)
     if request.password != request.password_confirm:
         raise HTTPException(status_code=400, detail="Les mots de passe ne correspondent pas.")
-    try:
-        async with pool.acquire() as conn:
-            result = await auth_service.register(
-                conn, request.email, request.password, request.display_name
-            )
-        return {
-            "token": result["token"],
-            "user": _build_user_response(result, {}),
-        }
-    except ValueError as e:
-        status, detail = _REGISTER_ERRORS.get(str(e), (400, "Inscription impossible."))
-        raise HTTPException(status_code=status, detail=detail)
+    # RegistrationRejected is answered by api/http_errors.py (status, French detail, code).
+    async with pool.acquire() as conn:
+        result = await auth_service.register(
+            conn, request.email, request.password, request.display_name
+        )
+    return {
+        "token": result["token"],
+        "user": _build_user_response(result, {}),
+    }
 
 
 @router.post("/login")
@@ -287,7 +277,7 @@ async def resend_verification(
             detail="E-mail déjà vérifié ou envoi impossible.",
         )
 
-    return {"success": True, "message": "Verification email sent"}
+    return {"success": True, "message": "E-mail de vérification envoyé."}
 
 
 # =============================================================================
@@ -374,7 +364,7 @@ async def update_preferences(
     try:
         check_preferences_size(current)  # the stored result, not just this patch
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=f"Requête invalide : {e}.") from e
+        raise HTTPException(status_code=422, detail=f"Requête invalide : preferences : {e}.") from e
 
     # Save to DB
     async with pool.acquire() as conn:

@@ -20,3 +20,21 @@ class GameNotFound(Exception):
 
 class GameAccessDenied(Exception):
     """The game belongs to another user (HTTP 403 at the API edge)."""
+
+
+class RegistrationRejected(Exception):
+    """A registration the service refuses; `code` is the stable, machine-readable reason."""
+
+    code = "registration_rejected"
+
+
+class PasswordTooShort(RegistrationRejected):
+    code = "password_too_short"
+
+
+class DisplayNameTaken(RegistrationRejected):
+    code = "display_name_taken"
+
+
+class EmailTaken(RegistrationRejected):
+    code = "email_taken"
