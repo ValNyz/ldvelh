@@ -249,6 +249,11 @@ class TestNarrativeArcUpsert:
         row = await self._arc_intensity(test_pool, game_id, {"intensity": 2})
         assert row["intensity"] == 2
 
+    async def test_relisted_arc_with_blank_description_keeps_it(self, test_pool, test_user):
+        game_id = await _game(test_pool, test_user)
+        row = await self._arc_intensity(test_pool, game_id, {"description": "   "})
+        assert row["description"] == "Un investisseur rôde autour des docks."
+
     async def test_new_arc_without_intensity_defaults_to_3(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
         populator = ExtractionPopulator(test_pool, game_id)

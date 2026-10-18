@@ -6,8 +6,12 @@ No dice — the narrator decides success/failure using trait information.
 
 from uuid import UUID
 
+from kg.upsert_sql import TEXT, keep_unless_blank
 from schema.engine import EngineType, MechanicalDecision, RollResult
 from .base import BaseEngine
+
+# A re-listed trait keeps its description unless a non-blank one is sent (#87).
+_KEEP_TRAIT_DESCRIPTION = keep_unless_blank("traits_narrative", "description", TEXT)
 
 
 class NarrativeEngine(BaseEngine):
@@ -210,12 +214,11 @@ Les traits sont listés dans le contexte sous "TRAITS DU PERSONNAGE".
         # is sent, here and in traits_replaced, #87)
         for trait in extraction.get("new_traits", []):
             await conn.execute(
-                """
+                f"""
                 INSERT INTO traits_narrative (game_id, name, description, active, created_cycle)
                 VALUES ($1, $2, $3, TRUE, (SELECT COALESCE(MAX(cycle), 1) FROM messages WHERE game_id = $1))
                 ON CONFLICT (game_id, name) DO UPDATE SET active = TRUE,
-                    description = COALESCE(NULLIF(BTRIM(EXCLUDED.description), ''),
-                                           traits_narrative.description)
+                    {_KEEP_TRAIT_DESCRIPTION}
                 """,
                 game_id,
                 trait.get("name", ""),
@@ -242,12 +245,11 @@ Les traits sont listés dans le contexte sous "TRAITS DU PERSONNAGE".
 
             # Insert new trait
             new_id = await conn.fetchval(
-                """
+                f"""
                 INSERT INTO traits_narrative (game_id, name, description, active, created_cycle)
                 VALUES ($1, $2, $3, TRUE, (SELECT COALESCE(MAX(cycle), 1) FROM messages WHERE game_id = $1))
                 ON CONFLICT (game_id, name) DO UPDATE SET active = TRUE,
-                    description = COALESCE(NULLIF(BTRIM(EXCLUDED.description), ''),
-                                           traits_narrative.description)
+                    {_KEEP_TRAIT_DESCRIPTION}
                 RETURNING id
                 """,
                 game_id,

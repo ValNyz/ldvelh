@@ -27,7 +27,7 @@ from schema import (
 )
 from schema.entity_changes import bound_changes
 
-from .upsert_sql import ARRAY, TEXT, guarded_set
+from .upsert_sql import ARRAY, TEXT, guarded_set, non_blank
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
@@ -950,8 +950,8 @@ class KnowledgeGraphPopulator:
         if existing_id:
             logger.info(f"[ARC] Arc already exists: '{arc.title}', updating instead")
             await conn.execute(
-                """UPDATE narrative_arcs SET
-                    description = COALESCE(NULLIF(BTRIM($3), ''), description),
+                f"""UPDATE narrative_arcs SET
+                    description = COALESCE({non_blank("$3", TEXT)}, description),
                     intensity = COALESCE($4, intensity), updated_at = NOW()
                 WHERE id = $2 AND game_id = $1""",
                 self.game_id,
