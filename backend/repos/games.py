@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from domain.game import DirectorSchedule, GameSnapshot
+from domain.game import DirectorSchedule, GameSnapshot, difficulty_from_world_config
 from kg.reader import KnowledgeGraphReader
 from schema import DEFAULT_GAME_TIME
 
@@ -47,6 +47,7 @@ async def get_snapshot(conn, game_id: UUID) -> GameSnapshot | None:
         current_location_name=await reader.get_current_location_name(conn),
         engine=game["engine"],
         engine_locked=bool(game["engine_locked"]),
+        difficulty=difficulty_from_world_config(game["world_config"], game_id),
         genre_id=game["genre_id"],
         world_name=game["world_name"],
         protagonist_name=(protagonist or {}).get("name"),

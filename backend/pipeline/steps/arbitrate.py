@@ -107,7 +107,7 @@ async def _roll_dice(ctx: TurnContext, prepared: Prepared):
             engine_stats=prepared.context.engine_stats,
             player_message=prepared.player_input,
             context_summary="",  # TODO: build short context summary
-            world_difficulty="moderate",  # TODO: from world_config
+            world_difficulty=ctx.snapshot.difficulty,
             session=ctx.session,
         )
     except MechanicalStepUnavailable:
