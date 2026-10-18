@@ -5,7 +5,7 @@ import json
 import pytest
 
 from pipeline.json_escape import decode_json_escape
-from pipeline.narrative_scanner import NarrativeScanner, extract_narrative_from_partial
+from pipeline.narrative_scanner import _MARKER, NarrativeScanner, extract_narrative_from_partial
 
 SAMPLES = [
     "Il était une fois à Genève, où l'été est très chaud.",
@@ -85,8 +85,11 @@ def test_decode_json_escape_waits_or_decodes():
 
 def test_scan_work_is_linear_in_stream_length():
     text = "Un récit très long, avec des accents é et un emoji 😀. " * 400
-    raw = json.dumps({"narrative_text": text})
+    # A long key before narrative_text: the marker search must not rescan the prefix.
+    raw = json.dumps({"thinking": "réflexion " * 2000, "narrative_text": text})
     scanner = NarrativeScanner()
-    sent = "".join(scanner.feed(raw[i:i + 3]) for i in range(0, len(raw), 3))
+    chunks = [raw[i:i + 3] for i in range(0, len(raw), 3)]
+    sent = "".join(scanner.feed(chunk) for chunk in chunks)
     assert sent == text.strip()
-    assert scanner.scanned <= len(raw)  # every character examined at most once
+    # Every character examined once, plus the marker's overlap kept between two feeds.
+    assert scanner.scanned <= len(raw) + len(chunks) * len(_MARKER)

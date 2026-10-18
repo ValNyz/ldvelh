@@ -23,6 +23,7 @@ class NarrativeScanner:
     def __init__(self) -> None:
         self._buf = ""
         self._pos = 0           # next unscanned index in _buf
+        self._marker_found = False
         self._in_string = False
         self._closed = False
         self._started = False   # a non-whitespace character was emitted
@@ -39,13 +40,20 @@ class NarrativeScanner:
 
     def _open_string(self) -> bool:
         """Locate the opening quote of the value; only the unscanned tail is searched."""
-        if self._pos == 0:
-            start = self._buf.find(_MARKER)
+        if not self._marker_found:
+            # The marker may straddle two chunks: resume just before the old end.
+            start = self._buf.find(_MARKER, self._pos)
+            end = len(self._buf) if start == -1 else start + len(_MARKER)
+            self.scanned += end - self._pos
             if start == -1:
+                self._pos = max(self._pos, len(self._buf) - len(_MARKER) + 1)
                 return False
-            self._pos = start + len(_MARKER)
+            self._marker_found = True
+            self._pos = end
         quote = self._buf.find('"', self._pos)
+        self.scanned += (len(self._buf) if quote == -1 else quote + 1) - self._pos
         if quote == -1:
+            self._pos = len(self._buf)  # only the colon's whitespace lies before the quote
             return False
         self._pos = quote + 1
         self._in_string = True
