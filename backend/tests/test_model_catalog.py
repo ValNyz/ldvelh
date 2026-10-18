@@ -183,3 +183,23 @@ async def test_load_registers_catalog_prices_for_cost_tracking(monkeypatch):
     usage = LLMUsage(input_tokens=1_000_000, output_tokens=1_000_000)
     assert call_cost(usage, "nous", "zz-priced") == pytest.approx(4.0)
     assert "nous/zz-unpriced" not in pricing._DYNAMIC_PRICING
+
+
+@pytest.mark.asyncio
+async def test_load_failure_keeps_the_db_message_out_of_warning(caplog):
+    """A DB error is logged at WARNING as its class and SQLSTATE only (its text quotes values)."""
+    import logging
+
+    import asyncpg
+
+    class Pool:
+        def acquire(self):
+            raise asyncpg.DataError("invalid input for query argument $1: 'secret story'")
+
+    with caplog.at_level(logging.DEBUG):
+        cat = await load_catalog(Pool())
+    assert cat.is_empty()
+    [warning] = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warning.getMessage() == (
+        "[llm_models] catalog load failed, using fallback: DataError [22000] argument=$1")
+    assert all("secret story" not in r.getMessage() for r in caplog.records)

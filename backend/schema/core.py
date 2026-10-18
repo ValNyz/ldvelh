@@ -3,6 +3,7 @@ LDVELH - Core Schema
 Enums, primitive types, base models, normalization functions
 """
 
+import json
 import logging
 from enum import Enum
 from typing import Annotated, Any
@@ -16,6 +17,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from config import get_settings
 
 from .synonyms import (
     ARC_DOMAIN_SYNONYMS,
@@ -47,9 +50,10 @@ def _truncate(max_len: int):
             return v
         truncated = v[: max_len - 3].rsplit(" ", 1)[0] + "..."
         field = info.field_name if info else "?"
-        # No value at WARNING: it is story text (#77); the preview stays at DEBUG.
+        # No value at WARNING: it is story text (#77); a preview only with LOG_PROMPTS.
         logger.warning(f"[Truncate] {field}: {len(v)} -> {len(truncated)} chars")
-        logger.debug(f"[Truncate] {field} was: \"{v[:60].replace(chr(10), ' ')}...\"")
+        if get_settings().log_prompts:
+            logger.debug(f"[Truncate] {field} was: \"{v[:60].replace(chr(10), ' ')}...\"")
         return truncated
 
     return _inner
@@ -100,6 +104,21 @@ Backstory = Annotated[
 """600 chars - full backstory"""
 
 
+def _str_list(v: Any) -> Any:
+    """A JSON array string or a bare string becomes a list (`'calme'` -> `['calme']`)."""
+    if isinstance(v, str):
+        try:
+            parsed = json.loads(v)
+        except (json.JSONDecodeError, ValueError):
+            return [v]
+        return parsed if isinstance(parsed, list) else [v]
+    return v
+
+
+StrList = Annotated[list[str], BeforeValidator(_str_list)]
+"""A list of str the LLM may send as a JSON string or a bare string (traits, hobbies)."""
+
+
 # =============================================================================
 # SOFT NORMALIZERS — Handle LLM shape mistakes at the schema boundary.
 # LLMs often produce dict where we expect list, list where we expect dict,
@@ -121,7 +140,6 @@ def _coerce_json_list(v: Any, info: ValidationInfo | None = None) -> list:
     if isinstance(v, list):
         return v
     if isinstance(v, str):
-        import json
         try:
             parsed = json.loads(v)
             if isinstance(parsed, list):
@@ -153,7 +171,6 @@ def _coerce_json_dict(v: Any, info: ValidationInfo | None = None) -> dict:
     if isinstance(v, dict):
         return v
     if isinstance(v, str):
-        import json
         try:
             parsed = json.loads(v)
             if isinstance(parsed, dict):

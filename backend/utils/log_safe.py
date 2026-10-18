@@ -10,9 +10,9 @@ table / column names, only.
 
 import logging
 import re
+from typing import TypeGuard
 
 from asyncpg.exceptions import PostgresError
-from asyncpg.exceptions._base import DataError as ClientDataError  # argument encoding
 from pydantic import ValidationError
 
 
@@ -27,25 +27,25 @@ def validation_summary(exc: ValidationError) -> str:
 _DB_NAMES = ("constraint_name", "table_name", "column_name")
 
 
-def db_error_summary(exc: PostgresError | ClientDataError) -> str:
+def db_error_summary(exc: PostgresError) -> str:
     """`UniqueViolationError [23505] constraint=characters_game_id_name_key table=characters`.
 
     The message itself is left out: it may quote the rejected value.
     """
     parts = [type(exc).__name__]
-    if isinstance(exc, PostgresError):
-        if exc.sqlstate:
-            parts.append(f"[{exc.sqlstate}]")
-        parts += [f"{n.removesuffix('_name')}={getattr(exc, n)}"
-                  for n in _DB_NAMES if getattr(exc, n, None)]
+    if exc.sqlstate:
+        parts.append(f"[{exc.sqlstate}]")
+    parts += [f"{n.removesuffix('_name')}={getattr(exc, n)}"
+              for n in _DB_NAMES if getattr(exc, n, None)]
     arg = re.search(r"query argument \$(\d+)", str(exc))
     if arg:
         parts.append(f"argument=${arg.group(1)}")
     return " ".join(parts)
 
 
-def _is_db_error(exc: BaseException) -> bool:
-    return isinstance(exc, (PostgresError, ClientDataError))
+def _is_db_error(exc: BaseException) -> TypeGuard[PostgresError]:
+    # asyncpg.DataError (argument encoding, 22000) is a PostgresError too.
+    return isinstance(exc, PostgresError)
 
 
 def _chain(exc: BaseException | None):
@@ -54,10 +54,6 @@ def _chain(exc: BaseException | None):
         seen.add(id(exc))
         yield exc
         exc = exc.__cause__ or exc.__context__
-
-
-def has_validation_error(exc: BaseException) -> bool:
-    return any(isinstance(e, ValidationError) for e in _chain(exc))
 
 
 def has_sensitive_error(exc: BaseException) -> bool:

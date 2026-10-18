@@ -541,7 +541,9 @@ class KnowledgeGraphPopulator:
         """Update fields on an entity by type and name.
 
         Only the columns typed in schema.entity_changes are written, each bounded to its
-        column (an invalid field is dropped, the others are kept).
+        column (an invalid field is dropped, the others are kept). Every update path
+        (extractors, ambient updates, process_extraction) reaches SQL here, so this is
+        the one place `changes` is bounded.
         """
         table = {
             EntityType.CHARACTER: "characters",

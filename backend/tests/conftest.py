@@ -47,6 +47,18 @@ from prompts.examples import (
 )
 
 
+@pytest.fixture
+def log_prompts(monkeypatch):
+    """LOG_PROMPTS=true for the test; the settings cache is cleared on setup and teardown."""
+    from config import get_settings
+
+    monkeypatch.setenv("LOG_PROMPTS", "true")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.delenv("LOG_PROMPTS")
+    get_settings.cache_clear()
+
+
 @pytest.fixture(autouse=True)
 def _isolated_dynamic_pricing():
     """load_catalog registers catalog prices process-wide: never leak them between tests."""

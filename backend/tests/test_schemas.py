@@ -525,6 +525,43 @@ class TestStringTruncation:
         loc = LocationData(name=long_name)
         assert len(loc.name) <= 100
 
+    STORY = "Le dragon de verre murmure son nom aux coursives endormies du secteur sept"
+
+    def _truncate_records(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.DEBUG, logger="schema.core"):
+            ObjectData(name="Test", category=self.STORY)
+        return [r.getMessage() for r in caplog.records if "[Truncate]" in r.getMessage()]
+
+    def test_truncation_logs_no_story_preview_without_log_prompts(self, caplog):
+        [record] = self._truncate_records(caplog)
+        assert record.endswith(": 74 -> 41 chars") and self.STORY[:30] not in record
+
+    def test_truncation_preview_at_debug_with_log_prompts(self, caplog, log_prompts):
+        records = self._truncate_records(caplog)
+        assert len(records) == 2 and self.STORY[:30] in records[1]
+
+
+class TestStrList:
+    """StrList: a JSON array string or a bare string becomes a list, shared by every model."""
+
+    @pytest.mark.parametrize("make", [
+        lambda v: CharacterData(name="N", traits=v).traits,
+        lambda v: CompanionData(name="C", traits=v).traits,
+        lambda v: LocationData(name="L", notable_features=v).notable_features,
+        lambda v: ProtagonistData(skills=[{"name": "a", "level": 2}, {"name": "b", "level": 3}],
+                                  hobbies=v).hobbies,
+    ])
+    @pytest.mark.parametrize("raw,expected", [
+        ('["calme", "rusé"]', ["calme", "rusé"]),
+        ("calme", ["calme"]),
+        ('"calme"', ['"calme"']),  # JSON, but not a list
+        (["calme"], ["calme"]),
+    ])
+    def test_creation_models_share_the_list_parser(self, make, raw, expected):
+        assert make(raw) == expected
+
 
 # =============================================================================
 # SOFT NORMALIZERS — JSONB shape coercion

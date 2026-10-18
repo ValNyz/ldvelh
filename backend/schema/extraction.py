@@ -22,7 +22,6 @@ from .core import (
     Text,
     normalize_entity_type,
 )
-from .entity_changes import bound_changes
 from .narrative import FactData
 from .relations import RelationData, RelationType
 
@@ -76,7 +75,8 @@ class EntityUpdate(BaseModel):
 
     entity_ref: EntityRef
     entity_type: EntityType | None = None  # Helps routing to the correct table
-    # Direct field changes (keys match the entity table columns)
+    # Direct field changes (keys match the entity table columns). Bounded once, at the SQL
+    # sink (KnowledgeGraphPopulator.update_entity -> schema.entity_changes.bound_changes).
     changes: dict = Field(
         default_factory=dict,
         description="Fields to update on the entity (column_name: new_value)",
@@ -93,12 +93,6 @@ class EntityUpdate(BaseModel):
         if v is None:
             return v
         return normalize_entity_type(v)
-
-    @model_validator(mode="after")
-    def _bound_changes(self):
-        """Bound each change to its column type (an unresolved type is bounded at write)."""
-        self.changes = bound_changes(self.entity_type, self.changes)
-        return self
 
 
 class EntityRemoval(BaseModel):

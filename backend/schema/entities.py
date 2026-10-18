@@ -3,7 +3,6 @@ LDVELH - Entity Models (Dedicated Tables)
 Each entity has its own typed fields — no more EAV
 """
 
-import json
 import logging
 from typing import Any
 
@@ -39,6 +38,7 @@ from .core import (
     Name,
     ShortText,
     Skill,
+    StrList,
     Tag,
     Text,
 )
@@ -78,7 +78,7 @@ class ProtagonistData(BaseModel):
     origin: Name | None = None
     departure_reason: DepartureReason = DepartureReason.FRESH_START
     backstory: Backstory | None = None
-    hobbies: list[str] = Field(default_factory=list)
+    hobbies: StrList = Field(default_factory=list)
     description: Text | None = None
     # References
     employer_ref: EntityRef | None = None
@@ -95,16 +95,6 @@ class ProtagonistData(BaseModel):
 
         return normalize_departure_reason(v)
 
-    @field_validator("hobbies", mode="before")
-    @classmethod
-    def _parse_hobbies(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except (json.JSONDecodeError, ValueError):
-                return [v]
-        return v
-
 
 # =============================================================================
 # COMPANION
@@ -116,20 +106,10 @@ class CompanionData(BaseModel):
 
     name: Label
     voice: ShortText | None = None
-    traits: list[str] = Field(default_factory=list)
+    traits: StrList = Field(default_factory=list)
     quirk: ShortText | None = None
     substrate: Name = "terminal personnel"
     details: dict = Field(default_factory=dict)
-
-    @field_validator("traits", mode="before")
-    @classmethod
-    def _parse_traits(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except (json.JSONDecodeError, ValueError):
-                return [v]
-        return v
 
 
 # =============================================================================
@@ -150,7 +130,7 @@ class CharacterData(BaseModel):
     age: CharacterAge | None = None
     description: Text | None = None
     # Personality & state
-    traits: list[str] = Field(default_factory=list)
+    traits: StrList = Field(default_factory=list)
     mood: CharacterMood | None = None
     occupation: CharacterOccupation | None = None
     origin: CharacterOrigin | None = None
@@ -163,16 +143,6 @@ class CharacterData(BaseModel):
     ambient: ShortText | None = None
     # Flexible
     details: dict = Field(default_factory=dict)
-
-    @field_validator("traits", mode="before")
-    @classmethod
-    def _parse_traits(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except (json.JSONDecodeError, ValueError):
-                return [v]
-        return v
 
 
 # =============================================================================
@@ -192,7 +162,7 @@ class LocationData(BaseModel):
     description: Text | None = None
     atmosphere: LocationAtmosphere | None = None
     accessible: bool = True
-    notable_features: list[str] = Field(default_factory=list)
+    notable_features: StrList = Field(default_factory=list)
     typical_crowd: LocationTypicalCrowd | None = None
     operating_hours: LocationOperatingHours | None = None
     price_range: LocationPriceRange | None = None
@@ -200,16 +170,6 @@ class LocationData(BaseModel):
     ambient: ShortText | None = None
     # Flexible
     details: dict = Field(default_factory=dict)
-
-    @field_validator("notable_features", mode="before")
-    @classmethod
-    def _parse_features(cls, v: Any) -> list[str]:
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except (json.JSONDecodeError, ValueError):
-                return [v]
-        return v
 
 
 # =============================================================================

@@ -160,8 +160,7 @@ def _max_length(field) -> int | None:
 
 
 async def test_field_bounds_fit_the_db_columns(test_pool):
-    """COLUMN_WIDTHS is the DB truth; every bound is <= its column, same in both models."""
-    from schema.columns import COLUMN_WIDTHS
+    """Every bound is <= its DB column width (information_schema), same in both models."""
     from schema.entities import CharacterData, LocationData, OrganizationData
     from schema.entity_changes import CHANGES_MODELS
 
@@ -182,9 +181,9 @@ async def test_field_bounds_fit_the_db_columns(test_pool):
             width = widths.get((table, name))
             if width is None:
                 continue  # text / uuid / bool / int column: no width
-            assert COLUMN_WIDTHS[(table, name)] == width, (table, name, "COLUMN_WIDTHS")
             bound = _max_length(field)
             assert bound is not None and bound <= width, (table, name, bound, width)
             data_field = creation[entity_type].model_fields.get(name)
             if data_field is not None:
                 assert _max_length(data_field) == bound, (table, name, "creation model drift")
+

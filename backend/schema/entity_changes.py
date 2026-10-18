@@ -4,17 +4,16 @@ LDVELH - Entity field changes (EntityUpdate.changes)
 The LLM sends `changes` as a free dict of column -> value. Each column an update may
 touch is typed here with its bound, min(product limit, column width) (schema/columns.py,
 shared with the creation models in entities.py so the two cannot drift), so an over-long
-or mistyped value never reaches SQL.
+or mistyped value never reaches SQL. `KnowledgeGraphPopulator.update_entity`, the single
+SQL sink of every update path, applies `bound_changes`.
 Fields are bounded one by one: an invalid field is dropped (and logged by name), the
 valid fields of the same update are kept.
 """
 
-import json
 import logging
-from typing import Annotated, Any
 from uuid import UUID
 
-from pydantic import BaseModel, BeforeValidator, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from .columns import (
     CharacterAge,
@@ -36,23 +35,9 @@ from .columns import (
     OrganizationSize,
     OrganizationType,
 )
-from .core import Cycle, EntityType, ShortText, Text
+from .core import Cycle, EntityType, ShortText, StrList, Text
 
 logger = logging.getLogger(__name__)
-
-
-def _str_list(v: Any) -> Any:
-    """A JSON array string or a bare string becomes a list (as in entities.py)."""
-    if isinstance(v, str):
-        try:
-            parsed = json.loads(v)
-        except (json.JSONDecodeError, ValueError):
-            return [v]
-        return parsed if isinstance(parsed, list) else [v]
-    return v
-
-
-StrList = Annotated[list[str], BeforeValidator(_str_list)]
 
 
 class CharacterChanges(BaseModel):

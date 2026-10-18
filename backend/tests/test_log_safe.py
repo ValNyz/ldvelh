@@ -63,7 +63,9 @@ def test_log_exception_traceback_without_validation_error(caplog):
 
 @pytest.mark.parametrize("query", [
     "SELECT $1::int",   # server DataError: 'invalid input syntax for type integer: "<value>"'
-    "SELECT $1::uuid",  # client DataError: "invalid input for query argument $1: '<value>'"
+    # client-side encoding error (asyncpg.DataError, 22000):
+    # "invalid input for query argument $1: '<value>'"
+    "SELECT $1::uuid",
 ])
 async def test_db_error_value_never_reaches_warning_records(test_pool, caplog, query):
     """An item failing on a DB error: the rejected story value stays out of WARNING+ and errors."""
@@ -100,14 +102,22 @@ async def test_db_error_summary_names_sqlstate_and_constraint(test_pool):
     assert safe_text(info.value) == summary
 
 
-def test_log_cause_keeps_the_raw_text_at_debug_only(caplog):
-    from asyncpg.exceptions._base import DataError
+@pytest.mark.parametrize("debug_detail", [True, False])
+def test_log_cause_keeps_the_raw_text_at_debug_only(caplog, debug_detail):
+    """The raw DB text is logged at DEBUG only, and only with debug_detail (LOG_PROMPTS)."""
+    import asyncpg
 
     from utils.log_safe import log_cause
 
-    exc = DataError(f"invalid input for query argument $3: '{STORY}'")
+    exc = asyncpg.DataError(f"invalid input for query argument $3: '{STORY}'")
     with caplog.at_level(logging.DEBUG):
-        log_cause(logging.getLogger("t"), logging.WARNING, "item failed", exc, debug_detail=True)
-    [warning, debug] = caplog.records
-    assert warning.getMessage() == "item failed: DataError argument=$3"
-    assert debug.levelno == logging.DEBUG and STORY in debug.getMessage()
+        log_cause(logging.getLogger("t"), logging.WARNING, "item failed", exc,
+                  debug_detail=debug_detail)
+    warning, *rest = caplog.records
+    assert warning.getMessage() == "item failed: DataError [22000] argument=$3"
+    if debug_detail:
+        [debug] = rest
+        assert debug.levelno == logging.DEBUG and STORY in debug.getMessage()
+    else:
+        assert rest == [] and STORY not in warning.getMessage()
+
