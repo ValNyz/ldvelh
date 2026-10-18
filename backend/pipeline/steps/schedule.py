@@ -15,8 +15,9 @@ from workers import supervisor
 logger = logging.getLogger(__name__)
 
 
-def _enqueue_post_turn(ctx: TurnContext, narrated: Narrated, committed: Committed) -> None:
-    """Resolver (always), extractors (if triggered) and hooks, after the game's earlier jobs."""
+async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: Committed) -> None:
+    """Enqueue the turn's post_turn job: resolver (always), extractors (if triggered) and
+    hooks, after the game's earlier jobs."""
     triggers = narrated.narration.extraction_triggers
     if triggers:
         logger.info(f"[CHAT] Extraction triggers: {triggers}")
@@ -37,6 +38,3 @@ def _enqueue_post_turn(ctx: TurnContext, narrated: Narrated, committed: Committe
         narrator_deltas=committed.narrator_deltas,
     ))
 
-
-async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: Committed) -> None:
-    _enqueue_post_turn(ctx, narrated, committed)

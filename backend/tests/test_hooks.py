@@ -90,11 +90,54 @@ async def test_new_cycle_hooks_skip_a_rolled_back_turn(test_pool, test_user):
     assert calls == []
 
 
+async def test_new_cycle_commit_failure_blames_the_commit(monkeypatch, caplog):
+    from contextlib import asynccontextmanager
+
+    class CommitFails:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            if exc_type is None:
+                raise RuntimeError("commit failed")
+            return False
+
+    class FakeConn:
+        def transaction(self):
+            return CommitFails()
+
+    class FakePool:
+        @asynccontextmanager
+        async def acquire(self):
+            yield FakeConn()
+
+    async def held(conn, message_id):
+        return True
+
+    monkeypatch.setattr(turns, "hold_source_message", held)
+    hooks.reset()
+    calls = []
+
+    @hooks.on_new_cycle
+    async def last_subscriber(conn, gid, cycle):
+        calls.append(cycle)
+
+    event = _event(uuid4(), uuid4())
+    with caplog.at_level(logging.ERROR, logger="services.hooks"):
+        await hooks.run_new_cycle(FakePool(), event)
+
+    assert calls == [event.cycle]
+    [error] = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert "new_cycle commit failed" in error and str(event.game_id) in error
+    assert "last_subscriber" not in error
+
+
 def test_register_defaults_wires_director_engine_and_seeds():
     from services import director_service
 
     hooks.reset()
     subscribers.register_defaults()
+    subscribers.register_defaults()  # registered once each, even when called twice
 
     assert hooks._turn_hooks == [director_service.on_turn_committed]
     assert hooks._cycle_hooks == [subscribers.engine_new_cycle, subscribers.archive_seeds]

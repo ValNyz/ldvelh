@@ -1,6 +1,7 @@
 """Tests for Director service and schema."""
 
 import json
+import logging
 from unittest.mock import patch
 
 import pytest
@@ -367,7 +368,7 @@ class TestApplyArcUpdateDedup:
 
 class TestDirectorGuards:
     @pytest.mark.asyncio
-    async def test_two_queued_director_hooks_call_the_llm_once(self, test_pool, test_user):
+    async def test_two_queued_director_hooks_call_the_llm_once(self, test_pool, test_user, caplog):
         """One queue per game: the second turn's hook sees the first plan, no second call (#95)."""
         import asyncio
         from uuid import uuid4
@@ -403,13 +404,17 @@ class TestDirectorGuards:
                               user_message_id=uuid4(), assistant_message_id=assistant_id)
         for _ in range(2):
             supervisor.enqueue(game_id, "post_turn", hooks.run_turn_committed(test_pool, session, event))
-        gate.set()
-        await supervisor.wait_idle(game_id, timeout=10.0)
+        with caplog.at_level(logging.ERROR, logger="services.hooks"):
+            gate.set()
+            await supervisor.wait_idle(game_id, timeout=10.0)
 
         assert provider.calls.count("complete") == 1
         async with test_pool.acquire() as conn:
             plans = await conn.fetchval("SELECT count(*) FROM director_plans WHERE game_id = $1", game_id)
         assert plans == 1
+        # A crashed second hook must not pass for a skipped one.
+        assert [r for r in caplog.records
+                if r.name == "services.hooks" and r.levelno >= logging.ERROR] == []
 
     @pytest.mark.asyncio
     async def test_reader_failure_returns_none_without_unbound_error(self, test_pool, test_user):

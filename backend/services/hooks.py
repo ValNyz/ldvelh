@@ -67,6 +67,7 @@ async def run_turn_committed(pool: asyncpg.Pool, session: LLMSession,
 async def run_new_cycle(pool: asyncpg.Pool, event: TurnCommitted) -> None:
     """The new-cycle subscribers in one transaction: one failure rolls them all back."""
     current: CycleHook | None = None
+    phase = "hold_source_message"  # what failed when no subscriber is running
     async with pool.acquire() as conn:
         try:
             async with conn.transaction():
@@ -76,9 +77,10 @@ async def run_new_cycle(pool: asyncpg.Pool, event: TurnCommitted) -> None:
                     return
                 for current in list(_cycle_hooks):
                     await current(conn, event.game_id, event.cycle)
+                current, phase = None, "commit"  # every subscriber succeeded
         except Exception as exc:
-            name = _name(current) if current is not None else "hold_source_message"
+            what = f"subscriber {_name(current)}" if current is not None else phase
             log_exception(logger, logging.ERROR,
-                          f"[HOOKS] new_cycle subscriber {name} failed game={event.game_id}, "
+                          f"[HOOKS] new_cycle {what} failed game={event.game_id}, "
                           "cycle hooks rolled back", exc,
                           debug_detail=get_settings().log_prompts)

@@ -176,6 +176,10 @@ async def run_init(ctx: TurnContext) -> None:
     # A connected client sees the Director's status, then done and saved. A client gone
     # meanwhile cancels only this wait: the Director (up to 30 s) finishes in the
     # background and the game lock is released at once (#79).
+    # Not bounded here: the Director's 30 s timeout starts once its supervisor job runs, so
+    # this wait also covers the wait for a global slot. Jobs never wait on a handler or a
+    # game lock, so it cannot deadlock. Kept unbounded so the Director never writes status
+    # to the sink after the init stream has ended.
     await asyncio.shield(director)
     # Saved: a failure from here on must not invite a resend (the world would be generated
     # twice).
