@@ -24,11 +24,6 @@ export function attachDraft(draft, gameId, submitted) {
 	return { ...draft, open: false, ...gameFields(gameId, submitted) };
 }
 
-/** Parameters of the retried __INIT__ ({ engine, worldConfig, ... }), or null. */
-export function draftParams(draft, gameId) {
-	return draft && draft.gameId === gameId ? draft.submitted || null : null;
-}
-
 function gameFields(gameId, submitted) {
 	if (typeof gameId !== 'string' || !gameId) return {};
 	return isObject(submitted) ? { gameId, submitted } : { gameId };

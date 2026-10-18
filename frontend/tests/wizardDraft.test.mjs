@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-	DRAFT_VERSION, attachDraft, draftParams, draftTitle, isBlankForm, makeDraft, parseDraft,
+	DRAFT_VERSION, attachDraft, draftTitle, isBlankForm, makeDraft, parseDraft,
 } from '../lib/game/wizardDraft.mjs';
 import { draftKey, localDraftStore } from '../lib/game/draftStores.mjs';
 import { INITIAL_WIZARD_FORM } from '../lib/game/wizardForm.mjs';
@@ -35,10 +35,7 @@ test('#88: a draft attached to its game keeps the sent parameters until the worl
 	const back = parseDraft(JSON.parse(JSON.stringify(attached)));
 	assert.deepEqual(back, { version: DRAFT_VERSION, step: 2, form: FORM, open: false, savedAt: 1000,
 		gameId: 'g1', submitted: SUBMITTED });
-	assert.deepEqual(draftParams(back, 'g1'), SUBMITTED);
-	assert.equal(draftParams(back, 'g2'), null); // another game's draft
-	assert.equal(draftParams(makeDraft({ step: 2, form: FORM }), 'g1'), null); // not attached
-	assert.equal(draftParams(null, 'g1'), null);
+	assert.deepEqual(back.submitted, SUBMITTED);
 });
 
 test('#88: broken game fields are dropped, the draft is kept', () => {

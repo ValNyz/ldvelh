@@ -5,8 +5,8 @@ import { genreLabel, useGenres } from '../../hooks/useGenres';
 
 /**
  * Reopened game whose world was never generated (failed, or left during the generation).
- * The server kept the parameters of the first __INIT__; `params` are the ones this browser
- * still holds (wizard draft), shown so the player knows what the retry uses (#88).
+ * `params`: this browser's draft for the game, else the server's stored set (`init_params`),
+ * shown so the player knows what the retry uses (#88).
  */
 export default function WorldPendingScreen({ params, error, onRetry, onEdit, onBack }) {
 	const world = params?.worldConfig;
