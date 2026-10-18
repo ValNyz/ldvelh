@@ -347,7 +347,7 @@ class TestShouldRunDirectorAcrossCycles:
 class TestApplyArcUpdateDedup:
     @pytest.mark.asyncio
     async def test_create_existing_unresolved_title_updates_instead(self, test_pool, test_user):
-        from services.director_service import _apply_arc_update
+        from services.director_apply import _apply_arc_update
         from schema.director import ArcUpdate
         from services.game_service import GameService
 
@@ -406,7 +406,7 @@ class TestDirectorGuards:
         from services.game_service import GameService
 
         game_id = await GameService(test_pool).create_game(test_user["id"])
-        with patch("services.director_service.KnowledgeGraphReader.get_game", side_effect=RuntimeError("db down")):
+        with patch("services.director_context.KnowledgeGraphReader.get_game", side_effect=RuntimeError("db down")):
             result = await run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=_session("{}"))
         assert result is None
 

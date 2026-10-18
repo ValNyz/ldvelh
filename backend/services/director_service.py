@@ -1,7 +1,8 @@
 """
 LDVELH - Director Service
 Background narrative planner that produces session-level guidance for the narrator.
-Runs periodically based on in-game time elapsed.
+Runs periodically based on in-game time elapsed. The run is split in three:
+collect (services/director_context.py), call (call_director), apply (services/director_apply.py).
 """
 
 import logging
@@ -10,16 +11,13 @@ from uuid import UUID
 import asyncpg
 
 from config import get_settings
-from kg.reader import KnowledgeGraphReader
 from llm.session import LLMSession, Purpose
-from prompts.director_prompt import (
-    DIRECTOR_INTERVAL,
-    DIRECTOR_SYSTEM_PROMPT,
-    build_director_user_prompt,
-)
+from prompts.director_prompt import DIRECTOR_INTERVAL, DIRECTOR_SYSTEM_PROMPT
 from schema.director import DirectorOutput
+from services.director_apply import apply_director_plan
+from services.director_context import DirectorContext, collect_director_context
 from utils.json_utils import parse_json_response
-from utils.log_safe import log_exception, safe_repr
+from utils.log_safe import log_exception
 
 logger = logging.getLogger(__name__)
 
@@ -66,80 +64,52 @@ def should_run_director(
     return elapsed >= interval
 
 
-async def _apply_arc_update(conn, game_id, arc_update, cycle):
-    """Apply a single arc update from the Director."""
-    action = arc_update.action.lower()
-    title = arc_update.title
+_SUBSTEPS = [  # JSON key -> status label sent once the key appears in the stream
+    ("tension_level", "Tension narrative"),
+    ("narrator_guidance", "Intentions PNJ"),
+    ("planned_events", "Événements"),
+    ("long_term_vision", "Vision globale"),
+]
 
-    if action == "create":
-        existing = await conn.fetchval(
-            """SELECT id FROM narrative_arcs
-               WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false""",
-            game_id, title,
-        )
-        if existing:
-            # Same open arc proposed again: update it instead of duplicating it
-            await conn.execute(
-                """UPDATE narrative_arcs
-                   SET description = COALESCE(NULLIF($2, ''), description),
-                       intensity = COALESCE($3, intensity), updated_at = now()
-                   WHERE id = $1""",
-                existing, arc_update.description or "", arc_update.intensity,
-            )
-            logger.info(f"[DIRECTOR] Arc already open, updated: '{title}'")
-            return
-        # Create new arc
-        arc_id = await conn.fetchval(
-            """INSERT INTO narrative_arcs
-                   (game_id, title, description, domain, intensity, created_cycle)
-               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
-            game_id, title,
-            arc_update.description or "",
-            arc_update.domain or "personal",
-            arc_update.intensity or 3,
-            cycle,  # the cycle the Director ran for: rollback deletes by it (#85)
-        )
-        # Link involved entities via arc_participants
-        if arc_id and arc_update.involved_entities:
-            for entity_name in arc_update.involved_entities:
-                entity_id = await conn.fetchval(
-                    "SELECT find_entity($1, $2)",  # maps PROTAGONIST_REF too (#28)
-                    game_id, entity_name,
-                )
-                if entity_id:
-                    await conn.execute(
-                        "INSERT INTO arc_participants (arc_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        arc_id, entity_id,
-                    )
-        logger.info(f"[DIRECTOR] Arc created: '{title}'")
 
-    elif action == "update":
-        # Update existing arc
-        updates = []
-        params = [game_id, title]
-        idx = 3
-        if arc_update.description:
-            updates.append(f"description = ${idx}")
-            params.append(arc_update.description)
-            idx += 1
-        if arc_update.intensity:
-            updates.append(f"intensity = ${idx}")
-            params.append(arc_update.intensity)
-            idx += 1
-        if updates:
-            updates.append("updated_at = now()")
-            sql = f"UPDATE narrative_arcs SET {', '.join(updates)} WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false"
-            await conn.execute(sql, *params)
-            logger.info(f"[DIRECTOR] Arc updated: '{title}'")
+async def _stream_text(session: LLMSession, messages: list[dict], sink) -> str:
+    """Stream the Director call, sending a status per sub-step as its JSON key appears."""
+    full_json = ""
+    await sink.send_status("director", "Tension narrative")
+    sent_labels = {"Tension narrative"}
+    stream = session.stream(
+        Purpose.DIRECTOR, DIRECTOR_SYSTEM_PROMPT, messages, temperature=0.7, max_tokens=2000
+    )
+    async for chunk in stream:
+        full_json += chunk
+        for key, label in _SUBSTEPS:
+            if label not in sent_labels and f'"{key}"' in full_json:
+                sent_labels.add(label)
+                await sink.send_status("director", label)
+                logger.info(f"[DIRECTOR] Sub-step: {label}")
+    return full_json
 
-    elif action == "resolve":
-        await conn.execute(
-            """UPDATE narrative_arcs
-               SET resolved = true, resolved_cycle = $3, resolution = $4, updated_at = now()
-               WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false""",
-            game_id, title, cycle, arc_update.resolution or "",
+
+async def call_director(
+    session: LLMSession, context: DirectorContext, sink=None,
+) -> DirectorOutput | None:
+    """Run the Director LLM on the context; None if it returned nothing usable.
+
+    Streams with a status per sub-step when `sink` is given (init flow), one
+    non-streaming completion otherwise (per-message trigger).
+    """
+    messages = [{"role": "user", "content": context.user_prompt()}]
+    if sink:
+        raw_result = parse_json_response(await _stream_text(session, messages, sink))
+    else:
+        call = await session.complete_text(
+            Purpose.DIRECTOR, DIRECTOR_SYSTEM_PROMPT, messages, temperature=0.7, max_tokens=2000
         )
-        logger.info(f"[DIRECTOR] Arc resolved: '{title}'")
+        raw_result = parse_json_response(call.value) if call.value else None
+    if not raw_result:
+        logger.warning("[DIRECTOR] LLM returned empty result")
+        return None
+    return DirectorOutput.model_validate(raw_result)
 
 
 async def run_director(
@@ -149,190 +119,36 @@ async def run_director(
     current_time: str,
     session: LLMSession,
     sse_writer=None,
+    *,
+    source_message_id: UUID | None = None,
 ) -> dict | None:
-    """Run the Director LLM and store its plan.
+    """Run the Director and store its plan: collect, call, apply (#96).
 
-    When sse_writer is provided (init flow), streams the call and sends
-    SSE status events as each JSON key is detected. Without sse_writer
-    (per-message trigger), uses a simple non-streaming complete() call.
+    No connection is held during the LLM call. With `source_message_id`, the plan is
+    dropped if that message was deleted (rolled back) meanwhile.
     One run per game at a time is the caller's rule: pipeline/director_runs.py.
     """
     logger.info(f"[DIRECTOR] Starting for game {game_id} at cycle {current_cycle} {current_time}")
 
-    user_prompt = ""
+    context = None
     try:
-        reader = KnowledgeGraphReader(pool, game_id)
-
         async with pool.acquire() as conn:
-            # Load game state
-            game = await reader.get_game(conn)
-            if not game:
-                logger.warning(f"[DIRECTOR] Game {game_id} not found")
-                return None
-
-            game_duration = game.get("game_duration") or "medium"
-
-            # Build world summary
-            world_summary = f"**{game.get('world_name', 'Monde')}**"
-            if game.get("world_description"):
-                world_summary += f"\n{game['world_description']}"
-            if game.get("world_atmosphere"):
-                world_summary += f"\nAtmosphère: {game['world_atmosphere']}"
-
-            # Build protagonist summary
-            proto = await reader.get_protagonist(conn)
-            proto_summary = "Pas de protagoniste"
-            if proto:
-                proto_summary = f"**{proto['name']}** — {proto.get('occupation', 'sans emploi')}"
-                if proto.get("description"):
-                    proto_summary += f"\n{proto['description']}"
-                if proto.get("backstory"):
-                    proto_summary += f"\nPassé: {proto['backstory']}"
-
-            # Build NPC summaries
-            npcs = await reader.get_all_characters(conn)
-            npc_lines = []
-            for npc in npcs[:10]:
-                line = f"- **{npc['name']}** ({npc.get('occupation', '?')})"
-                if npc.get("traits"):
-                    traits = npc["traits"] if isinstance(npc["traits"], list) else [npc["traits"]]
-                    line += f" — {', '.join(traits[:3])}"
-                if npc.get("ambient"):
-                    line += f" [Ambiance: {npc['ambient']}]"
-                npc_lines.append(line)
-            npc_summaries = "\n".join(npc_lines)
-
-            # Load active arcs
-            arcs = await reader.get_active_arcs(conn)
-            arc_lines = []
-            for arc in arcs:
-                line = f"- **{arc['title']}** ({arc.get('domain', '?')}, intensité {arc.get('intensity', 3)})"
-                if arc.get("description"):
-                    line += f": {arc['description'][:200]}"
-                arc_lines.append(line)
-            active_arcs = "\n".join(arc_lines)
-
-            # Load recent facts
-            facts = await reader.get_facts(conn, min_importance=3, limit=10)
-            facts_text = "\n".join(f"- {f['description']}" for f in facts) if facts else ""
-
-            # Load chronology
-            chronology = await reader.get_chronology(conn, limit=3)  # defaults to desc order
-            chrono_lines = []
-            for entry in chronology:
-                chrono_lines.append(f"Cycle {entry['cycle']}: {entry['summary']}")
-            chrono_text = "\n".join(chrono_lines)
-
-            # Load active seeds
-            seeds = await reader.get_active_seeds(conn, limit=10)
-            seeds_text = "\n".join(f"- {s['text']}" for s in seeds) if seeds else ""
-
-            # Load previous Director plans (last 3)
-            prev_plans = await conn.fetch(
-                """SELECT cycle, ig_time, tension_level, narrator_guidance, long_term_vision
-                   FROM director_plans
-                   WHERE game_id = $1
-                   ORDER BY created_at DESC LIMIT 3""",
-                game_id,
-            )
-            prev_text = ""
-            if prev_plans:
-                plan_lines = []
-                for p in reversed(prev_plans):  # oldest first
-                    plan_lines.append(
-                        f"**Cycle {p['cycle']} {p['ig_time'] or ''}** (tension {p['tension_level']})\n"
-                        f"{p['narrator_guidance'][:300]}"
-                    )
-                prev_text = "\n\n".join(plan_lines)
-
-        # Build prompt
-        user_prompt = build_director_user_prompt(
-            world_summary=world_summary,
-            protagonist_summary=proto_summary,
-            npc_summaries=npc_summaries,
-            active_arcs=active_arcs,
-            recent_facts=facts_text,
-            recent_chronology=chrono_text,
-            active_seeds=seeds_text,
-            previous_plans=prev_text,
-            game_duration=game_duration,
-            current_cycle=current_cycle,
-            current_time=current_time,
-        )
-
-        # LLM call — streaming when sse_writer is provided, complete() otherwise
-        # Labels sent when the PREVIOUS key's value is complete (not when the key appears)
-        # This way the label shows what's being generated NOW
-        SUBSTEPS = [
-            ("tension_level", "Tension narrative"),
-            ("narrator_guidance", "Intentions PNJ"),
-            ("planned_events", "Événements"),
-            ("long_term_vision", "Vision globale"),
-        ]
-
-        messages = [{"role": "user", "content": user_prompt}]
-
-        if sse_writer:
-            full_json = ""
-            sent_labels = set()
-
-            # Send initial status
-            await sse_writer.send_status("director", "Tension narrative")
-            sent_labels.add("Tension narrative")
-
-            stream = session.stream(
-                Purpose.DIRECTOR, DIRECTOR_SYSTEM_PROMPT, messages, temperature=0.7, max_tokens=2000
-            )
-            async for chunk in stream:
-                full_json += chunk
-                # When a key appears, send the label for THAT key (it's now being generated)
-                for key, label in SUBSTEPS:
-                    if label not in sent_labels and f'"{key}"' in full_json:
-                        sent_labels.add(label)
-                        await sse_writer.send_status("director", label)
-                        logger.info(f"[DIRECTOR] Sub-step: {label}")
-
-            raw_result = parse_json_response(full_json)
-        else:
-            # Non-streaming mode (fire-and-forget per-message trigger)
-            call = await session.complete_text(
-                Purpose.DIRECTOR, DIRECTOR_SYSTEM_PROMPT, messages, temperature=0.7, max_tokens=2000
-            )
-            raw_result = parse_json_response(call.value) if call.value else None
-
-        if not raw_result:
-            logger.warning("[DIRECTOR] LLM returned empty result")
+            context = await collect_director_context(conn, game_id, current_cycle, current_time)
+        if context is None:
+            logger.warning(f"[DIRECTOR] Game {game_id} not found")
             return None
 
-        plan = DirectorOutput.model_validate(raw_result)
+        plan = await call_director(session, context, sse_writer)
+        if plan is None:
+            return None
 
-        # Store in DB
         async with pool.acquire() as conn:
-            await conn.execute(
-                """INSERT INTO director_plans
-                   (game_id, cycle, ig_time, tension_level, narrator_guidance, planned_events, long_term_vision)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-                game_id,
-                current_cycle,
-                current_time,
-                plan.tension_level,
-                plan.narrator_guidance,
-                [e.model_dump() for e in plan.planned_events],
-                plan.long_term_vision,
+            stored = await apply_director_plan(
+                conn, game_id, plan, cycle=current_cycle, ig_time=current_time,
+                source_message_id=source_message_id,
             )
-
-            # Update last_director_time on game
-            await conn.execute(
-                "UPDATE games SET last_director_time = $2 WHERE id = $1",
-                game_id, current_time,
-            )
-
-            # Apply arc updates
-            for arc_update in plan.arc_updates:
-                try:
-                    await _apply_arc_update(conn, game_id, arc_update, current_cycle)
-                except Exception as arc_err:
-                    logger.warning(f"[DIRECTOR] Arc update failed: {safe_repr(arc_err)}")
+        if not stored:
+            return None
 
         logger.info(
             f"[DIRECTOR] Plan stored for game {game_id}: "
@@ -344,5 +160,6 @@ async def run_director(
     except Exception as e:
         log_exception(logger, logging.ERROR, f"[DIRECTOR] Failed for game {game_id}", e,
                       debug_detail=get_settings().log_prompts)
-        logger.debug(f"[DIRECTOR] Context prompt was:\n{user_prompt[:2000]}")
+        if context is not None:
+            logger.debug(f"[DIRECTOR] Context prompt was:\n{context.user_prompt()[:2000]}")
         return None
