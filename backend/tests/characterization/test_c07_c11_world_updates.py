@@ -216,11 +216,15 @@ async def test_c10b_day_change_turn_extraction_rolls_back(harness, world_game):
         created = await conn.fetchval(
             "SELECT created_cycle FROM characters WHERE game_id = $1 AND name = $2",
             world_game, payloads.NEW_CHARACTER_NAME)
+        log_cycles = await conn.fetch(
+            "SELECT DISTINCT cycle FROM extraction_logs WHERE game_id = $1 AND cycle > 1",
+            world_game)
         user_msg = await conn.fetchval(
             """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
                ORDER BY created_at DESC LIMIT 1""", world_game)
     assert game_cycle == 2
     assert created == 2
+    assert [r["cycle"] for r in log_cycles] == [2]  # the extraction log row is stamped too
 
     r = await harness.client.post(f"/api/games/{world_game}/rollback",
                                   json={"messageId": str(user_msg)}, headers=harness.headers)
@@ -229,7 +233,10 @@ async def test_c10b_day_change_turn_extraction_rolls_back(harness, world_game):
         left = await conn.fetchval(
             "SELECT COUNT(*) FROM characters WHERE game_id = $1 AND name = $2",
             world_game, payloads.NEW_CHARACTER_NAME)
+        logs_left = await conn.fetchval(
+            "SELECT COUNT(*) FROM extraction_logs WHERE game_id = $1 AND cycle > 1", world_game)
     assert left == 0
+    assert logs_left == 0
 
 
 async def test_c11_director_plan_written(harness, world_game, monkeypatch):
@@ -242,9 +249,9 @@ async def test_c11_director_plan_written(harness, world_game, monkeypatch):
     harness.llm.calls.clear()
     per_turn = []
     # The init plan is written at the arrival time, 11h42 (#89), and the medium interval is
-    # 6 in-game hours (#9): 13h00 is too early, 18h00 triggers the Director, 19h00 is too
-    # early again.
-    for msg, new_time in (("Premier tour.", "13h00"), ("Deuxième tour.", "18h00"),
+    # 6 in-game hours (#9): 17h00 is too early (it would trigger from a fixed 08h00), 18h00
+    # triggers the Director, 19h00 is too early again.
+    for msg, new_time in (("Premier tour.", "17h00"), ("Deuxième tour.", "18h00"),
                           ("Troisième tour.", "19h00")):
         harness.llm.calls.clear()
         await _turn(harness, world_game, _narration(
