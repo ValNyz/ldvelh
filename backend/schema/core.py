@@ -426,52 +426,84 @@ def _normalize_enum_value(
 
 def normalize_entity_type(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, ENTITY_TYPE_SYNONYMS, EntityType, "entity_type", unknown=None,
+        value,
+        ENTITY_TYPE_SYNONYMS,
+        EntityType,
+        "entity_type",
+        unknown=None,
     )
 
 
 def normalize_relation_type(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, RELATION_TYPE_SYNONYMS, RelationType, "relation_type", unknown=None,
+        value,
+        RELATION_TYPE_SYNONYMS,
+        RelationType,
+        "relation_type",
+        unknown=None,
     )
 
 
 def normalize_fact_type(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, FACT_TYPE_SYNONYMS, FactType, "fact_type", unknown="other",
+        value,
+        FACT_TYPE_SYNONYMS,
+        FactType,
+        "fact_type",
+        unknown="other",
     )
 
 
 def normalize_participant_role(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, PARTICIPANT_ROLE_SYNONYMS, ParticipantRole, "participant_role", unknown="mentioned",
+        value,
+        PARTICIPANT_ROLE_SYNONYMS,
+        ParticipantRole,
+        "participant_role",
+        unknown="mentioned",
     )
 
 
 def normalize_arc_domain(value: Any) -> str | None:
     # No caller outside schema/core.py yet; kept per #27.
     return _normalize_enum_value(
-        value, ARC_DOMAIN_SYNONYMS, ArcDomain, "arc_domain", unknown="personal",
+        value,
+        ARC_DOMAIN_SYNONYMS,
+        ArcDomain,
+        "arc_domain",
+        unknown="personal",
     )
 
 
 def normalize_departure_reason(value: Any) -> str | None:
     return _normalize_enum_value(
-        value, DEPARTURE_REASON_SYNONYMS, DepartureReason, "departure_reason", unknown="other",
+        value,
+        DEPARTURE_REASON_SYNONYMS,
+        DepartureReason,
+        "departure_reason",
+        unknown="other",
     )
 
 
 def normalize_moment(value: Any) -> str | None:
     # No caller outside schema/core.py yet; kept per #27.
     return _normalize_enum_value(
-        value, MOMENT_SYNONYMS, Moment, "moment", unknown=None,
+        value,
+        MOMENT_SYNONYMS,
+        Moment,
+        "moment",
+        unknown=None,
     )
 
 
 def normalize_org_size(value: Any) -> str | None:
     # No caller outside schema/core.py yet; kept per #27.
     return _normalize_enum_value(
-        value, ORG_SIZE_SYNONYMS, OrgSize, "org_size", unknown="medium",
+        value,
+        ORG_SIZE_SYNONYMS,
+        OrgSize,
+        "org_size",
+        unknown="medium",
     )
 
 

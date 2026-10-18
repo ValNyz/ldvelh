@@ -7,7 +7,7 @@ import pytest
 
 from schema import PROTAGONIST_REF
 from schema.core import normalize_fact_type
-from tests.test_extractor_savepoints import _character_names, _extractor
+from tests.helpers import character_names, extractor_for
 from tests.test_protagonist_ref import populate_kira, protagonist_relations, run_extractor
 from tests.test_relation_update import created
 
@@ -15,7 +15,7 @@ pytestmark = pytest.mark.integration
 
 
 async def test_unknown_entity_type_rejects_the_item_only(test_pool, test_user):
-    extractor, game_id = await _extractor(test_pool, test_user, {"entities_created": [
+    extractor, game_id = await extractor_for(test_pool, test_user, {"entities_created": [
         {"entity_type": "vehicle", "name": "Le Corbeau"},
         {"entity_type": "character", "name": "Mira"}]})
     async with test_pool.acquire() as conn:
@@ -30,7 +30,7 @@ async def test_unknown_entity_type_rejects_the_item_only(test_pool, test_user):
         after = await conn.fetchval("SELECT count(*) FROM protagonists WHERE game_id = $1",
                                     game_id)
     assert after == before
-    assert "Mira" in await _character_names(test_pool, game_id)
+    assert "Mira" in await character_names(test_pool, game_id)
 
 
 async def test_unknown_relation_type_is_rejected_not_knows(test_pool, test_user):
@@ -50,7 +50,7 @@ async def test_unknown_relation_type_is_rejected_not_knows(test_pool, test_user)
 
 
 async def test_unknown_fact_type_is_stored_as_other(test_pool, test_user):
-    extractor, game_id = await _extractor(test_pool, test_user, {"facts": [
+    extractor, game_id = await extractor_for(test_pool, test_user, {"facts": [
         {"fact_type": "prophecy", "description": "Une voix annonce la fin.",
          "semantic_key": "voix:annonce:fin"}]})
     stats = (await extractor.run("texte", {}, 1))["stats"]

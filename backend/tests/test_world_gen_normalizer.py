@@ -420,7 +420,8 @@ def test_unknown_relation_type_is_dropped_not_fatal(caplog):
     with caplog.at_level("WARNING"):
         world = WorldGeneration.model_validate(data)
     assert [r.relation_type.value for r in world.initial_relations] == ["lives_at"]
-    assert "sworn_to" in caplog.text and "knows" not in caplog.text
+    drops = [r.getMessage() for r in caplog.records if "Dropped" in r.getMessage()]
+    assert len(drops) == 1 and "sworn_to" in drops[0] and "knows" not in drops[0]
 
 
 def test_only_unknown_relation_types_rebuilds_the_defaults():

@@ -169,3 +169,32 @@ async def rollback_last_turn(harness, game_id):
     r = await harness.client.post(f"/api/games/{game_id}/rollback",
                                   json={"messageId": str(user_msg)}, headers=harness.headers)
     assert r.status_code == 200, r.text
+
+
+# =============================================================================
+# Extractor test setup
+# =============================================================================
+
+
+async def extractor_for(test_pool, test_user, raw_result):
+    """A CharactersExtractor on a fresh game whose LLM call answers `raw_result`."""
+    from llm.session import LLMSession
+    from services.extraction.characters import CharactersExtractor
+    from services.game_service import GameService
+    from tests.test_llm_session import FakeProvider
+
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    extractor = CharactersExtractor(test_pool, game_id,
+                                    LLMSession.from_provider(FakeProvider()))
+
+    async def fake_call(*_args, **_kwargs):
+        return raw_result, {"cost_usd": 0.001}
+
+    extractor._call_llm = fake_call
+    return extractor, game_id
+
+
+async def character_names(test_pool, game_id):
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT name FROM characters WHERE game_id = $1", game_id)
+    return {r["name"] for r in rows}

@@ -7,33 +7,12 @@ import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from llm.session import LLMSession
-from services.extraction.characters import CharactersExtractor
-from services.game_service import GameService
-from tests.test_llm_session import FakeProvider
-
-
-async def _extractor(test_pool, test_user, raw_result):
-    game_id = await GameService(test_pool).create_game(test_user["id"])
-    extractor = CharactersExtractor(test_pool, game_id,
-                                    LLMSession.from_provider(FakeProvider()))
-
-    async def fake_call(*_args, **_kwargs):
-        return raw_result, {"cost_usd": 0.001}
-
-    extractor._call_llm = fake_call
-    return extractor, game_id
+from tests.helpers import character_names, extractor_for
 
 
 def _fact(key):
     return {"fact_type": "observation", "description": "Une porte grince.",
             "semantic_key": key}
-
-
-async def _character_names(test_pool, game_id):
-    async with test_pool.acquire() as conn:
-        rows = await conn.fetch("SELECT name FROM characters WHERE game_id = $1", game_id)
-    return {r["name"] for r in rows}
 
 
 async def _fact_keys(test_pool, game_id):
@@ -49,7 +28,7 @@ async def test_unique_violation_in_one_item_keeps_the_other_items(test_pool, tes
                              {"entity_ref": "Beta", "changes": {"mood": "calme"}}],
         "facts": [_fact("porte:grince:nuit")],
     }
-    extractor, game_id = await _extractor(test_pool, test_user, raw)
+    extractor, game_id = await extractor_for(test_pool, test_user, raw)
     real_update = extractor.populator.update_entity
 
     async def colliding_update(conn, entity_type, name, changes):
@@ -61,7 +40,7 @@ async def test_unique_violation_in_one_item_keeps_the_other_items(test_pool, tes
     extractor.populator.update_entity = colliding_update
     result = await extractor.run("texte", {}, 1)
 
-    assert await _character_names(test_pool, game_id) >= {"Alpha", "Beta"}
+    assert await character_names(test_pool, game_id) >= {"Alpha", "Beta"}
     assert "porte:grince:nuit" in await _fact_keys(test_pool, game_id)
     async with test_pool.acquire() as conn:
         beta_mood = await conn.fetchval(
@@ -80,16 +59,16 @@ async def test_unique_violation_in_one_item_keeps_the_other_items(test_pool, tes
 
 
 async def test_clean_run_reports_success(test_pool, test_user):
-    extractor, game_id = await _extractor(
+    extractor, game_id = await extractor_for(
         test_pool, test_user, {"entities_created": [{"name": "Gamma"}]})
     result = await extractor.run("texte", {}, 1)
     assert result["success"] is True and not result.get("partial")
     assert result["stats"]["errors"] == []
-    assert "Gamma" in await _character_names(test_pool, game_id)
+    assert "Gamma" in await character_names(test_pool, game_id)
 
 
 async def test_populate_raising_returns_failure(test_pool, test_user):
-    extractor, game_id = await _extractor(
+    extractor, game_id = await extractor_for(
         test_pool, test_user, {"entities_created": [{"name": "Delta"}]})
     real_populate = extractor._populate
 
@@ -102,7 +81,7 @@ async def test_populate_raising_returns_failure(test_pool, test_user):
 
     assert result["success"] is False and not result.get("partial")
     assert result["cost"] == {"cost_usd": 0.001}
-    assert "Delta" not in await _character_names(test_pool, game_id)  # rolled back
+    assert "Delta" not in await character_names(test_pool, game_id)  # rolled back
     async with test_pool.acquire() as conn:
         logged = await conn.fetchval(
             "SELECT errors FROM extraction_logs WHERE game_id = $1", game_id)
@@ -111,7 +90,7 @@ async def test_populate_raising_returns_failure(test_pool, test_user):
 
 async def test_sql_error_swallowed_inside_an_item_fails_only_that_item(test_pool, test_user):
     """The aborted savepoint is rolled back: the item fails, the others commit."""
-    extractor, game_id = await _extractor(
+    extractor, game_id = await extractor_for(
         test_pool, test_user,
         {"entities_created": [{"name": "Epsilon"}],
          "entities_updated": [{"entity_ref": "Epsilon", "changes": {"mood": "las"}}]})
@@ -127,7 +106,7 @@ async def test_sql_error_swallowed_inside_an_item_fails_only_that_item(test_pool
     result = await extractor.run("texte", {}, 1)
 
     assert result["success"] is False and result["partial"] is True
-    assert "Epsilon" in await _character_names(test_pool, game_id)
+    assert "Epsilon" in await character_names(test_pool, game_id)
     [error] = result["stats"]["errors"]
     assert error.startswith("update:")
     async with test_pool.acquire() as conn:
@@ -158,7 +137,7 @@ async def test_transaction_aborted_outside_any_savepoint_propagates(test_pool):
 
 
 async def test_empty_response_keeps_the_billed_cost(test_pool, test_user):
-    extractor, _ = await _extractor(test_pool, test_user, {})
+    extractor, _ = await extractor_for(test_pool, test_user, {})
     result = await extractor.run("texte", {}, 1)
     assert result["success"] is False and result["error"] == "empty_response"
     assert result["cost"] == {"cost_usd": 0.001}
@@ -196,14 +175,14 @@ async def test_orchestrator_log_counts_real_outcomes(caplog):
 
 async def test_populate_skips_when_the_source_message_is_gone(test_pool, test_user):
     """#23: the source message was rolled back: nothing is written, the run is skipped."""
-    extractor, game_id = await _extractor(
+    extractor, game_id = await extractor_for(
         test_pool, test_user, {"entities_created": [{"name": "Zeta"}]})
     result = await extractor.run("texte", {}, 1, source_message_id=uuid4())
 
     assert result["success"] is False and result["skipped"] is True
     assert result["error"] == "source_message_gone"
     assert result["cost"] == {"cost_usd": 0.001}
-    assert "Zeta" not in await _character_names(test_pool, game_id)
+    assert "Zeta" not in await character_names(test_pool, game_id)
     async with test_pool.acquire() as conn:
         logs = await conn.fetchval(
             "SELECT COUNT(*) FROM extraction_logs WHERE game_id = $1", game_id)
@@ -218,7 +197,7 @@ async def test_cancel_inside_the_guarded_transaction_releases_the_message(test_p
     from domain.turn import NarrationState
     from repos import turns
 
-    extractor, game_id = await _extractor(
+    extractor, game_id = await extractor_for(
         test_pool, test_user, {"entities_created": [{"name": "Eta"}]})
     async with test_pool.acquire() as conn:
         _, message_id = await turns.save_turn_messages(
@@ -244,4 +223,4 @@ async def test_cancel_inside_the_guarded_transaction_releases_the_message(test_p
         deleted = await asyncio.wait_for(
             conn.execute("DELETE FROM messages WHERE id = $1", message_id), 1.0)
     assert deleted == "DELETE 1"
-    assert "Eta" not in await _character_names(test_pool, game_id)
+    assert "Eta" not in await character_names(test_pool, game_id)
