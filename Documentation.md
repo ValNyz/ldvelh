@@ -46,6 +46,7 @@ ldvelh/
 │   ├── pipeline/              # Turn pipeline (no FastAPI, no SQL)
 │   │   ├── turn.py            # run_turn: load → arbitrate → narrate → commit → respond → schedule
 │   │   ├── init_flow.py       # World generation turn (INIT)
+│   │   ├── chosen_name.py     # Wizard PC name made authoritative over the world builder's
 │   │   ├── context.py         # TurnContext, TurnRequest, InitParams
 │   │   ├── narration_stream.py# Provider stream, partial-JSON chunks, display text
 │   │   ├── errors.py          # report_error: exception → one French TurnError
@@ -80,6 +81,9 @@ ldvelh/
 │   ├── kg/                    # Knowledge Graph layer
 │   │   ├── reader.py          # KnowledgeGraphReader (SELECT queries)
 │   │   ├── populator.py       # KnowledgeGraphPopulator (INSERT/UPDATE)
+│   │   ├── item_writes.py     # Per-item SAVEPOINT writes (write_item, write_items)
+│   │   ├── upsert_sql.py      # Guarded SET lists for re-listed entity upserts
+│   │   ├── semantic_keys.py   # Fact semantic keys (protagonist:*)
 │   │   └── specialized_populator.py  # WorldPopulator, ExtractionPopulator
 │   ├── prompts/
 │   │   ├── narrator_prompt.py # System + context prompts for narration
@@ -87,7 +91,9 @@ ldvelh/
 │   │   ├── mechanical_prompt.py       # Mechanical decision prompts
 │   │   └── extraction/        # Per-extractor prompt modules
 │   ├── schema/                # Pydantic models
-│   │   ├── core.py            # Base types (Name, ShortText, etc.)
+│   │   ├── core.py            # Base types (Name, ShortText, GameTime, PROTAGONIST_REF, etc.)
+│   │   ├── columns.py         # Entity field bounds: min(product limit, column width)
+│   │   ├── entity_changes.py  # EntityUpdate.changes typed per column (bound_changes)
 │   │   ├── narration.py       # NarrationOutput, NarrationContext, lenient parsing (parse_narration)
 │   │   ├── world_generation.py# WorldGeneration schema
 │   │   ├── engine.py          # Engine types, MechanicalDecision, RollResult
