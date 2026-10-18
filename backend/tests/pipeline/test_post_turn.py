@@ -24,13 +24,14 @@ def test_new_cycle_is_true_only_when_the_cycle_grows():
 
 
 async def test_two_post_turn_jobs_run_in_order_and_both_extract(monkeypatch):
-    game_id, release = uuid4(), asyncio.Event()
+    game_id, started, release = uuid4(), asyncio.Event(), asyncio.Event()
     calls, results = [], []
 
     async def recorder(pool, game_id, *, trigger_cycle, triggers, session,
                        assistant_message_id, message_content, narrator_deltas):
         calls.append(assistant_message_id)
         if len(calls) == 1:
+            started.set()
             await release.wait()  # the first extraction is still running at the second enqueue
         result = {"resolver": None, "extractors": {}}
         results.append(result)
@@ -44,13 +45,15 @@ async def test_two_post_turn_jobs_run_in_order_and_both_extract(monkeypatch):
         supervisor.enqueue(game_id, "post_turn", post_turn.run_post_turn(
             pool, session, event, triggers=["characters"], message_content="texte",
             narrator_deltas={}))
-    await asyncio.sleep(0.05)
-    assert calls == [first.assistant_message_id]  # the second waits, it is not dropped
+    await asyncio.wait_for(started.wait(), TIMEOUT)
+    assert calls == [first.assistant_message_id]
+    assert supervisor.pending(game_id) == 2  # the second waits, it is not dropped
     release.set()
     await supervisor.wait_idle(game_id, timeout=TIMEOUT)
 
     assert calls == [first.assistant_message_id, second.assistant_message_id]
-    assert not any(r.get("skipped") for r in results)
+    # Both jobs ran to completion; the real orchestrator skip path is covered by C-17.
+    assert len(results) == 2
 
 
 async def test_run_post_turn_forwards_the_turn(monkeypatch):

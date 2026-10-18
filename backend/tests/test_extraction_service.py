@@ -144,7 +144,7 @@ class TestNarrativeArcsExtraction:
 
 
 class TestOrchestrator:
-    """Tests for run_triggered_extraction orchestrator."""
+    """Tests for the extraction orchestrator (run_resolve_and_extract and its alias)."""
 
     @pytest.mark.asyncio
     async def test_empty_triggers_skipped(self):
