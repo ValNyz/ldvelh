@@ -10,7 +10,7 @@ import json
 import re
 from typing import Annotated
 
-from pydantic import AfterValidator, StringConstraints
+from pydantic import AfterValidator, BaseModel, StringConstraints, model_validator
 
 # games.name varchar(255), users.email varchar(255), users.display_name varchar(100)
 GameName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255)]
@@ -93,3 +93,20 @@ def check_manual_entities(value: dict) -> dict:
 
 WizardPart = Annotated[dict, AfterValidator(check_wizard_form_size)]
 ManualEntities = Annotated[dict, AfterValidator(check_manual_entities)]
+
+
+class WizardForm(BaseModel):
+    """The three wizard parts, each bounded and the whole form bounded as one LLM input.
+
+    The one definition behind /chat (ChatRequest inherits it) and /world/enhance
+    (WizardState): both paths refuse the same oversized forms.
+    """
+
+    world_config: WizardPart | None = None  # genre, difficulty, duration, hardcore, lore
+    character_data: WizardPart | None = None  # engine-specific character stats
+    manual_entities: ManualEntities | None = None  # user-defined NPCs/locations/orgs
+
+    @model_validator(mode="after")
+    def _bounded(self):
+        check_wizard_form_size(self.model_dump(include=set(WizardForm.model_fields)))
+        return self

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from helpers import auth_headers
+from helpers import OVERSIZED_WIZARD_FORM, auth_headers
 from services import llm_providers
 from tests.characterization.scripted_llm import ScriptedLLMProvider, make_provider_class
 
@@ -79,6 +79,7 @@ async def test_enhance_with_empty_text_invents(client, test_user, seeded_genres,
 @pytest.mark.parametrize("current", [
     {"world_config": {"lore": "x" * 50_000}},
     {"manual_entities": {"npcs": [{"name": f"P{i}", "description": ""} for i in range(500)]}},
+    OVERSIZED_WIZARD_FORM,  # each part fits, the whole form does not (same input as /chat)
 ])
 async def test_enhance_rejects_oversized_input(client, test_user, world_llm, current):
     resp = await client.post("/api/world/enhance", headers=auth_headers(test_user["token"]),

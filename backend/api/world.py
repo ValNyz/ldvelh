@@ -10,10 +10,10 @@ import logging
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from api import routes
-from api.request_types import ManualEntities, WizardPart, check_wizard_form_size
+from api.request_types import WizardForm
 from api.dependencies import get_current_user, get_pool
 from llm.session import LLMSession
 from repos.llm_models import load_catalog
@@ -32,17 +32,8 @@ router = APIRouter(tags=["world"])
 enhance_limiter = shared_limiter(max_requests=10, window_seconds=60)
 
 
-class WizardState(BaseModel):
-    """The wizard form as it stands (same fields and bounds as the /chat init fields)."""
-
-    world_config: WizardPart | None = None
-    character_data: WizardPart | None = None
-    manual_entities: ManualEntities | None = None
-
-    @model_validator(mode="after")
-    def _bounded(self):
-        check_wizard_form_size(self.model_dump())  # the whole form, as one LLM input
-        return self
+class WizardState(WizardForm):
+    """The wizard form as it stands (the same type as the /chat init fields)."""
 
 
 class WorldEnhanceRequest(BaseModel):

@@ -7,6 +7,8 @@ __INIT__ sent (genre, lore, difficulty, duration, character sheet, manual entiti
 import json
 from uuid import UUID
 
+from api.request_types import WIZARD_FORM_MAX_CHARS
+from helpers import OVERSIZED_WIZARD_FORM
 from tests.characterization import payloads
 from tests.characterization.harness import spy_narration
 
@@ -130,6 +132,20 @@ async def test_load_game_returns_the_stored_parameters_until_the_world_exists(ha
     r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
     assert r.json()["state"]["world_created"] is True
     assert r.json().get("init_params") is None
+
+
+async def test_wizard_form_over_the_whole_form_bound_is_refused(harness):
+    """Each part fits, the whole form does not: refused like /world/enhance does."""
+    game_id = await harness.create_game("fate_core")
+    r = await harness.client.post("/api/chat", headers=harness.headers, json={
+        "message": "__INIT__", "gameId": game_id, **OVERSIZED_WIZARD_FORM})
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == (
+        f"Requête invalide : requête : formulaire trop long (max {WIZARD_FORM_MAX_CHARS} caractères).")
+    assert harness.llm.calls == []
+    async with harness.pool.acquire() as conn:
+        assert await conn.fetchval("SELECT world_config FROM games WHERE id = $1",
+                                   UUID(game_id)) is None
 
 
 async def test_oversized_wizard_parameters_are_refused_before_anything_is_stored(harness):

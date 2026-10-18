@@ -14,7 +14,7 @@ from services.engine import EngineType, get_engine
 
 from api.dependencies import get_pool, get_settings_dep, get_current_user
 from api import game_writers
-from api.request_types import GameName, ManualEntities, WizardPart
+from api.request_types import GameName, WizardForm
 from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from llm.session import LLMSession
@@ -64,9 +64,11 @@ def _reject_unusable_wizard_name(character_data: dict | None) -> None:
 # =============================================================================
 
 
-class ChatRequest(BaseModel):
+class ChatRequest(WizardForm):
     """Requête de chat.
 
+    Wizard params (init mode only, inherited from WizardForm with their bounds): stored on
+    the game, a bare retry reuses them (#88).
     Unknown fields are ignored (pydantic default), not refused: a frontend cached before
     #55 still sends gameState (the server always reloads the state) and must keep working
     during a deploy.
@@ -76,11 +78,7 @@ class ChatRequest(BaseModel):
     gameId: UUID
     provider: str = "anthropic"
     model: str | None = None
-    # Wizard params (init mode only); stored on the game, a bare retry reuses them (#88)
-    engine: EngineType | None = None
-    world_config: WizardPart | None = None  # genre, difficulty, duration, hardcore, lore
-    character_data: WizardPart | None = None  # engine-specific character stats
-    manual_entities: ManualEntities | None = None  # user-defined NPCs/locations/orgs
+    engine: EngineType | None = None  # wizard engine (init mode only)
     # Fate Core aspect invocation resume
     roll_id: UUID | None = None  # pending roll to resume
     invoked_aspects: list[str] | None = None  # aspects invoked (+2 each)

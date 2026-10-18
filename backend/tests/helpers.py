@@ -8,6 +8,12 @@ def auth_headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+# Each wizard part fits WIZARD_FORM_MAX_CHARS, the three together do not: /chat and
+# /world/enhance must refuse it alike (one bounded form type, api/request_types.py).
+OVERSIZED_WIZARD_FORM = {part: {"lore": "x" * 9_000}
+                         for part in ("world_config", "character_data", "manual_entities")}
+
+
 # =============================================================================
 # Turn writes for test setup (repos.turns on a pooled connection)
 # =============================================================================
