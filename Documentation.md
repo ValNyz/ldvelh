@@ -48,6 +48,7 @@ ldvelh/
 │   │   ├── init_flow.py       # World generation turn (INIT)
 │   │   ├── chosen_name.py     # Wizard PC name made authoritative over the world builder's
 │   │   ├── context.py         # TurnContext, TurnRequest, InitParams
+│   │   ├── init_params.py     # Wizard parameters stored on the game until its world exists (#88)
 │   │   ├── narration_stream.py# Provider stream, partial-JSON chunks, display text
 │   │   ├── narrative_scanner.py # NarrativeScanner: incremental narrative_text extraction (#90)
 │   │   ├── json_escape.py     # JSON string escape decoder for a partial stream (#90)
@@ -113,6 +114,8 @@ ldvelh/
 │   │   └── (auth)/            # Login, register, verify pages
 │   ├── hooks/
 │   │   ├── useGameOrchestrator.js  # All game business logic
+│   │   ├── useWizardSession.js     # Wizard drafts: new world, one per game not generated yet
+│   │   ├── useGenres.js            # Genres from GET /genres, genre labels
 │   │   ├── useStreaming.js         # SSE handling
 │   │   ├── useGameState.js         # Game state management
 │   │   ├── useGamePhase.js         # Phase state machine
@@ -129,6 +132,8 @@ ldvelh/
 │   │   ├── DiceRollDisplay.jsx# Inline dice visuals
 │   │   ├── InputArea.jsx      # Text input
 │   │   ├── WorldGenerationScreen.jsx  # World gen progress + completion
+│   │   ├── WorldPendingScreen.jsx     # World not created yet: its parameters, retry or edit (#88)
+│   │   ├── WorldRetryActions.jsx      # Retry / edit parameters / back buttons (#88)
 │   │   ├── CharacterSheet.jsx # Full character sheet overlay
 │   │   ├── AspectInvocationModal.jsx  # Fate Core invocation modal
 │   │   ├── Sidebars.jsx       # Inventory + World sidebars
