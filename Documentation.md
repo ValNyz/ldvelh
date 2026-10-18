@@ -49,6 +49,8 @@ ldvelh/
 │   │   ├── chosen_name.py     # Wizard PC name made authoritative over the world builder's
 │   │   ├── context.py         # TurnContext, TurnRequest, InitParams
 │   │   ├── narration_stream.py# Provider stream, partial-JSON chunks, display text
+│   │   ├── narrative_scanner.py # NarrativeScanner: incremental narrative_text extraction (#90)
+│   │   ├── json_escape.py     # JSON string escape decoder for a partial stream (#90)
 │   │   ├── errors.py          # report_error: exception → one French TurnError
 │   │   ├── ports.py           # EventSink protocol (SSEWriter satisfies it)
 │   │   ├── uncancellable.py   # finish_despite_cancel (commit and post-commit part)
@@ -497,7 +499,8 @@ Context prompt: markdown sections built from `NarrationContext`:
 **Files:** `backend/pipeline/steps/narrate.py`, `backend/pipeline/narration_stream.py`
 
 - Calls `provider.stream(system_prompt, messages, temperature, max_tokens)`
-- For LIGHT mode: extracts displayable narrative text in real-time
+- For LIGHT mode: extracts displayable narrative text in real-time with `pipeline/narrative_scanner.NarrativeScanner` (#90): incremental (each chunk examined once, linear in the stream, including the search for the `"narrative_text":` key), it decodes `\uXXXX` escapes and surrogate pairs like `json.loads` (`pipeline/json_escape.py`) and holds back an escape cut off at the end of a chunk
+- A lone surrogate (in the stream, at `parse_json_response`, and on the structured-output paths of `llm/session.py` via `utils.replace_lone_surrogates`) becomes U+FFFD: it could not be encoded to UTF-8 for the client
 - Sends `SSEEvent.CHUNK` for each text delta
 - On completion: parses full JSON response, calls `on_complete` callback
 
