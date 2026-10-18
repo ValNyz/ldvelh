@@ -72,10 +72,16 @@ def _isolated_dynamic_pricing():
 
 @pytest.fixture(autouse=True)
 def _reset_supervisor():
-    """Each test runs on its own event loop: forget the jobs and semaphore of the last one."""
+    """Each test runs on its own event loop: forget the jobs and semaphore of the last one.
+
+    Also restores the default post-turn hooks, which a test may have replaced.
+    """
+    from services import hooks, subscribers
     from workers import supervisor
 
     supervisor.reset()
+    hooks.reset()
+    subscribers.register_defaults()
 
 
 @pytest.fixture

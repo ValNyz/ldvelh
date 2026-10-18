@@ -1,7 +1,7 @@
 """
 LDVELH - Director Service
 Background narrative planner that produces session-level guidance for the narrator.
-Runs periodically based on in-game time elapsed. The run is split in three:
+Runs periodically based on in-game time elapsed: on_turn_committed, a post-turn hook. The run is split in three:
 collect (services/director_context.py), call (call_director), apply (services/director_apply.py).
 """
 
@@ -11,8 +11,10 @@ from uuid import UUID
 import asyncpg
 
 from config import get_settings
+from domain.turn import TurnCommitted
 from llm.session import LLMSession, Purpose
 from prompts.director_prompt import DIRECTOR_INTERVAL, DIRECTOR_SYSTEM_PROMPT
+from repos.games import get_director_schedule
 from schema.director import DirectorOutput
 from services.director_apply import apply_director_plan
 from services.director_context import DirectorContext, collect_director_context
@@ -126,7 +128,7 @@ async def run_director(
 
     No connection is held during the LLM call. With `source_message_id`, the plan is
     dropped if that message was deleted (rolled back) meanwhile.
-    One run per game at a time is the caller's rule: pipeline/director_runs.py.
+    One run per game at a time: every run is a supervisor job of the game (workers/supervisor).
     """
     logger.info(f"[DIRECTOR] Starting for game {game_id} at cycle {current_cycle} {current_time}")
 
@@ -163,3 +165,17 @@ async def run_director(
         if context is not None:
             logger.debug(f"[DIRECTOR] Context prompt was:\n{context.user_prompt()[:2000]}")
         return None
+
+
+async def on_turn_committed(pool: asyncpg.Pool, session: LLMSession, event: TurnCommitted) -> None:
+    """Post-turn hook: run the Director if enough in-game time elapsed since the last plan."""
+    # Re-read now: the previous job of the game may have committed a plan since the turn.
+    async with pool.acquire() as conn:
+        schedule = await get_director_schedule(conn, event.game_id)
+    if not should_run_director(event.time, schedule.last_time, schedule.game_duration,
+                               current_cycle=event.cycle, last_cycle=schedule.last_cycle):
+        logger.debug(f"[DIRECTOR] Interval not elapsed game={event.game_id} at {event.time}")
+        return
+    logger.info(f"[DIRECTOR] Triggered game={event.game_id} at {event.time}")
+    await run_director(pool, event.game_id, event.cycle, event.time, session,
+                       source_message_id=event.assistant_message_id)

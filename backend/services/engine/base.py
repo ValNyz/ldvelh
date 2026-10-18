@@ -56,6 +56,13 @@ class BaseEngine(ABC):
         in vitals_from_stats. Default: empty (engines without a sheet)."""
         return {}
 
+    async def on_new_cycle(self, conn, game_id: UUID, cycle: int) -> None:
+        """A turn started in-game day `cycle` (new_cycle hook, in its transaction on `conn`).
+
+        Anchor point of P7 for the per-day refresh and progression. Default: nothing.
+        """
+        return None
+
     async def get_vitals_display(self, conn, game_id: UUID) -> dict:
         """Load engine vitals formatted for frontend display."""
         return self.vitals_from_stats(await self.get_stats(conn, game_id))

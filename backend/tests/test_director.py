@@ -367,18 +367,26 @@ class TestApplyArcUpdateDedup:
 
 class TestDirectorGuards:
     @pytest.mark.asyncio
-    async def test_concurrent_starts_for_same_game_call_llm_once(self, test_pool, test_user):
-        """One Director per game at a time: the rule lives in pipeline/director_runs (#79)."""
+    async def test_two_queued_director_hooks_call_the_llm_once(self, test_pool, test_user):
+        """One queue per game: the second turn's hook sees the first plan, no second call (#95)."""
         import asyncio
-        from pipeline import director_runs
-        from services.director_service import run_director
+        from uuid import uuid4
+        from domain.turn import NarrationState, TurnCommitted
+        from repos import turns
+        from services import hooks
         from services.game_service import GameService
         from schema import WorldGeneration
         from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
+        from workers import supervisor
 
         service = GameService(test_pool)
         game_id = await service.create_game(test_user["id"])
         await service.process_init(game_id, WorldGeneration.model_validate(json.loads(WORLD_GENERATION_EXAMPLE)))
+        async with test_pool.acquire() as conn:
+            _, assistant_id = await turns.save_turn_messages(
+                conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
+                state=NarrationState(cycle=1, time="08h00", location=None, npcs_present=[], date=None),
+                narrator_deltas={}, engine_snapshot=None)
 
         from tests.test_llm_session import FakeProvider
 
@@ -391,14 +399,17 @@ class TestDirectorGuards:
 
         provider = GatedProvider(text=json.dumps({"tension_level": 3, "narrator_guidance": "g"}))
         session = LLMSession.from_provider(provider)
-        first = director_runs.start(game_id, run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
-        second = director_runs.start(game_id, run_director(pool=test_pool, game_id=game_id, current_cycle=1, current_time="08h00", session=session))
+        event = TurnCommitted(game_id=game_id, previous_cycle=1, cycle=1, time="08h00",
+                              user_message_id=uuid4(), assistant_message_id=assistant_id)
+        for _ in range(2):
+            supervisor.enqueue(game_id, "post_turn", hooks.run_turn_committed(test_pool, session, event))
         gate.set()
-        result = await first
+        await supervisor.wait_idle(game_id, timeout=10.0)
 
-        assert second is None
         assert provider.calls.count("complete") == 1
-        assert result is not None
+        async with test_pool.acquire() as conn:
+            plans = await conn.fetchval("SELECT count(*) FROM director_plans WHERE game_id = $1", game_id)
+        assert plans == 1
 
     @pytest.mark.asyncio
     async def test_reader_failure_returns_none_without_unbound_error(self, test_pool, test_user):

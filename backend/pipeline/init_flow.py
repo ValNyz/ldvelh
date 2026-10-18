@@ -119,11 +119,11 @@ def _engine_and_duration(init: InitParams, game_id: UUID):
     return write
 
 
-def _start_initial_director(ctx: TurnContext) -> asyncio.Task | None:
-    """Initial Director as its own task: it outlives the turn when the client leaves, and
-    the game's first narration turn waits for it (director_runs)."""
-    return director_runs.start(ctx.request.game_id, _run_initial_director(ctx),
-                               wait_limit=DIRECTOR_INIT_TIMEOUT)
+def _start_initial_director(ctx: TurnContext) -> asyncio.Task:
+    """Initial Director as a supervisor job of the game: it outlives the turn when the
+    client leaves, and the game's first narration turn waits for it (director_runs)."""
+    return director_runs.start_initial(ctx.request.game_id, _run_initial_director(ctx),
+                                       wait_limit=DIRECTOR_INIT_TIMEOUT)
 
 
 async def _run_initial_director(ctx: TurnContext) -> None:
@@ -176,10 +176,7 @@ async def run_init(ctx: TurnContext) -> None:
     # A connected client sees the Director's status, then done and saved. A client gone
     # meanwhile cancels only this wait: the Director (up to 30 s) finishes in the
     # background and the game lock is released at once (#79).
-    # None only if a Director already runs for this game: not expected for a game whose world
-    # was just generated (nothing schedules one before), kept as a guard.
-    if director is not None:
-        await asyncio.shield(director)
+    await asyncio.shield(director)
     # Saved: a failure from here on must not invite a resend (the world would be generated
     # twice).
     await finish_saved(_send_world_done(ctx, init, init_result, result), ref=ctx.ref,
@@ -187,7 +184,7 @@ async def run_init(ctx: TurnContext) -> None:
 
 
 async def _save_world(ctx: TurnContext, conn, init: InitParams,
-                      world_gen: WorldGeneration) -> tuple[dict, asyncio.Task | None]:
+                      world_gen: WorldGeneration) -> tuple[dict, asyncio.Task]:
     """Save the world on `conn` (then released), then start its initial Director."""
     game_id = ctx.request.game_id
     try:

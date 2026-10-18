@@ -1,8 +1,9 @@
 """Per-game background job supervisor (#19, #94).
 
-Every background job (post-turn extraction, Director runs...) goes through `enqueue`:
-the task is referenced until it ends, the jobs of one game run one after the other in
-enqueue order, and at most `supervisor_max_running_games` games run a job at once.
+Every background job goes through `enqueue`: the post-turn job (extraction, then the
+post-turn hooks, scheduled Director included) and the initial Director run. The task
+is referenced until it ends, the jobs of one game run one after the other in enqueue
+order, and at most `supervisor_max_running_games` games run a job at once.
 A job never cancels its predecessor; a cancelled or failed predecessor does not block it.
 
 Rule: a job must not await `wait_idle` on its own game, nor a job it enqueued on its own

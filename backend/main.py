@@ -119,6 +119,9 @@ from api.tooltips import router as tooltips_router
 from api.genres import router as genres_router
 from api.world import router as world_router
 from api.http_errors import register_domain_error_handlers
+from services.subscribers import register_defaults
+
+register_defaults()  # post-turn hooks: scheduled Director, new-cycle work (#95)
 
 register_domain_error_handlers(app)
 app.include_router(router, prefix="/api")

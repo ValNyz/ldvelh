@@ -3,11 +3,24 @@
 import asyncio
 from uuid import uuid4
 
+import pytest
+
 from domain.turn import TurnCommitted
 from pipeline import post_turn
 from workers import supervisor
 
 TIMEOUT = 5.0
+
+
+def _no_hooks(monkeypatch):
+    """Extraction only: the hooks would reach the fake pool."""
+    from services import hooks
+
+    async def nothing(*args):
+        return None
+
+    monkeypatch.setattr(hooks, "run_new_cycle", nothing)
+    monkeypatch.setattr(hooks, "run_turn_committed", nothing)
 
 
 def _event(game_id, cycle: int) -> TurnCommitted:
@@ -37,6 +50,7 @@ async def test_two_post_turn_jobs_run_in_order_and_both_extract(monkeypatch):
         results.append(result)
         return result
 
+    _no_hooks(monkeypatch)
     monkeypatch.setattr(post_turn, "run_resolve_and_extract", recorder)
     first, second = _event(game_id, 1), _event(game_id, 1)
     pool, session = object(), object()
@@ -62,6 +76,7 @@ async def test_run_post_turn_forwards_the_turn(monkeypatch):
     async def recorder(pool, game_id, **kwargs):
         seen.update(pool=pool, game_id=game_id, **kwargs)
 
+    _no_hooks(monkeypatch)
     monkeypatch.setattr(post_turn, "run_resolve_and_extract", recorder)
     event = TurnCommitted(game_id=uuid4(), previous_cycle=1, cycle=2, time="09h00",
                           user_message_id=uuid4(), assistant_message_id=uuid4())
@@ -74,3 +89,34 @@ async def test_run_post_turn_forwards_the_turn(monkeypatch):
                     "triggers": None, "session": session,
                     "assistant_message_id": event.assistant_message_id,
                     "message_content": "texte", "narrator_deltas": {"a": 1}}
+
+
+@pytest.mark.parametrize(("cycle", "expected"), [
+    (2, ["extraction", "new_cycle", "turn_committed"]),
+    (1, ["extraction", "turn_committed"]),
+])
+async def test_post_turn_runs_extraction_then_cycle_hooks_then_turn_hooks(
+        monkeypatch, cycle, expected):
+    from services import hooks
+
+    calls = []
+
+    async def extraction(pool, game_id, **kwargs):
+        calls.append("extraction")
+
+    async def new_cycle(pool, event):
+        calls.append("new_cycle")
+
+    async def turn_committed(pool, session, event):
+        calls.append("turn_committed")
+
+    monkeypatch.setattr(post_turn, "run_resolve_and_extract", extraction)
+    monkeypatch.setattr(hooks, "run_new_cycle", new_cycle)
+    monkeypatch.setattr(hooks, "run_turn_committed", turn_committed)
+    event = TurnCommitted(game_id=uuid4(), previous_cycle=1, cycle=cycle, time="09h00",
+                          user_message_id=uuid4(), assistant_message_id=uuid4())
+
+    await post_turn.run_post_turn(object(), object(), event, triggers=None,
+                                  message_content="texte", narrator_deltas={})
+
+    assert calls == expected

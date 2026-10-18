@@ -14,7 +14,7 @@ from repos.games import get_snapshot
 from services.game_service import GameService
 from tests.characterization import payloads
 from tests.helpers import engine_state, stress_on_every_roll
-from workers import game_locks
+from workers import game_locks, supervisor
 
 TIMEOUT = 5.0
 
@@ -572,7 +572,7 @@ async def test_arrival_waits_for_the_initial_director_left_running_by_a_disconne
                                 harness.pool, get_settings(), test_user["id"])
     reading = asyncio.create_task(_read_all(arrival))
     await asyncio.wait_for(waiting.wait(), TIMEOUT)
-    assert director_runs.is_running(game_id)
+    assert supervisor.pending(game_id) > 0
     assert not waited.is_set() and narrations == []  # the arrival waits for the plan
     release.set()
     events = await asyncio.wait_for(reading, TIMEOUT)

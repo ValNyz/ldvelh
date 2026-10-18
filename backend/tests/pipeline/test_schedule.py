@@ -1,6 +1,8 @@
 """schedule_background queues the post-turn job on the game's supervisor queue (#17)."""
 
+import ast
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -30,11 +32,7 @@ async def test_schedule_enqueues_one_post_turn_job(monkeypatch):
     async def spy_post_turn(pool, session, event, **kwargs):
         calls.append((event, kwargs))
 
-    async def no_director(ctx, committed):
-        return None
-
     monkeypatch.setattr(schedule, "run_post_turn", spy_post_turn)
-    monkeypatch.setattr(schedule, "_schedule_director", no_director)
     ctx = _ctx()
     game_id = ctx.request.game_id
     narrated = Narrated(narration=SimpleNamespace(extraction_triggers=["characters"]),
@@ -70,11 +68,7 @@ async def test_schedule_passes_none_when_no_trigger(monkeypatch):
     async def spy_post_turn(pool, session, event, **kwargs):
         calls.append(kwargs["triggers"])
 
-    async def no_director(ctx, committed):
-        return None
-
     monkeypatch.setattr(schedule, "run_post_turn", spy_post_turn)
-    monkeypatch.setattr(schedule, "_schedule_director", no_director)
     ctx = _ctx()
     narrated = Narrated(narration=SimpleNamespace(extraction_triggers=[]),
                         display_text="Rien.", cost=None)
@@ -87,3 +81,16 @@ async def test_schedule_passes_none_when_no_trigger(monkeypatch):
     await supervisor.wait_idle(ctx.request.game_id, timeout=TIMEOUT)
 
     assert calls == [None]
+
+
+def test_schedule_does_not_import_the_director():
+    source = Path(schedule.__file__).read_text(encoding="utf-8")
+    modules = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+            modules.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+
+    assert not modules & {"services.director_service", "repos.games"}
