@@ -123,7 +123,7 @@ async def test_d6_rollback_restores_wounds_and_force_points_but_not_progression(
     assert [dict(r) for r in skills_after] == [dict(r) for r in skills]  # the new skill is kept
 
 
-async def test_narrative_rollback_leaves_traits_untouched(harness):
+async def test_narrative_rollback_leaves_traits_untouched(harness, caplog):
     game_id = await _engine_game(harness, "narrative")
     async with harness.pool.acquire() as conn:
         await conn.execute(
@@ -139,6 +139,7 @@ async def test_narrative_rollback_leaves_traits_untouched(harness):
             "SELECT name, active FROM traits_narrative WHERE game_id = $1 ORDER BY name", game_id)
     assert [dict(r) for r in after] == [dict(r) for r in before]
     assert any(r["name"] == "Aguerri" and r["active"] for r in after)
+    assert "No engine snapshot" not in caplog.text  # an empty snapshot is not a legacy row
 
 
 async def test_rollback_without_engine_snapshot_keeps_the_engine_state(harness, caplog):

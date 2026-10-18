@@ -693,7 +693,7 @@ class GameService:
                 game = await reader.get_game(conn)
                 engine_type = game.get("engine", "none") if game else "none"
                 if engine_type != "none":
-                    if engine_snapshot:
+                    if engine_snapshot is not None:  # {} is a valid empty turn state
                         engine = get_engine(engine_type)
                         await engine.restore_turn_state(conn, game_id, engine_snapshot)
                     else:  # legacy message saved before snapshots: engine state is kept

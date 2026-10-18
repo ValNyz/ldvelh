@@ -975,5 +975,5 @@ class KnowledgeGraphReader:
             "SELECT engine_snapshot FROM messages WHERE id = $1 AND game_id = $2",
             message_id, self.game_id,
         )
-        snapshot = parse_json(raw) if raw else None
+        snapshot = parse_json(raw)  # {} (engine without turn state) is a snapshot, NULL is not
         return snapshot if isinstance(snapshot, dict) else None
