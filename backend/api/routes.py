@@ -45,6 +45,19 @@ async def _resolve_user_api_key(
         return await users_repo.get_user_api_key(conn, user_id, provider_name)
 
 
+INVALID_PC_NAME = (
+    "Nom du protagoniste invalide : les caractères < et > et le nom "
+    f"« {PROTAGONIST_REF} » sont réservés."
+)
+
+
+def _reject_unusable_wizard_name(character_data: dict | None) -> None:
+    """A typed PC name must be usable (#28); blank is fine, the world builder invents one."""
+    name = (character_data or {}).get("name")
+    if isinstance(name, str) and name.strip() and not is_usable_protagonist_name(name):
+        raise HTTPException(status_code=400, detail=INVALID_PC_NAME)
+
+
 # =============================================================================
 # REQUEST/RESPONSE MODELS
 # =============================================================================
@@ -311,19 +324,6 @@ async def chat(
     await service.verify_ownership(request.gameId, user["id"])
 
     return create_sse_response(start_chat(request, pool, settings, user["id"]))
-
-
-INVALID_PC_NAME = (
-    "Nom du protagoniste invalide : les caractères < et > et le nom "
-    f"« {PROTAGONIST_REF} » sont réservés."
-)
-
-
-def _reject_unusable_wizard_name(character_data: dict | None) -> None:
-    """A typed PC name must be usable (#28); blank is fine, the world builder invents one."""
-    name = (character_data or {}).get("name")
-    if isinstance(name, str) and name.strip() and not is_usable_protagonist_name(name):
-        raise HTTPException(status_code=400, detail=INVALID_PC_NAME)
 
 
 def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
