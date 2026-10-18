@@ -411,3 +411,23 @@ class TestNormalizerMistralOutput:
         assert wg.arrival_event is not None
         # Should prefer dock location for arrival
         assert wg.arrival_event.arrival_location_ref == "Docking Bay 7"
+
+
+def test_unknown_relation_type_is_dropped_not_fatal(caplog):
+    data = _minimal_data()
+    data["initial_relations"].append(
+        {"source_ref": "Val", "target_ref": "Bot", "relation_type": "sworn_to"})
+    with caplog.at_level("WARNING"):
+        world = WorldGeneration.model_validate(data)
+    assert [r.relation_type.value for r in world.initial_relations] == ["lives_at"]
+    assert "sworn_to" in caplog.text and "knows" not in caplog.text
+
+
+def test_only_unknown_relation_types_rebuilds_the_defaults():
+    data = _minimal_data()
+    data["protagonist"]["residence_ref"] = "Hub"  # the default rebuild needs a source
+    data["initial_relations"] = [
+        {"source_ref": "Val", "target_ref": "Bot", "relation_type": "sworn_to"}]
+    world = WorldGeneration.model_validate(data)
+    assert world.initial_relations
+    assert all(r.relation_type.value != "sworn_to" for r in world.initial_relations)

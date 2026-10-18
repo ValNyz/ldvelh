@@ -420,6 +420,8 @@ class TestNormalizers:
         [
             ("knows", "knows"),
             ("connait", "knows"),
+            ("connaît", "knows"),
+            ("connu", "knows"),
             ("friend_of", "friend_of"),
             ("ami", "friend_of"),
             ("employed_by", "employed_by"),

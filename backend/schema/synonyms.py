@@ -12,6 +12,8 @@ RELATION_TYPE_SYNONYMS = {
     # === SOCIAL ===
     "knows": "knows",
     "connait": "knows",
+    "connaît": "knows",
+    "connu": "knows",
     "know": "knows",
     "knowing": "knows",
     "acquainted": "knows",

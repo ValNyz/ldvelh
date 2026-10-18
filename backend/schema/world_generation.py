@@ -20,6 +20,7 @@ from .core import (
     TemporalValidationMixin,
     Text,
     is_protagonist_ref,
+    normalize_relation_type,
 )
 from .entities import (
     CharacterData,
@@ -183,6 +184,31 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                 )
         return self
 
+    @staticmethod
+    def _drop_unknown_relation_types(data: dict) -> None:
+        """Drop initial_relations items whose relation_type cannot be normalized.
+
+        One unknown type must not abort the whole world; it is dropped, not mapped.
+        """
+        relations = data.get("initial_relations")
+        if not isinstance(relations, list):
+            return
+        kept, dropped = [], []
+        for rel in relations:
+            try:
+                if isinstance(rel, dict):
+                    normalize_relation_type(rel.get("relation_type"))
+            except ValueError:
+                dropped.append(rel["relation_type"])
+            else:
+                kept.append(rel)
+        if dropped:
+            logger.warning(
+                f"[Validation] Dropped {len(dropped)} initial_relations with unknown "
+                f"relation_type, first={str(dropped[0])[:40]!r}"
+            )
+            data["initial_relations"] = kept
+
     @model_validator(mode="before")
     @classmethod
     def normalize_and_ensure_defaults(cls, data: dict) -> dict:
@@ -337,6 +363,9 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
                     f"[Validation] Renamed {renamed_count} relation fields "
                     "(source/target/type -> *_ref/relation_type)"
                 )
+
+        # --- Drop relations whose type is unknown (never coerced, #27) ---
+        cls._drop_unknown_relation_types(data)
 
         # --- Create default initial_relations if missing ---
         if "initial_relations" not in data or not data["initial_relations"]:
