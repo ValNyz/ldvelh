@@ -96,6 +96,9 @@ def roll_d6_pool(num_dice: int, pip_bonus: int = 0) -> dict:
     }
 
 
+TURN_STATE_KEYS = ("wounds", "force_points")
+
+
 class D6Engine(BaseEngine):
     engine_type = EngineType.D6
 
@@ -216,7 +219,7 @@ class D6Engine(BaseEngine):
         )
 
     async def apply_roll_result(
-        self, conn, game_id: UUID, roll: RollResult, cycle: int
+        self, conn, game_id: UUID, roll: RollResult
     ) -> dict:
         """Apply wound changes from a failed roll."""
         changes = {}
@@ -258,44 +261,19 @@ class D6Engine(BaseEngine):
 
         return changes
 
-    async def snapshot_state(self, conn, game_id: UUID) -> dict:
-        """Full state snapshot for rollback."""
-        return await self.get_stats(conn, game_id)
+    async def snapshot_turn_state(self, conn, game_id: UUID) -> dict:
+        """Wounds and force points: what a roll writes. Skills and attributes are progression."""
+        stats = await self.get_stats(conn, game_id)
+        return {k: stats[k] for k in TURN_STATE_KEYS} if stats else {}
 
-    async def restore_snapshot(self, conn, game_id: UUID, snapshot: dict) -> None:
-        """Restore full D6 state from snapshot."""
+    async def restore_turn_state(self, conn, game_id: UUID, snapshot: dict) -> None:
         if not snapshot:
             return
-
         await conn.execute(
-            """
-            UPDATE character_d6 SET
-                attributes = $1,
-                wounds = $2,
-                force_points = $3,
-                updated_at = now()
-            WHERE game_id = $4
-            """,
-            snapshot.get("attributes", {}),
-            snapshot.get("wounds", {}),
-            snapshot.get("force_points", 3),
-            game_id,
+            "UPDATE character_d6 SET wounds = $1, force_points = $2, updated_at = now()"
+            " WHERE game_id = $3",
+            snapshot["wounds"], snapshot["force_points"], game_id,
         )
-
-        # Restore skills
-        await conn.execute("DELETE FROM skills_d6 WHERE game_id = $1", game_id)
-        for skill in snapshot.get("skills", []):
-            await conn.execute(
-                """
-                INSERT INTO skills_d6 (game_id, attribute, name, dice_value, custom)
-                VALUES ($1, $2, $3, $4, $5)
-                """,
-                game_id,
-                skill["attribute"],
-                skill["name"],
-                skill["dice_value"],
-                skill.get("custom", False),
-            )
 
     # =========================================================================
     # Dice rolling

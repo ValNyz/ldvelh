@@ -94,19 +94,14 @@ async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: A
 
     async with conn.transaction():
         if roll:
-            # Engine effects (stress, fate points, wounds) carry no cycle: rollback restores
-            # them from the message's engine snapshot. The cycle argument is the pre-turn
-            # one on purpose: the roll is applied before the narration (compel/FP order),
-            # and the day change is only known after it. Cycle-stamped roll rows are
-            # written below with state.cycle (#134).
-            await ctx.engine.apply_roll_result(conn, game_id, roll, ctx.snapshot.current_cycle)
+            await ctx.engine.apply_roll_result(conn, game_id, roll)
         state, applied = await _apply_narration(conn, game_id, narrated.narration,
                                                 ctx.snapshot.current_cycle)
         narrator_deltas = _stored_deltas(narrated.narration, applied, narrated.cost)
-        # Engine state after this turn's roll, for rollback support
+        # Turn-owned engine state after this turn's roll (rollback support)
         engine_snapshot = None
         if ctx.snapshot.engine != "none":
-            engine_snapshot = await ctx.engine.snapshot_state(conn, game_id)
+            engine_snapshot = await ctx.engine.snapshot_turn_state(conn, game_id)
         _, assistant_msg_id = await turns.save_turn_messages(
             conn, game_id,
             # Protocol token kept (chat history hides it), stored action on a resume.

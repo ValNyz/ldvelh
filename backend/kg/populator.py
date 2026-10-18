@@ -1284,13 +1284,3 @@ class KnowledgeGraphPopulator:
             complication,
             cycle,
         )
-
-    async def save_engine_snapshot(
-        self, conn: Connection, message_id: UUID, snapshot: dict
-    ) -> None:
-        """Store engine state snapshot on an assistant message."""
-        await conn.execute(
-            "UPDATE messages SET engine_snapshot = $1 WHERE id = $2",
-            snapshot,
-            message_id,
-        )

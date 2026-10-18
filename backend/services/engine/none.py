@@ -28,14 +28,14 @@ class NoneEngine(BaseEngine):
         pass
 
     async def apply_roll_result(
-        self, conn, game_id: UUID, roll: RollResult, cycle: int
+        self, conn, game_id: UUID, roll: RollResult
     ) -> dict:
         return {}
 
-    async def snapshot_state(self, conn, game_id: UUID) -> dict:
+    async def snapshot_turn_state(self, conn, game_id: UUID) -> dict:
         return {}
 
-    async def restore_snapshot(self, conn, game_id: UUID, snapshot: dict) -> None:
+    async def restore_turn_state(self, conn, game_id: UUID, snapshot: dict) -> None:
         pass
 
     def needs_mechanical_step(self) -> bool:

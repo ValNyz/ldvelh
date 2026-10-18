@@ -107,6 +107,9 @@ def _known_invocations(invoked: Sequence[str], aspects: Sequence[str]) -> list[s
     return unique
 
 
+TURN_STATE_KEYS = ("stress_physical", "stress_mental", "consequences", "fate_points")
+
+
 class FateCoreEngine(BaseEngine):
     engine_type = EngineType.FATE_CORE
 
@@ -273,7 +276,7 @@ class FateCoreEngine(BaseEngine):
         )
 
     async def apply_roll_result(
-        self, conn, game_id: UUID, roll: RollResult, cycle: int
+        self, conn, game_id: UUID, roll: RollResult
     ) -> dict:
         """Apply stress/consequences from a failed roll."""
         changes = {}
@@ -341,52 +344,25 @@ class FateCoreEngine(BaseEngine):
 
         return changes
 
-    async def snapshot_state(self, conn, game_id: UUID) -> dict:
-        """Full state snapshot for rollback."""
+    async def snapshot_turn_state(self, conn, game_id: UUID) -> dict:
+        """Stress, consequences and fate points: what a roll or a compel writes. Aspects,
+        stunts, skills and refresh are progression (extraction), not restored."""
         stats = await self.get_stats(conn, game_id)
-        return stats
+        return {k: stats[k] for k in TURN_STATE_KEYS} if stats else {}
 
-    async def restore_snapshot(self, conn, game_id: UUID, snapshot: dict) -> None:
-        """Restore full Fate state from snapshot."""
+    async def restore_turn_state(self, conn, game_id: UUID, snapshot: dict) -> None:
         if not snapshot:
             return
-
         await conn.execute(
             """
             UPDATE character_fate SET
-                aspects = $1,
-                stunts = $2,
-                stress_physical = $3,
-                stress_mental = $4,
-                consequences = $5,
-                fate_points = $6,
-                refresh = $7,
-                updated_at = now()
-            WHERE game_id = $8
+                stress_physical = $1, stress_mental = $2, consequences = $3,
+                fate_points = $4, updated_at = now()
+            WHERE game_id = $5
             """,
-            snapshot.get("aspects", []),
-            snapshot.get("stunts", []),
-            snapshot.get("stress_physical", [False] * 4),
-            snapshot.get("stress_mental", [False] * 4),
-            snapshot.get("consequences", {}),
-            snapshot.get("fate_points", 3),
-            snapshot.get("refresh", 3),
-            game_id,
+            snapshot["stress_physical"], snapshot["stress_mental"],
+            snapshot["consequences"], snapshot["fate_points"], game_id,
         )
-
-        # Restore skills: delete all, re-insert from snapshot
-        await conn.execute("DELETE FROM skills_fate WHERE game_id = $1", game_id)
-        for skill in snapshot.get("skills", []):
-            await conn.execute(
-                """
-                INSERT INTO skills_fate (game_id, name, level, custom)
-                VALUES ($1, $2, $3, $4)
-                """,
-                game_id,
-                skill["name"],
-                skill["level"],
-                skill.get("custom", False),
-            )
 
     # =========================================================================
     # Dice rolling

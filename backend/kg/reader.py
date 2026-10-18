@@ -969,24 +969,11 @@ class KnowledgeGraphReader:
     async def get_message_engine_snapshot(
         self, conn: Connection, message_id: UUID
     ) -> dict | None:
-        """Engine state saved with one message (after that turn's roll), or None."""
+        """Turn-owned engine state saved with one message (after that turn's roll and narration
+        deltas), or None."""
         raw = await conn.fetchval(
             "SELECT engine_snapshot FROM messages WHERE id = $1 AND game_id = $2",
             message_id, self.game_id,
         )
         snapshot = parse_json(raw) if raw else None
         return snapshot if isinstance(snapshot, dict) else None
-
-    async def get_engine_snapshot_for_cycle(
-        self, conn: Connection, cycle: int
-    ) -> dict | None:
-        """Get the engine snapshot from the last assistant message at or before a cycle."""
-        result = await conn.fetchval(
-            """SELECT engine_snapshot FROM messages
-               WHERE game_id = $1 AND role = 'assistant'
-                 AND cycle <= $2 AND engine_snapshot IS NOT NULL
-               ORDER BY sequence DESC LIMIT 1""",
-            self.game_id,
-            cycle,
-        )
-        return result

@@ -77,46 +77,16 @@ class NarrativeEngine(BaseEngine):
         )
 
     async def apply_roll_result(
-        self, conn, game_id: UUID, roll: RollResult, cycle: int
+        self, conn, game_id: UUID, roll: RollResult
     ) -> dict:
         return {}
 
-    async def snapshot_state(self, conn, game_id: UUID) -> dict:
-        """Snapshot active traits for rollback."""
-        rows = await conn.fetch(
-            """
-            SELECT name, description, active, created_cycle
-            FROM traits_narrative
-            WHERE game_id = $1 AND active = TRUE
-            """,
-            game_id,
-        )
-        return {
-            "traits": [dict(r) for r in rows],
-        }
+    async def snapshot_turn_state(self, conn, game_id: UUID) -> dict:
+        """Nothing: a turn writes no trait; traits change by progression (extraction)."""
+        return {}
 
-    async def restore_snapshot(self, conn, game_id: UUID, snapshot: dict) -> None:
-        """Restore traits from snapshot."""
-        # Deactivate all current traits
-        await conn.execute(
-            "UPDATE traits_narrative SET active = FALSE WHERE game_id = $1",
-            game_id,
-        )
-        # Re-insert snapshot traits
-        for trait in snapshot.get("traits", []):
-            await conn.execute(
-                """
-                INSERT INTO traits_narrative (game_id, name, description, active, created_cycle)
-                VALUES ($1, $2, $3, TRUE, $4)
-                ON CONFLICT (game_id, name) DO UPDATE SET
-                    active = TRUE,
-                    description = EXCLUDED.description
-                """,
-                game_id,
-                trait["name"],
-                trait.get("description"),
-                trait.get("created_cycle", 1),
-            )
+    async def restore_turn_state(self, conn, game_id: UUID, snapshot: dict) -> None:
+        pass
 
     def needs_mechanical_step(self) -> bool:
         return False

@@ -296,9 +296,12 @@ async def test_c12d_resumed_roll_on_day_change_turn_rolls_back_cleanly(harness, 
     """#134: the pending roll is stored at the pre-turn cycle; resolved on a day-change turn it
     is re-stamped with the post-turn one, so the rollback of that turn removes it."""
     game_id, event = pending
+    async with harness.pool.acquire() as conn:
+        fate_points = await conn.fetchval(
+            "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id)
     harness.llm._responses["narration"] = _day_change_narration()
     await harness.chat(game_id, "Je tente un saut impossible.", roll_id=event["roll_id"],
-                       invoked_aspects=[])
+                       invoked_aspects=["Pilote déchu en quête de rédemption"])
     await harness.drain()
     async with harness.pool.acquire() as conn:
         resolved = await conn.fetchrow(
@@ -314,4 +317,7 @@ async def test_c12d_resumed_roll_on_day_change_turn_rolls_back_cleanly(harness, 
     async with harness.pool.acquire() as conn:
         left = await conn.fetchval("SELECT count(*) FROM mechanic_rolls WHERE id = $1::uuid",
                                    event["roll_id"])
+        restored = await conn.fetchval(
+            "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id)
     assert left == 0
+    assert restored == fate_points  # the invocation's fate point is refunded

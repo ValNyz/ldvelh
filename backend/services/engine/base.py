@@ -67,19 +67,22 @@ class BaseEngine(ABC):
 
     @abstractmethod
     async def apply_roll_result(
-        self, conn, game_id: UUID, roll: RollResult, cycle: int
+        self, conn, game_id: UUID, roll: RollResult
     ) -> dict:
         """Apply mechanical consequences (stress, wounds, etc.) after a roll."""
         ...
 
     @abstractmethod
-    async def snapshot_state(self, conn, game_id: UUID) -> dict:
-        """Capture current engine state for message snapshot (rollback support)."""
+    async def snapshot_turn_state(self, conn, game_id: UUID) -> dict:
+        """Capture the state a turn's own transaction writes (rolls, compels), stored with
+        the turn's assistant message. Never progression (skills, aspects, traits...): the
+        background extraction writes it after the commit, so it follows the cycle-based
+        rollback, not this snapshot (#134)."""
         ...
 
     @abstractmethod
-    async def restore_snapshot(self, conn, game_id: UUID, snapshot: dict) -> None:
-        """Restore engine state from a message snapshot."""
+    async def restore_turn_state(self, conn, game_id: UUID, snapshot: dict) -> None:
+        """Restore what `snapshot_turn_state` captured, and nothing else."""
         ...
 
     # =========================================================================

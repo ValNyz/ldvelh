@@ -542,9 +542,9 @@ All engine-specific logic goes through the `BaseEngine` interface.
 | `get_stats(conn, game_id)` | async | Load character stats from DB |
 | `get_vitals_display(conn, game_id)` | async | Formatted vitals for frontend |
 | `create_character(conn, game_id, data)` | async | Create engine-specific character |
-| `apply_roll_result(conn, game_id, roll, cycle)` | async | Apply mechanical consequences |
-| `snapshot_state(conn, game_id)` | async | Capture state for rollback |
-| `restore_snapshot(conn, game_id, snapshot)` | async | Restore from snapshot |
+| `apply_roll_result(conn, game_id, roll)` | async | Apply mechanical consequences |
+| `snapshot_turn_state(conn, game_id)` | async | Capture the state a turn's own transaction writes (Fate: stress, consequences, fate points; D6: wounds, force points; Narrative: nothing), stored with the assistant message |
+| `restore_turn_state(conn, game_id, snapshot)` | async | Rollback: restore only that turn-owned state; progression (skills, aspects, traits) follows the cycle-based rollback |
 | `needs_mechanical_step()` | sync | Whether this engine uses dice |
 | `roll_dice(decision)` | sync | Execute dice roll |
 | `available_invocations(engine_stats)` | sync | Aspects the player may invoke and fate points (default: none) |

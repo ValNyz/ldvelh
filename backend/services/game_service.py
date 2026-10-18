@@ -690,12 +690,15 @@ class GameService:
                 rollback_result = await populator.rollback_to_cycle(conn, target_cycle)
                 await turns.expire_pending_rolls(conn, game_id)
 
-                if engine_snapshot:
-                    game = await reader.get_game(conn)
-                    engine_type = game.get("engine", "none") if game else "none"
-                    if engine_type != "none":
+                game = await reader.get_game(conn)
+                engine_type = game.get("engine", "none") if game else "none"
+                if engine_type != "none":
+                    if engine_snapshot:
                         engine = get_engine(engine_type)
-                        await engine.restore_snapshot(conn, game_id, engine_snapshot)
+                        await engine.restore_turn_state(conn, game_id, engine_snapshot)
+                    else:  # legacy message saved before snapshots: engine state is kept
+                        logger.warning(f"[ROLLBACK] No engine snapshot for game {game_id}, "
+                                       "engine state kept")
 
         return {
             "deleted": len(messages_to_delete),
