@@ -15,6 +15,7 @@
 11. [SSE Streaming](#11-sse-streaming)
 12. [Tooltips & World Sidebar](#12-tooltips--world-sidebar)
 13. [Frontend Architecture](#13-frontend-architecture)
+14. [Background jobs](#14-background-jobs)
 
 ---
 
@@ -55,13 +56,23 @@ ldvelh/
 │   │   ├── errors.py          # report_error: exception → one French TurnError
 │   │   ├── ports.py           # EventSink protocol (SSEWriter satisfies it)
 │   │   ├── uncancellable.py   # finish_despite_cancel (commit and post-commit part)
+│   │   ├── post_turn.py       # run_post_turn: resolver, extraction, then the post-turn hooks (one supervisor job per turn)
+│   │   ├── director_runs.py   # Initial Director run (a supervisor job the first turn waits for)
 │   │   └── steps/             # load, arbitrate, narrate, commit, respond, schedule
 │   ├── domain/                # Pure types: turn.py (PendingRoll, AppliedDeltas, NarrationState), errors.py (TurnError), game.py
+│   ├── workers/               # Process-level concurrency, imports no other layer
+│   │   ├── supervisor.py      # Per-game background job queue (enqueue, wait_idle, cancel_game, drain)
+│   │   └── game_locks.py      # Per-game turn lock (hold, is_held), idle entries purged
 │   ├── repos/                 # SQL: games.py, turns.py (the turn transaction), users.py, llm_models.py
 │   ├── services/
 │   │   ├── game_service.py    # Game CRUD, state loading, messages, rollback
 │   │   ├── context_builder.py # Builds NarrationContext from DB
 │   │   ├── state_normalizer.py# Normalizes game state for frontend
+│   │   ├── hooks.py           # Post-turn hooks: on_turn_committed, on_new_cycle (registry, runners)
+│   │   ├── subscribers.py     # Default subscribers: scheduled Director, engine new-cycle work, seed archiving
+│   │   ├── director_service.py# Director run: collect, LLM call, apply
+│   │   ├── director_context.py# Director run, collect step (reads, no connection kept during the call)
+│   │   ├── director_apply.py  # Director run, apply step (plan and arcs in one transaction)
 │   │   ├── auth_service.py    # JWT, password hashing, email verification
 │   │   ├── engine/            # Game engine system (strategy pattern)
 │   │   │   ├── __init__.py    # get_engine() factory
@@ -155,7 +166,7 @@ ldvelh/
 - **Reader/Populator Separation**: `kg/reader.py` handles all SELECTs, `kg/populator.py` handles all INSERTs/UPDATEs. They share the same `(pool, game_id)` constructor.
 - **SSE Streaming**: All real-time communication uses an async queue (`SSEWriter`) that serializes events as `data: {json}\n\n` lines.
 - **Narrator Deltas**: The narrator LLM outputs live deltas (credits, inventory hints, entity reveals) applied immediately — no extraction needed for these.
-- **Batch Extraction**: Heavier extraction (characters, locations, orgs, arcs, inventory, progression) runs fire-and-forget on `day_transition` triggers.
+- **Batch Extraction**: Heavier extraction (characters, locations, orgs, arcs, inventory, progression) runs as a background job on the game's supervisor queue (see §14), never skipped.
 
 ---
 
@@ -260,7 +271,7 @@ INIT mode is detected when the game snapshot has `world_created == False`.
 3. **Completion** (in `run_init`, once the stream ends):
    - Validates JSON as `WorldGeneration` Pydantic model
    - Calls `game_service.process_init(game_id, world_gen, finalize=...)` which calls `WorldPopulator.populate()`; the engine + world config, the engine character (if engine != "none") and the game duration are written by `finalize` in the same transaction: the world is saved whole or not at all (#79). As in `run_turn`, the connection is acquired first (a cancellable wait), then the transaction and the initial Director start run under `finish_despite_cancel`: a disconnect once the save has started, COMMIT included, never leaves a saved world without its initial Director
-   - Starts the initial Director (30 s timeout) right after the save, as its own task registered in `pipeline/director_runs.py`, and waits for it, so a connected client gets its `status` events first
+   - Enqueues the initial Director right after the save as a `director_initial` job on the game's supervisor queue (`pipeline/director_runs.py`), and waits for it, so a connected client gets its `status` events first. The wait for a supervisor slot (at most `SUPERVISOR_MAX_GAMES` games run a job at once) comes before the Director's own 30 s timeout starts: under saturation the world's `done` waits for a slot, by design (bounding that wait could let the Director write `status` to a closed SSE sink). `director_runs` is reduced to this one job's registry (`start_initial`, the first turn's bounded wait); the scheduled Director is a post-turn hook
    - Loads canonical state, builds `SSEDonePayload` with `world_info`, sends `SSEEvent.DONE` then `SSEEvent.SAVED`
    - A client gone after the world is saved: the Director finishes in the background and the game lock is released without waiting for it. The game's next turn (the arrival) waits for that Director, at most for what is left of its 30 s, so its context has the plan; it holds the game lock meanwhile (by design: only the first turn after a disconnect during world generation can wait, and never longer than the Director's own timeout); a scheduled Director is never started while another one runs for the game (#79)
 
@@ -331,7 +342,7 @@ User types message
       → narrate    narrator prompts, history, stream from the LLM, SSE chunks, lenient parsing
       → commit     ONE transaction: roll effects, state, deltas, messages
       → respond    SSE done + saved
-      → schedule   extraction and Director (fire-and-forget)
+      → schedule   enqueues one post_turn job on the supervisor
 ```
 
 ### Step-by-step
@@ -517,7 +528,7 @@ Context prompt: markdown sections built from `NarrationContext`:
 
 1. **Commit** (one transaction): roll effects, game state (cycle, time, location, NPCs present), narrator deltas (credit transactions, entity reveals), stored `info_requests` for the next turn's prefetch, engine snapshot, user and assistant messages (with narrator_deltas), roll log or claim of the resumed roll
 2. **Respond**: `SSEEvent.DONE` with display text, fresh normalized game state and cost, then `SSEEvent.SAVED`
-3. **Schedule**: resolver and, if `extraction_triggers` is non-empty, extractors, plus the Director when its interval has elapsed, all as fire-and-forget tasks
+3. **Schedule**: enqueues one `post_turn` job on the game's supervisor queue (`pipeline/post_turn.py`, `TurnCommitted` event): the resolver, the extractors if triggered, then the post-turn hooks (new-cycle work, the Director when its interval has elapsed). It returns at once; see §14
 
 #### 3.3 Frontend: Receiving Events
 
@@ -643,7 +654,11 @@ EXTRACTOR_MAP = {
 3. Runs all in parallel via `asyncio.gather()`
 4. Aggregates results and costs, and logs the real outcome of each extractor (`N succeeded, N partial, N failed, N skipped`)
 5. Updates assistant message with extraction cost
-6. Guards against concurrent extractions for same game via `_extracting_games` set
+6. Never skips a run: there is no "already extracting" guard any more. Concurrent turns are serialised by the game's supervisor queue (the extraction of turn N+1 runs after the one of turn N, #17, gate C-17)
+
+Which extractors run: the narrator's triggers, plus the extractors implied by the resolver's mappings. A mapping implies one only when it is `is_new` and its canonical name is absent from `entity_registry` (compared in SQL, `orchestrator.resolver_triggers`); a registry lookup failure keeps the narrator's triggers. Order inside the `post_turn` job: resolver, extraction, then the hooks, so the Director reads what was extracted.
+
+Write guard (#23): every extractor transaction, and the Director's apply, takes `SELECT 1 FROM messages WHERE id = $1 FOR SHARE` on the turn's assistant message first (`repos/turns.hold_source_message`, `BaseExtractor.run(source_message_id=...)`). A rollback deleting that message waits for the commit; a turn already rolled back writes nothing.
 
 ### Extractors
 
@@ -669,9 +684,9 @@ Re-listed entities never wipe or reveal (#87): extractors often send an existing
 | Narrative Arcs | Arc progress, new arcs | `narrative_arcs` |
 | Progression | Engine skill/trait evolution | `skills_fate`/`skills_d6`/`traits_narrative` (delegated to engine) |
 
-### Extraction is Fire-and-Forget
+### Extraction is a Background Job
 
-Extraction runs as a background `asyncio.create_task()`. It does not block the narration response. The frontend receives `SSEEvent.SAVED` before extraction completes.
+Extraction runs as a `post_turn` job on the game's supervisor queue (§14). It does not block the narration response. The frontend receives `SSEEvent.SAVED` before extraction completes.
 
 ---
 
@@ -749,12 +764,14 @@ All three go through `rollbackThenSend(messageId, content)`: rollback to the act
 
 **File:** `backend/api/routes.py` — `POST /games/{game_id}/rollback`
 
-Calls `GameService.rollback_to_message(game_id, keep_until_index)`:
-1. Deletes messages after `keep_until_index`
+The route holds the game lock (`workers/game_locks`), then cancels the game's background jobs (`supervisor.cancel_game`, wait bounded by `SUPERVISOR_CANCEL_TIMEOUT`) **before** the service validates the request: a rollback rejected with 400 still cancels the game's pending extraction and Director (documented trade-off). Then it calls `GameService.rollback_to_message(game_id, keep_until_index)`:
+1. Deletes messages (the first statement of the transaction, for lock ordering against the `FOR SHARE` guard of §5) after `keep_until_index`
 2. Rolls the KG back to the kept message's cycle with the SQL function `rollback_to_cycle` (rows stamped with a later cycle are deleted; narrative arcs by `created_cycle`, #85)
 3. Restores engine snapshot from last remaining message (if present)
 4. Restores `games.detail_requests` with the `info_requests` stored in the kept message's `narrator_deltas` (none for older messages), so the details the rolled-back turn consumed are available again and those it requested are dropped (#64)
 5. Returns updated state and remaining messages
+
+Known residual: a populate that wins the `FOR SHARE` race commits before the rollback's DELETE and relies on `rollback_to_cycle`, which keeps rows of the same cycle; the full fix is the per-turn journal (#22, P5).
 
 A refused rollback raises `RollbackRejected(reason)`; the route answers 400 with a fixed French `detail` per reason (`arrival_scene`: "Impossible de revenir avant la scène d'arrivée."), never the exception text (#80).
 
@@ -1047,3 +1064,47 @@ All game business logic lives in `useGameOrchestrator`. It:
 7. `GENERATING_WORLD` or `WORLD_READY` → `WorldGenerationScreen`
 8. `STARTING_ADVENTURE` with no messages → loading spinner
 9. Default (PLAYING) → main game UI (header, stats, messages, input, sidebars)
+
+---
+
+## 14. Background jobs
+
+**Files:** `backend/workers/supervisor.py`, `workers/game_locks.py`, `pipeline/post_turn.py`, `services/hooks.py`, `services/subscribers.py`
+
+`workers/` is the lowest layer: it imports no other layer of the backend (`tests/test_architecture.py`). It owns the in-process concurrency primitives; nothing else keeps a per-game lock or queue.
+
+### Supervisor
+
+Every background job goes through `supervisor.enqueue(game_id, kind, coro)`: the `post_turn` job of each committed turn (resolver, extraction, hooks) and the `director_initial` job of world generation. `asyncio.create_task` is used only in `workers/supervisor.py`, `pipeline/uncancellable.py` (the shield) and twice in `api/routes.py` (the busy rejection and the turn task, tied to the SSE writer); the grep gate of the phase checklist lists them.
+
+- **Order.** The jobs of one game run one after the other, in enqueue order. A job waits for every unfinished job of its game, not only the last one: if a queued middle job is cancelled, an earlier job may still be running, and chaining on the last one alone would let two jobs of one game overlap. A cancelled or failed predecessor does not block the next job, and a job never cancels its predecessor.
+- **Bounds.** At most `SUPERVISOR_MAX_GAMES` (default 3, at least 1) games run a job at once (a semaphore taken after the chain wait, so a queued job holds no slot). A warning `[SUPERVISOR] game=... queue depth=N` is logged when a game has more than 3 unfinished jobs.
+- **Settings.** `SUPERVISOR_MAX_GAMES`, `SUPERVISOR_DRAIN_TIMEOUT` (default 20 s) and `SUPERVISOR_CANCEL_TIMEOUT` (default 10 s) are read when `Settings()` is built and validated there: `SUPERVISOR_MAX_GAMES` must be at least 1 and the two timeouts must be greater than 0; the error names the env var.
+- **Journals.** A task is named `kind:game_id` and referenced until it ends. A failure is logged at ERROR (`[SUPERVISOR] <kind> failed game=...`, exception type only, no story text); cancellation at INFO; success at DEBUG.
+- **Cancellation at rollback.** `cancel_game(game_id, timeout=...)` cancels the unfinished jobs of a game and waits for them (§7). Combined with the `FOR SHARE` guard of §5, a rolled-back turn cannot write its extraction or Director plan afterwards.
+- **Drain.** At shutdown the lifespan calls `drain(SUPERVISOR_DRAIN_TIMEOUT)`: jobs get that long to finish, then the rest is cancelled (`[SUPERVISOR] Cancelled at shutdown kind=... game=...`) with a 5 s grace. The pool and the shared HTTP clients are always closed afterwards, even if the drain raised. `docker-compose.yml` sets `stop_grace_period: 30s` to cover both.
+- **Rule for jobs.** A job must not await `wait_idle` on its own game, nor a job it enqueued on its own game: successors wait on the current job, so such an await blocks until its timeout.
+- **Single worker.** The queues and the game locks live in the process. The backend refuses to start with `WEB_CONCURRENCY` or `UVICORN_WORKERS` above 1 (`startup_checks.py`).
+- **Pool.** Pooled connections set `idle_in_transaction_session_timeout=30s` and `statement_timeout=60s` (`main.POOL_SERVER_SETTINGS`). Jobs hold no connection during an LLM call.
+- **Limits.** Jobs are in memory: a crash loses the queue (follow-up #140, persist jobs in Postgres). A restart during world generation is handled by the retry of `__INIT__`.
+
+### Game locks
+
+`workers/game_locks.hold(game_id)` serialises the turns of a game (and the rollback); `is_held` feeds the busy decision. An entry is dropped once no turn holds or awaits it, so the map stays bounded (#94).
+
+### Post-turn hooks
+
+`pipeline/post_turn.run_post_turn` runs, in this order: the resolver, the extractors (if triggered), `hooks.run_turn_committed` and, when the turn started a new in-game day, `hooks.run_new_cycle`. It is the only caller of the hooks.
+
+- `@hooks.on_turn_committed` subscribers `(pool, session, event: TurnCommitted)` run after every turn, each on its own: a failure is logged (`[HOOKS] turn_committed subscriber ... failed`) and the next one still runs. The scheduled Director is one of them.
+- `@hooks.on_new_cycle` subscribers `(conn, game_id, cycle)` run in one transaction that share-locks the turn's assistant message: one failure rolls them all back, and a turn already rolled back runs nothing. The engine's `on_new_cycle` and the archiving of seeds older than 10 cycles are subscribers.
+- **How to subscribe.** Decorate an async function in `services/subscribers.py` (or any module imported before the first turn); registration is idempotent. `register_defaults()` runs once at import in `main.py` and before each test (`conftest`); tests reset with `hooks.reset()`.
+- The Director run is split in `director_context` (collect, reads), the LLM call (no connection held) and `director_apply` (plan and arc updates in one transaction under the `FOR SHARE` guard).
+
+### Data robustness added with the supervisor (#27)
+
+An unknown enum value is never mapped to the first member any more (`schema/core.py::_normalize_enum_value`, WARNING with the value cut to 40 characters): the normalizers either use an explicit fallback (`FactType.OTHER` for facts, a documented value elsewhere) or reject the item (`entity_type`, `relation_type`, moment), so the extractor's per-item savepoint drops that item alone. World generation drops an `initial_relations` entry with an unknown `relation_type` (WARNING) instead of failing the world after the paid call; the synonyms `connait`, `connaît` and `connu` map to `knows`. No migration.
+
+### Follow-ups
+
+#139 (`tests/workers` shadows the `workers` package), #140 (persist jobs in Postgres), #22 (journal-based rollback, P5).

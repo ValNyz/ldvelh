@@ -20,11 +20,12 @@ backend/
 ├── api/            # FastAPI routes (auth, game, chat), SSEWriter
 ├── domain/         # Pure types (turn, errors, game), no I/O
 ├── kg/             # Knowledge graph (populator, reader)
-├── pipeline/       # Turn pipeline: steps/{load,arbitrate,narrate,commit,respond,schedule}, init_flow
+├── pipeline/       # Turn pipeline: steps/{load,arbitrate,narrate,commit,respond,schedule}, init_flow, post_turn
+├── workers/        # Per-game job supervisor and turn locks (in-process, imports no other layer)
 ├── repos/          # SQL (games, turns, users, llm_models)
 ├── prompts/        # LLM prompt templates
 ├── schema/         # Pydantic models
-├── services/       # Business logic (game, LLM, extraction, auth)
+├── services/       # Business logic (game, LLM, extraction, auth, post-turn hooks and subscribers, Director)
 ├── tests/          # Unit + integration tests (700+)
 ├── startup_checks.py  # Secrets validation run before startup (JWT_SECRET, ENCRYPTION_KEY)
 └── main.py
@@ -97,6 +98,9 @@ psql -U your_user -d your_db -f schema.sql
 | `CORS_ORIGINS` | Allowed origins | `http://localhost:3000` |
 | `TRUSTED_PROXY_HOPS` | Reverse proxies in front of the backend that append to `X-Forwarded-For`; the client IP used by the rate limits is the entry the outermost one added. `0` ignores the header (TCP peer) | `0`; `docker-compose.yml`: `1` (Traefik); override: `0` |
 | `JWT_SESSION_MAX_HOURS` | Absolute session lifetime: a refresh never extends a session past it, then the player logs in again | `720` |
+| `SUPERVISOR_MAX_GAMES` | Games that may run a background job (extraction, Director) at once; at least 1 | `3` |
+| `SUPERVISOR_DRAIN_TIMEOUT` | Seconds the shutdown waits for background jobs before cancelling them; greater than 0. Keep it, plus the 5 s cancel grace, under `stop_grace_period` | `20` |
+| `SUPERVISOR_CANCEL_TIMEOUT` | Seconds a rollback waits for the game's cancelled background jobs; greater than 0 | `10` |
 
 ## Running tests
 
@@ -129,7 +133,7 @@ The e2e tests (`frontend/tests/e2e/`) answer every `/api` call from `mockApi.mjs
 
 ## Architecture rules and lint
 
-`backend/tests/test_architecture.py` enforces the dependency rule (`domain` imports no other layer; `pipeline` never imports `api`; `services`, `repos`, `kg`, `llm`, `schema` and `prompts` import neither `api` nor `pipeline`; no SQL in `api/routes.py`) and that `_handle_chat` stays under 80 lines. A violation fails the suite, so add new code in the right layer rather than editing the test.
+`backend/tests/test_architecture.py` enforces the dependency rule (`domain` imports no other layer; `workers` imports none of `api`, `pipeline`, `services`, `repos`, `kg`, `llm`, `schema`, `prompts`, nor asyncpg/FastAPI; `pipeline` never imports `api`; `services`, `repos`, `kg`, `llm`, `schema` and `prompts` import neither `api` nor `pipeline`; no SQL in `api/routes.py`) and that `_handle_chat` stays under 80 lines. A violation fails the suite, so add new code in the right layer rather than editing the test.
 
 Every route that takes a game id (any spelling of `game_id`/`gameId` in path, query, header or body, nested fields included, or any path parameter right under `/games/`) must call `GameService.verify_ownership` before touching the game, and take the id from one place only. `backend/tests/test_game_ownership_guard.py` discovers these routes from the OpenAPI schema and fails until a new one is added to its `GAME_SCOPED_CALLS` table, which then checks that another user gets a 403 and that the game (existence, name, messages) is unchanged. Routes must not use `include_in_schema=False` (the same test fails on a hidden route).
 
@@ -151,7 +155,7 @@ Coolify deploys `docker-compose.yml` alone (no override). Environment to set in 
 - `ENCRYPTION_KEY` (required): a Fernet key. Players' saved API keys are encrypted with it: once set, never change or lose it, or those keys become unreadable (players must enter them again).
 - `SERVICE_URL_FRONTEND` (Coolify magic variable), `CORS_ORIGINS` (the production origin), `NEXT_PUBLIC_API_URL` (build arg: set it empty for same-origin `/api`, or to the backend URL; unset falls back to `http://localhost:8000`).
 - `TRUSTED_PROXY_HOPS`: number of reverse proxies between the internet and the backend; the compose default `1` fits Coolify (one Traefik). Never set it above the real count: the extra entry is client-supplied, so a client could choose its rate-limit key (a chosen entry that is not an IP address falls back to the TCP peer). Too low (`0` behind Traefik) puts every player behind Traefik's address, so one player's failed logins throttle everyone. Behind Cloudflare in proxy mode, use `2`, but only after making Traefik trust the Cloudflare ranges (Coolify proxy configuration: `--entryPoints.https.forwardedHeaders.trustedIPs=<Cloudflare IPv4/IPv6 ranges>`, and the same for `http`): without it Traefik discards the `X-Forwarded-For` Cloudflare sends, the header holds only Cloudflare's address and every player shares it. The backend port must stay unpublished, so that only the proxy reaches it.
-- Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`, `JWT_SESSION_MAX_HOURS` (default 720: players log in again every 30 days).
+- Optional: `SUPERVISOR_MAX_GAMES`, `SUPERVISOR_DRAIN_TIMEOUT`, `SUPERVISOR_CANCEL_TIMEOUT` (see the table above; an invalid value stops the start with an error naming the variable), `RESEND_API_KEY`, `EMAIL_FROM`, `REGISTRATION_ENABLED`, `JWT_SESSION_MAX_HOURS` (default 720: players log in again every 30 days).
 - Single worker: the backend runs one uvicorn process (in-process game locks and task supervisor). Do not set `WEB_CONCURRENCY` or `UVICORN_WORKERS` above 1: the backend refuses to start. `stop_grace_period: 30s` in the compose file gives the shutdown drain of background jobs (`supervisor_drain_timeout`) time to finish before the container is killed: keep `SUPERVISOR_DRAIN_TIMEOUT` (default 20 s) plus the 5 s cancel grace under it.
 - Database timeouts: every pooled connection sets `idle_in_transaction_session_timeout` to 30 s and `statement_timeout` to 60 s (`POOL_SERVER_SETTINGS` in `main.py`).
 - Leave `DEBUG` unset (`false`), and do not set `DEV_USER_*`.
