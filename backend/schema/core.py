@@ -146,6 +146,10 @@ def _str_list(v: Any) -> Any:
     return v
 
 
+# Narrower than _coerce_json_list below on purpose: only strings are converted. None and a
+# dict are left to the field's own validation (`StrList | None` accepts None, a dict fails),
+# a JSON-object string stays one item instead of becoming its values, and "" gives [""]
+# rather than [] (a value was sent).
 StrList = Annotated[list[str], BeforeValidator(_str_list)]
 """A list of str the LLM may send as a JSON string or a bare string (traits, hobbies)."""
 
