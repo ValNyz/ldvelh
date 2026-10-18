@@ -684,8 +684,13 @@ class KnowledgeGraphPopulator:
         cycle: int,
         reason: str | None = None,
     ) -> bool:
-        """End a relation via SQL function end_relation."""
-        return await conn.fetchval(
+        """End a relation via SQL function end_relation.
+
+        Raises LookupError when no active relation matched (unknown ref or no such
+        relation), so a per-item savepoint records the failure. The message is constant:
+        the refs are story text.
+        """
+        ended = await conn.fetchval(
             "SELECT end_relation($1, $2, $3, $4::relation_type, $5, $6)",
             self.game_id,
             source_ref,
@@ -694,6 +699,9 @@ class KnowledgeGraphPopulator:
             cycle,
             reason,
         )
+        if not ended:
+            raise LookupError("no active relation matched the end")
+        return True
 
     async def mark_relation_known(
         self,

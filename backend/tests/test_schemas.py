@@ -631,3 +631,11 @@ class TestCoerceJsonDict:
     def test_non_json_string_returns_empty(self):
         from schema.core import _coerce_json_dict
         assert _coerce_json_dict("not json") == {}
+
+
+def test_relation_end_normalises_a_synonym_type():
+    from schema import RelationType
+    from schema.extraction import RelationEnd
+
+    end = RelationEnd(source_ref="A", target_ref="B", relation_type="Friend", cycle=2)
+    assert end.relation_type == RelationType.FRIEND_OF

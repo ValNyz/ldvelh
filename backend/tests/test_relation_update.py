@@ -94,3 +94,39 @@ async def test_update_of_an_ended_relation_is_a_failed_item(test_pool, test_user
         {"source_ref": PROTAGONIST_REF, "target_ref": npc,
          "relation_type": "friend_of", "new_level": 1}]}, cycle=4)
     assert stats["relations_updated"] == 0 and len(stats["errors"]) == 1
+
+
+async def test_end_of_a_missing_relation_is_a_failed_item(test_pool, test_user):
+    game_id, npc = await two_relations(test_pool, test_user)
+    stats = await run_arcs(test_pool, game_id, {"relations_ended": [
+        {"source_ref": PROTAGONIST_REF, "target_ref": npc, "relation_type": "enemy_of",
+         "cycle": 3},
+        {"source_ref": PROTAGONIST_REF, "target_ref": "Personne Inconnue",
+         "relation_type": "friend_of", "cycle": 3},
+        {"source_ref": PROTAGONIST_REF, "target_ref": npc, "relation_type": "Friend",
+         "cycle": 3}]})
+    assert stats["relations_ended"] == 1  # only the synonym "Friend" matched friend_of
+    assert len(stats["errors"]) == 2
+    assert all(e.startswith("rel_end") and "Personne Inconnue" not in e
+               for e in stats["errors"])
+    async with test_pool.acquire() as conn:
+        [colleague] = await protagonist_relations(conn, game_id, npc, "colleague_of")
+        [friend] = await protagonist_relations(conn, game_id, npc, "friend_of")
+    assert colleague["end_cycle"] is None and friend["end_cycle"] == 3
+
+
+async def test_process_extraction_reports_an_unmatched_relation_end(test_pool, test_user):
+    """ExtractionPopulator (also per-item savepoints): same honest outcome."""
+    from kg.specialized_populator import ExtractionPopulator
+    from schema import NarrativeExtraction
+
+    game_id, npc = await two_relations(test_pool, test_user)
+    extraction = NarrativeExtraction.model_validate({"cycle": 3, "relations_ended": [
+        {"source_ref": PROTAGONIST_REF, "target_ref": npc, "relation_type": "enemy_of",
+         "cycle": 3},
+        {"source_ref": PROTAGONIST_REF, "target_ref": npc, "relation_type": "friend_of",
+         "cycle": 3}]})
+    stats = await ExtractionPopulator(test_pool, game_id).process_extraction(extraction)
+    assert stats["relations_ended"] == 1
+    [error] = stats["errors"]
+    assert error.startswith("Relation end:")
