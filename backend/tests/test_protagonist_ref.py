@@ -30,8 +30,10 @@ class ExtractionProvider(FakeProvider):
         self.payload = payload
         self.user_prompts: list[str] = []
 
-    async def complete_with_tools(self, system_prompt, messages, tools, tool_choice,
-                                  temperature, max_tokens):
+    async def complete_with_tools(self, system_prompt: str, messages: list[dict],
+                                  tools: list[dict], tool_choice: dict, temperature: float,
+                                  max_tokens: int) -> ToolResult:
+        del system_prompt, tool_choice, temperature, max_tokens  # same signature, unused
         self.user_prompts.append(messages[-1]["content"])
         return ToolResult(tool_name=tools[0]["name"], tool_input=self.payload,
                           usage=self.usage)
@@ -418,3 +420,60 @@ def test_world_generation_accepts_the_token_in_initial_relations():
             rel["source_ref"] = PROTAGONIST_REF
     kept = WorldGeneration.model_validate(parsed).initial_relations
     assert len(kept) == len(parsed["initial_relations"])
+
+
+# One string per field: (model name, wizard name, text before, text after).
+RENAME_CASES = [
+    pytest.param("Kira", "Kira Voss", "Kira Voss a fui. Kira rit.",
+                 "Kira Voss a fui. Kira Voss rit.", id="model-prefix-of-wizard"),
+    pytest.param("Kira Voss", "Kira", "Kira Voss a fui, Kira rit.",
+                 "Kira a fui, Kira rit.", id="wizard-prefix-of-model"),
+    pytest.param("Kira", "kira", "Kira a fui.", "Kira a fui.", id="equal-names-other-case"),
+    pytest.param("Ana", "Kira", "Anaïs mange une banane, Ana rit.",
+                 "Anaïs mange une banane, Kira rit.", id="name-inside-another-word"),
+    pytest.param("Élodie", "Anaïs", "Élodie salue Élodie-Rose et élodie.",
+                 "Anaïs salue Élodie-Rose et Anaïs.", id="accented-names"),  # compound kept
+    pytest.param("Ana", "Kira", "ANA vit. ana dort.", "Kira vit. Kira dort.",
+                 id="case-differences"),
+    pytest.param("Valentin", "Kira", "Valentin, Valentin et encore Valentin.",
+                 "Kira, Kira et encore Kira.", id="multiple-occurrences"),
+    pytest.param("Valentin Moreau", "Kira Voss", "Valentin Moreau arrive. Valentin a fui.",
+                 "Kira Voss arrive. Kira a fui.", id="first-name-mention"),
+]
+
+
+@pytest.mark.parametrize("model_name,wizard_name,before,after", RENAME_CASES)
+def test_rename_is_whole_name_and_idempotent(model_name, wizard_name, before, after):
+    from pipeline.chosen_name import apply_chosen_name
+
+    def world():
+        return {"protagonist": {"name": model_name, "backstory": before},
+                "initial_relations": [{"source_ref": model_name.upper(), "target_ref": "Ossek"}]}
+
+    out = apply_chosen_name(world(), {"name": wizard_name})
+    assert out is not None
+    assert out["protagonist"] == {"name": wizard_name.strip(), "backstory": after}
+    expected_ref = model_name.upper() if model_name.lower() == wizard_name.lower() else wizard_name
+    assert out["initial_relations"][0]["source_ref"] == expected_ref
+    again = apply_chosen_name(out, {"name": wizard_name})  # idempotent
+    assert again == out
+
+
+@pytest.mark.parametrize("name", ["<prénom inventé>", "Kira <inventé>"])
+def test_protagonist_name_rejects_the_invented_name_marker(name):
+    from pydantic import ValidationError
+
+    from schema import ProtagonistData
+
+    with pytest.raises(ValidationError):
+        ProtagonistData.model_validate({"name": name, "skills": [{"name": "a", "level": 1},
+                                                                 {"name": "b", "level": 2}]})
+
+
+def test_blank_name_prompt_explains_the_marker():
+    from prompts.world_generation_prompt import (INVENTED_NAME_MARKER,
+                                                 build_world_generation_user_prompt)
+
+    line = next(line for line in build_world_generation_user_prompt().splitlines()
+                if line.startswith("Nom : à inventer"))
+    assert INVENTED_NAME_MARKER in line

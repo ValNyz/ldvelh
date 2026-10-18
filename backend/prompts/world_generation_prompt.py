@@ -327,7 +327,8 @@ def build_world_generation_user_prompt(
     # No name chosen in the wizard: the model invents one (#28, no hardcoded default).
     parts.append("## PERSONNAGE PRINCIPAL")
     parts.append(f"Nom : {protagonist_name}" if protagonist_name
-                 else "Nom : à inventer (adapté au monde), à écrire dans protagonist.name")
+                 else "Nom : à inventer (adapté au monde), à écrire dans protagonist.name"
+                      f" à la place de {INVENTED_NAME_MARKER}")
     subject = protagonist_name or "Le protagoniste"
     if character_data:
         if character_data.get("gender"):
