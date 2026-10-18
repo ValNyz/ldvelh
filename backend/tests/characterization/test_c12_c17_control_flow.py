@@ -150,6 +150,17 @@ async def test_c12e_rollback_keeps_initial_director_arc(harness):
     assert stamped == 1  # the cycle the initial Director ran for
 
 
+async def test_c12f_arc_insert_without_created_cycle_fails(harness, world_game):
+    """#85: created_cycle has no default, so a writer that forgets it fails instead of
+    writing an arc no rollback would ever remove."""
+    import asyncpg
+    async with harness.pool.acquire() as conn:
+        with pytest.raises(asyncpg.NotNullViolationError):
+            await conn.execute(
+                "INSERT INTO narrative_arcs (game_id, title) VALUES ($1, 'Sans cycle')",
+                world_game)
+
+
 async def test_c13_busy_game_rejected(harness, world_game):
     gate = asyncio.Event()
     started = asyncio.Event()
