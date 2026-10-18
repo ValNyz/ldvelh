@@ -39,7 +39,7 @@ async def test_over_long_changes_are_bounded_and_the_rest_is_kept(test_pool, tes
         "entities_updated": [{"entity_ref": "Voss", "changes": {
             "age": STORY,                      # varchar(30)
             "pronouns": "il ou elle selon les jours, surtout il",  # varchar(30)
-            "gender": "g" * 45 + " " + "x" * 20,  # varchar(50): cut to its width
+            "gender": "g" * 45 + " " + "x" * 20,  # bound min(30, varchar(50))
             "mood": "inquiet",
             "workplace_id": "Le bar du quai",  # uuid column: dropped, not sent to SQL
         }}],
@@ -52,7 +52,7 @@ async def test_over_long_changes_are_bounded_and_the_rest_is_kept(test_pool, tes
     voss = await _character(test_pool, game_id, "Voss")
     assert voss["mood"] == "inquiet"
     assert 0 < len(voss["age"]) <= 30 and len(voss["pronouns"]) <= 30
-    assert voss["gender"].startswith("g" * 45) and len(voss["gender"]) <= 50
+    assert 0 < len(voss["gender"]) <= 30
     assert voss["workplace_id"] is None
     shown = "\n".join(r.getMessage() for r in caplog.records if r.levelno >= logging.INFO)
     assert "trente-six" not in shown and "Le bar du quai" not in shown
@@ -159,8 +159,9 @@ def _max_length(field) -> int | None:
     return direct[0] if direct else walk(field.annotation)
 
 
-async def test_model_widths_match_the_db_columns(test_pool):
-    """Every bounded field of the creation and update models has its column's exact width."""
+async def test_field_bounds_fit_the_db_columns(test_pool):
+    """COLUMN_WIDTHS is the DB truth; every bound is <= its column, same in both models."""
+    from schema.columns import COLUMN_WIDTHS
     from schema.entities import CharacterData, LocationData, OrganizationData
     from schema.entity_changes import CHANGES_MODELS
 
@@ -181,7 +182,9 @@ async def test_model_widths_match_the_db_columns(test_pool):
             width = widths.get((table, name))
             if width is None:
                 continue  # text / uuid / bool / int column: no width
-            assert _max_length(field) == width, (table, name)
+            assert COLUMN_WIDTHS[(table, name)] == width, (table, name, "COLUMN_WIDTHS")
+            bound = _max_length(field)
+            assert bound is not None and bound <= width, (table, name, bound, width)
             data_field = creation[entity_type].model_fields.get(name)
             if data_field is not None:
-                assert _max_length(data_field) == width, (table, name, "creation model")
+                assert _max_length(data_field) == bound, (table, name, "creation model drift")

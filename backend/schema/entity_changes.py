@@ -2,9 +2,9 @@
 LDVELH - Entity field changes (EntityUpdate.changes)
 
 The LLM sends `changes` as a free dict of column -> value. Each column an update may
-touch is typed here: varchar columns with their exact width (schema/columns.py, shared
-with the creation models in entities.py so the two cannot drift), text columns with the
-creation models' product caps, so an over-long or mistyped value never reaches SQL.
+touch is typed here with its bound, min(product limit, column width) (schema/columns.py,
+shared with the creation models in entities.py so the two cannot drift), so an over-long
+or mistyped value never reaches SQL.
 Fields are bounded one by one: an invalid field is dropped (and logged by name), the
 valid fields of the same update are kept.
 """
@@ -118,8 +118,10 @@ def bound_changes(entity_type: EntityType | None, changes: dict) -> dict:
     with the field name and error type only (no value: it is story text). An entity type
     without a changes model (or None, not resolved yet) returns `changes` unchanged.
     """
-    model = CHANGES_MODELS.get(entity_type) if entity_type else None
-    if model is None or not changes:
+    if entity_type is None or not changes:
+        return changes
+    model = CHANGES_MODELS.get(entity_type)
+    if model is None:
         return changes
     kept = {}
     for key, value in changes.items():
