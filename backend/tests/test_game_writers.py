@@ -22,7 +22,7 @@ async def test_free_lock_is_never_busy():
 
 
 async def test_lock_held_without_writer_is_busy():
-    """Held by something else than a chat (e.g. a rollback)."""
+    """held=True with no registered writer: held by something else than a chat (e.g. a rollback)."""
     assert game_writers.is_busy("g-rollback", True) is True
 
 

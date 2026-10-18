@@ -8,8 +8,12 @@ from workers import game_locks
 TIMEOUT = 5.0
 
 
-async def _settle():
-    await asyncio.sleep(0.01)
+async def _queued(game, count=2):
+    """Wait until `count` holders (the tenant plus waiters) are tracked for the game."""
+    async def poll():
+        while game_locks._entries[game].holders < count:
+            await asyncio.sleep(0)
+    await asyncio.wait_for(poll(), TIMEOUT)
 
 
 async def test_hold_serializes_two_holders():
@@ -28,7 +32,7 @@ async def test_hold_serializes_two_holders():
     t1 = asyncio.create_task(first())
     await asyncio.wait_for(first_in.wait(), TIMEOUT)
     t2 = asyncio.create_task(second())
-    await _settle()
+    await _queued(game)
     assert not second_in.is_set()
     release_first.set()
     await asyncio.wait_for(asyncio.gather(t1, t2), TIMEOUT)
@@ -62,7 +66,7 @@ async def test_entry_survives_while_a_waiter_is_queued():
     t1 = asyncio.create_task(first())
     await asyncio.wait_for(first_in.wait(), TIMEOUT)
     t2 = asyncio.create_task(second())
-    await _settle()
+    await _queued(game)
     release_first.set()
     await asyncio.wait_for(second_in.wait(), TIMEOUT)
     assert game_locks.tracked() == 1
@@ -88,9 +92,39 @@ async def test_cancelled_waiter_does_not_leak_an_entry():
     t1 = asyncio.create_task(first())
     await asyncio.wait_for(first_in.wait(), TIMEOUT)
     t2 = asyncio.create_task(waiter())
-    await _settle()
+    await _queued(game)
     t2.cancel()
     await asyncio.gather(t2, return_exceptions=True)
+    assert game_locks.tracked() == 1
+    assert game_locks.is_held(game) is True
     release.set()
     await asyncio.wait_for(t1, TIMEOUT)
+    assert game_locks.tracked() == 0
+
+
+async def test_cancelled_holder_hands_the_lock_to_the_queued_waiter():
+    game = uuid4()
+    first_in, second_in, release_second = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def first():
+        async with game_locks.hold(game):
+            first_in.set()
+            await asyncio.Event().wait()
+
+    async def second():
+        async with game_locks.hold(game):
+            second_in.set()
+            await release_second.wait()
+
+    t1 = asyncio.create_task(first())
+    await asyncio.wait_for(first_in.wait(), TIMEOUT)
+    t2 = asyncio.create_task(second())
+    await _queued(game)
+    t1.cancel()
+    await asyncio.gather(t1, return_exceptions=True)
+    await asyncio.wait_for(second_in.wait(), TIMEOUT)
+    assert game_locks.tracked() == 1
+    assert game_locks.is_held(game) is True
+    release_second.set()
+    await asyncio.wait_for(t2, TIMEOUT)
     assert game_locks.tracked() == 0

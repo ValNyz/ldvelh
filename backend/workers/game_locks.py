@@ -31,6 +31,7 @@ async def hold(game_id: UUID) -> AsyncIterator[None]:
 
 
 def is_held(game_id: UUID) -> bool:
+    """True while a turn holds the game lock; queued waiters do not count (C-13)."""
     entry = _entries.get(game_id)
     return entry is not None and entry.lock.locked()
 
