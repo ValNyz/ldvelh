@@ -622,7 +622,7 @@ EXTRACTOR_MAP = {
 1. Filters triggers to valid names from `EXTRACTOR_MAP`
 2. Creates extractor instances
 3. Runs all in parallel via `asyncio.gather()`
-4. Aggregates results and costs
+4. Aggregates results and costs, and logs the real outcome of each extractor (`N succeeded, N partial, N failed, N skipped`)
 5. Updates assistant message with extraction cost
 6. Guards against concurrent extractions for same game via `_extracting_games` set
 
@@ -633,7 +633,9 @@ Each extractor (subclass of `BaseExtractor`):
 2. Builds system + user prompt for its domain
 3. Calls Sonnet model with structured output (tool use)
 4. Parses extraction result
-5. Writes to DB via populator
+5. Writes to DB via populator, in one transaction with one SAVEPOINT per item (`BaseExtractor._write_item` / `_write_items`): a failed item (validation, unique violation, FK...) is rolled back alone and recorded as `"<label>: <cause>"` in `stats["errors"]`, the other items commit. Every run is logged in `extraction_logs` with its errors.
+
+`run()` result: `success: True` only when everything committed without item errors; `success: False, partial: True` when some items failed and the rest committed; `success: False, error: "populate_failed"` when the transaction was rolled back (then nothing was written; an item that leaves the transaction aborted outside its savepoint also ends here). The LLM `cost` is returned in every case.
 
 | Extractor | What it extracts | DB writes |
 |-----------|-----------------|-----------|

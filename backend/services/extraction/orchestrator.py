@@ -186,12 +186,8 @@ async def run_resolve_and_extract(
                     if cost and isinstance(cost, dict):
                         total_cost += cost.get("cost_usd", 0)
 
-            successes = sum(
-                1 for r in result["extractors"].values()
-                if isinstance(r, dict) and r.get("success")
-            )
             logger.info(
-                f"[EXTRACTION] Complete: {successes}/{len(valid_triggers)} succeeded, "
+                f"[EXTRACTION] Complete: {_outcome_summary(result['extractors'])}, "
                 f"total cost: ${total_cost:.6f}"
             )
 
@@ -312,6 +308,25 @@ async def _build_first_turn_reference(
 
     text = "\n".join(parts)
     return text, annotations
+
+
+def _outcome(ext_result) -> str:
+    """succeeded | partial (some items failed, the rest committed) | failed | skipped."""
+    if not isinstance(ext_result, dict):
+        return "failed"
+    if ext_result.get("success"):
+        return "succeeded"
+    if ext_result.get("partial"):
+        return "partial"
+    return "skipped" if ext_result.get("skipped") else "failed"
+
+
+def _outcome_summary(extractors: dict) -> str:
+    """`2 succeeded, 1 partial, 0 failed, 0 skipped (3 extractors)`."""
+    outcomes = [_outcome(r) for r in extractors.values()]
+    counts = ", ".join(f"{outcomes.count(o)} {o}"
+                       for o in ("succeeded", "partial", "failed", "skipped"))
+    return f"{counts} ({len(outcomes)} extractors)"
 
 
 async def _append_extraction_cost(

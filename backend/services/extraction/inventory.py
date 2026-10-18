@@ -9,10 +9,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from prompts.extraction import inventory_prompt
-from schema import FactData
 from schema.extraction import InventoryChange, ObjectCreation
 from services.engine import get_engine
-from utils.log_safe import safe_text
 
 from .base import BaseExtractor
 
@@ -76,51 +74,35 @@ class InventoryExtractor(BaseExtractor):
     ) -> dict:
         stats = {"objects_created": 0, "inventory_changes": 0,
                  "facts_created": 0, "errors": []}
-
-        # Objects created (with canonical dedup)
-        for obj_data in raw_result.get("objects_created", []):
-            try:
-                # Ensure from_hint has a default
-                obj_data.setdefault("from_hint", obj_data.get("name", ""))
-                obj = ObjectCreation.model_validate(obj_data)
-                result = await self.populator.create_object_with_canonical(
-                    conn, obj, cycle
-                )
-                if result:
-                    stats["objects_created"] += 1
-                    # Create engine-specific extension if engine_data present
-                    engine_data = obj.engine_data
-                    if engine_data and self._engine_type != "none":
-                        object_id = result if isinstance(result, type(self.game_id)) else None
-                        if object_id:
-                            try:
-                                await self._engine.create_object_extension(
-                                    conn, object_id, engine_data
-                                )
-                            except Exception as ext_err:
-                                logger.warning(
-                                    f"[INVENTORY] Engine extension failed: {ext_err}"
-                                )
-            except Exception as e:
-                stats["errors"].append(f"object: {safe_text(e)}")
-
-        # Inventory changes
-        for ic_data in raw_result.get("inventory_changes", []):
-            try:
-                ic = InventoryChange.model_validate(ic_data)
-                await self.populator._process_inventory_change(conn, ic, cycle)
-                stats["inventory_changes"] += 1
-            except Exception as e:
-                stats["errors"].append(f"inv_change: {safe_text(e)}")
-
-        # Facts
-        for fact_data in raw_result.get("facts", []):
-            try:
-                fact_data.setdefault("cycle", cycle)
-                fact = FactData.model_validate(fact_data)
-                if await self.populator.create_fact(conn, fact):
-                    stats["facts_created"] += 1
-            except Exception as e:
-                stats["errors"].append(f"fact: {safe_text(e)}")
-
+        await self._write_items(conn, stats, "object", raw_result.get("objects_created"),
+                                lambda d: self._create_object(conn, stats, d, cycle),
+                                "objects_created")
+        await self._write_items(conn, stats, "inv_change", raw_result.get("inventory_changes"),
+                                lambda d: self._change_inventory(conn, d, cycle),
+                                "inventory_changes")
+        await self._write_facts(conn, stats, raw_result, cycle)
         return stats
+
+    async def _create_object(
+        self, conn: Connection, stats: dict, obj_data: dict, cycle: int
+    ) -> bool:
+        """Create an object (with canonical dedup) and its engine extension."""
+        obj_data.setdefault("from_hint", obj_data.get("name", ""))
+        obj = ObjectCreation.model_validate(obj_data)
+        result = await self.populator.create_object_with_canonical(conn, obj, cycle)
+        if not result:
+            return False
+        engine_data = obj.engine_data
+        object_id = result if isinstance(result, type(self.game_id)) else None
+        if engine_data and self._engine_type != "none" and object_id:
+            # Nested savepoint: a failed extension keeps the object.
+            await self._write_item(
+                conn, stats, "object_extension",
+                lambda: self._engine.create_object_extension(conn, object_id, engine_data),
+            )
+        return True
+
+    async def _change_inventory(self, conn: Connection, ic_data: dict, cycle: int) -> bool:
+        ic = InventoryChange.model_validate(ic_data)
+        await self.populator._process_inventory_change(conn, ic, cycle)
+        return True

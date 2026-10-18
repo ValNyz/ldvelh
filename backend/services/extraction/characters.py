@@ -10,9 +10,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from prompts.extraction import characters_prompt
-from schema import EntityType, FactData
-from schema.extraction import AmbientUpdate, CharactersExtraction, EntityCreation, EntityUpdate
-from utils.log_safe import safe_text
+from schema import EntityType
+from schema.extraction import EntityCreation
 
 from .base import BaseExtractor
 
@@ -106,82 +105,31 @@ class CharactersExtractor(BaseExtractor):
     ) -> dict:
         stats = {"entities_created": 0, "entities_updated": 0, "ambients_updated": 0,
                  "facts_created": 0, "errors": []}
-
-        # Entities created (skip companion name to avoid duplication)
-        companion_name = getattr(self, '_companion_name', None)
-        for ec_data in raw_result.get("entities_created", []):
-            try:
-                ec_data.setdefault("entity_type", "character")
-                ec = EntityCreation.model_validate(ec_data)
-                if ec.entity_type != EntityType.CHARACTER:
-                    continue
-                if companion_name and ec.name.lower() == companion_name:
-                    logger.info(f"[CHARACTERS] Skipping companion '{ec.name}' (already in companions table)")
-                    continue
-                await self.populator._process_entity_creation(conn, ec, cycle)
-                stats["entities_created"] += 1
-            except Exception as e:
-                stats["errors"].append(f"create: {safe_text(e)}")
-
-        # Reload registry after new entities
-        if stats["entities_created"]:
-            await self.populator.load_registry(conn)
-
-        # Entities updated
-        for eu_data in raw_result.get("entities_updated", []):
-            try:
-                eu_data.setdefault("entity_type", "character")
-                eu = EntityUpdate.model_validate(eu_data)
-                await self.populator._process_entity_update(conn, eu, cycle)
-                stats["entities_updated"] += 1
-            except Exception as e:
-                stats["errors"].append(f"update: {safe_text(e)}")
-
-        # Entities removed
-        for er_data in raw_result.get("entities_removed", []):
-            try:
-                ref = er_data.get("entity_ref", "")
-                reason_cycle = er_data.get("cycle", cycle)
-                await self.populator.remove_entity(
-                    conn, ref, EntityType.CHARACTER, reason_cycle
-                )
-            except Exception as e:
-                stats["errors"].append(f"remove: {safe_text(e)}")
-
-        # Ambient updates
-        for amb_data in raw_result.get("ambient_updates", []):
-            try:
-                amb_data.setdefault("entity_type", "character")
-                amb = AmbientUpdate.model_validate(amb_data)
-                success = await self.populator.update_entity(
-                    conn, amb.entity_type, amb.entity_ref, {"ambient": amb.ambient}
-                )
-                if success:
-                    stats["ambients_updated"] += 1
-            except Exception as e:
-                stats["errors"].append(f"ambient: {safe_text(e)}")
-
-        # Skills
-        for skill_data in raw_result.get("skills_changed", []):
-            try:
-                from schema import Skill
-                skill = Skill.model_validate(skill_data)
-                proto_id = await self.populator._resolve_protagonist_id(conn)
-                if proto_id:
-                    await self.populator.update_skill(
-                        conn, skill, cycle, protagonist_id=proto_id
-                    )
-            except Exception as e:
-                stats["errors"].append(f"skill: {safe_text(e)}")
-
-        # Facts
-        for fact_data in raw_result.get("facts", []):
-            try:
-                fact_data.setdefault("cycle", cycle)
-                fact = FactData.model_validate(fact_data)
-                if await self.populator.create_fact(conn, fact):
-                    stats["facts_created"] += 1
-            except Exception as e:
-                stats["errors"].append(f"fact: {safe_text(e)}")
-
+        await self._write_entities(conn, stats, raw_result, cycle, EntityType.CHARACTER)
+        await self._write_items(conn, stats, "remove", raw_result.get("entities_removed"),
+                                lambda d: self._remove(conn, d, cycle))
+        await self._write_items(conn, stats, "skill", raw_result.get("skills_changed"),
+                                lambda d: self._skill(conn, d, cycle))
+        await self._write_facts(conn, stats, raw_result, cycle)
         return stats
+
+    def _skip_creation(self, ec: EntityCreation) -> bool:
+        """Skip the companion's name to avoid duplication."""
+        companion_name = getattr(self, '_companion_name', None)
+        if companion_name and ec.name.lower() == companion_name:
+            logger.info(f"[CHARACTERS] Skipping companion '{ec.name}' (already in companions table)")
+            return True
+        return False
+
+    async def _remove(self, conn: Connection, er_data: dict, cycle: int) -> None:
+        await self.populator.remove_entity(
+            conn, er_data.get("entity_ref", ""), EntityType.CHARACTER,
+            er_data.get("cycle", cycle),
+        )
+
+    async def _skill(self, conn: Connection, skill_data: dict, cycle: int) -> None:
+        from schema import Skill
+        skill = Skill.model_validate(skill_data)
+        proto_id = await self.populator._resolve_protagonist_id(conn)
+        if proto_id:
+            await self.populator.update_skill(conn, skill, cycle, protagonist_id=proto_id)

@@ -11,12 +11,17 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable, Callable, Iterable
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
+
+from asyncpg.exceptions import InFailedSQLTransactionError
 
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
 from config import get_settings
+from schema import EntityType, FactData
+from schema.extraction import AmbientUpdate, EntityCreation, EntityUpdate
 from utils.log_safe import log_exception, safe_text
 
 if TYPE_CHECKING:
@@ -74,40 +79,144 @@ class BaseExtractor(ABC):
                 logger.warning(f"[{et.upper()}] LLM returned empty result")
                 return {"type": et, "success": False, "error": "empty_response"}
 
-            # 5. Populate DB (new connection + transaction)
-            stats = {}
-            async with self.pool.acquire() as conn:
-                try:
-                    async with conn.transaction():
-                        await self.populator.load_registry(conn)
-                        stats = await self._populate(conn, raw_result, trigger_cycle)
-                except Exception as pop_err:
-                    logger.warning(
-                        f"[{et.upper()}] Populate failed (rolled back): {safe_text(pop_err)}"
-                    )
-
-                # Log extraction for auditing
-                try:
-                    await self.populator.log_extraction(
-                        conn, trigger_cycle, stats
-                    )
-                except Exception as log_err:
-                    logger.warning(f"[{et.upper()}] Log failed: {safe_text(log_err)}")
-
+            # 5. Populate DB (new connection + transaction, one savepoint per item)
+            stats, populate_error = await self._populate_committed(raw_result, trigger_cycle)
             elapsed = (time.perf_counter() - t0) * 1000
+            result = {"type": et, "stats": stats, "ms": int(elapsed), "cost": call_cost}
+            if populate_error:
+                return {**result, "success": False, "error": "populate_failed"}
+            errors = stats.get("errors")
             logger.info(
-                f"[{et.upper()}] Done in {elapsed:.0f}ms: "
-                f"{json.dumps(stats, default=str)}"
+                f"[{et.upper()}] Done in {elapsed:.0f}ms"
+                f"{' (partial)' if errors else ''}: {json.dumps(stats, default=str)}"
             )
-            return {
-                "type": et, "success": True, "stats": stats,
-                "ms": int(elapsed), "cost": call_cost,
-            }
+            # Some items failed: what was committed is kept, but the run is not a success.
+            return {**result, "success": not errors, **({"partial": True} if errors else {})}
 
         except Exception as e:
             log_exception(logger, logging.ERROR, f"[{et.upper()}] Extraction failed", e,
                           debug_detail=get_settings().log_prompts)
             return {"type": et, "success": False, "error": safe_text(e)}
+
+    async def _populate_committed(
+        self, raw_result: dict, cycle: int
+    ) -> tuple[dict, str | None]:
+        """Run `_populate` in one transaction and log the outcome to extraction_logs.
+
+        Returns (stats, error). On error the whole transaction was rolled back: stats then
+        only carry that error, since none of the counted writes were committed.
+        """
+        et = self.extraction_type.upper()
+        stats: dict = {}
+        error = None
+        async with self.pool.acquire() as conn:
+            try:
+                async with conn.transaction():
+                    await self.populator.load_registry(conn)
+                    stats = await self._populate(conn, raw_result, cycle)
+            except Exception as pop_err:
+                error = f"populate: {safe_text(pop_err)}"
+                stats = {"errors": [error]}
+                logger.warning(f"[{et}] Populate failed (rolled back): {safe_text(pop_err)}")
+
+            # Log extraction for auditing
+            try:
+                await self.populator.log_extraction(conn, cycle, stats)
+            except Exception as log_err:
+                logger.warning(f"[{et}] Log failed: {safe_text(log_err)}")
+        return stats, error
+
+    async def _write_item(
+        self, conn: Connection, stats: dict, label: str,
+        write: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        """Run one item's writes in a SAVEPOINT. Returns write()'s result, None on failure.
+
+        A failed item is rolled back alone and recorded in stats["errors"] as
+        "<label>: <cause>". If the transaction is already aborted (an earlier SQL error was
+        swallowed outside a savepoint), nothing can commit any more: the error propagates
+        so that the whole populate fails instead of silently rolling back at COMMIT.
+        """
+        try:
+            async with conn.transaction():
+                return await write()
+        except InFailedSQLTransactionError:
+            raise
+        except Exception as e:
+            stats["errors"].append(f"{label}: {safe_text(e)}")
+            logger.warning(f"[{self.extraction_type.upper()}] {label} item failed: "
+                           f"{safe_text(e)}")
+            return None
+
+    async def _write_items(
+        self, conn: Connection, stats: dict, label: str, items: Iterable | None,
+        write: Callable[[Any], Awaitable[Any]], counter: str | None = None,
+    ) -> None:
+        """`_write_item` for each item; a truthy write(item) result increments stats[counter]."""
+        for item in items or ():
+            done = await self._write_item(conn, stats, label, lambda item=item: write(item))
+            if done and counter:
+                stats[counter] += 1
+
+    async def _write_facts(
+        self, conn: Connection, stats: dict, raw_result: dict, cycle: int
+    ) -> None:
+        """Create the extracted facts, counted in stats["facts_created"]."""
+        async def create(fact_data: dict):
+            fact_data.setdefault("cycle", cycle)
+            return await self.populator.create_fact(conn, FactData.model_validate(fact_data))
+
+        await self._write_items(conn, stats, "fact", raw_result.get("facts"), create,
+                                "facts_created")
+
+    async def _write_entities(
+        self, conn: Connection, stats: dict, raw_result: dict, cycle: int,
+        entity_type: EntityType,
+    ) -> None:
+        """Entity creations, updates and ambient updates of one entity type."""
+        await self._write_items(conn, stats, "create", raw_result.get("entities_created"),
+                                lambda d: self._create_entity(conn, d, cycle, entity_type),
+                                "entities_created")
+        # Reload registry after new entities
+        if stats["entities_created"]:
+            await self.populator.load_registry(conn)
+        await self._write_items(conn, stats, "update", raw_result.get("entities_updated"),
+                                lambda d: self._update_entity(conn, d, cycle, entity_type),
+                                "entities_updated")
+        await self._write_items(conn, stats, "ambient", raw_result.get("ambient_updates"),
+                                lambda d: self._update_ambient(conn, d, entity_type),
+                                "ambients_updated")
+
+    def _skip_creation(self, ec: EntityCreation) -> bool:
+        """Hook: True to ignore an extracted creation."""
+        return False
+
+    async def _create_entity(
+        self, conn: Connection, ec_data: dict, cycle: int, entity_type: EntityType
+    ) -> bool:
+        ec_data.setdefault("entity_type", entity_type.value)
+        ec = EntityCreation.model_validate(ec_data)
+        if ec.entity_type != entity_type or self._skip_creation(ec):
+            return False
+        await self.populator._process_entity_creation(conn, ec, cycle)
+        return True
+
+    async def _update_entity(
+        self, conn: Connection, eu_data: dict, cycle: int, entity_type: EntityType
+    ) -> bool:
+        eu_data.setdefault("entity_type", entity_type.value)
+        await self.populator._process_entity_update(
+            conn, EntityUpdate.model_validate(eu_data), cycle)
+        return True
+
+    async def _update_ambient(
+        self, conn: Connection, amb_data: dict, entity_type: EntityType
+    ) -> bool:
+        amb_data.setdefault("entity_type", entity_type.value)
+        amb = AmbientUpdate.model_validate(amb_data)
+        return await self.populator.update_entity(
+            conn, amb.entity_type, amb.entity_ref, {"ambient": amb.ambient}
+        )
 
     async def _call_llm(
         self, system_prompt: str, user_prompt: str, schema: dict

@@ -10,9 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from prompts.extraction import locations_prompt
-from schema import EntityType, FactData
-from schema.extraction import AmbientUpdate, EntityCreation, EntityUpdate
-from utils.log_safe import safe_text
+from schema import EntityType
 
 from .base import BaseExtractor
 
@@ -101,49 +99,6 @@ class LocationsExtractor(BaseExtractor):
     ) -> dict:
         stats = {"entities_created": 0, "entities_updated": 0,
                  "ambients_updated": 0, "facts_created": 0, "errors": []}
-
-        for ec_data in raw_result.get("entities_created", []):
-            try:
-                ec_data.setdefault("entity_type", "location")
-                ec = EntityCreation.model_validate(ec_data)
-                if ec.entity_type != EntityType.LOCATION:
-                    continue
-                await self.populator._process_entity_creation(conn, ec, cycle)
-                stats["entities_created"] += 1
-            except Exception as e:
-                stats["errors"].append(f"create: {safe_text(e)}")
-
-        if stats["entities_created"]:
-            await self.populator.load_registry(conn)
-
-        for eu_data in raw_result.get("entities_updated", []):
-            try:
-                eu_data.setdefault("entity_type", "location")
-                eu = EntityUpdate.model_validate(eu_data)
-                await self.populator._process_entity_update(conn, eu, cycle)
-                stats["entities_updated"] += 1
-            except Exception as e:
-                stats["errors"].append(f"update: {safe_text(e)}")
-
-        for amb_data in raw_result.get("ambient_updates", []):
-            try:
-                amb_data.setdefault("entity_type", "location")
-                amb = AmbientUpdate.model_validate(amb_data)
-                success = await self.populator.update_entity(
-                    conn, amb.entity_type, amb.entity_ref, {"ambient": amb.ambient}
-                )
-                if success:
-                    stats["ambients_updated"] += 1
-            except Exception as e:
-                stats["errors"].append(f"ambient: {safe_text(e)}")
-
-        for fact_data in raw_result.get("facts", []):
-            try:
-                fact_data.setdefault("cycle", cycle)
-                fact = FactData.model_validate(fact_data)
-                if await self.populator.create_fact(conn, fact):
-                    stats["facts_created"] += 1
-            except Exception as e:
-                stats["errors"].append(f"fact: {safe_text(e)}")
-
+        await self._write_entities(conn, stats, raw_result, cycle, EntityType.LOCATION)
+        await self._write_facts(conn, stats, raw_result, cycle)
         return stats

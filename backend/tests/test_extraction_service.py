@@ -548,7 +548,7 @@ class TestExtractorErrorsDoNotLeakStory:
         extractor._call_llm = fake_call
         with caplog.at_level(logging.DEBUG):
             result = await extractor.run("texte", {}, 1)
-        assert result["success"] is True
+        assert result["success"] is False and result["partial"] is True
         errors = result["stats"]["errors"]
         assert errors and "create:" in errors[0] and fragment not in errors[0]
         formatter = logging.Formatter()
@@ -576,11 +576,23 @@ async def test_progression_failure_keeps_story_out_of_stats_and_logs(caplog):
         async def apply_progression(self, conn, game_id, raw):
             _M.model_validate({"x": fragment})
 
+    class _Savepoint:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    conn = MagicMock()
+    conn.transaction = lambda: _Savepoint()
     extractor = ProgressionExtractor.__new__(ProgressionExtractor)
     extractor._engine, extractor._engine_type, extractor.game_id = _Engine(), "fate_core", uuid4()
+    extractor.extraction_type = "progression"
     with caplog.at_level(logging.INFO):
-        stats = await extractor._populate(None, {}, 1)
-    assert "x: int_parsing" in stats["changes"]["error"]
+        stats = await extractor._populate(conn, {}, 1)
+    assert stats["changes"] == {}
+    [error] = stats["errors"]
+    assert error.startswith("progression:") and "x: int_parsing" in error
     formatter = logging.Formatter()
-    assert fragment not in stats["changes"]["error"]
+    assert fragment not in error
     assert fragment not in "\n".join(formatter.format(r) for r in caplog.records)
