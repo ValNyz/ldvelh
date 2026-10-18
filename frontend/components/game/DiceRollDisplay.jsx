@@ -137,6 +137,9 @@ function D6RollDetails({ roll }) {
 					<span className="text-on-surface-variant text-xs">+{details.pip_bonus}</span>
 				)}
 				<span className="text-on-surface font-bold text-sm">= {roll.total}</span>
+				{roll.complication && details.wild_total === 0 && (
+					<span className="text-red-400 text-xs">(dé sauvage : 0)</span>
+				)}
 			</div>
 
 			{/* Skill info */}

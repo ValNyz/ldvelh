@@ -375,17 +375,20 @@ class TestD6Dice:
         assert parse_dice_code("4d+1") == (4, 1)
         assert parse_dice_code("invalid") == (1, 0)
 
-    def test_roll_d6_pool_basic(self):
-        """Roll should produce regular dice + wild die."""
+    @pytest.mark.parametrize("wild, complication, wild_total", [(1, True, 0), (4, False, 4)])
+    def test_roll_d6_pool_basic(self, monkeypatch, wild, complication, wild_total):
+        """3D+1: two regular dice always kept, plus the wild die (1 counts 0)."""
+        rolls = iter([3, 5, wild])
+        monkeypatch.setattr("services.engine.d6.random.randint", lambda a, b: next(rolls))
         pool = roll_d6_pool(3, 1)
-        # Regular dice: 2 normally, 1 if complication (removes highest)
-        if pool["complication"]:
-            assert len(pool["regular_dice"]) == 1
-        else:
-            assert len(pool["regular_dice"]) == 2
-        assert len(pool["wild_die_rolls"]) >= 1
-        assert isinstance(pool["total"], int)
-        assert isinstance(pool["complication"], bool)
+        assert pool["regular_dice"] == [3, 5]
+        assert pool["wild_die_rolls"] == [wild]
+        assert pool["wild_total"] == wild_total
+        assert pool["complication"] is complication
+        assert pool["total"] == 3 + 5 + wild_total + 1
+
+    def test_roll_d6_pool_zero_dice_keeps_result_keys(self):
+        assert set(roll_d6_pool(0, 2)) == set(roll_d6_pool(2, 2))
 
     def test_roll_d6_pool_single_die(self):
         """Single die = wild die only."""

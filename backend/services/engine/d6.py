@@ -55,6 +55,8 @@ def roll_d6_pool(num_dice: int, pip_bonus: int = 0) -> dict:
         return {
             "regular_dice": [],
             "wild_die_rolls": [0],
+            "wild_total": 0,
+            "pip_bonus": pip_bonus,
             "total": pip_bonus,
             "complication": False,
         }
@@ -340,6 +342,7 @@ class D6Engine(BaseEngine):
             "dice_code": skill_value_str,
             "regular_dice": pool["regular_dice"],
             "wild_die_rolls": pool["wild_die_rolls"],
+            "wild_total": pool["wild_total"],
             "pip_bonus": pip_bonus,
             "difficulty": difficulty,
             "difficulty_label": decision.difficulty_label,
