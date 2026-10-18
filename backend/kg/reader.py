@@ -10,6 +10,8 @@ import logging
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
+from utils.json_utils import parse_json
+
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
@@ -963,6 +965,17 @@ class KnowledgeGraphReader:
 
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
+
+    async def get_message_engine_snapshot(
+        self, conn: Connection, message_id: UUID
+    ) -> dict | None:
+        """Engine state saved with one message (after that turn's roll), or None."""
+        raw = await conn.fetchval(
+            "SELECT engine_snapshot FROM messages WHERE id = $1 AND game_id = $2",
+            message_id, self.game_id,
+        )
+        snapshot = parse_json(raw) if raw else None
+        return snapshot if isinstance(snapshot, dict) else None
 
     async def get_engine_snapshot_for_cycle(
         self, conn: Connection, cycle: int

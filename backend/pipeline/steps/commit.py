@@ -77,7 +77,7 @@ async def _log_roll(conn, ctx: TurnContext, arbitration: Arbitration,
     if arbitration.resumed_roll_id:
         claimed = await turns.claim_pending_roll(conn, ctx.request.game_id,
                                                  arbitration.resumed_roll_id, roll.model_dump(),
-                                                 roll.outcome, assistant_msg_id)
+                                                 roll.outcome, assistant_msg_id, cycle)
         if not claimed:
             raise TurnError("roll_not_pending", "Ce jet n'est plus en attente.")
         return
@@ -94,6 +94,11 @@ async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: A
 
     async with conn.transaction():
         if roll:
+            # Engine effects (stress, fate points, wounds) carry no cycle: rollback restores
+            # them from the message's engine snapshot. The cycle argument is the pre-turn
+            # one on purpose: the roll is applied before the narration (compel/FP order),
+            # and the day change is only known after it. Cycle-stamped roll rows are
+            # written below with state.cycle (#134).
             await ctx.engine.apply_roll_result(conn, game_id, roll, ctx.snapshot.current_cycle)
         state, applied = await _apply_narration(conn, game_id, narrated.narration,
                                                 ctx.snapshot.current_cycle)

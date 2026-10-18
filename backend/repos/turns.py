@@ -218,14 +218,18 @@ async def get_pending_roll(conn, game_id: UUID) -> dict | None:
 
 
 async def claim_pending_roll(conn, game_id: UUID, roll_id: UUID, roll_details: dict,
-                             outcome: str, message_id: UUID) -> bool:
-    """Resolve the pending roll with its final details; False if it was no longer pending."""
+                             outcome: str, message_id: UUID, cycle: int) -> bool:
+    """Resolve the pending roll with its final details; False if it was no longer pending.
+
+    The roll is stored pending at the cycle before its turn (the narration, hence a possible
+    day change, does not exist yet): resolving re-stamps it with the turn's post-turn cycle,
+    like the turn's messages, so rolling the turn back removes it (#134)."""
     claimed = await conn.fetchval(
         """UPDATE mechanic_rolls
-        SET status = 'resolved', roll_details = $3, outcome = $4, message_id = $5
+        SET status = 'resolved', roll_details = $3, outcome = $4, message_id = $5, cycle = $6
         WHERE id = $1 AND game_id = $2 AND status = 'pending'
         RETURNING id""",
-        roll_id, game_id, roll_details, outcome, message_id,
+        roll_id, game_id, roll_details, outcome, message_id, cycle,
     )
     return claimed is not None
 

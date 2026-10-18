@@ -249,3 +249,69 @@ async def test_c17_back_to_back_turns_keep_both_extractions(harness, world_game)
     # for "an extraction ran for this turn" (one resolver call per non-skipped extraction).
     resolver_calls = harness.llm.purposes().count("resolver")
     assert resolver_calls >= 2, f"only {resolver_calls} extraction(s) ran for 2 turns"
+
+
+def _day_change_narration() -> str:
+    import json
+    narration = json.loads(payloads.NARRATION)
+    narration["day_transition"] = {"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}
+    return json.dumps(narration, ensure_ascii=False)
+
+
+async def _last_user_message_id(harness, game_id):
+    async with harness.pool.acquire() as conn:
+        return await conn.fetchval(
+            """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
+               ORDER BY created_at DESC, sequence DESC LIMIT 1""", game_id)
+
+
+async def test_c12c_day_change_turn_with_roll_rolls_back_cleanly(harness, fate_game, monkeypatch):
+    """#134: a day-change turn with a roll leaves no roll effect (stress, roll history) after
+    its player message is rolled back."""
+    from tests.helpers import engine_state, stress_on_every_roll
+    stress_on_every_roll(monkeypatch)
+    before = await engine_state(harness.pool, fate_game)
+    harness.llm._responses["mechanical"] = payloads.mechanical(
+        requires_test=True, skill="Athlétisme", skill_value=2, difficulty=1)
+    harness.llm._responses["narration"] = _day_change_narration()
+    await harness.chat(fate_game, "Je dors après un effort.")
+    await harness.drain()
+    during = await engine_state(harness.pool, fate_game)
+    assert during["cycle"] == before["cycle"] + 1
+    assert during["stress"] != before["stress"] and during["rolls"] == before["rolls"] + 1
+    async with harness.pool.acquire() as conn:
+        roll_cycle = await conn.fetchval(
+            "SELECT cycle FROM mechanic_rolls WHERE game_id = $1 AND status = 'resolved'"
+            " ORDER BY created_at DESC LIMIT 1", fate_game)
+    assert roll_cycle == during["cycle"]
+
+    user_msg = await _last_user_message_id(harness, fate_game)
+    r = await harness.client.post(f"/api/games/{fate_game}/rollback",
+                                  json={"messageId": str(user_msg)}, headers=harness.headers)
+    assert r.status_code == 200, r.text
+    assert await engine_state(harness.pool, fate_game) == before
+
+
+async def test_c12d_resumed_roll_on_day_change_turn_rolls_back_cleanly(harness, pending):
+    """#134: the pending roll is stored at the pre-turn cycle; resolved on a day-change turn it
+    is re-stamped with the post-turn one, so the rollback of that turn removes it."""
+    game_id, event = pending
+    harness.llm._responses["narration"] = _day_change_narration()
+    await harness.chat(game_id, "Je tente un saut impossible.", roll_id=event["roll_id"],
+                       invoked_aspects=[])
+    await harness.drain()
+    async with harness.pool.acquire() as conn:
+        resolved = await conn.fetchrow(
+            "SELECT cycle FROM mechanic_rolls WHERE id = $1::uuid AND status = 'resolved'",
+            event["roll_id"])
+        game_cycle = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1", game_id)
+    assert resolved is not None and resolved["cycle"] == game_cycle
+
+    user_msg = await _last_user_message_id(harness, game_id)
+    r = await harness.client.post(f"/api/games/{game_id}/rollback",
+                                  json={"messageId": str(user_msg)}, headers=harness.headers)
+    assert r.status_code == 200, r.text
+    async with harness.pool.acquire() as conn:
+        left = await conn.fetchval("SELECT count(*) FROM mechanic_rolls WHERE id = $1::uuid",
+                                   event["roll_id"])
+    assert left == 0

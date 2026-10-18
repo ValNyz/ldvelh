@@ -44,7 +44,7 @@ async def _get_pending(pool, game_id):
 async def _claim(pool, game_id, roll_id, roll_details, outcome, message_id):
     async with pool.acquire() as conn:
         return await turns.claim_pending_roll(conn, game_id, roll_id, roll_details, outcome,
-                                              message_id)
+                                              message_id, 1)
 
 
 # =============================================================================

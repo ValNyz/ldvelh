@@ -652,7 +652,8 @@ class GameService:
                     restore_date = m.get("game_date")
                     restore_time = m.get("time")
                     restore_location_id = m.get("location_id")
-                    engine_snapshot = m.get("engine_snapshot")
+                    # Not part of get_messages (never sent to the client).
+                    engine_snapshot = await reader.get_message_engine_snapshot(conn, m["id"])
                     break
 
             # All-or-nothing: a failure part-way must not leave messages deleted
