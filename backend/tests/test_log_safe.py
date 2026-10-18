@@ -121,3 +121,23 @@ def test_log_cause_keeps_the_raw_text_at_debug_only(caplog, debug_detail):
     else:
         assert rest == [] and STORY not in warning.getMessage()
 
+
+
+async def test_unroutable_entity_warnings_carry_no_entity_name(test_pool, test_user, caplog):
+    """An unsupported creation type or an unknown update target is logged without the name."""
+    from kg.specialized_populator import ExtractionPopulator
+    from schema import NarrativeExtraction
+    from services.game_service import GameService
+
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    extraction = NarrativeExtraction.model_validate({
+        "cycle": 1,
+        "entities_created": [{"entity_type": "protagonist", "name": STORY, "data": {}}],
+        "entities_updated": [{"entity_ref": STORY, "changes": {"mood": "calme"}}],
+    })
+    with caplog.at_level(logging.DEBUG):
+        await ExtractionPopulator(test_pool, game_id).process_extraction(extraction)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("Unsupported entity type" in w for w in warnings)
+    assert any("Unknown entity type" in w for w in warnings)
+    assert not [w for w in warnings if STORY in w]

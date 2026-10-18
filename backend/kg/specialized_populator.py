@@ -578,9 +578,8 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 )
 
         else:
-            logger.warning(
-                f"[EXTRACT] Unsupported entity type: {et} for '{creation.name}'"
-            )
+            # The name is story text (#77): only the type is logged.
+            logger.warning(f"[EXTRACT] Unsupported entity type: {et}, creation skipped")
             return False
         return True
 
@@ -667,9 +666,8 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 conn, update.entity_ref
             )
         if not entity_type:
-            logger.warning(
-                f"[UPDATE] Unknown entity type for '{update.entity_ref}'"
-            )
+            # The ref is story text (#77): not logged.
+            logger.warning("[UPDATE] Unknown entity type, update skipped")
             return
 
         # Reveal identity
