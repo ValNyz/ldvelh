@@ -17,6 +17,7 @@ from pipeline.uncancellable import finish_despite_cancel
 from prompts.world_generation_prompt import get_full_generation_prompt
 from repos import games as games_repo
 from schema import WorldGeneration
+from schema.core import DEFAULT_GAME_TIME
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
@@ -135,8 +136,9 @@ async def _run_initial_director(ctx: TurnContext) -> None:
         if saved:
             cycle, game_time = saved.current_cycle, saved.current_time
         else:  # inactive or missing game: not expected right after a save
-            cycle, game_time = 1, "08h00"
-            logger.warning("[DIRECTOR] No snapshot for the initial run, using cycle 1 at 08h00")
+            cycle, game_time = 1, DEFAULT_GAME_TIME
+            logger.warning("[DIRECTOR] No snapshot for the initial run, using cycle 1 at "
+                           f"{DEFAULT_GAME_TIME}")
         await asyncio.wait_for(
             run_director(pool=ctx.pool, game_id=ctx.request.game_id, current_cycle=cycle,
                          current_time=game_time, session=ctx.session, sse_writer=ctx.sink),

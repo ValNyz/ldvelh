@@ -86,9 +86,18 @@ def test_non_object_output_is_invalid():
 
 
 def test_invalid_required_field_alongside_optional_is_invalid():
-    # credit_delta is droppable but time is not: nothing is salvaged.
+    # credit_delta is droppable but narrative_text is not: nothing is salvaged.
     with pytest.raises(NarrationInvalid):
-        parse_narration(_raw(credit_delta={"amount": "x"}, time="oops"), **_KW)
+        parse_narration(_raw(credit_delta={"amount": "x"}, narrative_text=["x"]), **_KW)
+
+
+@pytest.mark.parametrize("shape, expected", [
+    ({"ellipse": False}, None), ("10h15", "10h15"), ("oops", None), (5, None), (["x"], None),
+])
+def test_loose_time_shapes_never_invalidate_the_turn(shape, expected):
+    narration, dropped = parse_narration(_raw(time=shape), **_KW)
+    assert dropped == []
+    assert narration.time.new_time == expected
 
 
 def test_narrate_validate_rejects_non_object_as_narration_invalid():

@@ -297,6 +297,14 @@ class TimeProgression(BaseModel):
     )
     ellipse_summary: Phrase | None = None  # 150 chars
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_loose_shapes(cls, data):
+        """Never fail: a bare string is the new time, any other non-object means no time."""
+        if isinstance(data, dict):
+            return data
+        return {"new_time": data} if isinstance(data, str) else {}
+
 
 class DayTransition(BaseModel):
     """Transition to a new day; the server computes the cycle and a missing date (#16)."""

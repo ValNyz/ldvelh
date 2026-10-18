@@ -19,6 +19,7 @@ from kg.reader import KnowledgeGraphReader
 from kg.populator import KnowledgeGraphPopulator
 from kg.specialized_populator import WorldPopulator
 from schema import WorldGeneration
+from schema.core import DEFAULT_GAME_TIME
 from services.engine import get_engine
 from services.pending_roll import load_pending_roll
 from repos import games as games_repo
@@ -145,7 +146,7 @@ class GameService:
             "name": game["name"],
             "current_cycle": game["current_cycle"] or 0,
             "game_date": game["current_date"] or "Jour 1",
-            "time": game["current_time"] or "08h00",
+            "time": game["current_time"] or DEFAULT_GAME_TIME,
             "current_location": location_name,
             "npcs_present": [],  # Ephemeral, set by narration response
             "last_extraction_time": game.get("last_extraction_time"),

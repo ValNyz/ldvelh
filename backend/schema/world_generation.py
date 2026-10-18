@@ -9,7 +9,9 @@ import logging
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
+    DEFAULT_GAME_TIME,
     EntityRef,
+    GameTime,
     Mood,
     Name,
     ShortText,
@@ -56,12 +58,20 @@ class ArrivalEventData(BaseModel):
     arrival_method: Name  # 100 chars
     arrival_location_ref: EntityRef
     arrival_date: Tag  # 50 chars - e.g. 'Lundi 14 Mars 2847'
-    time: str  # "14h30"
+    time: GameTime = None  # "14h30"; the default when unusable (never None once validated)
     immediate_sensory_details: list[str] = Field(..., min_length=3, max_length=6)
     first_npc_encountered: EntityRef | None = None
     initial_mood: Mood  # 80 chars
     immediate_need: ShortText  # 200 chars
     optional_incident: Text | None = None  # 300 chars
+
+    @model_validator(mode="after")
+    def _default_unusable_time(self):
+        """games.current_time and the arrival payload need a value: use the default."""
+        if self.time is None:
+            self.time = DEFAULT_GAME_TIME
+            logger.warning(f"[Validation] arrival_event.time unusable, using {DEFAULT_GAME_TIME}")
+        return self
 
     @field_validator("first_npc_encountered", mode="before")
     @classmethod
@@ -461,7 +471,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
             "arrival_method": "navette de transport",
             "arrival_location_ref": arrival_location,
             "arrival_date": "Lundi 1er Janvier 2850",
-            "time": "8h00",
+            "time": DEFAULT_GAME_TIME,
             "immediate_sensory_details": [
                 "L'air recyclé de la station",
                 "Le bourdonnement des systèmes",

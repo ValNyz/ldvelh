@@ -10,6 +10,7 @@ from uuid import UUID
 from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
+from schema.core import DEFAULT_GAME_TIME
 from schema.engine import RollResult
 from schema.narration import NarrationOutput
 from config import get_settings
@@ -17,8 +18,6 @@ from utils.json_utils import parse_json
 from utils.log_safe import log_cause
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_TIME = "08h00"  # Same fallback as repos/games.py for a game without a time
 
 
 def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
@@ -64,9 +63,10 @@ async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
     new_cycle = current_cycle + 1 if narration.day_transition else current_cycle
     reader = KnowledgeGraphReader(None, game_id)
     # An unusable narrator time is None (schema/core.py GameTime): keep the game's time.
+    # Read here, in the commit transaction, so it is the stored value, not a turn-start copy.
     new_time = narration.time.new_time if narration.time else None
     if new_time is None:
-        new_time = await reader.get_current_time(conn) or DEFAULT_TIME
+        new_time = await reader.get_current_time(conn) or DEFAULT_GAME_TIME
     location = narration.current_location
     populator = _populator(game_id)
 

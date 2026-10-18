@@ -61,7 +61,10 @@ def _truncate(max_len: int):
     return _inner
 
 
-_CLOCK = re.compile(r"(\d{1,2})\s*[hH:]\s*(\d{1,2})")
+DEFAULT_GAME_TIME = "08h00"
+"""Time of a game that has none (and of an arrival whose time is unusable)"""
+
+_CLOCK = re.compile(r"([0-9]{1,2})\s*[hH:]\s*([0-9]{1,2})")
 
 
 def _game_time(v: Any, info: ValidationInfo | None) -> str | None:

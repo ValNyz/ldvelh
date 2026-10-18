@@ -478,3 +478,25 @@ async def test_writes_share_the_callers_transaction(client, test_user, test_pool
 
     assert after == before
     assert (await service.load_game_state(game_id))["player"]["credits"] == credits_before
+
+
+@pytest.mark.integration
+async def test_unusable_time_with_no_stored_time_falls_back_to_the_default(
+        client, test_user, test_pool):
+    """#86: games.current_time NULL and new_time None -> DEFAULT_GAME_TIME."""
+    from helpers import apply_state
+    from schema.core import DEFAULT_GAME_TIME
+    from schema.narration import parse_narration
+    from tests.test_game_and_populator import _make_narration_output, _setup_game_with_world
+
+    game_id, service, _ = await _setup_game_with_world(client, test_user, test_pool)
+    async with test_pool.acquire() as conn:
+        await conn.execute('UPDATE games SET "current_time" = NULL WHERE id = $1', game_id)
+    data = _make_narration_output("Le Quart de Cycle")
+    data["time"] = {"new_time": "vers 10h"}
+    narration, _ = parse_narration(data, current_time="10h00", current_location="Le Quart de Cycle")
+
+    state = await apply_state(test_pool, game_id, narration, 1)
+
+    assert state.time == DEFAULT_GAME_TIME
+    assert (await service.load_game_state(game_id))["game"]["time"] == DEFAULT_GAME_TIME

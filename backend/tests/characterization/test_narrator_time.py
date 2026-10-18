@@ -3,6 +3,7 @@
 import json
 import logging
 
+from schema.core import DEFAULT_GAME_TIME
 from tests.characterization import payloads
 
 
@@ -38,7 +39,7 @@ async def test_unusable_new_time_commits_the_turn_with_the_previous_time(
     assert after["t"] == before["t"]
     assert (await _last_message(harness, world_game))["time"] == before["t"]
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any("time" in w.lower() for w in warnings)
+    assert any("[GameTime] new_time" in w for w in warnings)
     assert not any("vers 10h" in w for w in warnings)
 
 
@@ -61,3 +62,28 @@ async def test_overlong_new_date_commits_truncated(harness, world_game):
     row = await _game_row(harness, world_game)
     assert row["d"].startswith("Mardi 19 Juillet 2847") and len(row["d"]) <= 50
     assert (await _last_message(harness, world_game))["game_date"] == row["d"]
+
+
+async def test_malformed_arrival_time_creates_the_world_with_the_default_time(harness, caplog):
+    """#86: a world-gen arrival time like "vers 14h" must not fail world creation."""
+    world = json.loads(payloads.WORLD_GEN)
+    world["arrival_event"]["time"] = "vers 14h"
+    harness.llm._responses["world_gen"] = json.dumps(world, ensure_ascii=False)
+    game_id = await harness.create_game("none")
+
+    with caplog.at_level(logging.WARNING):
+        events = await harness.init_world(game_id)
+
+    assert "error" not in harness.summarize(events)
+    async with harness.pool.acquire() as conn:
+        game_time = await conn.fetchval('SELECT "current_time" FROM games WHERE id = $1', game_id)
+        chronology = await conn.fetchval(
+            "SELECT time FROM chronology WHERE game_id = $1 AND cycle = 0", game_id)
+        plan = await conn.fetchval(
+            "SELECT ig_time FROM director_plans WHERE game_id = $1 ORDER BY created_at LIMIT 1",
+            game_id)
+    assert game_time == DEFAULT_GAME_TIME
+    assert chronology == DEFAULT_GAME_TIME
+    assert plan == DEFAULT_GAME_TIME
+    assert not any("vers 14h" in r.getMessage() for r in caplog.records
+                   if r.levelno >= logging.WARNING)

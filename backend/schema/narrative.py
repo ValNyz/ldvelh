@@ -6,7 +6,6 @@ Facts, Narrative Arcs, Events
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .core import (
-    ArcDomain,
     Cycle,
     EntityRef,
     EventType,
@@ -17,9 +16,7 @@ from .core import (
     Name,
     ParticipantRole,
     Phrase,
-    ShortText,
     Text,
-    normalize_arc_domain,
     normalize_fact_type,
     normalize_participant_role,
 )
