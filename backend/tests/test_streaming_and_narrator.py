@@ -461,13 +461,10 @@ class TestExtractNarrativeFromPartial:
         result = extract_narrative_from_partial(partial)
         assert result == "text"
 
-    def test_other_escape_sequences(self):
-        """Unknown escape sequences keep the character after backslash."""
-        partial = '{"narrative_text": "\\u0041"}'
-        result = extract_narrative_from_partial(partial)
-        # \u is not specially handled, so we get 'u0041"' up to the quote
-        # Actually: \u -> appends 'u', then 0041 literal, then closing "
-        assert result == "u0041"
+    def test_unicode_escape_is_decoded(self):
+        """\\uXXXX yields the character, not 'u00e9' (#90)."""
+        partial = '{"narrative_text": "caf\\u00e9"}'
+        assert extract_narrative_from_partial(partial) == "café"
 
     def test_marker_without_value_start(self):
         """Returns None when the key exists but no opening quote for value."""
