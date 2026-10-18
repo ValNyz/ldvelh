@@ -199,7 +199,7 @@ On "Create" click → calls `onComplete({engine, worldConfig, characterData, man
 
 **Undo / redo.** The whole form (`engine`, `worldConfig`, `characterData`, `manualEntities`) lives in one history (`hooks/useFormHistory.js` over the pure `lib/game/formHistory.mjs`, tested by `npm test`). Every change, by the player or the AI fill, is an entry; successive edits of the same field (typing, clicks on one skill) are merged into one entry until another field changes or the field loses focus; the long texts (lore, description) are also cut after a 2 s pause, like a text editor. Buttons in the step card and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y; undoing a change made on another step goes back to that step. Step navigation is not recorded.
 
-**Draft (world being created).** The wizard's `{ step, form }` is saved on every change and survives a reload or a closed tab. Layers, each replaceable on its own: `lib/game/wizardForm.mjs` (steps, empty form), `lib/game/wizardDraft.mjs` (draft format `{ version, step, form, open, savedAt }`, validation, blank check), `lib/game/draftStores.mjs` (stores with an async `{ load, save, clear }` interface; `localDraftStore` keeps one draft per user in `localStorage` under `ldvelh.wizardDraft.<userId>`, a server store can replace it), `hooks/useWizardSession.js` (lifecycle). The wizard only takes `initialDraft` and reports `onSnapshot`. A reload while the wizard is open (`open: true`) goes straight back to it at the same step; leaving it ("Annuler") keeps the draft as a "Création en cours" card in the game list (Reprendre / Supprimer). One draft at a time: "Nouvelle aventure" replaces it at the first change only; an emptied form drops it; creating the game drops it (`handleWizardComplete(data, { onCreated })`). The undo history does not survive a reload. Bump `DRAFT_VERSION` when the form shape changes: older drafts are then ignored.
+**Draft (world being created).** The wizard's `{ step, form }` is saved on every change and survives a reload or a closed tab. Layers, each replaceable on its own: `lib/game/wizardForm.mjs` (steps, empty form), `lib/game/wizardDraft.mjs` (draft format `{ version, step, form, open, savedAt, gameId?, submitted? }`, validation, blank check), `lib/game/draftStores.mjs` (stores with an async `{ load, save, clear }` interface; `localDraftStore` keeps one draft per user in `localStorage` under `ldvelh.wizardDraft.<userId>`, a server store can replace it), `hooks/useWizardSession.js` (lifecycle). The wizard only takes `initialDraft` and reports `onSnapshot`. A reload while the wizard is open (`open: true`) goes straight back to it at the same step; leaving it ("Annuler") keeps the draft as a "Création en cours" card in the game list (Reprendre / Supprimer). One draft at a time: "Nouvelle aventure" replaces it at the first change only; an emptied form drops it. Creating the game does not drop it (#88): `handleWizardComplete(data, { gameId, onCreated })` calls `onCreated(id)`, which attaches the draft to the game (`gameId`, plus `submitted`: the parameters sent with `__INIT__`; it then leaves the list card), and the draft is dropped only when the world exists (phase `WORLD_READY` for that game, `useWizardSession.worldCreated`). Until then a failed generation offers « Réessayer » (resends `submitted`), « Modifier les paramètres » (reopens the wizard on the draft; completing it sends `__INIT__` to the same game, no new `POST /games`) and « Retour aux parties ». Reopening a game with `world_created=false` no longer starts a generation by itself: it shows `WorldPendingScreen` (phase `WORLD_PENDING`) with the same three actions and the saved parameters when this browser holds them; without a local draft « Réessayer » sends a bare `__INIT__` and the server reuses the parameters it stored (§2.5). The undo history does not survive a reload. Bump `DRAFT_VERSION` when the form shape changes: older drafts are then ignored.
 
 #### 2.3 Frontend: handleWizardComplete
 
@@ -235,6 +235,8 @@ GameService.create_game(user_id, engine)
 **Files:** `backend/api/routes.py` — `_handle_chat()` (adapter), `backend/pipeline/init_flow.py` — `run_init()`
 
 INIT mode is detected when the game snapshot has `world_created == False`.
+
+0. **Wizard parameters** (`pipeline/init_params.py`, #88): before the paid call, each `__INIT__` stores the parameters it sends on `games` (`engine`, `world_config`, `character_data`, `manual_entities`; `repos/games.save_init_params`, only while the game has no protagonist), outside the world transaction so a failed generation keeps them. A field the request leaves out is read back from the game, so a bare retry from the game list generates the same world request (genre, lore, difficulty, duration, character sheet, manual entities); a field it sends wins (the player edited the wizard). The wizard's genre slug also wins over a genre stored by an earlier attempt (`resolve_genre`). The three fields are bounded like `/world/enhance` (`api/request_types.py` `WizardPart`, `ManualEntities`: 20 000 characters each, 20 entities per kind; over → French 422, nothing stored).
 
 1. **Build prompt**: `get_full_generation_prompt(mandatory_npcs, theme_preferences, engine, world_config, character_data, manual_entities)`
    - **File:** `backend/prompts/world_generation_prompt.py`
@@ -981,7 +983,8 @@ LIST → WIZARD → GENERATING_WORLD → WORLD_READY → STARTING_ADVENTURE → 
 |-------|-------------|
 | `LIST` | Game list (create, load, delete) |
 | `WIZARD` | 3-step world creation wizard |
-| `GENERATING_WORLD` | Progress bar with partial JSON parsing |
+| `WORLD_PENDING` | Reopened game whose world was never generated: retry, edit the parameters, or back (#88) |
+| `GENERATING_WORLD` | Progress bar with partial JSON parsing; on failure, retry / edit / back |
 | `WORLD_READY` | World summary + "Start Adventure" button |
 | `STARTING_ADVENTURE` | Loading spinner |
 | `PLAYING` | Main game UI (messages, input, sidebars) |
@@ -1017,7 +1020,7 @@ All game business logic lives in `useGameOrchestrator`. It:
 - Registers all SSE callbacks (onChunk, onDone, onSaved, onError, etc.)
 - Exposes game handlers (handleNewGame, handleLoadGame, handleDeleteGame, etc.)
 - Exposes message handlers (handleSendMessage, handleCancel, handleEdit, handleResend, handleRegenerate)
-- Exposes world generation handlers (handleStartAdventure, handleWizardComplete)
+- Exposes world generation handlers (handleStartAdventure, handleWizardComplete, handleRetryWorld)
 - Manages local state: `isExtracting`, `editingIndex`, `lastUserMessage`, `invocationData`
 
 ### Phase Routing
@@ -1029,6 +1032,7 @@ All game business logic lives in `useGameOrchestrator`. It:
 3. `SETTINGS` → `SettingsPage`
 4. `LIST` or no gameId (and not wizard) → `GamesList`
 5. `WIZARD` → `WizardContainer`
-6. `GENERATING_WORLD` or `WORLD_READY` → `WorldGenerationScreen`
-7. `STARTING_ADVENTURE` with no messages → loading spinner
-8. Default (PLAYING) → main game UI (header, stats, messages, input, sidebars)
+6. `WORLD_PENDING` → `WorldPendingScreen`
+7. `GENERATING_WORLD` or `WORLD_READY` → `WorldGenerationScreen`
+8. `STARTING_ADVENTURE` with no messages → loading spinner
+9. Default (PLAYING) → main game UI (header, stats, messages, input, sidebars)

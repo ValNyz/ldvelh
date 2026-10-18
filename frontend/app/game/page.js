@@ -25,6 +25,7 @@ import InputArea from '../../components/game/InputArea';
 import { DebugStatePanel } from '../../components/game/SettingsPanel';
 import SettingsPage from '../../components/game/SettingsPage';
 import WorldGenerationScreen from '../../components/game/WorldGenerationScreen';
+import WorldPendingScreen from '../../components/game/WorldPendingScreen';
 import WizardContainer from '../../components/game/wizard/WizardContainer';
 import { InventorySidebar, WorldSidebar } from '../../components/game/Sidebars';
 import CharacterSheet from '../../components/game/CharacterSheet';
@@ -100,6 +101,12 @@ function GameScreen({ user, logout }) {
 	useEffect(() => {
 		gamesHook.loadGames();
 	}, [gamesHook.loadGames]);
+
+	// The world exists: the wizard draft it was created from is done (#88).
+	const { worldCreated } = wizardSession;
+	useEffect(() => {
+		if (gs.gameId && phaseHook.isWorldReady) worldCreated(gs.gameId);
+	}, [gs.gameId, phaseHook.isWorldReady, worldCreated]);
 
 	// Refresh tooltips when entering a game (gameId set + phase is PLAYING)
 	useEffect(() => {
@@ -184,11 +191,30 @@ function GameScreen({ user, logout }) {
 		);
 	}
 
+	// World not created yet: retry with the saved parameters, or edit them (#88)
+	const pendingParams = wizardSession.paramsFor(gs.gameId);
+	const retryWorld = () => orch.handleRetryWorld(pendingParams);
+	const editWorld = pendingParams ? () => wizardSession.edit(gs.gameId) : null;
+	if (phaseHook.isWorldPending) {
+		return (
+			<WorldPendingScreen
+				params={pendingParams}
+				error={gs.error?.message}
+				onRetry={retryWorld}
+				onEdit={editWorld}
+				onBack={orch.handleQuit}
+			/>
+		);
+	}
+
 	// World generation screen
 	if (phaseHook.isGenerating || phaseHook.isWorldReady) {
 		return (
 			<WorldGenerationScreen
-				isGenerating={phaseHook.isGenerating}
+				isGenerating={phaseHook.isGenerating && !gs.error}
+				onRetry={retryWorld}
+				onEdit={editWorld}
+				onBack={orch.handleQuit}
 				partialJson={phaseHook.worldGenProgress}
 				worldData={phaseHook.worldData}
 				directorStatus={phaseHook.directorStatus}

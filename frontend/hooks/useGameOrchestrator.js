@@ -172,11 +172,14 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	// WORLD GENERATION
 	// =========================================================================
 
-	const generateWorld = useCallback(async (id) => {
+	// __INIT__ of `id`: with the wizard parameters, or without (the server reuses the
+	// ones stored at the first __INIT__, #88).
+	const generateWorld = useCallback(async (id, params = null) => {
 		gs.setLoading(true);
 		gs.setError(null);
 		gs.setWarning(null);
 		phase.setWorldGenProgress('');
+		phase.setGamePhase(phase.GAME_PHASE.GENERATING_WORLD);
 
 		await startStream('/chat', {
 			message: PROTOCOL.INIT_TOKEN,
@@ -184,8 +187,19 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			gameState: null,
 			provider: preferences?.activeProvider || 'anthropic',
 			model: preferences?.activeModel || null,
+			...(params ? {
+				engine: params.engine,
+				world_config: params.worldConfig,
+				character_data: params.characterData,
+				manual_entities: params.manualEntities,
+			} : {}),
 		});
 	}, [startStream, gs, phase, preferences]);
+
+	/** Retry the world generation of the open game (after a failure, or on reopening it). */
+	const handleRetryWorld = useCallback((params = null) => {
+		if (gs.gameId) generateWorld(gs.gameId, params);
+	}, [gs.gameId, generateWorld]);
 
 	const handleStartAdventure = useCallback(async () => {
 		phase.setGamePhase(phase.GAME_PHASE.STARTING_ADVENTURE);
@@ -217,38 +231,26 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		phase.setGamePhase(phase.GAME_PHASE.WIZARD);
 	}, [gs, phase]);
 
-	// onCreated: called once the game exists (e.g. to drop the wizard draft)
-	const handleWizardComplete = useCallback(async ({ engine, worldConfig, characterData, manualEntities }, { onCreated } = {}) => {
+	// gameId: the wizard edited the parameters of an existing game (world not created yet).
+	// onCreated(id): called once the game exists (e.g. to attach the wizard draft to it).
+	const handleWizardComplete = useCallback(async (params, { gameId = null, onCreated } = {}) => {
 		gs.setLoading(true);
 		gs.setError(null);
 		gs.setWarning(null);
 		try {
-			const id = await games.createGame(engine);
-			onCreated?.();
+			const id = gameId || await games.createGame(params.engine);
+			onCreated?.(id);
 			gs.setGameId(id);
-			gs.setGameName(MESSAGES.NEW_GAME_NAME);
+			if (!gameId) gs.setGameName(MESSAGES.NEW_GAME_NAME);
 
 			await games.loadGames();
-			phase.setGamePhase(phase.GAME_PHASE.GENERATING_WORLD);
 			gs.setLoading(false);
-
-			// Start world generation with engine params
-			await startStream('/chat', {
-				message: PROTOCOL.INIT_TOKEN,
-				gameId: id,
-				gameState: null,
-				provider: preferences?.activeProvider || 'anthropic',
-				model: preferences?.activeModel || null,
-				engine,
-				world_config: worldConfig,
-				character_data: characterData,
-				manual_entities: manualEntities,
-			});
+			await generateWorld(id, params);
 		} catch (e) {
 			gs.setError({ message: e.message });
 			gs.setLoading(false);
 		}
-	}, [games, gs, phase, startStream, preferences]);
+	}, [games, gs, generateWorld]);
 
 	const handleWizardCancel = useCallback(() => {
 		phase.setGamePhase(phase.GAME_PHASE.LIST);
@@ -288,17 +290,16 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				}
 				phase.setGamePhase(phase.GAME_PHASE.WORLD_READY);
 			} else {
-				phase.setGamePhase(phase.GAME_PHASE.GENERATING_WORLD);
-				gs.setLoading(false);
-				generateWorld(id);
-				return;
+				// Not generated (failed, or left during the generation): the player chooses
+				// to retry or to edit the parameters first (#88).
+				phase.setGamePhase(phase.GAME_PHASE.WORLD_PENDING);
 			}
 		} catch (e) {
 			gs.setError({ message: e.message });
 		} finally {
 			gs.setLoading(false);
 		}
-	}, [games, gs, phase, generateWorld]);
+	}, [games, gs, phase]);
 
 	const handleDeleteGame = useCallback(async (id) => {
 		try {
@@ -502,6 +503,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 		// World generation
 		handleStartAdventure,
+		handleRetryWorld,
 		handleWizardComplete,
 		handleWizardCancel,
 	};

@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { DRAFT_VERSION, draftTitle, isBlankForm, makeDraft, parseDraft } from '../lib/game/wizardDraft.mjs';
+import {
+	DRAFT_VERSION, attachDraft, draftParams, draftTitle, isBlankForm, makeDraft, parseDraft,
+} from '../lib/game/wizardDraft.mjs';
 import { draftKey, localDraftStore } from '../lib/game/draftStores.mjs';
 import { INITIAL_WIZARD_FORM } from '../lib/game/wizardForm.mjs';
 
@@ -20,6 +22,27 @@ test('a draft round-trips through parseDraft', () => {
 	const draft = makeDraft({ step: 1, form: FORM }, { now: 1000 });
 	assert.deepEqual(parseDraft(JSON.parse(JSON.stringify(draft))),
 		{ version: DRAFT_VERSION, step: 1, form: FORM, open: true, savedAt: 1000 });
+});
+
+const SUBMITTED = { engine: 'fate_core', worldConfig: { genre: 'cyberpunk', lore: 'Néo-Lyon' },
+	characterData: { name: 'Ilya' }, manualEntities: null };
+
+test('#88: a draft attached to its game keeps the sent parameters until the world exists', () => {
+	const attached = attachDraft(makeDraft({ step: 2, form: FORM }, { now: 1000 }), 'g1', SUBMITTED);
+	assert.equal(attached.open, false);
+	const back = parseDraft(JSON.parse(JSON.stringify(attached)));
+	assert.deepEqual(back, { version: DRAFT_VERSION, step: 2, form: FORM, open: false, savedAt: 1000,
+		gameId: 'g1', submitted: SUBMITTED });
+	assert.deepEqual(draftParams(back, 'g1'), SUBMITTED);
+	assert.equal(draftParams(back, 'g2'), null); // another game's draft
+	assert.equal(draftParams(makeDraft({ step: 2, form: FORM }), 'g1'), null); // not attached
+	assert.equal(draftParams(null, 'g1'), null);
+});
+
+test('#88: broken game fields are dropped, the draft is kept', () => {
+	const draft = makeDraft({ step: 1, form: FORM }, { now: 1 });
+	assert.deepEqual(parseDraft({ ...draft, gameId: 42, submitted: SUBMITTED }), draft);
+	assert.deepEqual(parseDraft({ ...draft, gameId: 'g1', submitted: 'x' }), { ...draft, gameId: 'g1' });
 });
 
 test('foreign, outdated or broken values are not drafts', () => {

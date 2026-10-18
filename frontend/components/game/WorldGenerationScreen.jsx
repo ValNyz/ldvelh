@@ -7,6 +7,7 @@ import {
 	getStepStatuses,
 	extractWorldName,
 } from '../../lib/game/progressUtils';
+import WorldRetryActions from './WorldRetryActions';
 
 export default function WorldGenerationScreen({
 	isGenerating,
@@ -15,7 +16,10 @@ export default function WorldGenerationScreen({
 	directorStatus,
 	directorLabel,
 	onStartAdventure,
-	error
+	error,
+	onRetry,
+	onEdit,
+	onBack,
 }) {
 	const isStreamComplete = !isGenerating;
 
@@ -47,7 +51,7 @@ export default function WorldGenerationScreen({
 				{/* Title */}
 				<div className="text-center">
 					<h1 className="text-3xl font-bold text-white mb-2">
-						{isComplete ? '✨ Monde créé' : 'Création du monde...'}
+						{isComplete ? '✨ Monde créé' : error && !isGenerating ? 'Monde non créé' : 'Création du monde...'}
 					</h1>
 					{(worldData?.world?.name || worldName) && (
 						<p className="text-2xl text-primary font-semibold">
@@ -205,6 +209,11 @@ export default function WorldGenerationScreen({
 					<div className="bg-red-900/50 border border-red-700 rounded-lg p-4">
 						<p className="text-red-400">{error}</p>
 					</div>
+				)}
+
+				{/* Generation failed: retry, edit the parameters, or leave (#88) */}
+				{error && !isGenerating && !isComplete && onRetry && (
+					<WorldRetryActions onRetry={onRetry} onEdit={onEdit} onBack={onBack} />
 				)}
 
 				{isComplete && (
