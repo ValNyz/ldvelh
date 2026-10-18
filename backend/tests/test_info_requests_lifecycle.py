@@ -102,10 +102,11 @@ async def test_rollback_to_a_message_without_the_key_restores_nothing(harness, w
     await _turn(harness, world_game, _narration())                       # A
     await _turn(harness, world_game, _narration(info_requests=[PLACE]))  # B asks
     async with harness.pool.acquire() as conn:
-        await conn.execute(  # A as saved before #64: no info_requests key
+        await conn.execute(  # messages as saved before #64: no info_requests key
             "UPDATE messages SET narrator_deltas = narrator_deltas - 'info_requests'"
             " WHERE game_id = $1", world_game)
-    await _turn(harness, world_game, _narration())                       # C
+    await _turn(harness, world_game, _narration(info_requests=["Ossek"]))  # C asks
+    assert await _stored(harness, world_game) == ["Ossek"]
     await _rollback_last_turn(harness, world_game)                       # undo C: keep B
     assert await _stored(harness, world_game) == []
 
