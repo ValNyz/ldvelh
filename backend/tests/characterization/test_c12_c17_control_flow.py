@@ -6,6 +6,7 @@ import pytest
 
 from tests.characterization import payloads
 from tests.characterization.snapshot import assert_snapshot
+from tests.helpers import last_user_message_id
 
 
 def _brief(messages: list[dict]) -> list[dict]:
@@ -306,13 +307,6 @@ def _day_change_narration() -> str:
     return json.dumps(narration, ensure_ascii=False)
 
 
-async def _last_user_message_id(harness, game_id):
-    async with harness.pool.acquire() as conn:
-        return await conn.fetchval(
-            """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
-               ORDER BY created_at DESC, sequence DESC LIMIT 1""", game_id)
-
-
 async def test_c12c_day_change_turn_with_roll_rolls_back_cleanly(harness, fate_game, monkeypatch):
     """#134: a day-change turn with a roll leaves no roll effect (stress, roll history) after
     its player message is rolled back."""
@@ -333,7 +327,7 @@ async def test_c12c_day_change_turn_with_roll_rolls_back_cleanly(harness, fate_g
             " ORDER BY created_at DESC LIMIT 1", fate_game)
     assert roll_cycle == during["cycle"]
 
-    user_msg = await _last_user_message_id(harness, fate_game)
+    user_msg = await last_user_message_id(harness, fate_game)
     r = await harness.client.post(f"/api/games/{fate_game}/rollback",
                                   json={"messageId": str(user_msg)}, headers=harness.headers)
     assert r.status_code == 200, r.text
@@ -358,7 +352,7 @@ async def test_c12d_resumed_roll_on_day_change_turn_rolls_back_cleanly(harness, 
         game_cycle = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1", game_id)
     assert resolved is not None and resolved["cycle"] == game_cycle
 
-    user_msg = await _last_user_message_id(harness, game_id)
+    user_msg = await last_user_message_id(harness, game_id)
     r = await harness.client.post(f"/api/games/{game_id}/rollback",
                                   json={"messageId": str(user_msg)}, headers=harness.headers)
     assert r.status_code == 200, r.text

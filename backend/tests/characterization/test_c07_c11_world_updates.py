@@ -7,12 +7,7 @@ import pytest
 from tests.characterization import payloads
 from tests.characterization.harness import spy_narration
 from tests.characterization.snapshot import assert_snapshot
-
-
-def _narration(**extra) -> str:
-    data = json.loads(payloads.NARRATION)
-    data.update(extra)
-    return json.dumps(data, ensure_ascii=False)
+from tests.helpers import narration_with
 
 
 async def _turn(harness, game_id, narration_json, message="Je continue."):
@@ -60,7 +55,7 @@ async def test_c07_credit_and_inventory_deltas(harness, world_game, monkeypatch)
         # Force the "before" state so the reveal's effect is observable.
         await conn.execute("UPDATE characters SET known_by_protagonist = false WHERE id = $1", char["id"])
         await conn.execute("UPDATE locations SET accessible = false WHERE id = $1", loc["id"])
-    events = await _turn(harness, world_game, _narration(
+    events = await _turn(harness, world_game, narration_with(
         entity_reveals=[
             {"entity_type": "character", "current_name": char["name"], "real_name": "Nora Revealed"},
             {"entity_type": "location", "current_name": loc["name"]},
@@ -115,7 +110,7 @@ async def test_c08_info_requests_prefetch(harness, world_game, monkeypatch):
     # Turn A: nothing requested. Turn B: narrator requests a location. Turn C: prefetched
     # details should reach the context. Turn D: no new request, so it must no longer carry the block.
     await _turn(harness, world_game, payloads.NARRATION, "Je regarde.")
-    await _turn(harness, world_game, _narration(info_requests=["Le Quart de Cycle"]), "Je demande.")
+    await _turn(harness, world_game, narration_with(info_requests=["Le Quart de Cycle"]), "Je demande.")
     harness.llm.calls.clear()
     events = await _turn(harness, world_game, payloads.NARRATION, "Je parle au barman.")
     calls_c = sorted(harness.llm.purposes())
@@ -137,7 +132,7 @@ async def test_c09_day_transition(harness, world_game):
     async with harness.pool.acquire() as conn:
         before = await conn.fetchrow(
             'SELECT current_cycle, "current_date" AS d FROM games WHERE id = $1', world_game)
-    events = await _turn(harness, world_game, _narration(
+    events = await _turn(harness, world_game, narration_with(
         day_transition={"new_cycle": 2, "new_date": "Jour 2", "night_summary": "Une nuit calme."}),
         "Je vais dormir.")
     async with harness.pool.acquire() as conn:
@@ -170,7 +165,7 @@ async def test_c09b_day_transition_strictness(harness, world_game, bad, request)
 
     A missing new_cycle or new_date is tolerated, extra keys are accepted and the
     payload's new_cycle value is ignored (cycle becomes current + 1)."""
-    events = await _turn(harness, world_game, _narration(day_transition=bad), "Je dors.")
+    events = await _turn(harness, world_game, narration_with(day_transition=bad), "Je dors.")
     async with harness.pool.acquire() as conn:
         cycle = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1", world_game)
     assert_snapshot(f"c09b_day_transition_strictness[{request.node.callspec.id}]", {
@@ -207,7 +202,7 @@ async def test_c10b_day_change_turn_extraction_rolls_back(harness, world_game):
     message removes the entity its extraction created."""
     harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
     harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
-    await _turn(harness, world_game, _narration(
+    await _turn(harness, world_game, narration_with(
         day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}),
         "Je dors jusqu'au matin.")
     async with harness.pool.acquire() as conn:
@@ -254,7 +249,7 @@ async def test_c11_director_plan_written(harness, world_game, monkeypatch):
     for msg, new_time in (("Premier tour.", "17h00"), ("Deuxième tour.", "18h00"),
                           ("Troisième tour.", "19h00")):
         harness.llm.calls.clear()
-        await _turn(harness, world_game, _narration(
+        await _turn(harness, world_game, narration_with(
             time={"new_time": new_time, "ellipse": False, "ellipse_summary": None}), msg)
         per_turn.append(harness.llm.purposes().count("director"))
     assert len(narration_calls) == 3
@@ -299,7 +294,7 @@ async def test_c11c_day_change_director_arc_rolls_back(harness, world_game):
     async with harness.pool.acquire() as conn:
         world_arcs = await conn.fetchval(
             "SELECT COUNT(*) FROM narrative_arcs WHERE game_id = $1", world_game)
-    await _turn(harness, world_game, _narration(
+    await _turn(harness, world_game, narration_with(
         day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}),
         "Je dors jusqu'au matin.")
     assert harness.llm.purposes().count("director") == 1

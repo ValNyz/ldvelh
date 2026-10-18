@@ -131,3 +131,35 @@ def stress_on_every_roll(monkeypatch):
         return roll
 
     monkeypatch.setattr(fate_core.FateCoreEngine, "roll_dice", roll_with_stress)
+
+
+# =============================================================================
+# Harness turns: narration payloads and rollback
+# =============================================================================
+
+
+def narration_with(**extra) -> str:
+    """The characterization NARRATION payload with some top-level keys replaced or added."""
+    import json
+
+    from tests.characterization import payloads
+
+    data = json.loads(payloads.NARRATION)
+    data.update(extra)
+    return json.dumps(data, ensure_ascii=False)
+
+
+async def last_user_message_id(harness, game_id):
+    """Id of the game's latest player message."""
+    async with harness.pool.acquire() as conn:
+        return await conn.fetchval(
+            """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
+               ORDER BY created_at DESC, sequence DESC LIMIT 1""", game_id)
+
+
+async def rollback_last_turn(harness, game_id):
+    """Roll back to before the latest player message, through the API."""
+    user_msg = await last_user_message_id(harness, game_id)
+    r = await harness.client.post(f"/api/games/{game_id}/rollback",
+                                  json={"messageId": str(user_msg)}, headers=harness.headers)
+    assert r.status_code == 200, r.text
