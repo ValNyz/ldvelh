@@ -95,15 +95,16 @@ async def set_engine(conn, game_id: UUID, engine_type: str, world_config: dict |
 async def save_init_params(conn, game_id: UUID, *, engine: str | None,
                            world_config: dict | None, character_data: dict | None,
                            manual_entities: dict | None) -> None:
-    """Store the wizard parameters of a game whose world is not created yet (#88).
+    """Replace the wizard parameters of a game whose world is not created yet (#88).
 
-    A None field keeps its stored value; a created world is never touched.
+    The three parts are one set: a None part is stored as NULL (the player cleared it).
+    A None engine keeps the game's. A created world is never touched.
     """
     await conn.execute(
         """UPDATE games SET engine = COALESCE($2, engine),
-                            world_config = COALESCE($3, world_config),
-                            character_data = COALESCE($4, character_data),
-                            manual_entities = COALESCE($5, manual_entities),
+                            world_config = $3,
+                            character_data = $4,
+                            manual_entities = $5,
                             updated_at = NOW()
            WHERE id = $1
              AND NOT EXISTS (SELECT 1 FROM protagonists WHERE game_id = $1)""",

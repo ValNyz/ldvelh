@@ -108,6 +108,13 @@ class GameService:
                 await games_repo.set_engine(conn, game_id, engine, world_config=None)
             return game_id
 
+    async def load_init_params(self, game_id: UUID, engine: str | None) -> dict:
+        """Stored wizard parameters of a game whose world is not created yet (#88), with
+        the game's engine as `load_game_state` already read it (coerced once)."""
+        async with self.pool.acquire() as conn:
+            params = await games_repo.get_init_params(conn, game_id)
+        return {"engine": engine, **params}
+
     async def delete_game(self, game_id: UUID) -> None:
         populator = self._get_populator(game_id)
         async with self.pool.acquire() as conn:

@@ -77,16 +77,59 @@ async def test_bare_retry_uses_the_original_wizard_parameters(harness, monkeypat
     assert skills == FATE_SHEET["skills"]  # the wizard pyramid, not an empty sheet
 
 
-async def test_retry_with_edited_parameters_overrides_the_stored_ones(harness, monkeypatch):
-    """The player edited the wizard before retrying: what the retry sends wins, field by
-    field; a field it leaves out comes from the first __INIT__."""
-    edited = {**WORLD_CONFIG, "lore": "Une colonie pénitentiaire sur Titan."}
-    _, prompts = await _fail_then_retry(harness, monkeypatch, {"world_config": edited})
+async def _stored(harness, game_id: str) -> dict:
+    async with harness.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT world_config, character_data, manual_entities FROM games WHERE id = $1",
+            UUID(game_id))
+    return {k: json.loads(v) if isinstance(v, str) else v for k, v in dict(row).items()}
 
+
+async def test_retry_with_parameters_replaces_the_stored_set(harness, monkeypatch):
+    """The player edited the wizard before retrying: the parameters it sends replace the
+    stored set entirely. The wizard sends null for a part it left empty (no entities, no
+    character): that part is cleared, not restored from the first __INIT__."""
+    edited = {k: v for k, v in WORLD_CONFIG.items() if k != "lore"}  # lore cleared
+    game_id, prompts = await _fail_then_retry(harness, monkeypatch, {
+        "engine": "fate_core", "world_config": edited, "character_data": FATE_SHEET,
+        "manual_entities": None})
+
+    retry_prompt = _prompt_text(prompts[1])
+    assert LORE not in retry_prompt
+    assert "Varek Osu" not in retry_prompt and "Puits Thalassa" not in retry_prompt
+    assert "Occupation : Pilote de cargo" in retry_prompt
+    stored = await _stored(harness, game_id)
+    assert stored["world_config"] == edited  # no lore
+    assert stored["manual_entities"] is None
+    assert stored["character_data"] == FATE_SHEET
+
+
+async def test_edited_retry_lore_wins(harness, monkeypatch):
+    edited = {**WORLD_CONFIG, "lore": "Une colonie pénitentiaire sur Titan."}
+    _, prompts = await _fail_then_retry(harness, monkeypatch, {**WIZARD, "world_config": edited})
     retry_prompt = _prompt_text(prompts[1])
     assert "Une colonie pénitentiaire sur Titan." in retry_prompt
     assert LORE not in retry_prompt
-    assert "Varek Osu" in retry_prompt  # manual entities not resent: the stored ones
+
+
+async def test_load_game_returns_the_stored_parameters_until_the_world_exists(harness):
+    """'Modifier les paramètres' in a browser without the draft is prefilled from these."""
+    harness.llm._responses["world_gen"] = ["pas du JSON", payloads.WORLD_GEN]
+    game_id = await harness.create_game("fate_core")
+    await harness.chat(game_id, "__INIT__", **WIZARD)
+    await harness.drain()
+
+    r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["init_params"] == {"engine": "fate_core", "world_config": WORLD_CONFIG,
+                                       "character_data": FATE_SHEET,
+                                       "manual_entities": MANUAL_ENTITIES}
+
+    await harness.chat(game_id, "__INIT__")
+    await harness.drain()
+    r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
+    assert r.json()["state"]["world_created"] is True
+    assert r.json().get("init_params") is None
 
 
 async def test_oversized_wizard_parameters_are_refused_before_anything_is_stored(harness):

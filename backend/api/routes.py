@@ -136,11 +136,16 @@ async def load_game(
     world_info = None
     if state.get("world_created") and not messages:
         world_info = await service.load_world_info(game_id)
+    # World not created yet: the stored wizard parameters, to edit them in a browser
+    # without the wizard draft (#88).
+    init_params = None if state.get("world_created") else await service.load_init_params(
+        game_id, (state.get("game") or {}).get("engine"))
 
     return {
         "state": state,
         "messages": messages,
         "world_info": world_info,
+        "init_params": init_params,
     }
 
 
@@ -392,6 +397,9 @@ async def _api_key_or_raise(pool: asyncpg.Pool, user_id: UUID, provider_name: st
     return user_api_key
 
 
+_WIZARD_FIELDS = {"world_config", "character_data", "manual_entities"}
+
+
 def _turn_request(request: ChatRequest, user_id: UUID) -> TurnRequest:
     return TurnRequest(
         game_id=request.gameId,
@@ -404,6 +412,7 @@ def _turn_request(request: ChatRequest, user_id: UUID) -> TurnRequest:
             world_config=request.world_config,
             character_data=request.character_data,
             manual_entities=request.manual_entities,
+            carries_wizard=bool(request.model_fields_set & _WIZARD_FIELDS),
         ),
     )
 

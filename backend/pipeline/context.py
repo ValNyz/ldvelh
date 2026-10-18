@@ -20,6 +20,9 @@ class InitParams:
     world_config: dict | None
     character_data: dict | None
     manual_entities: dict | None
+    # The request carries the wizard parameters (any of the three parts, even null): they
+    # replace the stored set. False for a bare retry, which reuses the stored set (#88).
+    carries_wizard: bool = False
 
 
 @dataclass(frozen=True)
