@@ -137,3 +137,21 @@ async def test_parse_failure_excerpt_is_not_logged_without_log_prompts(caplog):
         await stream_narration(session, _RecordingSink(), system_prompt=NARRATOR,
                                messages=MESSAGES, world_gen=False)
     assert STORY_FRAGMENT not in caplog.text
+
+
+async def test_stream_ending_mid_escape_holds_the_fragment_back():
+    # Truncated output ends on a lone high surrogate: the fragment is never sent as a delta.
+    session, _ = _session({"narration": '{"narrative_text": "Salut \\ud83d'})
+    sink = _RecordingSink()
+    await stream_narration(session, sink, system_prompt=NARRATOR, messages=MESSAGES,
+                                    world_gen=False)
+    assert "".join(args[0] for args in sink.of("send_chunk")) == "Salut"
+
+
+async def test_escaped_narration_streams_decoded_and_matches_final_text():
+    text = "Café 😀 \"ok\"\nfin"
+    session, _ = _session({"narration": json.dumps({"narrative_text": text})})
+    sink = _RecordingSink()
+    result = await stream_narration(session, sink, system_prompt=NARRATOR, messages=MESSAGES,
+                                    world_gen=False)
+    assert "".join(args[0] for args in sink.of("send_chunk")) == result.display_text == text

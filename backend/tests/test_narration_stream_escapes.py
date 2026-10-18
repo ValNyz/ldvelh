@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from pipeline.narration_stream import extract_narrative_from_partial
+from pipeline.json_escape import decode_json_escape
+from pipeline.narrative_scanner import NarrativeScanner, extract_narrative_from_partial
 
 SAMPLES = [
     "Il était une fois à Genève, où l'été est très chaud.",
@@ -16,17 +17,13 @@ SAMPLES = [
 
 
 def _streamed(raw: str, cuts: tuple[int, ...]) -> str:
-    """Concatenate the deltas the narration stream would send for these chunk boundaries."""
+    """Concatenate the deltas the scanner emits for these chunk boundaries."""
+    scanner = NarrativeScanner()
     sent = ""
-    buffer = ""
     previous = 0
     for cut in (*cuts, len(raw)):
-        buffer += raw[previous:cut]
+        sent += scanner.feed(raw[previous:cut])
         previous = cut
-        displayable = extract_narrative_from_partial(buffer)
-        if displayable and len(displayable) > len(sent):
-            assert displayable.startswith(sent), "streamed text must only grow"
-            sent = displayable
     return sent
 
 
@@ -74,3 +71,22 @@ def test_result_is_always_encodable():
     for body in ("\\ud83d", "\\ude00", "\\ud83d\\ud83d", "\\uZZZZ"):
         text = extract_narrative_from_partial(_partial(body + '"}')) or ""
         text.encode("utf-8")
+
+
+def test_decode_json_escape_waits_or_decodes():
+    assert decode_json_escape("\\", 0) is None
+    assert decode_json_escape("\\u00", 0) is None
+    assert decode_json_escape("\\u00e9!", 0) == ("é", 6)
+    assert decode_json_escape("\\ud83d\\ude00", 0) == ("😀", 12)
+    assert decode_json_escape("\\ud83d\\u", 0) is None
+    assert decode_json_escape("\\n", 0) == ("\n", 2)
+    assert decode_json_escape("\\uZ", 0) == ("\ufffd", 2)
+
+
+def test_scan_work_is_linear_in_stream_length():
+    text = "Un récit très long, avec des accents é et un emoji 😀. " * 400
+    raw = json.dumps({"narrative_text": text})
+    scanner = NarrativeScanner()
+    sent = "".join(scanner.feed(raw[i:i + 3]) for i in range(0, len(raw), 3))
+    assert sent == text.strip()
+    assert scanner.scanned <= len(raw)  # every character examined at most once
