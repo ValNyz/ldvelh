@@ -273,7 +273,7 @@ INIT mode is detected when the game snapshot has `world_created == False`.
    - Calls `game_service.process_init(game_id, world_gen, finalize=...)` which calls `WorldPopulator.populate()`; the engine + world config, the engine character (if engine != "none") and the game duration are written by `finalize` in the same transaction: the world is saved whole or not at all (#79). As in `run_turn`, the connection is acquired first (a cancellable wait), then the transaction and the initial Director start run under `finish_despite_cancel`: a disconnect once the save has started, COMMIT included, never leaves a saved world without its initial Director
    - Enqueues the initial Director right after the save as a `director_initial` job on the game's supervisor queue (`pipeline/director_runs.py`), and waits for it, so a connected client gets its `status` events first. The wait for a supervisor slot (at most `SUPERVISOR_MAX_GAMES` games run a job at once) comes before the Director's own 30 s timeout starts: under saturation the world's `done` waits for a slot, by design (bounding that wait could let the Director write `status` to a closed SSE sink). `director_runs` is reduced to this one job's registry (`start_initial`, the first turn's bounded wait); the scheduled Director is a post-turn hook
    - Loads canonical state, builds `SSEDonePayload` with `world_info`, sends `SSEEvent.DONE` then `SSEEvent.SAVED`
-   - A client gone after the world is saved: the Director finishes in the background and the game lock is released without waiting for it. The game's next turn (the arrival) waits for that Director, at most for what is left of its 30 s, so its context has the plan; it holds the game lock meanwhile (by design: only the first turn after a disconnect during world generation can wait, and never longer than the Director's own timeout); a scheduled Director is never started while another one runs for the game (#79)
+   - A client gone after the world is saved: the Director finishes in the background and the game lock is released without waiting for it. The game's next turn (the arrival) waits for that Director, at most for what is left of its 30 s, so its context has the plan; it holds the game lock meanwhile (by design: only the first turn after a disconnect during world generation can wait, and never longer than the Director's own timeout); the scheduled Director runs inside the game's `post_turn` job, which the supervisor queues behind the initial Director job, so the two never run at once (see §14)
 
 #### 2.6 Backend: WorldPopulator.populate()
 
@@ -658,7 +658,7 @@ EXTRACTOR_MAP = {
 
 Which extractors run: the narrator's triggers, plus the extractors implied by the resolver's mappings. A mapping implies one only when it is `is_new` and its canonical name is absent from `entity_registry` (compared in SQL, `orchestrator.resolver_triggers`); a registry lookup failure keeps the narrator's triggers. Order inside the `post_turn` job: resolver, extraction, then the hooks, so the Director reads what was extracted.
 
-Write guard (#23): every extractor transaction, and the Director's apply, takes `SELECT 1 FROM messages WHERE id = $1 FOR SHARE` on the turn's assistant message first (`repos/turns.hold_source_message`, `BaseExtractor.run(source_message_id=...)`). A rollback deleting that message waits for the commit; a turn already rolled back writes nothing.
+Write guard (#23): every extractor transaction, the orchestrator's re-apply of narrator `entity_reveals`, the `on_new_cycle` hooks and the Director's apply take `SELECT 1 FROM messages WHERE id = $1 FOR SHARE` on the turn's assistant message first (`repos/turns.hold_source_message`, `BaseExtractor.run(source_message_id=...)`). A rollback deleting that message waits for the commit; a turn already rolled back writes nothing. The extraction cost append and the annotation `UPDATE messages` need no lock: they are no-ops once the message is deleted.
 
 ### Extractors
 
@@ -771,7 +771,7 @@ The route holds the game lock (`workers/game_locks`), then cancels the game's ba
 4. Restores `games.detail_requests` with the `info_requests` stored in the kept message's `narrator_deltas` (none for older messages), so the details the rolled-back turn consumed are available again and those it requested are dropped (#64)
 5. Returns updated state and remaining messages
 
-Known residual: a populate that wins the `FOR SHARE` race commits before the rollback's DELETE and relies on `rollback_to_cycle`, which keeps rows of the same cycle; the full fix is the per-turn journal (#22, P5).
+Known residual: a populate that wins the `FOR SHARE` race commits before the rollback's DELETE and relies on `rollback_to_cycle`, which keeps rows of the same cycle; the full fix is the per-turn journal (#22, P5). Likewise, seeds archived by a day-change turn (the `on_new_cycle` subscriber, seeds older than 10 cycles) stay archived when that turn is rolled back: `rollback_to_cycle` deletes later rows but never restores a status. Benign (those seeds were stale anyway), same family as #22.
 
 A refused rollback raises `RollbackRejected(reason)`; the route answers 400 with a fixed French `detail` per reason (`arrival_scene`: "Impossible de revenir avant la scène d'arrivée."), never the exception text (#80).
 
@@ -1094,11 +1094,11 @@ Every background job goes through `supervisor.enqueue(game_id, kind, coro)`: the
 
 ### Post-turn hooks
 
-`pipeline/post_turn.run_post_turn` runs, in this order: the resolver, the extractors (if triggered), `hooks.run_turn_committed` and, when the turn started a new in-game day, `hooks.run_new_cycle`. It is the only caller of the hooks.
+`pipeline/post_turn.run_post_turn` runs, in this order: the resolver, the extractors (if triggered), then, when the turn started a new in-game day, `hooks.run_new_cycle`, then `hooks.run_turn_committed`. It is the only caller of the hooks.
 
-- `@hooks.on_turn_committed` subscribers `(pool, session, event: TurnCommitted)` run after every turn, each on its own: a failure is logged (`[HOOKS] turn_committed subscriber ... failed`) and the next one still runs. The scheduled Director is one of them.
+- `@hooks.on_turn_committed` subscribers `(pool, session, event: TurnCommitted)` run after every turn, each on its own: a failure is logged (`[HOOKS] turn_committed subscriber ... failed`) and the next one still runs. The scheduled Director is one of them. They run outside any guard.
 - `@hooks.on_new_cycle` subscribers `(conn, game_id, cycle)` run in one transaction that share-locks the turn's assistant message: one failure rolls them all back, and a turn already rolled back runs nothing. The engine's `on_new_cycle` and the archiving of seeds older than 10 cycles are subscribers.
-- **How to subscribe.** Decorate an async function in `services/subscribers.py` (or any module imported before the first turn); registration is idempotent. `register_defaults()` runs once at import in `main.py` and before each test (`conftest`); tests reset with `hooks.reset()`.
+- **How to subscribe.** Decorate an async function in `services/subscribers.py` (or any module imported before the first turn); registration is idempotent. Only `on_new_cycle` subscribers are guarded by the runner: an `on_turn_committed` subscriber that writes must share-lock `event.assistant_message_id` itself (`repos.turns.hold_source_message` in its own transaction, skipping its writes when it returns False), as `director_apply` does. `register_defaults()` runs once at import in `main.py` and before each test (`conftest`); tests reset with `hooks.reset()`.
 - The Director run is split in `director_context` (collect, reads), the LLM call (no connection held) and `director_apply` (plan and arc updates in one transaction under the `FOR SHARE` guard).
 
 ### Data robustness added with the supervisor (#27)

@@ -126,3 +126,64 @@ async def test_lookup_failure_keeps_narrator_triggers(test_pool, test_user, capl
     assert spies["characters"].called and not spies["locations"].called
     assert any(r.levelno == logging.WARNING and "lookup failed" in r.getMessage()
                for r in caplog.records)
+
+
+# =============================================================================
+# Phase 3 entity_reveals re-apply is guarded by the source message (#23)
+# =============================================================================
+
+REVEALS = {"entity_reveals": [
+    {"entity_type": "character", "current_name": "L'inconnu", "real_name": "Ana"},
+    {"entity_type": "location", "current_name": "Le Quai 9"},
+]}
+
+
+async def _assistant_message(test_pool, test_user):
+    from domain.turn import NarrationState
+    from repos import turns
+    from services.game_service import GameService
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    state = NarrationState(cycle=1, time="", location=None, npcs_present=[], date=None)
+    async with test_pool.acquire() as conn:
+        _, assistant_id = await turns.save_turn_messages(
+            conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
+            state=state, narrator_deltas={}, engine_snapshot=None)
+    return game_id, assistant_id
+
+
+async def _reapply(test_pool, game_id, assistant_message_id):
+    populator = MagicMock()
+    populator.mark_character_known = AsyncMock()
+    populator.mark_location_accessible = AsyncMock()
+    with patch.object(orchestrator, "KnowledgeGraphPopulator", return_value=populator), \
+            patch.object(orchestrator, "resolve_entities",
+                         AsyncMock(return_value=(None, None))):
+        await orchestrator.run_resolve_and_extract(
+            test_pool, game_id, 1, [], session=MagicMock(),
+            assistant_message_id=assistant_message_id, message_content="Tu pars.",
+            narrator_deltas=REVEALS)
+    return populator
+
+
+async def test_reveals_for_a_deleted_source_message_are_not_applied(test_pool, test_user):
+    game_id, message_id = await _assistant_message(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        await conn.execute("DELETE FROM messages WHERE id = $1", message_id)
+    populator = await _reapply(test_pool, game_id, message_id)
+    populator.mark_character_known.assert_not_called()
+    populator.mark_location_accessible.assert_not_called()
+
+
+async def test_reveals_for_a_live_source_message_are_applied(test_pool, test_user):
+    game_id, message_id = await _assistant_message(test_pool, test_user)
+    populator = await _reapply(test_pool, game_id, message_id)
+    populator.mark_character_known.assert_awaited_once()
+    assert populator.mark_character_known.await_args.args[1:] == ("L'inconnu", "Ana")
+    populator.mark_location_accessible.assert_awaited_once()
+
+
+async def test_reveals_without_source_message_are_applied(test_pool, test_user):
+    game_id = await _game(test_pool, test_user)
+    populator = await _reapply(test_pool, game_id, None)
+    populator.mark_character_known.assert_awaited_once()
+    populator.mark_location_accessible.assert_awaited_once()

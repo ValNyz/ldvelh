@@ -1,9 +1,12 @@
 """Post-turn hooks (#95): what runs after a committed turn, inside its post_turn job.
 
 `on_turn_committed` subscribers run after every turn, each on its own: a failure is logged
-and the next one still runs. `on_new_cycle` subscribers run when the turn started a new
-in-game day, all in one transaction that holds the turn's assistant message (a rollback
-deleting it waits for the commit; a turn already rolled back runs nothing).
+and the next one still runs. They run outside any guard: a subscriber that writes must
+share-lock `event.assistant_message_id` itself (repos.turns.hold_source_message, in its
+own transaction, as services/director_apply.py does) and skip its writes when it is gone.
+`on_new_cycle` subscribers run when the turn started a new in-game day, all in one
+transaction that holds the turn's assistant message (a rollback deleting it waits for the
+commit; a turn already rolled back runs nothing); only they are guarded by this runner.
 Subscribers are registered once by services/subscribers.py, in registration order.
 """
 

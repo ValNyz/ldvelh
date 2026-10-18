@@ -74,12 +74,17 @@ def _isolated_dynamic_pricing():
 def _reset_supervisor():
     """Each test runs on its own event loop: forget the jobs and semaphore of the last one.
 
-    Also restores the default post-turn hooks, which a test may have replaced.
+    Also restores the default post-turn hooks, which a test may have replaced, and drops
+    the initial-Director registry and per-game locks a test may have left behind.
+    Imports stay lazy (#139).
     """
+    from pipeline import director_runs
     from services import hooks, subscribers
-    from workers import supervisor
+    from workers import game_locks, supervisor
 
     supervisor.reset()
+    director_runs._initial.clear()
+    game_locks._entries.clear()
     hooks.reset()
     subscribers.register_defaults()
 

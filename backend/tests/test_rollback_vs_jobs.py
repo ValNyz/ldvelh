@@ -151,6 +151,7 @@ async def test_rejected_rollback_still_returns_400(harness, world_game):
     try:
         await harness.chat(world_game, "Premier tour.")
         await asyncio.wait_for(entered.wait(), TIMEOUT)
+        assert supervisor.pending(UUID(world_game)) == 1
         msgs_before = await _messages(harness, world_game)
         r = await harness.client.post(f"/api/games/{world_game}/rollback",
                                       json={"fromIndex": 0}, headers=harness.headers)

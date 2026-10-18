@@ -4,7 +4,8 @@ LDVELH - Extraction Orchestrator
 Post-turn background job, queued per game by the supervisor (pipeline/post_turn.py):
 1. Resolver: entity annotations (for tooltips)
 2. Extractors: entity/relation extraction (phase a: entities, phase b: arcs)
-3. Re-apply entity_reveals (fix race condition with the narrator deltas applied at turn commit)
+3. Re-apply entity_reveals (fix race condition with the narrator deltas applied at turn commit),
+   share-locking the source message like the extractors (#23)
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from config import get_settings
 from llm.session import LLMSession
 
 from kg.populator import KnowledgeGraphPopulator
+from repos import turns as turns_repo
 from utils.log_safe import log_exception, safe_repr, safe_text
 
 from .characters import CharactersExtractor
@@ -45,6 +47,18 @@ TYPE_TO_EXTRACTOR = {
     "organization": "organizations",
     "object": "inventory",
 }
+
+
+async def _apply_entity_reveals(
+    conn: asyncpg.Connection, populator: KnowledgeGraphPopulator, entity_reveals: list
+) -> None:
+    for reveal in entity_reveals:
+        etype = reveal.get("entity_type")
+        current_name = reveal.get("current_name")
+        if etype == "character" and current_name:
+            await populator.mark_character_known(conn, current_name, reveal.get("real_name"))
+        elif etype == "location" and current_name:
+            await populator.mark_location_accessible(conn, current_name)
 
 
 async def resolver_triggers(
@@ -227,19 +241,14 @@ async def run_resolve_and_extract(
             entity_reveals = narrator_deltas.get("entity_reveals", [])
             if entity_reveals:
                 populator = KnowledgeGraphPopulator(pool, game_id)
-                async with pool.acquire() as conn:
-                    for reveal in entity_reveals:
-                        etype = reveal.get("entity_type")
-                        current_name = reveal.get("current_name")
-                        real_name = reveal.get("real_name")
-                        if etype == "character" and current_name:
-                            await populator.mark_character_known(
-                                conn, current_name, real_name
-                            )
-                        elif etype == "location" and current_name:
-                            await populator.mark_location_accessible(
-                                conn, current_name
-                            )
+                async with pool.acquire() as conn, conn.transaction():
+                    # Share-lock the source message: a rollback deleting it waits for
+                    # these writes, and reveals of an already-deleted turn are skipped.
+                    if assistant_message_id is None or \
+                            await turns_repo.hold_source_message(conn, assistant_message_id):
+                        await _apply_entity_reveals(conn, populator, entity_reveals)
+                    else:
+                        logger.info("[EXTRACTION] Source message gone, entity_reveals skipped")
         except Exception as e:
             logger.warning(f"[EXTRACTION] Re-apply entity_reveals failed: {safe_repr(e)}")
 
