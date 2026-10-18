@@ -401,6 +401,14 @@ def test_apply_chosen_name_keeps_an_invented_name_and_fills_a_missing_one():
     assert apply_chosen_name(None, {"name": PC}) is None
 
 
+@pytest.mark.parametrize("parsed", [[{"protagonist": {"name": "Kira"}}], [], "Kira", 3])
+def test_apply_chosen_name_returns_a_non_object_answer_unchanged(parsed):
+    """A JSON array (or scalar) answer is left for world validation to refuse cleanly."""
+    from pipeline.chosen_name import apply_chosen_name
+
+    assert apply_chosen_name(parsed, {"name": PC}) == parsed
+
+
 def test_apply_chosen_name_leaves_free_text_alone_when_an_npc_shares_the_name():
     from pipeline.chosen_name import apply_chosen_name
 

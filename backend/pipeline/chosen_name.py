@@ -59,8 +59,11 @@ def chosen_name(character: dict | None) -> str | None:
 def apply_chosen_name(parsed: dict | None, character: dict | None) -> dict | None:
     """Store the wizard's PC name whatever the model returned; keep the model's when blank,
     unless it is unusable (then DEFAULT_PROTAGONIST_NAME)."""
-    protagonist = (parsed or {}).get("protagonist")
-    if parsed is None or not isinstance(protagonist, dict):
+    # The parser may hand back a JSON array or scalar: world validation refuses it cleanly.
+    if not isinstance(parsed, dict):
+        return parsed
+    protagonist = parsed.get("protagonist")
+    if not isinstance(protagonist, dict):
         return parsed
     previous = protagonist.get("name")
     name = chosen_name(character)
