@@ -22,6 +22,7 @@ from .core import (
     Text,
     normalize_entity_type,
 )
+from .entity_changes import bound_changes
 from .narrative import FactData
 from .relations import RelationData, RelationType
 
@@ -92,6 +93,12 @@ class EntityUpdate(BaseModel):
         if v is None:
             return v
         return normalize_entity_type(v)
+
+    @model_validator(mode="after")
+    def _bound_changes(self):
+        """Bound each change to its column type (an unresolved type is bounded at write)."""
+        self.changes = bound_changes(self.entity_type, self.changes)
+        return self
 
 
 class EntityRemoval(BaseModel):
@@ -461,6 +468,13 @@ class FateAspectRename(BaseModel):
     new_name: str
 
 
+class FateSkillUpgrade(BaseModel):
+    """A Fate Core skill upgrade from milestone (ladder level, as in the tool schema)."""
+
+    skill_name: Name
+    new_level: int = Field(..., ge=1, le=8)
+
+
 class FateMilestoneExtraction(BaseModel):
     """Output of Fate Core progression extraction."""
 
@@ -469,9 +483,7 @@ class FateMilestoneExtraction(BaseModel):
     new_stunts: list[dict] = Field(
         default_factory=list, description="[{name, description}]"
     )
-    skill_upgrades: list[dict] = Field(
-        default_factory=list, description="[{skill_name, new_level}]"
-    )
+    skill_upgrades: list[FateSkillUpgrade] = Field(default_factory=list)
     refresh_increase: bool = False
 
 

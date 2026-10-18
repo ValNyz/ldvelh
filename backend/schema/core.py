@@ -47,11 +47,9 @@ def _truncate(max_len: int):
             return v
         truncated = v[: max_len - 3].rsplit(" ", 1)[0] + "..."
         field = info.field_name if info else "?"
-        preview = v[:60].replace("\n", " ")
-        logger.warning(
-            f"[Truncate] {field}: {len(v)} -> {len(truncated)} chars "
-            f"(was: \"{preview}...\")"
-        )
+        # No value at WARNING: it is story text (#77); the preview stays at DEBUG.
+        logger.warning(f"[Truncate] {field}: {len(v)} -> {len(truncated)} chars")
+        logger.debug(f"[Truncate] {field} was: \"{v[:60].replace(chr(10), ' ')}...\"")
         return truncated
 
     return _inner
@@ -422,17 +420,17 @@ EntityRef = Annotated[
 
 
 class Skill(BaseModel):
-    """Skill with level 1-6"""
+    """Skill with level 1-5 (the `skills_level_check` CHECK of the skills table)"""
 
     name: Tag  # 50 chars
-    level: int = Field(..., ge=1, le=6)
+    level: int = Field(..., ge=1, le=5)
 
     @field_validator("level", mode="before")
     @classmethod
     def _clamp_level(cls, v):
-        """Clamp LLM-generated levels to valid range (cap at 6)."""
+        """Clamp LLM-generated levels to the column's range (cap at 5)."""
         if isinstance(v, (int, float)):
-            return max(1, min(6, int(v)))
+            return max(1, min(5, int(v)))
         return v
 
 

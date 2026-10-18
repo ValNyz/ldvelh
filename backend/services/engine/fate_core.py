@@ -3,15 +3,21 @@ LDVELH - Fate Core Engine
 Full Fate Core implementation: 4dF dice, aspects, stunts, stress, consequences, fate points.
 """
 
+import logging
 import random
 from collections.abc import Sequence
 from uuid import UUID
 
+from pydantic import ValidationError
+
 from domain.errors import TurnError
 from domain.turn import InvocationOffer
 from schema.engine import EngineType, MechanicalDecision, RollResult
+from schema.extraction import FateSkillUpgrade
+from utils.log_safe import validation_summary
 from .base import BaseEngine, normalize_name
 
+logger = logging.getLogger(__name__)
 
 # Fate Core ladder labels
 FATE_LADDER = {
@@ -27,6 +33,15 @@ FATE_LADDER = {
     7: "Épique",
     8: "Légendaire",
 }
+
+
+def _valid_skill_upgrade(raw) -> FateSkillUpgrade | None:
+    """The upgrade typed and bounded, or None (logged without its values) if invalid."""
+    try:
+        return FateSkillUpgrade.model_validate(raw)
+    except ValidationError as e:
+        logger.warning(f"[FATE] Skill upgrade skipped: {validation_summary(e)}")
+        return None
 
 
 def _ladder_label(value: int) -> str:
@@ -784,25 +799,24 @@ Inclure un encadré markdown après la narration de la complication :
         if extraction.get("new_stunts"):
             changes["new_stunts"] = [s.get("name") for s in extraction["new_stunts"]]
 
-        # Skill upgrades
-        for upgrade in extraction.get("skill_upgrades", []):
-            skill_name = upgrade.get("skill_name", "")
-            new_level = upgrade.get("new_level", 0)
-            if skill_name and new_level > 0:
-                await conn.execute(
-                    """
-                    UPDATE skills_fate SET level = $1
-                    WHERE game_id = $2 AND name = $3
-                    """,
-                    new_level,
-                    game_id,
-                    skill_name,
-                )
-        if extraction.get("skill_upgrades"):
-            changes["skill_upgrades"] = [
-                {"skill": u.get("skill_name"), "level": u.get("new_level")}
-                for u in extraction["skill_upgrades"]
-            ]
+        # Skill upgrades (an invalid upgrade is skipped, the valid ones are applied)
+        upgrades = []
+        for raw in extraction.get("skill_upgrades", []):
+            upgrade = _valid_skill_upgrade(raw)
+            if upgrade is None:
+                continue
+            await conn.execute(
+                """
+                UPDATE skills_fate SET level = $1
+                WHERE game_id = $2 AND name = $3
+                """,
+                upgrade.new_level,
+                game_id,
+                upgrade.skill_name,
+            )
+            upgrades.append({"skill": upgrade.skill_name, "level": upgrade.new_level})
+        if upgrades:
+            changes["skill_upgrades"] = upgrades
 
         # Refresh increase
         if extraction.get("refresh_increase"):

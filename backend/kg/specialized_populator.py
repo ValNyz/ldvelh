@@ -29,6 +29,7 @@ from schema import (
     OrganizationData,
     RelationType,
 )
+from .item_writes import write_item, write_items
 from .populator import KnowledgeGraphPopulator
 
 if TYPE_CHECKING:
@@ -416,146 +417,99 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         }
 
         cycle = extraction.cycle
+        prefix = "[EXTRACTION] "
 
         async with self.pool.acquire() as conn:
+            async def items(label, values, write, counter=None):
+                await write_items(conn, stats, label, values, write, counter, prefix)
+
             async with conn.transaction():
                 if not self.registry._by_name:
                     await self.load_registry(conn)
 
-                # 1. Create new entities
-                for entity in extraction.entities_created:
-                    try:
-                        await self._process_entity_creation(
-                            conn, entity, cycle
-                        )
-                        stats["entities_created"] += 1
-                    except Exception as e:
-                        logger.error(f"Entity creation error: {e}")
-                        stats["errors"].append(f"Entity creation: {e}")
-
-                # 2. Create objects from acquisition
-                for obj in extraction.objects_created:
-                    try:
-                        await self._process_object_creation(conn, obj, cycle)
-                        stats["objects_created"] += 1
-                    except Exception as e:
-                        logger.error(f"Object creation error: {e}")
-                        stats["errors"].append(f"Object creation: {e}")
+                # One SAVEPOINT per item: a failed item never aborts the others.
+                await items("Entity creation", extraction.entities_created,
+                            lambda e: self._created(self._process_entity_creation(conn, e, cycle)),
+                            "entities_created")
+                await items("Object creation", extraction.objects_created,
+                            lambda o: self._created(self._process_object_creation(conn, o, cycle)),
+                            "objects_created")
 
                 # Reload registry (new entities registered by triggers)
                 await self.load_registry(conn)
 
-                # 3. Process entity updates
-                for update in extraction.entities_updated:
-                    try:
-                        await self._process_entity_update(conn, update, cycle)
-                        stats["entities_updated"] += 1
-                    except Exception as e:
-                        stats["errors"].append(f"Entity update: {e}")
+                await items("Entity update", extraction.entities_updated,
+                            lambda u: self._created(self._process_entity_update(conn, u, cycle)),
+                            "entities_updated")
+                await items("Entity removal", extraction.entities_removed,
+                            lambda r: self._remove_detected(conn, r.entity_ref, r.cycle))
+                await items("Fact", extraction.facts,
+                            lambda f: self.create_fact(conn, f), "facts_created")
+                # Skip OWNS: handled by inventory
+                await items("Relation creation", [
+                    rc for rc in extraction.relations_created
+                    if rc.relation.relation_type != RelationType.OWNS
+                ], lambda rc: self.create_relation(conn, rc.relation, rc.cycle),
+                    "relations_created")
+                await items("Relation end", extraction.relations_ended,
+                            lambda re: self._created(self.end_relation(
+                                conn, re.source_ref, re.target_ref, re.relation_type,
+                                re.cycle, re.reason)),
+                            "relations_ended")
+                await items("Credits", extraction.credit_transactions,
+                            lambda tx: self._credit(conn, stats, tx, cycle), "credits_changed")
+                await items("Inventory change", extraction.inventory_changes,
+                            lambda inv: self._process_inventory_change(conn, inv, cycle))
+                await items("Arc creation", extraction.arcs_created,
+                            lambda arc: self._created(
+                                self._create_arc_from_extraction(conn, arc, cycle)),
+                            "arcs_created")
+                # Update arc progress (simplified — Director manages arcs now)
+                await items("Arc update", extraction.arcs_updated,
+                            lambda au: self.update_arc(conn, arc_title=au.arc_title,
+                                                       intensity=au.intensity),
+                            "arcs_updated")
+                await items("Arc resolution", extraction.arcs_resolved,
+                            lambda res: self.resolve_arc(conn, res.arc_title,
+                                                         res.resolution, cycle))
+                await items("Event", extraction.events_scheduled,
+                            lambda ev: self._schedule_event(conn, ev))
+                await items("Ambient update", extraction.ambient_updates,
+                            lambda amb: self.update_entity(conn, amb.entity_type,
+                                                           amb.entity_ref,
+                                                           {"ambient": amb.ambient}),
+                            "ambients_updated")
 
-                # 4. Process entity removals
-                for removal in extraction.entities_removed:
-                    et = self._detect_entity_type(conn, removal.entity_ref)
-                    if et:
-                        await self.remove_entity(
-                            conn, removal.entity_ref, et, removal.cycle
-                        )
-
-                # 5. Create facts
-                for fact in extraction.facts:
-                    if await self.create_fact(conn, fact):
-                        stats["facts_created"] += 1
-
-                # 6. Create relations (skip OWNS — handled by inventory)
-                for rel_creation in extraction.relations_created:
-                    if rel_creation.relation.relation_type == RelationType.OWNS:
-                        continue
-                    result = await self.create_relation(
-                        conn, rel_creation.relation, rel_creation.cycle
-                    )
-                    if result:
-                        stats["relations_created"] += 1
-
-                # 7. End relations
-                for rel_end in extraction.relations_ended:
-                    await self.end_relation(
-                        conn,
-                        rel_end.source_ref,
-                        rel_end.target_ref,
-                        rel_end.relation_type,
-                        rel_end.cycle,
-                        rel_end.reason,
-                    )
-                    stats["relations_ended"] += 1
-
-                # 8. Credit transactions
-                for tx in extraction.credit_transactions:
-                    success, _, error = await self.credit_transaction(
-                        conn, tx.amount, cycle, tx.description
-                    )
-                    if success:
-                        stats["credits_changed"] += 1
-                    elif error:
-                        stats["errors"].append(f"Credits: {error}")
-
-                # 10. Inventory changes
-                for inv in extraction.inventory_changes:
-                    await self._process_inventory_change(conn, inv, cycle)
-
-                # 11. Create narrative arcs
-                for arc in extraction.arcs_created:
-                    await self._create_arc_from_extraction(conn, arc, cycle)
-                    stats["arcs_created"] += 1
-
-                # 12. Update arc progress (simplified — Director manages arcs now)
-                for arc_update in extraction.arcs_updated:
-                    updated = await self.update_arc(
-                        conn,
-                        arc_title=arc_update.arc_title,
-                        intensity=arc_update.intensity,
-                    )
-                    if updated:
-                        stats["arcs_updated"] = stats.get("arcs_updated", 0) + 1
-
-                # 13. Resolve arcs
-                for resolution in extraction.arcs_resolved:
-                    await self.resolve_arc(
-                        conn, resolution.arc_title, resolution.resolution, cycle
-                    )
-
-                # 14. Schedule events
-                for event in extraction.events_scheduled:
-                    await self._schedule_event(conn, event)
-
-                # 15. Apply ambient updates
-                for amb in extraction.ambient_updates:
-                    try:
-                        success = await self.update_entity(
-                            conn, amb.entity_type, amb.entity_ref,
-                            {"ambient": amb.ambient},
-                        )
-                        if success:
-                            stats["ambients_updated"] = (
-                                stats.get("ambients_updated", 0) + 1
-                            )
-                    except Exception as e:
-                        stats["errors"].append(f"Ambient update: {e}")
-
-                # 16. Save chronology entry
                 if extraction.segment_summary:
-                    await self.save_chronology_entry(
-                        conn,
-                        cycle=cycle,
-                        summary=extraction.segment_summary,
-                        time=extraction.time,
-                        location_ref=extraction.current_location_ref,
-                        npc_refs=extraction.key_npcs_present or None,
-                    )
+                    await write_item(conn, stats["errors"], "Chronology",
+                                     lambda: self.save_chronology_entry(
+                                         conn,
+                                         cycle=cycle,
+                                         summary=extraction.segment_summary,
+                                         time=extraction.time,
+                                         location_ref=extraction.current_location_ref,
+                                         npc_refs=extraction.key_npcs_present or None,
+                                     ), prefix)
 
-                # 17. Log extraction
                 await self.log_extraction(conn, cycle, stats)
 
         return stats
+
+    @staticmethod
+    async def _created(write: Awaitable[object]) -> bool:
+        """Await a write that returns nothing: reaching the end means it was applied."""
+        await write
+        return True
+
+    async def _remove_detected(self, conn: Connection, entity_ref: str, cycle: int) -> bool:
+        et = await self._detect_entity_type(conn, entity_ref)
+        return bool(et) and await self.remove_entity(conn, entity_ref, et, cycle)
+
+    async def _credit(self, conn: Connection, stats: dict, tx, cycle: int) -> bool:
+        success, _, error = await self.credit_transaction(conn, tx.amount, cycle, tx.description)
+        if not success and error:
+            stats["errors"].append(f"Credits: {error}")
+        return success
 
     # =========================================================================
     # ENTITY CREATION ROUTING

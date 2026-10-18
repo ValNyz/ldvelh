@@ -15,8 +15,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from asyncpg.exceptions import InFailedSQLTransactionError
-
+from kg.item_writes import write_item, write_items
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
 from config import get_settings
@@ -58,6 +57,7 @@ class BaseExtractor(ABC):
         """Extract entities from a single message."""
         t0 = time.perf_counter()
         et = self.extraction_type
+        call_cost = None  # returned on every exit once the LLM was called (it was billed)
 
         try:
             async with self.pool.acquire() as conn:
@@ -77,7 +77,8 @@ class BaseExtractor(ABC):
             raw_result, call_cost = await self._call_llm(system_prompt, user_prompt, schema)
             if not raw_result:
                 logger.warning(f"[{et.upper()}] LLM returned empty result")
-                return {"type": et, "success": False, "error": "empty_response"}
+                return {"type": et, "success": False, "error": "empty_response",
+                        "cost": call_cost}
 
             # 5. Populate DB (new connection + transaction, one savepoint per item)
             stats, populate_error = await self._populate_committed(raw_result, trigger_cycle)
@@ -96,7 +97,7 @@ class BaseExtractor(ABC):
         except Exception as e:
             log_exception(logger, logging.ERROR, f"[{et.upper()}] Extraction failed", e,
                           debug_detail=get_settings().log_prompts)
-            return {"type": et, "success": False, "error": safe_text(e)}
+            return {"type": et, "success": False, "error": safe_text(e), "cost": call_cost}
 
     async def _populate_committed(
         self, raw_result: dict, cycle: int
@@ -130,33 +131,19 @@ class BaseExtractor(ABC):
         self, conn: Connection, stats: dict, label: str,
         write: Callable[[], Awaitable[Any]],
     ) -> Any:
-        """Run one item's writes in a SAVEPOINT. Returns write()'s result, None on failure.
-
-        A failed item is rolled back alone and recorded in stats["errors"] as
-        "<label>: <cause>". If the transaction is already aborted (an earlier SQL error was
-        swallowed outside a savepoint), nothing can commit any more: the error propagates
-        so that the whole populate fails instead of silently rolling back at COMMIT.
-        """
-        try:
-            async with conn.transaction():
-                return await write()
-        except InFailedSQLTransactionError:
-            raise
-        except Exception as e:
-            stats["errors"].append(f"{label}: {safe_text(e)}")
-            logger.warning(f"[{self.extraction_type.upper()}] {label} item failed: "
-                           f"{safe_text(e)}")
-            return None
+        """One item in its own SAVEPOINT (see kg.item_writes.write_item)."""
+        return await write_item(conn, stats["errors"], label, write, self._log_prefix)
 
     async def _write_items(
         self, conn: Connection, stats: dict, label: str, items: Iterable | None,
         write: Callable[[Any], Awaitable[Any]], counter: str | None = None,
     ) -> None:
         """`_write_item` for each item; a truthy write(item) result increments stats[counter]."""
-        for item in items or ():
-            done = await self._write_item(conn, stats, label, lambda item=item: write(item))
-            if done and counter:
-                stats[counter] += 1
+        await write_items(conn, stats, label, items, write, counter, self._log_prefix)
+
+    @property
+    def _log_prefix(self) -> str:
+        return f"[{self.extraction_type.upper()}] "
 
     async def _write_facts(
         self, conn: Connection, stats: dict, raw_result: dict, cycle: int

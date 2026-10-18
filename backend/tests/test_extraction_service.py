@@ -576,15 +576,9 @@ async def test_progression_failure_keeps_story_out_of_stats_and_logs(caplog):
         async def apply_progression(self, conn, game_id, raw):
             _M.model_validate({"x": fragment})
 
-    class _Savepoint:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-    conn = MagicMock()
-    conn.transaction = lambda: _Savepoint()
+    conn = MagicMock()  # savepoint start/rollback/commit and the probe statement
+    conn.transaction.return_value = AsyncMock()
+    conn.execute = AsyncMock()
     extractor = ProgressionExtractor.__new__(ProgressionExtractor)
     extractor._engine, extractor._engine_type, extractor.game_id = _Engine(), "fate_core", uuid4()
     extractor.extraction_type = "progression"

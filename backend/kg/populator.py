@@ -25,6 +25,7 @@ from schema import (
     RelationType,
     Skill,
 )
+from schema.entity_changes import bound_changes
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
@@ -537,32 +538,21 @@ class KnowledgeGraphPopulator:
     async def update_entity(
         self, conn: Connection, entity_type: EntityType, name: str, changes: dict
     ) -> bool:
-        """Update fields on an entity by type and name."""
-        table_map = {
-            EntityType.CHARACTER: ("characters", {
-                "known_by_protagonist", "unknown_name", "species", "gender",
-                "pronouns", "age", "description", "traits", "mood",
-                "occupation", "origin", "workplace_id", "residence_id",
-                "romantic_potential", "is_mandatory", "ambient",
-            }),
-            EntityType.LOCATION: ("locations", {
-                "location_type", "sector", "description", "atmosphere",
-                "accessible", "notable_features", "typical_crowd",
-                "operating_hours", "price_range", "ambient",
-            }),
-            EntityType.ORGANIZATION: ("organizations", {
-                "org_type", "domain", "size", "description", "reputation",
-                "headquarters_id", "founding_cycle", "ambient",
-            }),
-        }
+        """Update fields on an entity by type and name.
 
-        entry = table_map.get(entity_type)
-        if not entry:
+        Only the columns typed in schema.entity_changes are written, each bounded to its
+        column (an invalid field is dropped, the others are kept).
+        """
+        table = {
+            EntityType.CHARACTER: "characters",
+            EntityType.LOCATION: "locations",
+            EntityType.ORGANIZATION: "organizations",
+        }.get(entity_type)
+        if not table:
             logger.warning(f"Cannot update entity type: {entity_type}")
             return False
 
-        table, valid_fields = entry
-        filtered = {k: v for k, v in changes.items() if k in valid_fields}
+        filtered = bound_changes(entity_type, changes)
         if not filtered:
             return False
 

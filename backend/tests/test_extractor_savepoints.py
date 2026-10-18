@@ -18,7 +18,7 @@ async def _extractor(test_pool, test_user, raw_result):
     extractor = CharactersExtractor(test_pool, game_id,
                                     LLMSession.from_provider(FakeProvider()))
 
-    async def fake_call(*args, **kwargs):
+    async def fake_call(*_args, **_kwargs):
         return raw_result, {"cost_usd": 0.001}
 
     extractor._call_llm = fake_call
@@ -109,14 +109,14 @@ async def test_populate_raising_returns_failure(test_pool, test_user):
     assert logged and "db hiccup" in logged[0]
 
 
-async def test_swallowed_sql_error_fails_the_whole_populate(test_pool, test_user):
-    """An item that leaves the transaction aborted must not be reported as committed."""
+async def test_sql_error_swallowed_inside_an_item_fails_only_that_item(test_pool, test_user):
+    """The aborted savepoint is rolled back: the item fails, the others commit."""
     extractor, game_id = await _extractor(
         test_pool, test_user,
         {"entities_created": [{"name": "Epsilon"}],
          "entities_updated": [{"entity_ref": "Epsilon", "changes": {"mood": "las"}}]})
 
-    async def swallowing_update(conn, entity_type, name, changes):
+    async def swallowing_update(conn, _entity_type, _name, _changes):
         try:
             await conn.execute("SELECT 1/0")
         except Exception:
@@ -126,8 +126,42 @@ async def test_swallowed_sql_error_fails_the_whole_populate(test_pool, test_user
     extractor.populator.update_entity = swallowing_update
     result = await extractor.run("texte", {}, 1)
 
-    assert result["success"] is False and not result.get("partial")
-    assert "Epsilon" not in await _character_names(test_pool, game_id)
+    assert result["success"] is False and result["partial"] is True
+    assert "Epsilon" in await _character_names(test_pool, game_id)
+    [error] = result["stats"]["errors"]
+    assert error.startswith("update:")
+    async with test_pool.acquire() as conn:
+        logged = await conn.fetchval(
+            "SELECT errors FROM extraction_logs WHERE game_id = $1", game_id)
+    assert logged == [error]
+
+
+async def test_transaction_aborted_outside_any_savepoint_propagates(test_pool):
+    """Nothing can commit any more: write_item must not hide it behind an item error."""
+    import asyncpg
+    import pytest
+
+    from kg.item_writes import write_item
+
+    async with test_pool.acquire() as conn:
+        outer = conn.transaction()
+        await outer.start()
+        try:
+            with pytest.raises(asyncpg.DivisionByZeroError):
+                await conn.execute("SELECT 1/0")  # swallowed by the caller, outside a savepoint
+            errors: list[str] = []
+            with pytest.raises(asyncpg.InFailedSQLTransactionError):
+                await write_item(conn, errors, "item", lambda: conn.execute("SELECT 1"))
+            assert errors == []
+        finally:
+            await outer.rollback()
+
+
+async def test_empty_response_keeps_the_billed_cost(test_pool, test_user):
+    extractor, _ = await _extractor(test_pool, test_user, {})
+    result = await extractor.run("texte", {}, 1)
+    assert result["success"] is False and result["error"] == "empty_response"
+    assert result["cost"] == {"cost_usd": 0.001}
 
 
 async def test_orchestrator_log_counts_real_outcomes(caplog):

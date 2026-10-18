@@ -633,9 +633,11 @@ Each extractor (subclass of `BaseExtractor`):
 2. Builds system + user prompt for its domain
 3. Calls Sonnet model with structured output (tool use)
 4. Parses extraction result
-5. Writes to DB via populator, in one transaction with one SAVEPOINT per item (`BaseExtractor._write_item` / `_write_items`): a failed item (validation, unique violation, FK...) is rolled back alone and recorded as `"<label>: <cause>"` in `stats["errors"]`, the other items commit. Every run is logged in `extraction_logs` with its errors.
+5. Writes to DB via populator, in one transaction with one SAVEPOINT per item (`kg/item_writes.py` `write_item` / `write_items`, wrapped by `BaseExtractor._write_item` / `_write_items` and also used by `ExtractionPopulator.process_extraction`): a failed item (validation, unique violation, FK, CHECK, or an SQL error swallowed inside the item) is rolled back alone and recorded as `"<label>: <cause>"` in `stats["errors"]`, the other items commit. Every run is logged in `extraction_logs` with its errors.
 
-`run()` result: `success: True` only when everything committed without item errors; `success: False, partial: True` when some items failed and the rest committed; `success: False, error: "populate_failed"` when the transaction was rolled back (then nothing was written; an item that leaves the transaction aborted outside its savepoint also ends here). The LLM `cost` is returned in every case.
+Values are bounded before SQL: `EntityUpdate.changes` goes through `schema/entity_changes.py` (one typed model per entity table, same text types as the creation models), so an over-long value is truncated to its column and a mistyped field (a name in a uuid column, a non-boolean flag) is dropped alone, logged by field name only; the other fields of the update are kept. `update_entity` applies the same bounds (and only writes those columns) when the type was resolved late. `Skill.level` is clamped to 1..5 (`skills_level_check`). Progression is applied by the engine as one item (atomic per message), except Fate skill upgrades, which are validated one by one (`FateSkillUpgrade`) and skipped alone when invalid.
+
+`run()` result: `success: True` only when everything committed without item errors; `success: False, partial: True` when some items failed and the rest committed; `success: False, error: "populate_failed"` when the transaction was rolled back (nothing was written; this includes a transaction already aborted outside any savepoint). The LLM `cost` is returned on every exit once the LLM was called (`empty_response` and unexpected errors included).
 
 | Extractor | What it extracts | DB writes |
 |-----------|-----------------|-----------|

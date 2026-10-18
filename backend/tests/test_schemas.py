@@ -486,12 +486,12 @@ class TestValidationErrors:
             )
 
     def test_skill_level_bounds(self):
-        """Skill.level 1-6, values outside are clamped"""
+        """Skill.level 1-5 (skills_level_check), values outside are clamped"""
         Skill(name="test", level=1)
-        Skill(name="test", level=6)
-        # Above 6 clamped to 6
-        s = Skill(name="test", level=8)
-        assert s.level == 6
+        Skill(name="test", level=5)
+        # Above 5 clamped to 5
+        s = Skill(name="test", level=6)
+        assert s.level == 5
         # Below 1 clamped to 1
         s = Skill(name="test", level=0)
         assert s.level == 1
