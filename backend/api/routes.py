@@ -273,6 +273,7 @@ async def rollback_game(
     await service.verify_ownership(game_id, user["id"])
 
     # Game lock: no turn runs meanwhile; the game's background jobs are cancelled below.
+    # Trade-off: cancelling before the service validates, a rejected rollback (400) still cancels.
     async with game_locks.hold(game_id):
         cancelled = await supervisor.cancel_game(
             game_id, timeout=settings.supervisor_cancel_timeout)

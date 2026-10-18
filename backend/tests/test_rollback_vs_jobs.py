@@ -3,6 +3,8 @@ outlives the cancel writes nothing once its source message is gone (no ghost ent
 
 import asyncio
 import logging
+import time
+from uuid import UUID
 
 import pytest
 
@@ -69,8 +71,9 @@ async def test_rollback_cancels_the_running_extraction(harness, world_game):
     try:
         await harness.chat(world_game, "Premier tour.")  # no drain: the job stays blocked
         await asyncio.wait_for(entered.wait(), TIMEOUT)
+        assert supervisor.pending(UUID(world_game)) == 1  # the job's _jobs key is the UUID
         await rollback_last_turn(harness, world_game)
-        assert supervisor.pending(world_game) == 0
+        assert supervisor.pending(UUID(world_game)) == 0
     finally:
         gate.set()
     await harness.drain()
@@ -126,8 +129,11 @@ async def test_job_past_the_cancel_timeout_writes_nothing(harness, world_game, m
         await harness.chat(world_game, "Premier tour.")
         await asyncio.wait_for(entered.wait(), TIMEOUT)
         with caplog.at_level(logging.ERROR, logger="workers.supervisor"):
+            started = time.monotonic()
             await rollback_last_turn(harness, world_game)  # 200 although the job lives on
+            elapsed = time.monotonic() - started
         assert "still running after cancel" in caplog.text
+        assert elapsed < 2.0  # the 0.05 s cancel timeout was used, not the 10 s default
     finally:
         release.set()
     await harness.drain()
@@ -135,3 +141,23 @@ async def test_job_past_the_cancel_timeout_writes_nothing(harness, world_game, m
     assert [r.get("skipped") for r in results] == [True]
     assert results[0]["error"] == "source_message_gone"
     assert await _new_character_count(harness, world_game) == 0
+
+
+async def test_rejected_rollback_still_returns_400(harness, world_game):
+    """The cancel runs before the service validates: an arrival-scene rollback is still a
+    400 (and has cancelled the in-flight extraction, the documented trade-off)."""
+    _script_new_character(harness)
+    gate, entered = _hold_first_resolver(harness)
+    try:
+        await harness.chat(world_game, "Premier tour.")
+        await asyncio.wait_for(entered.wait(), TIMEOUT)
+        msgs_before = await _messages(harness, world_game)
+        r = await harness.client.post(f"/api/games/{world_game}/rollback",
+                                      json={"fromIndex": 0}, headers=harness.headers)
+        assert r.status_code == 400, r.text
+        assert r.json()["detail"] == "Impossible de revenir avant la scène d'arrivée."
+        assert supervisor.pending(UUID(world_game)) == 0
+    finally:
+        gate.set()
+    await harness.drain()
+    assert _brief(await _messages(harness, world_game)) == _brief(msgs_before)

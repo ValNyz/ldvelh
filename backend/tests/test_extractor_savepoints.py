@@ -208,3 +208,40 @@ async def test_populate_skips_when_the_source_message_is_gone(test_pool, test_us
         logs = await conn.fetchval(
             "SELECT COUNT(*) FROM extraction_logs WHERE game_id = $1", game_id)
     assert logs == 0
+
+
+async def test_cancel_inside_the_guarded_transaction_releases_the_message(test_pool, test_user):
+    """#23: a job cancelled after hold_source_message, before commit, rolls back: the
+    rollback's DELETE of the message does not wait, and nothing was written."""
+    import asyncio
+
+    from domain.turn import NarrationState
+    from repos import turns
+
+    extractor, game_id = await _extractor(
+        test_pool, test_user, {"entities_created": [{"name": "Eta"}]})
+    async with test_pool.acquire() as conn:
+        _, message_id = await turns.save_turn_messages(
+            conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
+            state=NarrationState(cycle=1, time="", location=None, npcs_present=[], date=None),
+            narrator_deltas={}, engine_snapshot=None)
+    real_populate = extractor._populate
+    inside = asyncio.Event()
+
+    async def blocking_populate(conn, raw_result, cycle):
+        await real_populate(conn, raw_result, cycle)  # written, not committed
+        inside.set()
+        await asyncio.Event().wait()
+
+    extractor._populate = blocking_populate
+    job = asyncio.create_task(extractor.run("texte", {}, 1, source_message_id=message_id))
+    await asyncio.wait_for(inside.wait(), 5)
+    job.cancel()
+    await asyncio.gather(job, return_exceptions=True)
+    assert job.cancelled()
+
+    async with test_pool.acquire() as conn:
+        deleted = await asyncio.wait_for(
+            conn.execute("DELETE FROM messages WHERE id = $1", message_id), 1.0)
+    assert deleted == "DELETE 1"
+    assert "Eta" not in await _character_names(test_pool, game_id)

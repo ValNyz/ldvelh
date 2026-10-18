@@ -681,18 +681,20 @@ class GameService:
             # All-or-nothing: a failure part-way must not leave messages deleted
             # and credits refunded while the KG still holds the later cycle (#11).
             async with conn.transaction():
+                # First statement: waits for a background write holding a deleted message
+                # FOR SHARE (#23) before this transaction locks anything else.
+                ids_to_delete = [m["id"] for m in messages_to_delete]
+                await conn.execute(
+                    "DELETE FROM messages WHERE id = ANY($1)",
+                    ids_to_delete,
+                )
+
                 if credit_reversal != 0:
                     await conn.execute(
                         "UPDATE protagonists SET credits = credits + $1"
                         " WHERE game_id = $2",
                         credit_reversal, game_id,
                     )
-
-                ids_to_delete = [m["id"] for m in messages_to_delete]
-                await conn.execute(
-                    "DELETE FROM messages WHERE id = ANY($1)",
-                    ids_to_delete,
-                )
 
                 # Reset game state (current location included) before the KG delete,
                 # so the game no longer points at locations about to be removed.
