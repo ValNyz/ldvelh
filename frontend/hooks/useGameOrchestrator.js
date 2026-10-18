@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useStreaming } from './useStreaming';
 import { stateApi } from '../lib/api';
 import { invocationFromState, toInvocationData, withPendingPlayerMessage } from '../lib/game/pendingRoll.mjs';
+import { paramsFromServer } from '../lib/game/wizardParams.mjs';
 
 // Game content constants (French — the game is in French)
 const MESSAGES = {
@@ -40,6 +41,8 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	const [editingIndex, setEditingIndex] = useState(null);
 	const [lastUserMessage, setLastUserMessage] = useState('');
 	const [invocationData, setInvocationData] = useState(null);
+	// Wizard parameters the server stored for the open game while its world is not created (#88).
+	const [storedInitParams, setStoredInitParams] = useState(null);
 	const sendingRef = useRef(false);
 	const pendingRollRef = useRef(null);
 
@@ -264,6 +267,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			const data = await games.loadGame(id);
 			gs.setGameId(id);
 			gs.setGameName(data.state?.game?.name || MESSAGES.NEW_GAME_NAME);
+			setStoredInitParams(paramsFromServer(data.init_params));
 
 			if (data.state) {
 				gs.replaceGameState(data.state);
@@ -301,6 +305,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		}
 	}, [games, gs, phase]);
 
+	// True once the game is deleted.
 	const handleDeleteGame = useCallback(async (id) => {
 		try {
 			await games.deleteGame(id);
@@ -309,8 +314,10 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				phase.resetPhase();
 			}
 			await games.loadGames();
+			return true;
 		} catch (e) {
 			gs.setError({ message: e.message });
+			return false;
 		}
 	}, [games, gs, phase]);
 
@@ -479,6 +486,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		isStreaming,
 		editingIndex,
 		invocationData,
+		storedInitParams,
 
 		// Game handlers
 		handleNewGame,

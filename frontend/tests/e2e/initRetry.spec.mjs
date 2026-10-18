@@ -6,8 +6,9 @@ import { SHOTS, loreField, nameField, openWizard } from './wizardPage.mjs';
 
 const GAME_ID = '00000000-0000-0000-0000-000000000088';
 const DRAFT_KEY = 'ldvelh.wizardDraft.u1';
+const GAME_DRAFT_KEY = `${DRAFT_KEY}.${GAME_ID}`;
 const FAILED = 'Échec de génération du monde. Réessaie.';
-const storedDraft = (page) => page.evaluate(k => JSON.parse(localStorage.getItem(k)), DRAFT_KEY);
+const storedDraft = (page, key = GAME_DRAFT_KEY) => page.evaluate(k => JSON.parse(localStorage.getItem(k)), key);
 const initParams = ({ engine, world_config, character_data, manual_entities }) =>
 	({ engine, world_config, character_data, manual_entities });
 
@@ -29,18 +30,23 @@ test.beforeEach(({ page }) => {
 });
 test.afterEach(() => expect(crashes).toEqual([]));
 
-/** Mocked API: the first __INIT__ fails, the next ones create the world. */
+/** Mocked API: the first __INIT__ fails, the next ones create the world; the server keeps
+ * the parameters of the last __INIT__ that carried them (init_params). */
 async function failingFirstInit(page) {
 	let created = false;
 	let inits = 0;
+	let stored = null;
 	const api = await mockApi(page, {
 		'POST /games': () => { created = true; return { gameId: GAME_ID }; },
 		'GET /games': () => ({ games: created ? [{ id: GAME_ID, name: 'Nouvelle partie', current_cycle: 0 }] : [] }),
+		[`DELETE /games/${GAME_ID}`]: () => { created = false; return { success: true }; },
 		[`GET /games/${GAME_ID}`]: () => ({
 			state: { game: { name: 'Nouvelle partie', engine: 'd6' }, player: {}, world_created: false },
 			messages: [],
+			init_params: stored,
 		}),
-		'POST /chat': () => {
+		'POST /chat': (body) => {
+			if ('world_config' in body) stored = initParams(body);
 			inits += 1;
 			return { __sse: inits === 1
 				? [{ type: 'error', error: FAILED, code: 'world_gen_failed', recoverable: true }]
@@ -77,10 +83,12 @@ test('init fails, back to the list, reopen: the retry sends the original paramet
 	const first = chats()[0];
 	expect(first.world_config).toMatchObject({ genre: 'cyberpunk', lore: 'Néo-Lyon sous la pluie' });
 	expect((await storedDraft(page)).gameId).toBe(GAME_ID); // kept: the world does not exist yet
+	expect(await storedDraft(page, DRAFT_KEY)).toBeNull(); // moved under the game's key
 
 	await reopenFromList(page);
 	await expect(page.getByTestId('pending-params')).toContainText('Néo-Lyon sous la pluie');
 	await expect(page.getByTestId('pending-params')).toContainText('Kira');
+	await expect(page.getByTestId('pending-params')).toContainText('Genre : Cyberpunk'); // the label
 	await page.screenshot({ path: `${SHOTS}/88-2-reopened-pending.png`, fullPage: true, animations: 'disabled' });
 
 	await page.getByRole('button', { name: 'Réessayer' }).click();
@@ -120,4 +128,70 @@ test('the retry button of the failed generation screen resends the same paramete
 	await page.getByRole('button', { name: 'Réessayer' }).click();
 	await expect(page.getByRole('heading', { name: /Monde créé/ })).toBeVisible();
 	expect(initParams(chats()[1])).toEqual(initParams(chats()[0]));
+});
+
+test('another creation started meanwhile does not take the failed game\'s draft', async ({ page }) => {
+	const { chats } = await failingFirstInit(page);
+	await createWorldThatFails(page, chats);
+	await page.getByRole('button', { name: 'Retour aux parties' }).click();
+
+	// Game B: a new creation, changed, then left in the list
+	await page.getByRole('button', { name: /Nouvelle aventure/ }).click();
+	await page.getByRole('button', { name: /Narratif/ }).click();
+	await page.getByRole('button', { name: 'Suivant' }).click();
+	await loreField(page).fill('Un autre monde');
+	await page.getByRole('button', { name: 'Retour' }).click();
+	await page.getByRole('button', { name: 'Annuler' }).click();
+	await expect(page.getByRole('heading', { name: 'Création en cours' })).toBeVisible();
+
+	// Back to A: its own parameters
+	await page.getByText('Nouvelle partie', { exact: true }).click();
+	await expect(page.getByTestId('pending-params')).toContainText('Néo-Lyon sous la pluie');
+	await page.getByRole('button', { name: 'Modifier les paramètres' }).click();
+	await expect(nameField(page)).toHaveValue('Kira');
+	await page.getByRole('button', { name: 'Retour' }).click();
+	await expect(loreField(page)).toHaveValue('Néo-Lyon sous la pluie');
+	expect((await storedDraft(page, DRAFT_KEY)).form.worldConfig.lore).toBe('Un autre monde'); // B kept too
+});
+
+test('without a local draft, the pending game shows and edits the server parameters', async ({ page }) => {
+	const { chats } = await failingFirstInit(page);
+	await createWorldThatFails(page, chats);
+	await page.evaluate(k => localStorage.removeItem(k), GAME_DRAFT_KEY); // another browser
+	await page.reload();
+	await page.getByText('Nouvelle partie', { exact: true }).click();
+	await expect(page.getByTestId('pending-params')).toContainText('Néo-Lyon sous la pluie');
+	await expect(page.getByTestId('pending-params')).toContainText('Genre : Cyberpunk');
+
+	// Réessayer without a draft: a bare __INIT__, the server reuses its set
+	await page.getByRole('button', { name: 'Réessayer' }).click();
+	await expect(page.getByRole('heading', { name: /Monde créé/ })).toBeVisible();
+	expect('world_config' in chats()[1]).toBe(false);
+});
+
+test('without a local draft, « Modifier les paramètres » is prefilled from the server', async ({ page }) => {
+	const { chats } = await failingFirstInit(page);
+	await createWorldThatFails(page, chats);
+	await page.evaluate(k => localStorage.removeItem(k), GAME_DRAFT_KEY);
+	await page.reload();
+	await page.getByText('Nouvelle partie', { exact: true }).click();
+	await page.getByRole('button', { name: 'Modifier les paramètres' }).click();
+	await expect(nameField(page)).toHaveValue('Kira');
+	await page.getByRole('button', { name: 'Retour' }).click();
+	await expect(loreField(page)).toHaveValue('Néo-Lyon sous la pluie');
+	await page.getByRole('button', { name: 'Suivant' }).click();
+	await page.getByRole('button', { name: 'Créer le monde' }).click();
+	await expect(page.getByRole('heading', { name: /Monde créé/ })).toBeVisible();
+	expect(initParams(chats()[1])).toEqual(initParams(chats()[0])); // same set, round-tripped
+});
+
+test('deleting the failed game drops its draft', async ({ page }) => {
+	const { chats } = await failingFirstInit(page);
+	await createWorldThatFails(page, chats);
+	await page.getByRole('button', { name: 'Retour aux parties' }).click();
+	await page.getByText('Nouvelle partie', { exact: true }).hover();
+	await page.getByTitle('Supprimer').click();
+	await page.getByRole('button', { name: 'Confirmer' }).click();
+	await expect(page.getByText('Nouvelle partie', { exact: true })).toHaveCount(0);
+	await expect.poll(() => storedDraft(page)).toBeNull();
 });

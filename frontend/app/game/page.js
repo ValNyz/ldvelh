@@ -98,15 +98,21 @@ function GameScreen({ user, logout }) {
 	// EFFECTS
 	// =========================================================================
 
+	// First list: also drops the drafts of games deleted elsewhere (#88).
+	const { forget: forgetDraft, prune: pruneDrafts } = wizardSession;
 	useEffect(() => {
-		gamesHook.loadGames();
-	}, [gamesHook.loadGames]);
+		gamesHook.loadGames().then(list => { if (list) pruneDrafts(list); });
+	}, [gamesHook.loadGames, pruneDrafts]);
 
 	// The world exists: the wizard draft it was created from is done (#88).
-	const { worldCreated } = wizardSession;
+	const worldExists = phaseHook.isWorldReady || phaseHook.isPlaying;
 	useEffect(() => {
-		if (gs.gameId && phaseHook.isWorldReady) worldCreated(gs.gameId);
-	}, [gs.gameId, phaseHook.isWorldReady, worldCreated]);
+		if (gs.gameId && worldExists) forgetDraft(gs.gameId);
+	}, [gs.gameId, worldExists, forgetDraft]);
+
+	const deleteGame = useCallback(async (id) => {
+		if (await orch.handleDeleteGame(id)) forgetDraft(id);
+	}, [orch, forgetDraft]);
 
 	// Refresh tooltips when entering a game (gameId set + phase is PLAYING)
 	useEffect(() => {
@@ -149,7 +155,7 @@ function GameScreen({ user, logout }) {
 			<SettingsPage
 				onBack={closeSettings}
 				preferences={prefs}
-				onDeleteGame={orch.handleDeleteGame}
+				onDeleteGame={deleteGame}
 				gameId={gs.gameId}
 				user={user}
 			/>
@@ -183,7 +189,7 @@ function GameScreen({ user, logout }) {
 					draft={wizardSession.resumable}
 					onResumeDraft={wizardSession.resume}
 					onDiscardDraft={wizardSession.discard}
-					onDelete={orch.handleDeleteGame}
+					onDelete={deleteGame}
 					onSettings={openSettings}
 					onLogout={async () => { await logout(); window.location.href = '/login/'; }}
 				/>
@@ -192,9 +198,12 @@ function GameScreen({ user, logout }) {
 	}
 
 	// World not created yet: retry with the saved parameters, or edit them (#88)
-	const pendingParams = wizardSession.paramsFor(gs.gameId);
-	const retryWorld = () => orch.handleRetryWorld(pendingParams);
-	const editWorld = pendingParams ? () => wizardSession.edit(gs.gameId) : null;
+	// This browser's draft, else the server's parameters; without a draft the retry is a bare
+	// __INIT__ and the server reuses its own set.
+	const localParams = wizardSession.paramsFor(gs.gameId);
+	const pendingParams = localParams || orch.storedInitParams;
+	const retryWorld = () => orch.handleRetryWorld(localParams);
+	const editWorld = pendingParams ? () => wizardSession.edit(gs.gameId, orch.storedInitParams) : null;
 	if (phaseHook.isWorldPending) {
 		return (
 			<WorldPendingScreen

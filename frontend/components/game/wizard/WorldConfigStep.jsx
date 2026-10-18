@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { api } from '../../../lib/api';
+import { useGenres } from '../../../hooks/useGenres';
 import { DIFFICULTIES } from '../../../lib/game/engineConfig';
 import EnhanceButton from './EnhanceButton';
 import { isSuggestion } from '../../../lib/game/enhanceBase.mjs';
@@ -23,18 +23,12 @@ export default function WorldConfigStep({
 	useEffect(() => {
 		if (hasEntities) setShowEntities(true);
 	}, [hasEntities]);
-	const [genres, setGenres] = useState([]);
+	const genres = useGenres();
 
-	// Load genres from API
+	// Auto-select the first genre if none is selected
 	useEffect(() => {
-		api.get('/genres').then(data => {
-			setGenres(data?.genres || []);
-			// Auto-select first genre if none selected
-			if (!config.genre && data?.genres?.length > 0) {
-				update('genre', data.genres[0].slug);
-			}
-		}).catch(() => {});
-	}, []);
+		if (!config.genre && genres.length > 0) update('genre', genres[0].slug);
+	}, [genres]);
 
 	return (
 		<div className="space-y-6">

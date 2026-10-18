@@ -118,13 +118,16 @@ export function useGames() {
 	const [games, setGames] = useState([]);
 	const [loadingList, setLoadingList] = useState(false);
 
+	// The list loaded, or null when it could not be loaded.
 	const loadGames = useCallback(async () => {
 		setLoadingList(true);
 		try {
 			const data = await gamesApi.list();
 			setGames(data.games || []);
+			return data.games || [];
 		} catch (e) {
 			console.error('Error loading games:', e);
+			return null;
 		} finally {
 			setLoadingList(false);
 		}

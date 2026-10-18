@@ -15,6 +15,8 @@ function memoryStorage() {
 		getItem: k => (data.has(k) ? data.get(k) : null),
 		setItem: (k, v) => data.set(k, String(v)),
 		removeItem: k => data.delete(k),
+		key: i => [...data.keys()][i] ?? null,
+		get length() { return data.size; },
 	};
 }
 
@@ -92,4 +94,25 @@ test('local store survives missing or throwing storage', async () => {
 	const corrupt = memoryStorage();
 	corrupt.setItem('k', '{not json');
 	assert.equal(await localDraftStore(() => corrupt, 'k').load(), null);
+});
+
+test('#88: one draft per unfinished game, beside the draft of the world not created yet', async () => {
+	const storage = memoryStorage();
+	const store = localDraftStore(() => storage, draftKey('u1'));
+	const fresh = makeDraft({ step: 1, form: FORM });
+	const gameA = attachDraft(makeDraft({ step: 2, form: FORM }), 'gA', { engine: 'd6' });
+	const gameB = attachDraft(makeDraft({ step: 2, form: INITIAL_WIZARD_FORM }), 'gB', { engine: 'none' });
+	await store.save(fresh);
+	await store.save(gameA);
+	await store.save(gameB);
+	assert.equal(storage.getItem('ldvelh.wizardDraft.u1.gA') !== null, true);
+	assert.deepEqual(await store.load(), fresh);
+	assert.deepEqual(await store.load('gA'), gameA);
+	assert.deepEqual((await store.gameIds()).sort(), ['gA', 'gB']);
+	await store.clear('gA');
+	assert.equal(await store.load('gA'), null);
+	assert.deepEqual(await store.load(), fresh, 'the base draft is untouched');
+	assert.deepEqual(await store.gameIds(), ['gB']);
+	assert.deepEqual(await localDraftStore(() => storage, draftKey('u2')).gameIds(), [], 'other user');
+	assert.deepEqual(await localDraftStore(() => null, 'k').gameIds(), []);
 });

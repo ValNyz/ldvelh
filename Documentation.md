@@ -199,25 +199,25 @@ On "Create" click → calls `onComplete({engine, worldConfig, characterData, man
 
 **Undo / redo.** The whole form (`engine`, `worldConfig`, `characterData`, `manualEntities`) lives in one history (`hooks/useFormHistory.js` over the pure `lib/game/formHistory.mjs`, tested by `npm test`). Every change, by the player or the AI fill, is an entry; successive edits of the same field (typing, clicks on one skill) are merged into one entry until another field changes or the field loses focus; the long texts (lore, description) are also cut after a 2 s pause, like a text editor. Buttons in the step card and Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y; undoing a change made on another step goes back to that step. Step navigation is not recorded.
 
-**Draft (world being created).** The wizard's `{ step, form }` is saved on every change and survives a reload or a closed tab. Layers, each replaceable on its own: `lib/game/wizardForm.mjs` (steps, empty form), `lib/game/wizardDraft.mjs` (draft format `{ version, step, form, open, savedAt, gameId?, submitted? }`, validation, blank check), `lib/game/draftStores.mjs` (stores with an async `{ load, save, clear }` interface; `localDraftStore` keeps one draft per user in `localStorage` under `ldvelh.wizardDraft.<userId>`, a server store can replace it), `hooks/useWizardSession.js` (lifecycle). The wizard only takes `initialDraft` and reports `onSnapshot`. A reload while the wizard is open (`open: true`) goes straight back to it at the same step; leaving it ("Annuler") keeps the draft as a "Création en cours" card in the game list (Reprendre / Supprimer). One draft at a time: "Nouvelle aventure" replaces it at the first change only; an emptied form drops it. Creating the game does not drop it (#88): `handleWizardComplete(data, { gameId, onCreated })` calls `onCreated(id)`, which attaches the draft to the game (`gameId`, plus `submitted`: the parameters sent with `__INIT__`; it then leaves the list card), and the draft is dropped only when the world exists (phase `WORLD_READY` for that game, `useWizardSession.worldCreated`). Until then a failed generation offers « Réessayer » (resends `submitted`), « Modifier les paramètres » (reopens the wizard on the draft; completing it sends `__INIT__` to the same game, no new `POST /games`) and « Retour aux parties ». Reopening a game with `world_created=false` no longer starts a generation by itself: it shows `WorldPendingScreen` (phase `WORLD_PENDING`) with the same three actions and the saved parameters when this browser holds them; without a local draft « Réessayer » sends a bare `__INIT__` and the server reuses the parameters it stored (§2.5). The undo history does not survive a reload. Bump `DRAFT_VERSION` when the form shape changes: older drafts are then ignored.
+**Draft (world being created).** The wizard's `{ step, form }` is saved on every change and survives a reload or a closed tab. Layers, each replaceable on its own: `lib/game/wizardForm.mjs` (steps, empty form), `lib/game/wizardDraft.mjs` (draft format `{ version, step, form, open, savedAt, gameId?, submitted? }`, validation, blank check), `lib/game/draftStores.mjs` (stores with an async `{ load(gameId?), save(draft), clear(gameId?), gameIds() }` interface; `localDraftStore` keeps, per user in `localStorage`, the draft of the world not created yet under `ldvelh.wizardDraft.<userId>` and one draft per unfinished game under `ldvelh.wizardDraft.<userId>.<gameId>`; a server store can replace it), `lib/game/wizardParams.mjs` (server parameters to `__INIT__` parameters, and those back to a wizard form), `hooks/useWizardSession.js` (lifecycle). The wizard only takes `initialDraft` and reports `onSnapshot`. A reload while the wizard is open (`open: true`) goes straight back to it at the same step; leaving it ("Annuler") keeps the draft as a "Création en cours" card in the game list (Reprendre / Supprimer). One new-world draft at a time: "Nouvelle aventure" replaces it at the first change only; an emptied form drops it. Creating the game does not drop it (#88): `handleWizardComplete(data, { gameId, onCreated })` calls `onCreated(id)`, which moves the draft under the game's key (`gameId`, plus `submitted`: the parameters sent with `__INIT__`; it then leaves the list card), so another creation never overwrites it. A game's draft is dropped when its world exists (phase `WORLD_READY` or `PLAYING` for that game, `useWizardSession.forget`), when the game is deleted, and, on the first game list, when its game is gone (`prune`). Until then a failed generation offers « Réessayer » (resends `submitted`), « Modifier les paramètres » (reopens the wizard on the game's draft, else on the server's parameters, `GET /games/{id}` `init_params`; completing it sends `__INIT__` to the same game, no new `POST /games`) and « Retour aux parties ». Reopening a game with `world_created=false` no longer starts a generation by itself: it shows `WorldPendingScreen` (phase `WORLD_PENDING`) with the same three actions and the saved parameters (genre label from `hooks/useGenres.js`); without a local draft « Réessayer » sends a bare `__INIT__` and the server reuses the set it stored (§2.5). The undo history does not survive a reload. Bump `DRAFT_VERSION` when the form shape changes: older drafts are then ignored.
 
 #### 2.3 Frontend: handleWizardComplete
 
 **File:** `frontend/hooks/useGameOrchestrator.js`
 
 ```
-1. games.createGame(engine)    → POST /games → returns gameId
-2. gs.setGameId(id)
-3. games.loadGames()           → refresh game list
-4. phase.setGamePhase(GENERATING_WORLD)
-5. startStream('/chat', {
-     message: '__INIT__',
-     gameId: id,
-     gameState: null,
-     provider, model,
+handleWizardComplete(params, { gameId, onCreated })
+1. id = gameId || games.createGame(engine)   → POST /games only for a new game
+                                                (gameId: the wizard edited an unfinished game)
+2. onCreated(id)               → the wizard draft moves under the game's key (#88)
+3. gs.setGameId(id)
+4. games.loadGames()           → refresh game list
+5. generateWorld(id, params)   → phase GENERATING_WORLD, then startStream('/chat', {
+     message: '__INIT__', gameId: id, gameState: null, provider, model,
      engine, world_config, character_data, manual_entities
    })
 ```
+`generateWorld(id)` without parameters (a retry with no local draft) sends a bare `__INIT__`.
 
 #### 2.4 Backend: POST /games
 
@@ -236,7 +236,7 @@ GameService.create_game(user_id, engine)
 
 INIT mode is detected when the game snapshot has `world_created == False`.
 
-0. **Wizard parameters** (`pipeline/init_params.py`, #88): before the paid call, each `__INIT__` stores the parameters it sends on `games` (`engine`, `world_config`, `character_data`, `manual_entities`; `repos/games.save_init_params`, only while the game has no protagonist), outside the world transaction so a failed generation keeps them. A field the request leaves out is read back from the game, so a bare retry from the game list generates the same world request (genre, lore, difficulty, duration, character sheet, manual entities); a field it sends wins (the player edited the wizard). The wizard's genre slug also wins over a genre stored by an earlier attempt (`resolve_genre`). The three fields are bounded like `/world/enhance` (`api/request_types.py` `WizardPart`, `ManualEntities`: 20 000 characters each, 20 entities per kind; over → French 422, nothing stored).
+0. **Wizard parameters** (`pipeline/init_params.py`, #88): before the paid call, each `__INIT__` stores the parameters it sends on `games` (`engine`, `world_config`, `character_data`, `manual_entities`; `repos/games.save_init_params`, only while the game has no protagonist), outside the world transaction so a failed generation keeps them. An `__INIT__` that carries any of the three parts (`ChatRequest.model_fields_set`, `InitParams.carries_wizard`) replaces the stored set entirely: a part sent as `null` (the wizard sends `null` for no entities or no character) is cleared, never restored from an earlier attempt. A bare `__INIT__` (game list retry, another browser) reuses the stored set, so it generates the same world request (genre, lore, difficulty, duration, character sheet, manual entities). While the world is not created, `GET /games/{id}` returns the stored set as `init_params` (`{ engine, world_config, character_data, manual_entities }`), so the wizard can be prefilled in a browser without the draft. The wizard's genre slug also wins over a genre stored by an earlier attempt (`resolve_genre`). The three fields are bounded like `/world/enhance` (`api/request_types.py` `WizardPart`, `ManualEntities`: 20 000 characters each, 20 entities per kind; over → French 422, nothing stored).
 
 1. **Build prompt**: `get_full_generation_prompt(mandatory_npcs, theme_preferences, engine, world_config, character_data, manual_entities)`
    - **File:** `backend/prompts/world_generation_prompt.py`

@@ -84,14 +84,16 @@ test('a new creation replaces the draft at its first change, not before', async 
 	await expect(draftCard(page)).toBeVisible();
 });
 
-test('creating the game keeps the draft, attached to it, until the world is created (#88)', async ({ page }) => {
+test('creating the game moves the draft under the game key, kept until the world is created (#88)', async ({ page }) => {
 	const api = await mockApi(page);
 	await startWorld(page, 'Néo-Lyon sous la pluie');
 	await page.getByRole('button', { name: 'Suivant' }).click();
 	expect(await storedDraft(page)).not.toBeNull();
 	await page.getByRole('button', { name: 'Créer le monde' }).click();
 	await expect.poll(() => api.calls.find(c => c.path === '/chat')).toBeTruthy();
-	const draft = await storedDraft(page);
-	expect(draft.gameId).toBe('00000000-0000-0000-0000-000000000001');
+	const gameId = '00000000-0000-0000-0000-000000000001';
+	expect(await storedDraft(page)).toBeNull(); // no longer a world without a game
+	const draft = await page.evaluate(k => JSON.parse(localStorage.getItem(k)), `${DRAFT_KEY}.${gameId}`);
+	expect(draft.gameId).toBe(gameId);
 	expect(draft.submitted.worldConfig.lore).toBe('Néo-Lyon sous la pluie');
 });
