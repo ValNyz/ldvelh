@@ -76,6 +76,7 @@ async def test_user_prompt_matches_the_prompt_builder(test_pool, test_user):
     game_id = await _game_with_world(test_pool, test_user)
     async with test_pool.acquire() as conn:
         ctx = await collect_director_context(conn, game_id, 1, "08h00")
+    assert ctx is not None
     assert ctx.user_prompt() == build_director_user_prompt(**asdict(ctx))
 
 
@@ -138,6 +139,27 @@ async def test_apply_drops_the_plan_when_the_source_message_is_gone(test_pool, t
                for r in caplog.records)
 
 
+@pytest.mark.asyncio
+async def test_apply_keeps_the_plan_when_the_source_message_exists(test_pool, test_user):
+    from domain.turn import NarrationState
+    from repos import turns
+    from services.director_apply import apply_director_plan
+
+    game_id = await _game_with_world(test_pool, test_user)
+    plans_before, _ = await _counts(test_pool, game_id)
+    state = NarrationState(cycle=1, time="08h00", location=None, npcs_present=[], date=None)
+    async with test_pool.acquire() as conn:
+        _, message_id = await turns.save_turn_messages(
+            conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
+            state=state, narrator_deltas={}, engine_snapshot=None,
+        )
+        done = await apply_director_plan(conn, game_id, _plan(), cycle=1, ig_time="08h00",
+                                         source_message_id=message_id)
+    assert done is True
+    plans_after, _ = await _counts(test_pool, game_id)
+    assert plans_after == plans_before + 1
+
+
 class _CountingPool:
     def __init__(self, pool):
         self.pool, self.in_use = pool, 0
@@ -179,4 +201,5 @@ def test_run_director_is_thin():
     tree = ast.parse((BACKEND / "services/director_service.py").read_text(encoding="utf-8"))
     func = next(f for f in tree.body
                 if isinstance(f, ast.AsyncFunctionDef) and f.name == "run_director")
+    assert func.end_lineno is not None
     assert func.end_lineno - func.lineno + 1 < 80

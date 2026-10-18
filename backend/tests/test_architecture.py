@@ -116,6 +116,7 @@ def test_no_sql_in_api_routes():
 def test_handle_chat_is_thin():
     tree = ast.parse((BACKEND / "api/routes.py").read_text(encoding="utf-8"))
     func = next(f for f in _outermost_functions(tree) if f.name == "_handle_chat")
+    assert func.end_lineno is not None
     assert func.end_lineno - func.lineno + 1 < 80
 
 
