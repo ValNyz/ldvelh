@@ -35,22 +35,23 @@ test.beforeEach(({ page }) => {
 });
 test.afterEach(() => expect(crashes).toEqual([]));
 
-async function openGame(page, chatAnswers) {
+// `rollback`: optional handler replacing the default mocked rollback (e.g. a refusal).
+async function openGame(page, chatAnswers, { game = LOADED_GAME, rollback = null } = {}) {
 	let chatCount = 0;
-	let history = HISTORY;
+	let history = game.messages;
 	const api = await mockApi(page, {
 		'GET /games': () => ({ games: [{ id: GAME_ID, name: 'Partie Pluie', current_cycle: 1 }] }),
-		[`GET /games/${GAME_ID}`]: () => LOADED_GAME,
-		[`POST /games/${GAME_ID}/rollback`]: (body) => {
+		[`GET /games/${GAME_ID}`]: () => game,
+		[`POST /games/${GAME_ID}/rollback`]: rollback || ((body) => {
 			const result = rollbackTo(history, body.messageId);
 			history = result.messages;
 			return result;
-		},
+		}),
 		'POST /chat': () => ({ __sse: chatAnswers[chatCount++] }),
 	});
 	await page.goto('/game/');
 	await page.getByText('Partie Pluie').click();
-	await expect(page.getByText('Il pleut à verse sur le quai.')).toBeVisible();
+	await expect(page.getByText(game.messages.at(-1).content)).toBeVisible();
 	const requests = () => api.calls.filter(c => c.path === '/chat' || c.path.endsWith('/rollback'));
 	return { api, requests };
 }
@@ -126,4 +127,39 @@ test('resend a loaded action', async ({ page }, testInfo) => {
 	expect(calls.map(c => c.path)).toEqual([`/games/${GAME_ID}/rollback`, '/chat']);
 	expect(calls[0].body).toEqual({ messageId: HISTORY[2].id });
 	expect(calls[1].body.message).toBe('Je sors sous la pluie.');
+});
+
+test('a turn whose done has no ids cannot be regenerated: French error, nothing sent', async ({ page }, testInfo) => {
+	// A turn answered without message ids (cancelled before its save, or an older server).
+	const { requests } = await openGame(page, [answer('Le quai est vide.')]);
+	const input = page.getByPlaceholder(/Ton action/);
+	await input.fill('Je longe le quai.');
+	await input.press('Control+Enter');
+	await expect(page.getByText('Le quai est vide.')).toBeVisible();
+
+	await clickAction(page, 'Le quai est vide.', 'Regénérer');
+	await expect(page.getByText("Ce message n'est pas encore enregistré : recharge la partie pour le reprendre.")).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Réessayer' })).toHaveCount(0);
+	await page.screenshot({ path: testInfo.outputPath('regenerate-missing-ids-error.png') });
+	expect(requests().map(c => c.path)).toEqual(['/chat']);
+});
+
+test('a refused rollback shows the server message and sends nothing', async ({ page }, testInfo) => {
+	const refusal = () => ({ __status: 400, body: { detail: "Impossible de revenir avant la scène d'arrivée." } });
+	const { requests } = await openGame(page, [answer('La pluie redouble.')], { rollback: refusal });
+	await clickAction(page, 'Il pleut à verse sur le quai.', 'Regénérer');
+
+	await expect(page.getByText("Impossible de revenir avant la scène d'arrivée.")).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Réessayer' })).toHaveCount(0);
+	await expect(page.getByText('Il pleut à verse sur le quai.')).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('regenerate-rollback-refused.png') });
+	expect(requests().map(c => c.path)).toEqual([`/games/${GAME_ID}/rollback`]);
+});
+
+test('no Regénérer on the arrival scene alone (nothing to answer again)', async ({ page }, testInfo) => {
+	const arrivalOnly = { ...LOADED_GAME, messages: [{ id: HISTORY[1].id, role: 'assistant', content: 'Bienvenue sur le quai.' }] };
+	await openGame(page, [], { game: arrivalOnly });
+	await page.getByText('Bienvenue sur le quai.').hover();
+	await page.screenshot({ path: testInfo.outputPath('arrival-without-regenerate.png') });
+	await expect(page.getByTitle('Regénérer')).toHaveCount(0);
 });

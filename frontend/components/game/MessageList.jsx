@@ -3,6 +3,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import Message, { MessageEditForm } from './Message';
 import Button from '../ui/Button';
+import { findLastUserMessage } from '../../lib/game/chatHistory.mjs';
 
 export default function MessageList({
 	messages,
@@ -59,6 +60,8 @@ export default function MessageList({
 	}
 
 	const isStreaming = messages.some(m => m.streaming);
+	// Regenerate answers the last action again: none shown (arrival scene alone), no button (#55).
+	const canRegenerate = !loading && findLastUserMessage(messages) !== null;
 
 	return (
 		<div
@@ -88,7 +91,7 @@ export default function MessageList({
 						fontSize={fontSize}
 						onEdit={msg.role === 'user' && !loading ? onEdit : null}
 						onResend={msg.role === 'user' && !loading ? onResend : null}
-						onRegenerate={!loading ? onRegenerate : null}
+						onRegenerate={canRegenerate ? onRegenerate : null}
 						tooltipMap={tooltipMap}
 						showDebug={showDebug}
 						engine={engine}

@@ -30,4 +30,6 @@ async def test_a_legacy_client_game_state_is_ignored(harness, world_game):
                                 gameState={"game": {"current_cycle": 99}})
     await harness.drain()
 
-    assert "done" in harness.summarize(events)
+    done = next(e for e in events if e["type"] == "done")
+    # Ignored, not merged: the state comes from the database.
+    assert done["state"]["game_state"]["game"]["current_cycle"] != 99

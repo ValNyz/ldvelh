@@ -4,6 +4,7 @@ These pin current behavior of paths that had no direct test before the refactor.
 """
 
 import json
+from uuid import UUID
 
 from tests.characterization import payloads
 from tests.characterization.snapshot import assert_snapshot
@@ -60,6 +61,24 @@ async def test_c20_tooltips_annotations_and_entity(harness, world_game):
     })
 
 
+def _is_uuid(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _stable_meta(meta: dict | None) -> dict | None:
+    """Done meta with the turn's random message ids replaced by whether they are UUIDs (#55)."""
+    if meta is None:
+        return None
+    ids = ("user_message_id", "assistant_message_id")
+    return {**meta, **{k: _is_uuid(meta.get(k)) for k in ids}}
+
+
 async def test_c21_cost_recorded_on_message_and_session(harness, world_game, monkeypatch):
     # The scripted model is unpriced; register dynamic pricing (USD per million tokens)
     # so a loss of cost computation changes the snapshot.
@@ -80,7 +99,9 @@ async def test_c21_cost_recorded_on_message_and_session(harness, world_game, mon
     cost = deltas.get("cost") or {}
     assert_snapshot("c21_cost", {
         "done_keys": sorted(done.keys()),
-        "meta": done.get("meta"),
+        # The done payload sits under "state" (it read done["meta"], always null, before #55).
+        "done_state_keys": sorted(done["state"].keys()),
+        "meta": _stable_meta(done["state"].get("meta")),
         "message_cost": cost,
         "session_keys": sorted(after.keys()),
         "session_total_grew": after["total_cost_usd"] > before["total_cost_usd"],

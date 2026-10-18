@@ -4,6 +4,10 @@
     "state",
     "type"
   ],
+  "done_state_keys": [
+    "game_state",
+    "meta"
+  ],
   "message_cost": {
     "cache_creation_input_tokens": 0,
     "cache_read_input_tokens": 0,
@@ -13,7 +17,19 @@
     "output_tokens": 50,
     "provider": "scripted"
   },
-  "meta": null,
+  "meta": {
+    "assistant_message_id": true,
+    "narration_cost": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "cost_usd": 0.00105,
+      "input_tokens": 100,
+      "model": "scripted-model",
+      "output_tokens": 50,
+      "provider": "scripted"
+    },
+    "user_message_id": true
+  },
   "narration_purpose_tracked": true,
   "session_keys": [
     "purposes",

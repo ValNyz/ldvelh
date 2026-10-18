@@ -912,7 +912,7 @@ GameState:
 | `chunk` | `{content}` | Each text delta during narration streaming |
 | `progress` | `{rawJson}` | Partial JSON during world generation (every ~500 chars) |
 | `extracting` | `{displayText}` | Narration done, extraction starting |
-| `done` | `{displayText, state}` | Final result with full game state |
+| `done` | `{displayText, state}` | Final result with full game state. `state = {game_state, meta, ui?}` (`SSEDonePayload`). On a turn's done, `meta = {narration_cost?, mechanical_cost?, user_message_id, assistant_message_id}` is always present: the two ids (UUID strings) name the turn's saved messages, for edit / resend / regenerate (#55). The world-generation done has `world_info` and no message ids (it saves no messages) |
 | `saved` | `{}` | DB save confirmed |
 | `error` | `{error, details, recoverable, code, ref}` | Error occurred; `code` and `ref` on turn errors (see 3.2) |
 | `warning` | `{message, details}` | Non-fatal warning |
