@@ -978,8 +978,10 @@ class KnowledgeGraphReader:
     async def get_message_engine_snapshot(
         self, conn: Connection, message_id: UUID
     ) -> dict | None:
-        """Turn-owned engine state saved with one message (after that turn's roll and narration
-        deltas), or None."""
+        """Turn-owned engine state saved with one message, or None.
+
+        Taken after that turn's roll and narration deltas.
+        """
         raw = await conn.fetchval(
             "SELECT engine_snapshot FROM messages WHERE id = $1 AND game_id = $2",
             message_id, self.game_id,
