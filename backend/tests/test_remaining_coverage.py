@@ -11,7 +11,6 @@ Tests for remaining low-coverage modules:
 """
 
 import secrets
-from domain.errors import DisplayNameTaken, EmailTaken, PasswordTooShort
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -1168,12 +1167,21 @@ class TestAuthServiceJWT:
             decode_token("this.is.not.a.valid.jwt")
 
 
+def _unique_violation(constraint: str):
+    import asyncpg
+
+    exc = asyncpg.UniqueViolationError("duplicate key value")
+    exc.constraint_name = constraint
+    return exc
+
+
 class TestAuthServiceRegister:
     """Test register function with mocked DB."""
 
     @pytest.mark.asyncio
     async def test_register_success(self):
         """register creates user and returns token."""
+        from domain.errors import DisplayNameTaken, EmailTaken, PasswordTooShort  # noqa: F401
         from services.auth_service import register
 
         user_id = uuid4()
@@ -1197,7 +1205,8 @@ class TestAuthServiceRegister:
 
     @pytest.mark.asyncio
     async def test_register_short_password(self):
-        """register raises ValueError for short password."""
+        """register raises PasswordTooShort."""
+        from domain.errors import PasswordTooShort
         from services.auth_service import register
 
         mock_conn = AsyncMock()
@@ -1206,11 +1215,12 @@ class TestAuthServiceRegister:
 
     @pytest.mark.asyncio
     async def test_register_duplicate_email(self):
-        """register raises ValueError for duplicate email."""
+        """register raises EmailTaken on the email constraint."""
+        from domain.errors import EmailTaken
         from services.auth_service import register
 
         mock_conn = AsyncMock()
-        mock_conn.fetchrow.side_effect = Exception("unique constraint violation on email")
+        mock_conn.fetchrow.side_effect = _unique_violation("users_email_key")
 
         with patch("services.auth_service.send_verification_email", new_callable=AsyncMock):
             with pytest.raises(EmailTaken):
@@ -1218,13 +1228,12 @@ class TestAuthServiceRegister:
 
     @pytest.mark.asyncio
     async def test_register_duplicate_display_name(self):
-        """register raises ValueError for duplicate display_name."""
+        """register raises DisplayNameTaken on the display_name constraint."""
+        from domain.errors import DisplayNameTaken
         from services.auth_service import register
 
         mock_conn = AsyncMock()
-        mock_conn.fetchrow.side_effect = Exception(
-            "unique constraint violation on display_name"
-        )
+        mock_conn.fetchrow.side_effect = _unique_violation("users_display_name_key")
 
         with patch("services.auth_service.send_verification_email", new_callable=AsyncMock):
             with pytest.raises(DisplayNameTaken):

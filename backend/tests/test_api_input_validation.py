@@ -388,3 +388,20 @@ async def test_resend_verification_message_is_french(client, test_user, monkeypa
     resp = await client.post("/api/auth/resend-verification",
                              headers=auth_headers(test_user["token"]))
     assert resp.json()["message"] == "E-mail de vérification envoyé."
+
+
+@pytest.mark.asyncio
+async def test_unmapped_registration_error_is_a_french_400(client, monkeypatch):
+    from domain.errors import RegistrationRejected
+    from services import auth_service
+
+    class Novel(RegistrationRejected):
+        code = "novel"
+
+    async def _boom(*a, **k):
+        raise Novel("x")
+
+    monkeypatch.setattr(auth_service, "register", _boom)
+    resp = await client.post("/api/auth/register", json=_register())
+    assert (resp.status_code, resp.json()) == (400, {
+        "detail": "Inscription impossible.", "code": "novel"})

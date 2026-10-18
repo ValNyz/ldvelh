@@ -55,7 +55,7 @@ class KnowledgeGraphReader:
             query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY updated_at DESC"
         rows = await conn.fetch(query, *params)
-        return [dict(r) for r in rows]
+        return [self._with_valid_engine(dict(r), r["id"]) for r in rows]
 
     async def get_game(
         self, conn: Connection, game_id: UUID | None = None
@@ -73,7 +73,13 @@ class KnowledgeGraphReader:
                FROM games WHERE id = $1""",
             target_id,
         )
-        return dict(row) if row else None
+        return self._with_valid_engine(dict(row), target_id) if row else None
+
+    @staticmethod
+    def _with_valid_engine(game: dict, game_id) -> dict:
+        """The one place a stored engine is coerced (#91); callers get a valid value."""
+        game["engine"] = coerce_engine(game["engine"], game_id).value
+        return game
 
     async def game_exists(
         self, conn: Connection, active_only: bool = True

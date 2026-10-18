@@ -77,7 +77,6 @@ async def _invalid_request(request: Request, exc: RequestValidationError) -> JSO
 def register_domain_error_handlers(app: FastAPI) -> None:
     for error in _ANSWERS:
         app.add_exception_handler(error, _answer)
-    for error in _REGISTRATION_ANSWERS:
-        app.add_exception_handler(error, _registration_rejected)
+    app.add_exception_handler(RegistrationRejected, _registration_rejected)  # whole MRO
     app.add_exception_handler(RateLimited, _rate_limited)
     app.add_exception_handler(RequestValidationError, _invalid_request)

@@ -26,7 +26,6 @@ from schema.narration import (
 
 from kg.reader import KnowledgeGraphReader
 from repos import games as games_repo
-from schema.engine import coerce_engine
 from services.engine import get_engine
 from utils.json_utils import parse_json
 
@@ -62,7 +61,7 @@ class ContextBuilder:
         genre = await games_repo.get_genre(conn, game.get("genre_id"))
 
         # Engine info
-        engine_type = coerce_engine(game.get("engine"), self.game_id).value
+        engine_type = game.get("engine", "none")  # coerced by the reader
         engine = get_engine(engine_type)
         engine_stats = None
         if engine_type != "none":

@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
+import asyncpg
 import bcrypt
 import jwt
 
@@ -133,12 +134,11 @@ async def register(conn, email: str, password: str, display_name: str | None = N
                RETURNING id, email, display_name, email_verified, token_version""",
             email, pw_hash, display_name, verification_token,
         )
-    except Exception as e:
-        err = str(e).lower()
-        if "unique" in err or "duplicate" in err:
-            if "display_name" in err:
-                raise DisplayNameTaken("Display name already taken")
-            raise EmailTaken("Email already registered")
+    except asyncpg.UniqueViolationError as e:
+        if e.constraint_name == "users_display_name_key":
+            raise DisplayNameTaken("Display name already taken") from e
+        if e.constraint_name == "users_email_key":
+            raise EmailTaken("Email already registered") from e
         raise
 
     # Send verification email (non-blocking, don't fail registration if email fails)
