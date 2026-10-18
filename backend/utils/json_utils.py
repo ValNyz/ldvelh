@@ -14,7 +14,31 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 
 
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+REPLACEMENT_CHAR = "\ufffd"
+
+
+def replace_lone_surrogates(value: Any) -> Any:
+    """Replace lone surrogates by U+FFFD in every string (keys included) of a parsed value.
+
+    json.loads keeps a lone `\\ud83d` escape as a surrogate, which raises when encoded
+    to UTF-8 (DB write, SSE). Valid pairs are already joined by the parser.
+    """
+    if isinstance(value, str):
+        return _LONE_SURROGATE.sub(REPLACEMENT_CHAR, value)
+    if isinstance(value, dict):
+        return {replace_lone_surrogates(k): replace_lone_surrogates(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [replace_lone_surrogates(v) for v in value]
+    return value
+
+
 def parse_json_response(content: str) -> dict | None:
+    """Parse an LLM JSON response (see _parse_json_response); the result is UTF-8 encodable."""
+    return replace_lone_surrogates(_parse_json_response(content))
+
+
+def _parse_json_response(content: str) -> dict | None:
     """
     Parse une réponse JSON, en gérant les cas courants :
     - Backticks markdown (```json ... ```)

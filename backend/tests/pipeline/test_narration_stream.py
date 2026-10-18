@@ -143,9 +143,12 @@ async def test_stream_ending_mid_escape_holds_the_fragment_back():
     # Truncated output ends on a lone high surrogate: the fragment is never sent as a delta.
     session, _ = _session({"narration": '{"narrative_text": "Salut \\ud83d'})
     sink = _RecordingSink()
-    await stream_narration(session, sink, system_prompt=NARRATOR, messages=MESSAGES,
+    result = await stream_narration(session, sink, system_prompt=NARRATOR, messages=MESSAGES,
                                     world_gen=False)
     assert "".join(args[0] for args in sink.of("send_chunk")) == "Salut"
+    # The repaired result stays encodable (DB write, SSE): the fragment is U+FFFD
+    result.display_text.encode("utf-8")
+    json.dumps(result.parsed, ensure_ascii=False).encode("utf-8")
 
 
 async def test_escaped_narration_streams_decoded_and_matches_final_text():

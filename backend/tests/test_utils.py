@@ -895,3 +895,29 @@ class TestEdgeCases:
         result = try_truncate_json(raw)
         assert result is not None
         assert result["k"] == "a\nb"
+
+
+# =============================================================================
+# json_utils: lone surrogates (#90)
+# =============================================================================
+
+
+class TestParseJsonLoneSurrogates:
+    """A lone surrogate cannot be encoded to UTF-8 (DB write, SSE): it becomes U+FFFD."""
+
+    def test_valid_pair_is_unchanged(self):
+        assert parse_json_response('{"t": "a \\ud83d\\ude00 b"}') == {"t": "a \U0001F600 b"}
+
+    @pytest.mark.parametrize("escape", ["\\ud83d", "\\ude00"])
+    def test_lone_surrogate_becomes_replacement_char(self, escape):
+        result = parse_json_response('{"t": "x' + escape + 'y", "n": ["a' + escape + '"]}')
+        assert result == {"t": "x\ufffdy", "n": ["a\ufffd"]}
+
+    def test_truncated_output_ending_on_high_surrogate(self):
+        result = parse_json_response('{"narrative_text": "Salut \\ud83d')
+        assert result == {"narrative_text": "Salut \ufffd"}
+        json.dumps(result, ensure_ascii=False).encode("utf-8")
+
+    def test_surrogate_in_key_and_nested_value(self):
+        result = parse_json_response('{"k\\ud800": {"v": "\\udfff"}}')
+        assert result == {"k\ufffd": {"v": "\ufffd"}}
