@@ -27,6 +27,7 @@ from pipeline import init_flow, turn
 from pipeline.context import InitParams, TurnContext, TurnRequest
 from pipeline.errors import TurnError, report_error
 from utils.rate_limit import hit_all, request_ip, shared_limiter
+from workers import game_locks
 
 logger = logging.getLogger(__name__)
 
@@ -270,9 +271,7 @@ async def rollback_game(
     service = GameService(pool)
     await service.verify_ownership(game_id, user["id"])
 
-    # Acquire game lock to prevent race with in-flight extraction
-    lock = _get_game_lock(game_id)
-    async with lock:
+    async with game_locks.hold(game_id):
         msg_id = request.messageId
         try:
             result = await service.rollback_to_message(
@@ -290,17 +289,6 @@ async def rollback_game(
 # =============================================================================
 # CHAT ENDPOINT (STREAMING)
 # =============================================================================
-
-# Per-game locks to prevent concurrent _handle_chat for the same game
-_game_locks: dict[str, asyncio.Lock] = {}
-
-
-def _get_game_lock(game_id: UUID) -> asyncio.Lock:
-    key = str(game_id)
-    if key not in _game_locks:
-        _game_locks[key] = asyncio.Lock()
-    return _game_locks[key]
-
 
 # Each turn costs LLM calls (#82): per player, and per client IP across accounts.
 chat_user_limiter = shared_limiter(max_requests=10, window_seconds=60)
@@ -331,17 +319,16 @@ def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,
     """Start the turn task (or the busy-game rejection) and attach it to a new writer.
 
     Closing the stream cancels the task: nothing is committed and the game lock is
-    released when `async with lock` unwinds (#20).
+    released when `game_locks.hold` unwinds (#20).
     """
     writer = SSEWriter()
     key = str(request.gameId)
-    lock = _get_game_lock(request.gameId)
-    if game_writers.is_busy(key, lock):  # C-13
+    if game_writers.is_busy(key, game_locks.is_held(request.gameId)):  # C-13
         writer.attach(asyncio.create_task(_reject_busy(writer)))
         return writer
     task = asyncio.create_task(
         _handle_chat_locked(
-            lock=lock,
+            game_id=request.gameId,
             request=request,
             sink=writer,
             pool=pool,
@@ -367,9 +354,9 @@ async def _reject_busy(sse_writer: SSEWriter):
         await sse_writer.close()
 
 
-async def _handle_chat_locked(lock: asyncio.Lock, **kwargs):
+async def _handle_chat_locked(game_id: UUID, **kwargs):
     """Acquire game lock then delegate to _handle_chat."""
-    async with lock:
+    async with game_locks.hold(game_id):
         await _handle_chat(**kwargs)
 
 

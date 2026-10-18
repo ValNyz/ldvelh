@@ -14,6 +14,7 @@ from repos.games import get_snapshot
 from services.game_service import GameService
 from tests.characterization import payloads
 from tests.helpers import engine_state, stress_on_every_roll
+from workers import game_locks
 
 TIMEOUT = 5.0
 
@@ -125,7 +126,7 @@ async def test_disconnect_mid_stream_saves_nothing_and_releases_the_lock(
 
     await asyncio.wait_for(harness.drain(), TIMEOUT)
     assert await engine_state(harness.pool, UUID(game_id)) == before
-    assert routes._get_game_lock(UUID(game_id)).locked() is False
+    assert game_locks.is_held(UUID(game_id)) is False
 
     harness.llm.stream_gate = None
     gate.set()
@@ -151,7 +152,7 @@ async def test_disconnect_then_immediate_resend_is_accepted(
     stream = first.iterate()
     await asyncio.wait_for(_read_until_chunk(stream), TIMEOUT)
     await stream.aclose()
-    assert routes._get_game_lock(game_id).locked()  # the cancelled turn is still unwinding
+    assert game_locks.is_held(game_id)  # the cancelled turn is still unwinding
 
     harness.llm.stream_gate = None
     second = routes.start_chat(routes.ChatRequest(message="Je regarde autour.", gameId=game_id),
@@ -209,7 +210,7 @@ async def test_http_disconnect_cancels_the_turn(harness, fate_game, monkeypatch)
 
     assert disconnect.is_set()
     assert not any(b'"type": "done"' in chunk for chunk in sent)
-    assert routes._get_game_lock(game_id).locked() is False
+    assert game_locks.is_held(game_id) is False
     assert await _game_state(harness.pool, game_id) == before
 
 
@@ -255,7 +256,7 @@ async def test_disconnect_during_respond_still_schedules_and_keeps_the_turn(
     assert len(scheduled) == 1  # ...yet extraction/Director were still scheduled
     after = await _game_state(harness.pool, game_id)
     assert after["messages"] == before["messages"] + 2
-    assert routes._get_game_lock(game_id).locked() is False
+    assert game_locks.is_held(game_id) is False
 
 
 async def test_disconnect_during_commit_finishes_the_turn(
@@ -296,7 +297,7 @@ async def test_disconnect_during_commit_finishes_the_turn(
     after = await _game_state(harness.pool, game_id)
     assert after["messages"] == before["messages"] + 2
     assert len(scheduled) == 1
-    assert routes._get_game_lock(game_id).locked() is False
+    assert game_locks.is_held(game_id) is False
 
 
 async def test_disconnect_while_sending_world_done_keeps_the_saved_world(
@@ -339,7 +340,7 @@ async def test_disconnect_while_sending_world_done_keeps_the_saved_world(
     assert (snapshot.world_created, snapshot.engine, duration) == (True, "fate_core", "short")
     assert fate_rows == 1
     assert plans == 1
-    assert routes._get_game_lock(game_id).locked() is False
+    assert game_locks.is_held(game_id) is False
 
 
 async def test_stream_error_after_done_reports_the_turn_as_saved():
@@ -436,7 +437,7 @@ async def test_cancelled_resend_does_not_make_the_next_request_busy(
                                harness.pool, settings, test_user["id"])
     await _client_leaves_while_waiting(resend)
     assert resend._task.cancelled()
-    assert routes._get_game_lock(game_id).locked()
+    assert game_locks.is_held(game_id)
 
     third = routes.start_chat(routes.ChatRequest(message="Je sors.", gameId=game_id),
                               harness.pool, settings, test_user["id"])
@@ -487,7 +488,7 @@ async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
 
     await asyncio.wait_for(harness.drain(), TIMEOUT)
     assert await _game_state(harness.pool, game_id) == before
-    assert routes._get_game_lock(game_id).locked() is False
+    assert game_locks.is_held(game_id) is False
 
 
 async def test_disconnect_during_initial_director_releases_the_lock(
@@ -518,7 +519,7 @@ async def test_disconnect_during_initial_director_releases_the_lock(
     await asyncio.wait({writer._task}, timeout=TIMEOUT)
     try:
         assert writer._task.cancelled()  # without waiting for the Director...
-        assert routes._get_game_lock(game_id).locked() is False
+        assert game_locks.is_held(game_id) is False
     finally:
         release.set()
     await asyncio.wait_for(harness.drain(), TIMEOUT)
@@ -615,7 +616,7 @@ async def test_disconnect_during_world_save_commits_and_starts_the_director(
 
     await asyncio.wait({writer._task}, timeout=TIMEOUT)
     assert writer._task.cancelled()
-    assert routes._get_game_lock(game_id).locked() is False
+    assert game_locks.is_held(game_id) is False
     await asyncio.wait_for(harness.drain(), TIMEOUT)
     async with harness.pool.acquire() as conn:
         snapshot = await get_snapshot(conn, game_id)

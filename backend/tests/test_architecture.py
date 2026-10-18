@@ -20,6 +20,8 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
     "schema": {"api", "pipeline", "fastapi", "starlette"},
     "prompts": {"api", "pipeline", "fastapi", "starlette"},
     "utils": {"fastapi", "starlette"},
+    "workers": {"api", "pipeline", "services", "repos", "kg", "llm", "schema", "prompts",
+                "asyncpg", "fastapi", "starlette"},
 }
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
 LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)

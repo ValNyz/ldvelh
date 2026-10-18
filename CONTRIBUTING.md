@@ -133,11 +133,11 @@ The e2e tests (`frontend/tests/e2e/`) answer every `/api` call from `mockApi.mjs
 
 Every route that takes a game id (any spelling of `game_id`/`gameId` in path, query, header or body, nested fields included, or any path parameter right under `/games/`) must call `GameService.verify_ownership` before touching the game, and take the id from one place only. `backend/tests/test_game_ownership_guard.py` discovers these routes from the OpenAPI schema and fails until a new one is added to its `GAME_SCOPED_CALLS` table, which then checks that another user gets a 403 and that the game (existence, name, messages) is unchanged. Routes must not use `include_in_schema=False` (the same test fails on a hidden route).
 
-`pipeline/` and `api/routes.py` are also linted for complexity (McCabe 15 at most) and unused imports, with the same command as CI (ruff 0.8.4):
+`pipeline/`, `api/routes.py` and `workers/` are also linted for complexity (McCabe 15 at most) and unused imports, with the same command as CI (ruff 0.8.4):
 
 ```bash
 cd backend && pip install ruff==0.8.4
-ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipeline/ api/routes.py
+ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipeline/ api/routes.py workers/
 ```
 
 Errors reaching the player come from `pipeline/errors.py` (one French message, a `code`, a `ref`); never send raw exception text, and use `logger.exception` rather than `traceback.print_exc`. Prompts are logged only with `LOG_PROMPTS=true`.
@@ -165,6 +165,6 @@ One-off check after this change (manual): debug mode used to seed `dev@ldvelh.lo
 GitHub Actions runs on every push to `main`/`dev`/`test`:
 - **Unit tests** with coverage (uploaded to Codecov)
 - **Integration tests** against a Postgres service container
-- **Lint** of `pipeline/` and `api/routes.py` (ruff C901, F401)
+- **Lint** of `pipeline/`, `api/routes.py` and `workers/` (ruff C901, F401)
 - **Frontend**: lint, unit tests, build, then the Playwright e2e tests (results uploaded as the `e2e-results` artifact)
 - **Docker images**: `docker build` of the backend (repo root context) and the frontend, run as non-root

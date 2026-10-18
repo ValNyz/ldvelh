@@ -56,7 +56,7 @@ jobs:
       - name: Lint pipeline and routes (complexity, unused imports)
         run: |
           pip install ruff==0.8.4
-          ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipeline/ api/routes.py
+          ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipeline/ api/routes.py workers/
 
       # Random per-run secrets: a value published in the repo is rejected by startup_checks.
       - name: Generate test secrets

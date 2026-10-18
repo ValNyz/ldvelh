@@ -33,13 +33,13 @@ def writers_of(key: str) -> list[SSEWriter]:
     return list(_writers.get(key, ()))
 
 
-def is_busy(key: str, lock: asyncio.Lock) -> bool:
-    """C-13: a new /chat is rejected while the game lock is held, unless every accepted
+def is_busy(key: str, held: bool) -> bool:
+    """C-13: a new /chat is rejected while the game lock is held (`held`), unless every accepted
     request lost its client (they are being cancelled: the new one queues behind them).
 
     No writer at all with the lock held is busy: something else holds it (e.g. a rollback).
     """
-    if not lock.locked():
+    if not held:
         return False
     writers = writers_of(key)
     return not writers or any(not w.disconnected for w in writers)
