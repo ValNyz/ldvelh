@@ -59,8 +59,9 @@ async def _apply_entity_reveals(
         etype = reveal.get("entity_type")
         current_name = reveal.get("current_name")
         if etype == "character" and current_name:
+            real = reveal.get("real_name")
             await write_item(conn, errors, "entity_reveal character",
-                             lambda name=current_name, real=reveal.get("real_name"):
+                             lambda name=current_name, real=real:
                              populator.mark_character_known(conn, name, real),
                              "[EXTRACTION] ")
         elif etype == "location" and current_name:
