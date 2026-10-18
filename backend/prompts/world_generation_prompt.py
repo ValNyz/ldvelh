@@ -5,7 +5,7 @@ Genre-aware: tone, friction, vocabulary, and example come from the genres DB tab
 """
 
 from prompts.shared import COHERENCE_RULES
-from schema.core import PROTAGONIST_REF
+from schema import PROTAGONIST_REF
 
 
 # =============================================================================

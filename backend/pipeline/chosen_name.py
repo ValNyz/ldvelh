@@ -41,7 +41,7 @@ import re
 from collections.abc import Callable
 from typing import cast
 
-from schema.core import DEFAULT_PROTAGONIST_NAME, is_protagonist_ref, is_usable_protagonist_name
+from schema import DEFAULT_PROTAGONIST_NAME, is_protagonist_ref, is_usable_protagonist_name
 
 logger = logging.getLogger(__name__)
 

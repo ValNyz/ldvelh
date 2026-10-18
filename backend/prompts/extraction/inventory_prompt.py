@@ -3,9 +3,8 @@ LDVELH - Inventory Extractor Prompt
 Handles object creation with canonical_name dedup, inventory changes, and inventory-related facts.
 """
 
+from schema import PROTAGONIST_REF
 from schema.extraction import InventoryExtraction
-
-from schema.core import PROTAGONIST_REF
 
 from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
 

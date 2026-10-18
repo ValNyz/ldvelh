@@ -3,9 +3,8 @@ LDVELH - Narrative Arcs Extractor Prompt
 Handles arcs, relations (cross-entity), events, segment summary, and world-state facts.
 """
 
+from schema import PROTAGONIST_REF
 from schema.extraction import NarrativeArcsExtraction
-
-from schema.core import PROTAGONIST_REF
 
 from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
 

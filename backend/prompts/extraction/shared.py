@@ -3,7 +3,7 @@ LDVELH - Shared Extraction Rules
 Common instructions for all specialized extractors.
 """
 
-from schema.core import PROTAGONIST_REF
+from schema import PROTAGONIST_REF
 
 STRICT_KEYS_RULE = """## STRICT KEY CONSTRAINT
 

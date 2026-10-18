@@ -20,7 +20,7 @@ from llm.session import LLMSession
 from repos import games as games_repo
 from repos import users as users_repo
 from repos.llm_models import load_catalog
-from schema.core import PROTAGONIST_REF, is_usable_protagonist_name
+from schema import PROTAGONIST_REF, is_usable_protagonist_name
 from services.game_service import GameService, RollbackRejected
 from pipeline import init_flow, turn
 from pipeline.context import InitParams, TurnContext, TurnRequest

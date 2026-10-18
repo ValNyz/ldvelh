@@ -3,9 +3,8 @@ LDVELH - Characters Extractor Prompt
 Handles character CRUD, ambient updates, skills, and character-related facts.
 """
 
+from schema import PROTAGONIST_REF
 from schema.extraction import CharactersExtraction
-
-from schema.core import PROTAGONIST_REF
 
 from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
 
