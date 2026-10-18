@@ -46,7 +46,7 @@ services:
       EMAIL_FROM: ${EMAIL_FROM:-noreply@yourdomain.com}
       REGISTRATION_ENABLED: ${REGISTRATION_ENABLED:-true}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set to 32+ random characters (for local dev, run scripts/dev-setup.sh)}
-      JWT_SESSION_MAX_HOURS: ${JWT_SESSION_MAX_HOURS:-168}
+      JWT_SESSION_MAX_HOURS: ${JWT_SESSION_MAX_HOURS:-720}
       # Coolify puts one Traefik in front of the backend: its X-Forwarded-For entry is the client.
       TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-1}
     volumes:
