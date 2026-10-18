@@ -790,13 +790,18 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     async def _create_arc_from_extraction(
         self, conn: Connection, arc: ArcCreation, cycle: int
     ) -> UUID:
-        """Create a narrative arc from extraction output."""
+        """Create a narrative arc from extraction output.
+
+        intensity is passed on only when the extractor sent it, so a re-listed arc keeps
+        its stored intensity (#87).
+        """
+        explicit = {"intensity": arc.intensity} if "intensity" in arc.model_fields_set else {}
         arc_data = NarrativeArcData(
             title=arc.title,
             domain=arc.domain,
             description=arc.description,
             involved_entities=arc.involved_entities,
-            intensity=arc.intensity,
+            **explicit,
         )
         return await self.create_narrative_arc(conn, arc_data, cycle)
 

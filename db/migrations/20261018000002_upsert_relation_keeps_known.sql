@@ -2,7 +2,7 @@
 -- #87: re-listing an existing relation (extractors send relations_created again, with
 -- known_by_protagonist defaulting to true) must not reveal or hide it: the existing row
 -- keeps its known_by_protagonist, only relations_updated.now_known / mark_relation_known
--- change it. A blank context ('') no longer wipes the stored one either.
+-- change it. A blank context ('' or whitespace only) no longer wipes the stored one either.
 CREATE OR REPLACE FUNCTION public.upsert_relation(p_game_id uuid, p_source_id uuid, p_target_id uuid, p_type public.relation_type, p_cycle integer DEFAULT 1, p_level integer DEFAULT NULL::integer, p_context text DEFAULT NULL::text, p_known_by_protagonist boolean DEFAULT true) RETURNS uuid
     LANGUAGE plpgsql
     AS $$
@@ -18,7 +18,7 @@ BEGIN
   IF v_id IS NOT NULL THEN
     UPDATE relations SET
       level = COALESCE(p_level, level),
-      context = COALESCE(NULLIF(p_context, ''), context)
+      context = COALESCE(NULLIF(BTRIM(p_context), ''), context)
     WHERE id = v_id;
     RETURN v_id;
   ELSE

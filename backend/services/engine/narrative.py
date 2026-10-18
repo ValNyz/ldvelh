@@ -206,13 +206,16 @@ Les traits sont listés dans le contexte sous "TRAITS DU PERSONNAGE".
     ) -> dict:
         changes = {}
 
-        # New traits
+        # New traits (a re-listed trait keeps its description unless a non-blank one
+        # is sent, here and in traits_replaced, #87)
         for trait in extraction.get("new_traits", []):
             await conn.execute(
                 """
                 INSERT INTO traits_narrative (game_id, name, description, active, created_cycle)
                 VALUES ($1, $2, $3, TRUE, (SELECT COALESCE(MAX(cycle), 1) FROM messages WHERE game_id = $1))
-                ON CONFLICT (game_id, name) DO UPDATE SET active = TRUE, description = EXCLUDED.description
+                ON CONFLICT (game_id, name) DO UPDATE SET active = TRUE,
+                    description = COALESCE(NULLIF(BTRIM(EXCLUDED.description), ''),
+                                           traits_narrative.description)
                 """,
                 game_id,
                 trait.get("name", ""),
@@ -242,7 +245,9 @@ Les traits sont listés dans le contexte sous "TRAITS DU PERSONNAGE".
                 """
                 INSERT INTO traits_narrative (game_id, name, description, active, created_cycle)
                 VALUES ($1, $2, $3, TRUE, (SELECT COALESCE(MAX(cycle), 1) FROM messages WHERE game_id = $1))
-                ON CONFLICT (game_id, name) DO UPDATE SET active = TRUE, description = EXCLUDED.description
+                ON CONFLICT (game_id, name) DO UPDATE SET active = TRUE,
+                    description = COALESCE(NULLIF(BTRIM(EXCLUDED.description), ''),
+                                           traits_narrative.description)
                 RETURNING id
                 """,
                 game_id,

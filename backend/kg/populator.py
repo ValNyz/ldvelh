@@ -937,7 +937,8 @@ class KnowledgeGraphPopulator:
         """Create a narrative arc with participants (dedup by title).
 
         `cycle` stamps a new arc's created_cycle (rollback deletes by it, #85);
-        an arc that already exists keeps its own.
+        an arc that already exists keeps its own, and keeps its intensity unless `arc`
+        sets one explicitly (a re-listed arc must not fall back to the default, #87).
         """
         domain = arc.domain if isinstance(arc.domain, str) else str(arc.domain)
 
@@ -953,13 +954,13 @@ class KnowledgeGraphPopulator:
             logger.info(f"[ARC] Arc already exists: '{arc.title}', updating instead")
             await conn.execute(
                 """UPDATE narrative_arcs SET
-                    description = COALESCE(NULLIF($3, ''), description),
-                    intensity = $4, updated_at = NOW()
+                    description = COALESCE(NULLIF(BTRIM($3), ''), description),
+                    intensity = COALESCE($4, intensity), updated_at = NOW()
                 WHERE id = $2 AND game_id = $1""",
                 self.game_id,
                 existing_id,
                 arc.description,
-                arc.intensity,
+                arc.intensity if "intensity" in arc.model_fields_set else None,
             )
             arc_id = existing_id
         else:

@@ -4,8 +4,10 @@ in entities_created must not overwrite a stored value with a default, an empty v
 NULL, and must not change known_by_protagonist (only explicit reveals do).
 """
 
+from kg.specialized_populator import ExtractionPopulator
 from llm.session import LLMSession
-from schema import EntityCreation, RelationData, RelationType
+from schema import EntityCreation, NarrativeExtraction, RelationData, RelationType
+from services.engine.narrative import NarrativeEngine
 from services.extraction.characters import CharactersExtractor
 from services.extraction.locations import LocationsExtractor
 from services.extraction.organizations import OrganizationsExtractor
@@ -17,7 +19,7 @@ async def _run(extractor_cls, test_pool, game_id, raw_result, cycle=1):
     """Run one extractor through its real write path with a canned LLM result."""
     extractor = extractor_cls(test_pool, game_id, LLMSession.from_provider(FakeProvider()))
 
-    async def fake_call(*_args, **_kwargs):
+    async def fake_call(*_, **__):
         return raw_result, {"cost_usd": 0.0}
 
     extractor._call_llm = fake_call
@@ -94,6 +96,27 @@ class TestCharacterUpsert:
             {"name": "Justine Lépicier", "data": {"traits": ["rancunière"]}}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["traits"] == ["rancunière"]
+
+    async def test_new_npc_with_unknown_name_and_no_flag_is_stored_hidden(
+        self, test_pool, test_user
+    ):
+        game_id = await _game(test_pool, test_user)
+        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
+            {"name": "Ossek", "unknown_name": "le type au bar"}]})
+        row = await _row(test_pool, "characters", game_id, "Ossek")
+        assert row["known_by_protagonist"] is False
+        assert row["unknown_name"] == "le type au bar"
+
+    async def test_whitespace_strings_do_not_wipe_text_fields(self, test_pool, test_user):
+        game_id = await _game(test_pool, test_user)
+        await _run(CharactersExtractor, test_pool, game_id,
+                   {"entities_created": [HIDDEN_NPC]})
+        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
+            {"name": "Justine Lépicier", "data": {"description": "  ", "mood": " "}}]},
+            cycle=2)
+        row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
+        assert row["description"] == "Manteau gris, regard vif"
+        assert row["mood"] == "sur ses gardes"
 
     async def test_empty_strings_do_not_wipe_text_fields(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
@@ -190,6 +213,91 @@ class TestRelationUpsert:
         row = await self._relation_known(test_pool, game_id, extractor, True, True,
                                          context_again="")
         assert row["context"] == "liés en secret"
+
+    async def test_whitespace_context_does_not_wipe_relation_context(
+        self, test_pool, test_user
+    ):
+        game_id, extractor = await self._two_npcs(test_pool, test_user)
+        row = await self._relation_known(test_pool, game_id, extractor, True, True,
+                                         context_again="  ")
+        assert row["context"] == "liés en secret"
+
+
+class TestNarrativeArcUpsert:
+    async def _arc_intensity(self, test_pool, game_id, relisted: dict):
+        populator = ExtractionPopulator(test_pool, game_id)
+        base = {"title": "Les rumeurs de rachat", "domain": "professional",
+                "description": "Un investisseur rôde autour des docks."}
+        for cycle, arc in ((1, {**base, "intensity": 5}), (2, {**base, **relisted})):
+            stats = await populator.process_extraction(NarrativeExtraction.model_validate(
+                {"cycle": cycle, "arcs_created": [arc]}))
+            assert stats["errors"] == []
+        async with test_pool.acquire() as conn:
+            return await conn.fetchrow(
+                "SELECT intensity, description FROM narrative_arcs WHERE game_id = $1",
+                game_id)
+
+    async def test_relisted_arc_without_intensity_keeps_stored_intensity(
+        self, test_pool, test_user
+    ):
+        game_id = await _game(test_pool, test_user)
+        row = await self._arc_intensity(test_pool, game_id, {})
+        assert row["intensity"] == 5
+
+    async def test_relisted_arc_with_intensity_updates_it(self, test_pool, test_user):
+        game_id = await _game(test_pool, test_user)
+        row = await self._arc_intensity(test_pool, game_id, {"intensity": 2})
+        assert row["intensity"] == 2
+
+    async def test_new_arc_without_intensity_defaults_to_3(self, test_pool, test_user):
+        game_id = await _game(test_pool, test_user)
+        populator = ExtractionPopulator(test_pool, game_id)
+        await populator.process_extraction(NarrativeExtraction.model_validate({
+            "cycle": 1, "arcs_created": [{"title": "Dette", "domain": "personal",
+                                          "description": "Une dette ancienne."}]}))
+        async with test_pool.acquire() as conn:
+            assert await conn.fetchval(
+                "SELECT intensity FROM narrative_arcs WHERE game_id = $1", game_id) == 3
+
+
+class TestNarrativeTraitUpsert:
+    async def _trait_description(self, test_pool, test_user, relisted: dict):
+        game_id = await _game(test_pool, test_user)
+        engine = NarrativeEngine()
+        async with test_pool.acquire() as conn:
+            await engine.apply_progression(conn, game_id, {"new_traits": [
+                {"name": "Curieux", "description": "Fouille partout"}]})
+            await engine.apply_progression(conn, game_id, relisted)
+            return await conn.fetchrow(
+                "SELECT description, active FROM traits_narrative"
+                " WHERE game_id = $1 AND name = 'Curieux'", game_id)
+
+    async def test_relisted_new_trait_without_description_keeps_it(
+        self, test_pool, test_user
+    ):
+        row = await self._trait_description(test_pool, test_user, {"new_traits": [
+            {"name": "Curieux"}]})
+        assert row["description"] == "Fouille partout"
+
+    async def test_relisted_new_trait_with_blank_description_keeps_it(
+        self, test_pool, test_user
+    ):
+        row = await self._trait_description(test_pool, test_user, {"new_traits": [
+            {"name": "Curieux", "description": " "}]})
+        assert row["description"] == "Fouille partout"
+
+    async def test_replacement_onto_existing_trait_without_description_keeps_it(
+        self, test_pool, test_user
+    ):
+        row = await self._trait_description(test_pool, test_user, {"traits_replaced": [
+            {"old_trait": "Prudent", "new_trait_name": "Curieux"}]})
+        assert row["description"] == "Fouille partout"
+        assert row["active"] is True
+
+    async def test_relisted_trait_with_description_updates_it(self, test_pool, test_user):
+        row = await self._trait_description(test_pool, test_user, {"new_traits": [
+            {"name": "Curieux", "description": "Ouvre toutes les portes"}]})
+        assert row["description"] == "Ouvre toutes les portes"
 
 
 class TestEntityCreationDefault:
