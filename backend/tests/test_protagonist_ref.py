@@ -11,7 +11,7 @@ import pytest
 
 from kg.populator import EntityRegistry
 from llm.session import LLMSession
-from schema import PROTAGONIST_REF, EntityType, WorldGeneration
+from schema import DEFAULT_PROTAGONIST_NAME, PROTAGONIST_REF, EntityType, WorldGeneration
 from services.llm_providers import ToolResult
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 from tests.test_llm_session import FakeProvider
@@ -396,7 +396,8 @@ def test_apply_chosen_name_keeps_an_invented_name_and_fills_a_missing_one():
     del missing["protagonist"]["name"]
     filled = apply_chosen_name(missing, {"name": PC})
     assert filled is not None and filled["protagonist"]["name"] == PC
-    assert apply_chosen_name({"protagonist": {}}, None) == {"protagonist": {}}
+    assert apply_chosen_name({"protagonist": {}}, None) == {  # no name at all: the default
+        "protagonist": {"name": DEFAULT_PROTAGONIST_NAME}}
     assert apply_chosen_name(None, {"name": PC}) is None
 
 
@@ -477,3 +478,24 @@ def test_blank_name_prompt_explains_the_marker():
     line = next(line for line in build_world_generation_user_prompt().splitlines()
                 if line.startswith("Nom : à inventer"))
     assert INVENTED_NAME_MARKER in line
+
+
+@pytest.mark.parametrize("wizard", [None, {"name": ""}, {"name": "<x>"}, {"name": "PROTAGONIST"}])
+def test_blank_or_unusable_wizard_name_keeps_a_usable_model_name(wizard):
+    from pipeline.chosen_name import apply_chosen_name
+
+    out = apply_chosen_name({"protagonist": {"name": "Valentin"}}, wizard)
+    assert out == {"protagonist": {"name": "Valentin"}}
+
+
+def test_marker_name_is_replaced_by_the_default_and_its_references_follow():
+    from pipeline.chosen_name import apply_chosen_name
+
+    marker = "<prénom inventé>"
+    out = apply_chosen_name({"protagonist": {"name": marker, "backstory": f"{marker} a fui."},
+                             "initial_relations": [{"source_ref": marker, "target_ref": "Ossek"}]},
+                            None)
+    assert out == {"protagonist": {"name": DEFAULT_PROTAGONIST_NAME,
+                                   "backstory": f"{DEFAULT_PROTAGONIST_NAME} a fui."},
+                   "initial_relations": [{"source_ref": DEFAULT_PROTAGONIST_NAME,
+                                          "target_ref": "Ossek"}]}

@@ -20,6 +20,7 @@ from llm.session import LLMSession
 from repos import games as games_repo
 from repos import users as users_repo
 from repos.llm_models import load_catalog
+from schema.core import PROTAGONIST_REF, is_usable_protagonist_name
 from services.game_service import GameService, RollbackRejected
 from pipeline import init_flow, turn
 from pipeline.context import InitParams, TurnContext, TurnRequest
@@ -304,11 +305,25 @@ async def chat(
     """Main chat endpoint with SSE streaming (with ownership check)."""
     # Both or neither: a refusal by one limit does not use a slot of the other.
     hit_all((chat_user_limiter, f"user:{user['id']}"), (chat_ip_limiter, request_ip(raw_request)))
+    _reject_unusable_wizard_name(request.character_data)
     # Verify ownership before starting the stream
     service = GameService(pool)
     await service.verify_ownership(request.gameId, user["id"])
 
     return create_sse_response(start_chat(request, pool, settings, user["id"]))
+
+
+INVALID_PC_NAME = (
+    "Nom du protagoniste invalide : les caractères < et > et le nom "
+    f"« {PROTAGONIST_REF} » sont réservés."
+)
+
+
+def _reject_unusable_wizard_name(character_data: dict | None) -> None:
+    """A typed PC name must be usable (#28); blank is fine, the world builder invents one."""
+    name = (character_data or {}).get("name")
+    if isinstance(name, str) and name.strip() and not is_usable_protagonist_name(name):
+        raise HTTPException(status_code=400, detail=INVALID_PC_NAME)
 
 
 def start_chat(request: ChatRequest, pool: asyncpg.Pool, settings: Settings,

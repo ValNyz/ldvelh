@@ -471,6 +471,17 @@ def is_protagonist_ref(name: str | None) -> bool:
     """
     return name is not None and name.strip().lower() == PROTAGONIST_REF.lower()
 
+
+# Stored when the wizard name is blank and the world builder's name is unusable, so world
+# generation never fails after the paid call because of the PC name (#28, like #86).
+DEFAULT_PROTAGONIST_NAME = "Alex"
+
+
+def is_usable_protagonist_name(name: object) -> bool:
+    """A real name: not blank, no '<'/'>' (a copied prompt marker), not PROTAGONIST_REF."""
+    return (isinstance(name, str) and bool(name.strip()) and "<" not in name
+            and ">" not in name and not is_protagonist_ref(name))
+
 EntityRef = Annotated[
     str,
     Field(

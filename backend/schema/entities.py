@@ -41,6 +41,7 @@ from .core import (
     StrList,
     Tag,
     Text,
+    is_usable_protagonist_name,
 )
 
 logger = logging.getLogger(__name__)
@@ -92,12 +93,9 @@ class ProtagonistData(BaseModel):
     @field_validator("name")
     @classmethod
     def _name_not_blank(cls, v: str) -> str:
-        """A blank name, or the prompt's "<prénom inventé>" marker copied as is, would store
-        a PC without a real name: fail the world instead (#28)."""
-        if not v.strip():
-            raise ValueError("protagonist name must not be blank")
-        if "<" in v or ">" in v:
-            raise ValueError("protagonist name must not be a placeholder")
+        """Last guard: pipeline.chosen_name already replaced an unusable name (#28)."""
+        if not is_usable_protagonist_name(v):
+            raise ValueError("protagonist name must be a real name")
         return v.strip()
 
     @field_validator("departure_reason", mode="before")

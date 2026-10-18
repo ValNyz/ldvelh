@@ -133,3 +133,47 @@ async def test_resolve_genre_prefers_the_game_genre(test_pool, test_user, seeded
         genre = await init_flow.resolve_genre(conn, snapshot,
                                               _init(world_config={"genre": "dark_fantasy"}))
     assert genre["slug"] == "sci_fi"
+
+
+@pytest.mark.parametrize("model_name", ["<prénom inventé>", "Kira <x>", "", "  ", "PROTAGONIST"])
+async def test_unusable_model_name_falls_back_to_the_default(test_pool, test_user, caplog,
+                                                             model_name):
+    """#28: a blank wizard name and an unusable model name never fail the paid world call."""
+    from schema import DEFAULT_PROTAGONIST_NAME
+    from tests.characterization import payloads
+
+    world = json.loads(payloads.WORLD_GEN)
+    backstory = world["protagonist"].get("backstory") or "Une histoire de départ."
+    world["protagonist"]["backstory"] = backstory
+    world["protagonist"]["name"] = model_name
+    for rel in world["initial_relations"]:  # the model's refs use the same unusable name
+        if rel["source_ref"] == "Valentin" and model_name.strip():
+            rel["source_ref"] = model_name
+    ctx, _ = await _ctx(test_pool, test_user, {"world_gen": json.dumps(world)}, _init())
+    with caplog.at_level(logging.WARNING):
+        await init_flow.run_init(ctx)
+
+    game_id = ctx.request.game_id
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT name FROM protagonists WHERE game_id = $1", game_id) == DEFAULT_PROTAGONIST_NAME
+        actors = await conn.fetch(
+            """SELECT er.name FROM facts f
+               JOIN fact_participants fp ON fp.fact_id = f.id
+               JOIN entity_registry er ON er.id = fp.entity_id
+               WHERE f.game_id = $1 AND f.semantic_key = 'protagonist:arrival:station'""",
+            game_id)
+        employer = await conn.fetchval(
+            """SELECT src.name FROM relations r
+               JOIN entity_registry src ON src.id = r.source_id
+               WHERE r.game_id = $1 AND r.type = 'employed_by'
+                 AND src.entity_type = 'protagonist'""", game_id)
+    assert [r["name"] for r in actors] == [DEFAULT_PROTAGONIST_NAME]
+    if model_name.strip():
+        assert employer == DEFAULT_PROTAGONIST_NAME  # references follow the default name
+    warnings = [r.getMessage() for r in caplog.records
+                if r.levelno == logging.WARNING and "protagonist name" in r.getMessage()]
+    assert warnings
+    for warning in warnings:  # no story text, not even the model's name
+        assert backstory not in warning
+        assert not model_name.strip() or model_name.strip() not in warning
