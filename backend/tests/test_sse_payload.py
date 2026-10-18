@@ -124,7 +124,8 @@ class TestSSEDonePayload:
         # game_state always present
         assert "game_state" in d
 
-    def test_light_mode_no_meta_when_no_cost(self):
+    def test_payload_omits_meta_when_none(self):
+        # The model only: a turn's done always sets meta (message ids, test_respond.py).
         payload = SSEDonePayload(
             game_state=SSEGameState(world_created=True),
         )
