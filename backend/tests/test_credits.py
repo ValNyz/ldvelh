@@ -10,6 +10,7 @@ from schema.narration import CREDIT_DELTA_CAP, CreditDelta
 from services.context_builder import ContextBuilder
 from tests.characterization import payloads
 from tests.characterization.harness import spy_narration
+from tests.helpers import narration_with, rollback_last_turn
 
 
 @pytest_asyncio.fixture
@@ -30,9 +31,8 @@ async def _balance(harness, game_id) -> int:
 
 
 async def _debit(harness, game_id, amount: int) -> None:
-    data = json.loads(payloads.NARRATION)
-    data["credit_delta"] = {"amount": amount, "description": "Achat"}
-    harness.llm._responses["narration"] = json.dumps(data, ensure_ascii=False)
+    harness.llm._responses["narration"] = narration_with(
+        credit_delta={"amount": amount, "description": "Achat"})
     await harness.chat(game_id, "J'achète.")
     await harness.drain()
 
@@ -45,14 +45,6 @@ async def _last_credit_delta(harness, game_id) -> dict:
     return (json.loads(raw) if isinstance(raw, str) else raw)["credit_delta"]
 
 
-async def _rollback_last_turn(harness, game_id) -> None:
-    r = await harness.client.get(f"/api/games/{game_id}", headers=harness.headers)
-    last_user = [m for m in r.json()["messages"] if m["role"] == "user"][-1]
-    r = await harness.client.post(f"/api/games/{game_id}/rollback",
-                                  json={"messageId": last_user["id"]}, headers=harness.headers)
-    assert r.status_code == 200, r.text
-
-
 async def test_refused_debit_is_stored_as_not_applied(harness, game):
     await _debit(harness, game, -2000)
     stored = await _last_credit_delta(harness, game)
@@ -63,7 +55,7 @@ async def test_refused_debit_is_stored_as_not_applied(harness, game):
 
 async def test_rollback_of_a_refused_debit_keeps_the_balance(harness, game):
     await _debit(harness, game, -2000)
-    await _rollback_last_turn(harness, game)
+    await rollback_last_turn(harness, game)
     assert await _balance(harness, game) == 50
 
 
@@ -71,7 +63,7 @@ async def test_rollback_of_an_applied_debit_restores_the_balance(harness, game):
     await _debit(harness, game, -10)
     assert await _balance(harness, game) == 40
     assert (await _last_credit_delta(harness, game))["applied"] is True
-    await _rollback_last_turn(harness, game)
+    await rollback_last_turn(harness, game)
     assert await _balance(harness, game) == 50
 
 
@@ -89,7 +81,7 @@ async def test_rollback_of_a_legacy_debit_restores_the_balance(harness, game):
             "UPDATE messages SET narrator_deltas = narrator_deltas #- '{credit_delta,applied}'"
             " WHERE game_id = $1 AND role = 'assistant'", game)
     assert "applied" not in await _last_credit_delta(harness, game)
-    await _rollback_last_turn(harness, game)
+    await rollback_last_turn(harness, game)
     assert await _balance(harness, game) == 50
 
 

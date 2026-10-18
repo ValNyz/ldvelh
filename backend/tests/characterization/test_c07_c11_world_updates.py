@@ -7,7 +7,7 @@ import pytest
 from tests.characterization import payloads
 from tests.characterization.harness import spy_narration
 from tests.characterization.snapshot import assert_snapshot
-from tests.helpers import narration_with
+from tests.helpers import narration_with, rollback_last_turn
 
 
 async def _turn(harness, game_id, narration_json, message="Je continue."):
@@ -214,16 +214,11 @@ async def test_c10b_day_change_turn_extraction_rolls_back(harness, world_game):
         log_cycles = await conn.fetch(
             "SELECT DISTINCT cycle FROM extraction_logs WHERE game_id = $1 AND cycle > 1",
             world_game)
-        user_msg = await conn.fetchval(
-            """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
-               ORDER BY created_at DESC LIMIT 1""", world_game)
     assert game_cycle == 2
     assert created == 2
     assert [r["cycle"] for r in log_cycles] == [2]  # the extraction log row is stamped too
 
-    r = await harness.client.post(f"/api/games/{world_game}/rollback",
-                                  json={"messageId": str(user_msg)}, headers=harness.headers)
-    assert r.status_code == 200, r.text
+    await rollback_last_turn(harness, world_game)
     async with harness.pool.acquire() as conn:
         left = await conn.fetchval(
             "SELECT COUNT(*) FROM characters WHERE game_id = $1 AND name = $2",
@@ -302,15 +297,10 @@ async def test_c11c_day_change_director_arc_rolls_back(harness, world_game):
         created = await conn.fetchval(
             "SELECT created_cycle FROM narrative_arcs WHERE game_id = $1 AND title = $2",
             world_game, title)
-        user_msg = await conn.fetchval(
-            """SELECT id FROM messages WHERE game_id = $1 AND role = 'user'
-               ORDER BY created_at DESC LIMIT 1""", world_game)
     assert world_arcs > 0
     assert created == 2
 
-    r = await harness.client.post(f"/api/games/{world_game}/rollback",
-                                  json={"messageId": str(user_msg)}, headers=harness.headers)
-    assert r.status_code == 200, r.text
+    await rollback_last_turn(harness, world_game)
     async with harness.pool.acquire() as conn:
         titles = [row["title"] for row in await conn.fetch(
             "SELECT title FROM narrative_arcs WHERE game_id = $1", world_game)]

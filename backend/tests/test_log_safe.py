@@ -122,7 +122,6 @@ def test_log_cause_keeps_the_raw_text_at_debug_only(caplog, debug_detail):
         assert rest == [] and STORY not in warning.getMessage()
 
 
-
 async def test_unroutable_entity_warnings_carry_no_entity_name(test_pool, test_user, caplog):
     """An unsupported creation type or an unknown update target is logged without the name."""
     from kg.specialized_populator import ExtractionPopulator

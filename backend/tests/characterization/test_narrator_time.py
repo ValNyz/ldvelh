@@ -5,6 +5,7 @@ import logging
 
 from schema import DEFAULT_GAME_TIME
 from tests.characterization import payloads
+from tests.helpers import narration_with
 
 
 async def _game_row(harness, game_id):
@@ -25,9 +26,8 @@ async def _last_message(harness, game_id):
 async def test_unusable_new_time_commits_the_turn_with_the_previous_time(
         harness, world_game, caplog):
     before = await _game_row(harness, world_game)
-    narration = json.loads(payloads.NARRATION)
-    narration["time"] = {"new_time": "vers 10h", "ellipse": False}
-    harness.llm._responses["narration"] = json.dumps(narration, ensure_ascii=False)
+    harness.llm._responses["narration"] = narration_with(
+        time={"new_time": "vers 10h", "ellipse": False})
 
     with caplog.at_level(logging.WARNING):
         events = await harness.chat(world_game, "J'attends un peu.")
@@ -44,18 +44,15 @@ async def test_unusable_new_time_commits_the_turn_with_the_previous_time(
 
 
 async def test_variant_new_time_is_stored_normalised(harness, world_game):
-    narration = json.loads(payloads.NARRATION)
-    narration["time"] = {"new_time": "9h5", "ellipse": False}
-    harness.llm._responses["narration"] = json.dumps(narration, ensure_ascii=False)
+    harness.llm._responses["narration"] = narration_with(time={"new_time": "9h5", "ellipse": False})
     await harness.chat(world_game, "J'attends un peu.")
     await harness.drain()
     assert (await _game_row(harness, world_game))["t"] == "09h05"
 
 
 async def test_overlong_new_date_commits_truncated(harness, world_game):
-    narration = json.loads(payloads.NARRATION)
-    narration["day_transition"] = {"new_date": "Mardi 19 Juillet 2847, " + "très tard " * 20}
-    harness.llm._responses["narration"] = json.dumps(narration, ensure_ascii=False)
+    harness.llm._responses["narration"] = narration_with(
+        day_transition={"new_date": "Mardi 19 Juillet 2847, " + "très tard " * 20})
     events = await harness.chat(world_game, "Je dors.")
     await harness.drain()
     assert "error" not in harness.summarize(events)

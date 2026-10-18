@@ -6,7 +6,9 @@ import pytest
 
 from tests.characterization import payloads
 from tests.characterization.snapshot import assert_snapshot
-from tests.helpers import last_user_message_id
+from tests.helpers import narration_with, rollback_last_turn
+
+_DAY_CHANGE = {"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}
 
 
 def _brief(messages: list[dict]) -> list[dict]:
@@ -71,17 +73,15 @@ async def test_c12_rollback_regenerate(harness, world_game):
 async def test_c12b_back_to_arrival_after_day_change_and_new_place(harness, world_game):
     """#11: editing the first message after the arrival, when that turn changed day and
     moved the player to an unknown place (stub location + a fact pointing at it)."""
-    import json
     async with harness.pool.acquire() as conn:
         before = await conn.fetchrow(
             """SELECT g.current_cycle, l.name AS location FROM games g
                LEFT JOIN locations l ON l.id = g.current_location_id WHERE g.id = $1""", world_game)
     msgs_before = await _messages(harness, world_game)
 
-    narration = json.loads(payloads.NARRATION)
-    narration.update(current_location="Dock 9",
-                     day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"})
-    harness.llm._responses["narration"] = json.dumps(narration, ensure_ascii=False)
+    harness.llm._responses["narration"] = narration_with(
+        current_location="Dock 9",
+        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"})
     await harness.chat(world_game, "Je prends la navette vers Dock 9.")
     await harness.drain()
     async with harness.pool.acquire() as conn:
@@ -300,13 +300,6 @@ async def test_c17_back_to_back_turns_keep_both_extractions(harness, world_game)
     assert resolver_calls >= 2, f"only {resolver_calls} extraction(s) ran for 2 turns"
 
 
-def _day_change_narration() -> str:
-    import json
-    narration = json.loads(payloads.NARRATION)
-    narration["day_transition"] = {"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}
-    return json.dumps(narration, ensure_ascii=False)
-
-
 async def test_c12c_day_change_turn_with_roll_rolls_back_cleanly(harness, fate_game, monkeypatch):
     """#134: a day-change turn with a roll leaves no roll effect (stress, roll history) after
     its player message is rolled back."""
@@ -315,7 +308,7 @@ async def test_c12c_day_change_turn_with_roll_rolls_back_cleanly(harness, fate_g
     before = await engine_state(harness.pool, fate_game)
     harness.llm._responses["mechanical"] = payloads.mechanical(
         requires_test=True, skill="Athlétisme", skill_value=2, difficulty=1)
-    harness.llm._responses["narration"] = _day_change_narration()
+    harness.llm._responses["narration"] = narration_with(day_transition=_DAY_CHANGE)
     await harness.chat(fate_game, "Je dors après un effort.")
     await harness.drain()
     during = await engine_state(harness.pool, fate_game)
@@ -327,10 +320,7 @@ async def test_c12c_day_change_turn_with_roll_rolls_back_cleanly(harness, fate_g
             " ORDER BY created_at DESC LIMIT 1", fate_game)
     assert roll_cycle == during["cycle"]
 
-    user_msg = await last_user_message_id(harness, fate_game)
-    r = await harness.client.post(f"/api/games/{fate_game}/rollback",
-                                  json={"messageId": str(user_msg)}, headers=harness.headers)
-    assert r.status_code == 200, r.text
+    await rollback_last_turn(harness, fate_game)
     assert await engine_state(harness.pool, fate_game) == before
 
 
@@ -341,7 +331,7 @@ async def test_c12d_resumed_roll_on_day_change_turn_rolls_back_cleanly(harness, 
     async with harness.pool.acquire() as conn:
         fate_points = await conn.fetchval(
             "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id)
-    harness.llm._responses["narration"] = _day_change_narration()
+    harness.llm._responses["narration"] = narration_with(day_transition=_DAY_CHANGE)
     await harness.chat(game_id, "Je tente un saut impossible.", roll_id=event["roll_id"],
                        invoked_aspects=["Pilote déchu en quête de rédemption"])
     await harness.drain()
@@ -352,10 +342,7 @@ async def test_c12d_resumed_roll_on_day_change_turn_rolls_back_cleanly(harness, 
         game_cycle = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1", game_id)
     assert resolved is not None and resolved["cycle"] == game_cycle
 
-    user_msg = await last_user_message_id(harness, game_id)
-    r = await harness.client.post(f"/api/games/{game_id}/rollback",
-                                  json={"messageId": str(user_msg)}, headers=harness.headers)
-    assert r.status_code == 200, r.text
+    await rollback_last_turn(harness, game_id)
     async with harness.pool.acquire() as conn:
         left = await conn.fetchval("SELECT count(*) FROM mechanic_rolls WHERE id = $1::uuid",
                                    event["roll_id"])
