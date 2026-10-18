@@ -140,10 +140,12 @@ class GameService:
             # Engine stats
             engine_type = EngineType(game["engine"])  # coerced by the reader
             engine = get_engine(engine_type)
+            # One stats load for both displays: vitals (status bar) and the sheet (#93)
+            full_stats = await engine.get_stats(conn, game_id)
             engine_stats = None
             if engine_type != "none":
-                engine_stats = await engine.get_vitals_display(conn, game_id)
-            sheet = await engine.get_sheet_display(conn, game_id)
+                engine_stats = engine.vitals_from_stats(full_stats)
+            sheet = engine.sheet_from_stats(full_stats)
             # A roll waiting for an aspect invocation comes back with the game (#32).
             pending_roll = await load_pending_roll(conn, game_id, engine)
 

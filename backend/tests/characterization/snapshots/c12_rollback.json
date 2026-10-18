@@ -1,5 +1,6 @@
 {
   "db_after_rollback": {
+    "aspects_fate": 0,
     "character_d6": 0,
     "character_fate": 0,
     "character_narrative": 0,
@@ -28,6 +29,7 @@
     "traits_narrative": 0
   },
   "db_after_turn": {
+    "aspects_fate": 0,
     "character_d6": 0,
     "character_fate": 0,
     "character_narrative": 0,
@@ -56,6 +58,7 @@
     "traits_narrative": 0
   },
   "db_before_turn": {
+    "aspects_fate": 0,
     "character_d6": 0,
     "character_fate": 0,
     "character_narrative": 0,

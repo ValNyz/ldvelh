@@ -15,7 +15,7 @@ class NoneEngine(BaseEngine):
     async def get_stats(self, conn, game_id: UUID) -> dict:
         return {}
 
-    async def get_vitals_display(self, conn, game_id: UUID) -> dict:
+    def vitals_from_stats(self, stats: dict) -> dict:
         return {}
 
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:

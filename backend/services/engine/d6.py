@@ -149,9 +149,8 @@ class D6Engine(BaseEngine):
             ],
         }
 
-    async def get_vitals_display(self, conn, game_id: UUID) -> dict:
+    def vitals_from_stats(self, stats: dict) -> dict:
         """Vitals for frontend: wounds + force points."""
-        stats = await self.get_stats(conn, game_id)
         if not stats:
             return {}
         return {
@@ -159,9 +158,8 @@ class D6Engine(BaseEngine):
             "force_points": stats.get("force_points", 0),
         }
 
-    async def get_sheet_display(self, conn, game_id: UUID) -> dict:
+    def sheet_from_stats(self, stats: dict) -> dict:
         """Sheet for frontend: attribute dice codes and skills (with their attribute)."""
-        stats = await self.get_stats(conn, game_id)
         if not stats:
             return {}
         return {

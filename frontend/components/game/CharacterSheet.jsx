@@ -2,7 +2,7 @@
 
 import { FATE_LADDER } from '../../lib/game/engineConfig';
 import {
-	ASPECT_TYPE_LABELS, d6SkillsByAttribute, fateSkillPyramid, formatFateLevel,
+	ASPECT_TYPE_LABELS, d6SkillsByAttribute, fateSkillPyramid, formatFateLevel, stuntText,
 } from '../../lib/game/characterSheet.mjs';
 
 // ============================================================================
@@ -137,7 +137,7 @@ function FateCoreSheet({ stats, sheet }) {
 	const stressMent = stats.stress_mental || [];
 	const consequences = stats.consequences || {};
 	const pyramid = fateSkillPyramid(sheet.skills);
-	const stunts = sheet.stunts || [];
+	const stunts = (sheet.stunts || []).map(stuntText).filter(Boolean);
 
 	return (
 		<>
@@ -156,7 +156,7 @@ function FateCoreSheet({ stats, sheet }) {
 				<Section title="Aspects">
 					<div className="space-y-1.5">
 						{aspects.map((a, i) => (
-							<div key={i} className="p-2 bg-primary/10 border border-primary/30 rounded">
+							<div key={i} data-testid="aspect-card" className="p-2 bg-primary/10 border border-primary/30 rounded">
 								<span className="text-xs text-primary uppercase">{ASPECT_TYPE_LABELS[a.type] || 'Aspect'}</span>
 								<p className="text-gray-200 text-sm">{a.name}</p>
 							</div>
@@ -209,8 +209,8 @@ function FateCoreSheet({ stats, sheet }) {
 					<div className="space-y-1">
 						{stunts.map((st, i) => (
 							<div key={i} className="text-sm">
-								<p className="text-gray-200">{st?.name || st}</p>
-								{st?.description && <p className="text-gray-400 text-xs">{st.description}</p>}
+								<p className="text-gray-200">{st.name}</p>
+								{st.description && <p className="text-gray-400 text-xs">{st.description}</p>}
 							</div>
 						))}
 					</div>
@@ -290,7 +290,7 @@ function D6Sheet({ stats, sheet }) {
 				<Section title="Attributs et compétences">
 					<div className="space-y-2">
 						{rows.map(({ name, dice, skills }) => (
-							<div key={name}>
+							<div key={name} data-testid="d6-attribute">
 								<div className="flex justify-between text-sm">
 									<span className="text-gray-200 font-medium">{name}</span>
 									<span className="text-blue-400 font-mono">{dice}</span>

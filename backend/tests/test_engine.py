@@ -808,7 +808,9 @@ class TestFateCoreJSONBRoundTrip:
         assert isinstance(stats["aspects"], list), (
             f"aspects should be list, got {type(stats['aspects'])}"
         )
-        assert stats["aspects"] == ["High Concept", "Trouble Aspect", "Other"]
+        # Aspects come back with their stored kind (#93); plain names get no guessed kind.
+        assert stats["aspects"] == [{"type": "other", "name": n}
+                                    for n in ("High Concept", "Trouble Aspect", "Other")]
         assert isinstance(stats["stunts"], list)
         assert stats["stunts"][0]["name"] == "Quick Draw"
         assert isinstance(stats["consequences"], dict)

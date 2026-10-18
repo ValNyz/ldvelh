@@ -35,9 +35,8 @@ class NarrativeEngine(BaseEngine):
             ]
         }
 
-    async def get_vitals_display(self, conn, game_id: UUID) -> dict:
+    def vitals_from_stats(self, stats: dict) -> dict:
         """Narrative engine has no vitals, only traits."""
-        stats = await self.get_stats(conn, game_id)
         return {"traits": stats.get("traits", [])}
 
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:

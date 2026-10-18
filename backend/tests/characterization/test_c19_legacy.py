@@ -97,11 +97,15 @@ async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, l
     stats = body["state"]["player"]["engine_stats"]
     assert stats["fate_points"] >= 1 and stats["refresh"] >= 1, stats
     assert "stress_physical" in stats and "consequences" in stats
-    # Aspects are not part of the loaded vitals; they must survive in the legacy row.
+    # The legacy jsonb aspect list became typed aspects_fate rows (#93 backfill: with two
+    # aspects or more, first = high concept, second = trouble) and reaches the sheet.
+    assert body["state"]["player"]["sheet"]["aspects"] == [
+        {"type": "high_concept", "name": "Pilote déchu en quête de rédemption"},
+        {"type": "trouble", "name": "Je dois de l'argent à tout le monde"},
+        {"type": "other", "name": "Mon vieux cargo est ma maison"},
+    ]
     async with test_pool.acquire() as conn:
-        aspects = await conn.fetchval("SELECT aspects FROM character_fate WHERE game_id = $1::uuid", game_id)
         rolls = await conn.fetchval("SELECT COUNT(*) FROM mechanic_rolls WHERE game_id = $1::uuid", game_id)
-    assert aspects and len(aspects) >= 2, aspects
     assert rolls == 2
     assert body["state"]["pending_roll"] is None
 

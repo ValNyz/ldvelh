@@ -34,7 +34,12 @@ const FATE_PLAYER = {
 			{ name: 'Physique', level: 1, label: 'Moyen' },
 			{ name: 'Tromperie', level: 1, label: 'Moyen' },
 		],
-		stunts: [],
+		stunts: [
+			"Tireur d'élite",
+			{ name: 'Réflexes', description: '+2 en initiative' },
+			{ name: '', description: 'Toujours prêt' },
+			{},
+		],
 	},
 };
 
@@ -95,17 +100,26 @@ test('Fate sheet shows high concept, trouble, aspects and the skill pyramid', as
 	});
 
 	const sheet = page.locator('h2', { hasText: 'Fiche personnage' }).locator('xpath=../..');
-	await expect(sheet.getByText('Concept')).toBeVisible();
-	await expect(sheet.getByText('Pilote déchu en quête de rédemption')).toBeVisible();
-	await expect(sheet.getByText('Problème')).toBeVisible();
-	await expect(sheet.getByText("Je dois de l'argent à tout le monde")).toBeVisible();
-	await expect(sheet.getByText('Mon vieux cargo est ma maison')).toBeVisible();
+	// Each label sits on its own aspect's card.
+	const cards = sheet.getByTestId('aspect-card');
+	await expect(cards).toHaveText([
+		'ConceptPilote déchu en quête de rédemption',
+		"ProblèmeJe dois de l'argent à tout le monde",
+		'AspectMon vieux cargo est ma maison',
+	]);
+	// Stunts: a string, a dict, a dict without a name; the empty one is skipped.
+	await expect(sheet.getByText("Tireur d'élite")).toBeVisible();
+	await expect(sheet.getByText('Réflexes')).toBeVisible();
+	await expect(sheet.getByText('+2 en initiative')).toBeVisible();
+	await expect(sheet.getByText('Toujours prêt')).toBeVisible();
 	await expect(sheet.getByText('+4 Excellent')).toBeVisible();
 	await expect(sheet.getByText('Athlétisme', { exact: true })).toBeVisible();
 	await expect(sheet.getByText('Pilotage, Empathie')).toBeVisible();
 	await expect(sheet.getByText('Combat, Discrétion, Volonté')).toBeVisible();
 	await expect(sheet.getByText('Contacts, Ressources, Physique, Tromperie')).toBeVisible();
 	await page.screenshot({ path: testInfo.outputPath('character-sheet-fate.png') });
+	await sheet.getByText('Toujours prêt').scrollIntoViewIfNeeded();
+	await page.screenshot({ path: testInfo.outputPath('character-sheet-fate-stunts.png') });
 
 	// The done payload of a turn refreshes the open sheet.
 	const input = page.getByPlaceholder(/Ton action/);
@@ -122,14 +136,12 @@ test('D6 sheet shows attributes and their skills', async ({ page }, testInfo) =>
 
 	const sheet = page.locator('h2', { hasText: 'Fiche personnage' }).locator('xpath=../..');
 	await expect(sheet.getByText('Attributs et compétences')).toBeVisible();
-	for (const name of ['Dextérité', 'Mécanique', 'Perception']) {
-		await expect(sheet.getByText(name, { exact: true })).toBeVisible();
-	}
-	await expect(sheet.getByText('3D+1')).toBeVisible();
-	await expect(sheet.getByText('Blaster')).toBeVisible();
-	await expect(sheet.getByText('4D', { exact: true })).toBeVisible();
-	await expect(sheet.getByText('Pilotage')).toBeVisible();
-	await expect(sheet.getByText('3D+2')).toBeVisible();
+	// Each skill sits under its own attribute, with its dice code.
+	await expect(sheet.getByTestId('d6-attribute')).toHaveText([
+		'Dextérité3DBlaster4D',
+		'Mécanique3DPilotage3D+2',
+		'Perception3D+1',
+	]);
 	await expect(sheet.getByText('1 PF')).toBeVisible();
 	await page.screenshot({ path: testInfo.outputPath('character-sheet-d6.png') });
 });

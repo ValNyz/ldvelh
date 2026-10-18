@@ -46,17 +46,23 @@ class BaseEngine(ABC):
         ...
 
     @abstractmethod
-    async def get_vitals_display(self, conn, game_id: UUID) -> dict:
-        """Load engine vitals formatted for frontend display."""
+    def vitals_from_stats(self, stats: dict) -> dict:
+        """Engine vitals formatted for frontend display, from get_stats (pure)."""
         ...
 
-    async def get_sheet_display(self, conn, game_id: UUID) -> dict:
-        """Load the character sheet (aspects, skills, attributes...) for frontend display.
-
-        Read-only display, refreshed with every game state; vitals stay in
-        get_vitals_display. Default: empty (engines without a sheet).
-        """
+    def sheet_from_stats(self, stats: dict) -> dict:
+        """Character sheet (aspects, skills, attributes...) for frontend display, from
+        get_stats (pure). Read-only display refreshed with every game state; vitals stay
+        in vitals_from_stats. Default: empty (engines without a sheet)."""
         return {}
+
+    async def get_vitals_display(self, conn, game_id: UUID) -> dict:
+        """Load engine vitals formatted for frontend display."""
+        return self.vitals_from_stats(await self.get_stats(conn, game_id))
+
+    async def get_sheet_display(self, conn, game_id: UUID) -> dict:
+        """Load the character sheet formatted for frontend display."""
+        return self.sheet_from_stats(await self.get_stats(conn, game_id))
 
     @abstractmethod
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:

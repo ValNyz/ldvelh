@@ -16,6 +16,7 @@ from schema.engine import EngineType, MechanicalDecision, RollResult
 from schema.extraction import FateSkillUpgrade
 from utils.log_safe import validation_summary
 from .base import BaseEngine, normalize_name
+from .fate_aspects import KIND_LABELS, aspect_pairs, insert_aspects, load_aspects, rename_aspect
 
 logger = logging.getLogger(__name__)
 
@@ -91,25 +92,6 @@ def aspect_names(engine_stats: dict) -> list[str]:
     return names
 
 
-# Aspect list stored in creation order: high concept, then trouble, then the others.
-_POSITIONAL_ASPECT_TYPES = ("high_concept", "trouble")
-
-
-def sheet_aspects(aspects) -> list[dict]:
-    """Aspects as {"type", "name"} for the sheet: a dict keeps its own type, a plain
-    string takes it from its position (high concept, trouble, then "other")."""
-    typed = []
-    for i, aspect in enumerate(aspects or []):
-        kind = aspect.get("type") if isinstance(aspect, dict) else None
-        names = aspect_names({"aspects": [aspect]})
-        if not names:
-            continue
-        if kind is None:
-            kind = _POSITIONAL_ASPECT_TYPES[i] if i < len(_POSITIONAL_ASPECT_TYPES) else "other"
-        typed.append({"type": kind, "name": names[0]})
-    return typed
-
-
 def _known_invocations(invoked: Sequence[str], aspects: Sequence[str]) -> list[str]:
     """Invoked aspects as spelled on the sheet, without duplicates (order kept).
 
@@ -140,7 +122,7 @@ class FateCoreEngine(BaseEngine):
         """Load full Fate Core character state."""
         char = await conn.fetchrow(
             """
-            SELECT aspects, stunts, stress_physical, stress_mental,
+            SELECT stunts, stress_physical, stress_mental,
                    consequences, fate_points, refresh
             FROM character_fate
             WHERE game_id = $1
@@ -162,7 +144,7 @@ class FateCoreEngine(BaseEngine):
 
         from schema.core import _coerce_json_list, _coerce_json_dict
 
-        aspects = _coerce_json_list(char["aspects"])
+        aspects = await load_aspects(conn, game_id)
         stunts = _coerce_json_list(char["stunts"])
         consequences = _coerce_json_dict(char["consequences"])
 
@@ -185,9 +167,8 @@ class FateCoreEngine(BaseEngine):
             ],
         }
 
-    async def get_vitals_display(self, conn, game_id: UUID) -> dict:
+    def vitals_from_stats(self, stats: dict) -> dict:
         """Vitals for frontend: stress boxes, consequences, fate points."""
-        stats = await self.get_stats(conn, game_id)
         if not stats:
             return {}
         return {
@@ -198,13 +179,13 @@ class FateCoreEngine(BaseEngine):
             "refresh": stats.get("refresh", 0),
         }
 
-    async def get_sheet_display(self, conn, game_id: UUID) -> dict:
-        """Sheet for frontend: typed aspects, skill pyramid (highest first), stunts."""
-        stats = await self.get_stats(conn, game_id)
+    def sheet_from_stats(self, stats: dict) -> dict:
+        """Sheet for frontend: aspects with their stored kind, skill pyramid (highest
+        first), stunts."""
         if not stats:
             return {}
         return {
-            "aspects": sheet_aspects(stats.get("aspects")),
+            "aspects": stats.get("aspects", []),
             "skills": [
                 {"name": s["name"], "level": s["level"], "label": s["label"]}
                 for s in stats.get("skills", [])
@@ -213,23 +194,8 @@ class FateCoreEngine(BaseEngine):
         }
 
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:
-        """Create character_fate row and initial skills."""
+        """Create character_fate row, aspects (with their kind) and initial skills."""
         from schema.core import _coerce_json_list
-
-        # Aspects: wizard sends {"high_concept": "...", "trouble": "...", "other": [...]}.
-        # Flatten to a list of strings so the DB and reads see a consistent shape.
-        raw_aspects = data.get("aspects", [])
-        if isinstance(raw_aspects, dict):
-            aspects = []
-            if hc := raw_aspects.get("high_concept"):
-                aspects.append(hc)
-            if tr := raw_aspects.get("trouble"):
-                aspects.append(tr)
-            for other in (raw_aspects.get("other") or []):
-                if other:
-                    aspects.append(other)
-        else:
-            aspects = _coerce_json_list(raw_aspects)
 
         stunts = _coerce_json_list(data.get("stunts"))
         fate_points = data.get("fate_points", 3)
@@ -238,15 +204,16 @@ class FateCoreEngine(BaseEngine):
         await conn.execute(
             """
             INSERT INTO character_fate
-                (game_id, aspects, stunts, fate_points, refresh)
-            VALUES ($1, $2, $3, $4, $5)
+                (game_id, stunts, fate_points, refresh)
+            VALUES ($1, $2, $3, $4)
             """,
             game_id,
-            aspects,
             stunts,
             fate_points,
             refresh,
         )
+        # Wizard sends {"high_concept": "...", "trouble": "...", "other": [...]}.
+        await insert_aspects(conn, game_id, aspect_pairs(data.get("aspects", [])))
 
         # Insert skills — canonical format: {"Furtivité": 3, "Combat": 2}
         raw_skills = data.get("skills", {})
@@ -567,7 +534,7 @@ C'est une mécanique Fate Core centrale : le MJ propose une complication, le jou
 **Quand proposer un compel :**
 - Quand un aspect du protagoniste crée naturellement un problème dans la situation
 - 1 compel tous les 3-5 tours environ — pas à chaque tour
-- Privilégier le "Trouble" (2ème aspect) mais tous les aspects sont compelables
+- Privilégier le "Trouble" (l'aspect marqué Problème) mais tous les aspects sont compelables
 
 **Format OBLIGATOIRE dans narrative_text :**
 Inclure un encadré markdown après la narration de la complication :
@@ -589,22 +556,9 @@ Inclure un encadré markdown après la narration de la complication :
 
     def build_context_stats(self, engine_stats: dict) -> list[str]:
         lines = ["### STATS (Fate Core)"]
-        # Aspects — stored as {"high_concept": "...", "trouble": "...", "other": ["...", "..."]}
-        aspects = engine_stats.get("aspects", {})
-        if isinstance(aspects, dict):
-            if aspects.get("high_concept"):
-                lines.append(f"- Concept: **{aspects['high_concept']}**")
-            if aspects.get("trouble"):
-                lines.append(f"- Problème: **{aspects['trouble']}**")
-            for other in (aspects.get("other") or []):
-                if other:
-                    lines.append(f"- Aspect: **{other}**")
-        elif isinstance(aspects, list):
-            for a in aspects:
-                if isinstance(a, dict):
-                    lines.append(f"- Aspect ({a.get('type', 'other')}): **{a.get('name', '?')}**")
-                elif isinstance(a, str) and a:
-                    lines.append(f"- Aspect: **{a}**")
+        # Aspects with their kind (get_stats: [{"type", "name"}]; wizard dict shape accepted)
+        for kind, name in aspect_pairs(engine_stats.get("aspects")):
+            lines.append(f"- {KIND_LABELS[kind]}: **{name}**")
         # Skills
         skills = engine_stats.get("skills", [])
         if skills:
@@ -769,22 +723,8 @@ Inclure un encadré markdown après la narration de la complication :
             if not old_name or not new_name:
                 continue
 
-            # Load current aspects, find and rename
-            row = await conn.fetchrow(
-                "SELECT aspects FROM character_fate WHERE game_id = $1", game_id
-            )
-            if row:
-                from schema.core import _coerce_json_list
-                aspects = _coerce_json_list(row["aspects"])
-                for a in aspects:
-                    if isinstance(a, dict) and a.get("name") == old_name:
-                        a["name"] = new_name
-                        break
-                await conn.execute(
-                    "UPDATE character_fate SET aspects = $1, updated_at = now() WHERE game_id = $2",
-                    aspects,
-                    game_id,
-                )
+            # In place: the aspect keeps its kind and position
+            await rename_aspect(conn, game_id, old_name, new_name)
         if extraction.get("aspect_renames"):
             changes["aspect_renames"] = [
                 {"old": r.get("old_name"), "new": r.get("new_name")}

@@ -1,10 +1,10 @@
 """F-26 / #93: the character sheet (aspects, skills, attributes) reaches the frontend.
 
 Real DB, through the app: GET /games/{id} (load_game_state) and the `done` payload of a
-narration turn both carry `player.sheet`, built by the engine's get_sheet_display.
+narration turn both carry `player.sheet`, built by the engine's sheet_from_stats.
 """
 
-from services.engine.fate_core import sheet_aspects
+from services.engine.fate_aspects import aspect_pairs
 from tests.characterization import payloads
 
 FATE_ASPECTS = payloads.CHARACTER_DATA["fate_core"]["aspects"]
@@ -85,10 +85,14 @@ async def test_narrative_game_has_no_sheet(harness):
     assert not _done_player(done).get("sheet")
 
 
-def test_sheet_aspects_types_strings_by_position_and_keeps_dict_types():
-    assert sheet_aspects(["Pilote", "Dettes", "Cargo", "Ami fidèle"]) == [
-        {"type": "high_concept", "name": "Pilote"}, {"type": "trouble", "name": "Dettes"},
-        {"type": "other", "name": "Cargo"}, {"type": "other", "name": "Ami fidèle"}]
-    assert sheet_aspects([{"name": "Pilote", "type": "trouble"}, {"text": "Cargo"}, ""]) == [
-        {"type": "trouble", "name": "Pilote"}, {"type": "trouble", "name": "Cargo"}]
-    assert sheet_aspects(None) == []
+def test_aspect_pairs_keep_stored_kinds_and_never_infer_from_position():
+    # Stored shape (get_stats): each aspect keeps its kind; a second trouble is demoted.
+    assert aspect_pairs([{"type": "trouble", "name": "Dettes"}, {"type": "other", "name": "Cargo"},
+                         {"type": "trouble", "text": "Rival"}]) == [
+        ("trouble", "Dettes"), ("other", "Cargo"), ("other", "Rival")]
+    # Plain names (legacy callers): no kind is guessed from the position.
+    assert aspect_pairs(["Pilote", "Dettes", " "]) == [("other", "Pilote"), ("other", "Dettes")]
+    # Wizard shape: an empty slot stays empty.
+    assert aspect_pairs({"high_concept": "", "trouble": "Dettes", "other": ["Cargo", ""]}) == [
+        ("trouble", "Dettes"), ("other", "Cargo")]
+    assert aspect_pairs(None) == []

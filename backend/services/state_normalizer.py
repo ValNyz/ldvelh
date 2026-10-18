@@ -34,7 +34,7 @@ class PlayerState(BaseModel):
     credits: int = Field(default=DEFAULT_STATS["credits"])
     inventory: list[InventoryItem] = Field(default_factory=list)
     engine_stats: Optional[dict] = None
-    # Character sheet (aspects, skills, attributes): engine.get_sheet_display, #93
+    # Character sheet (aspects, skills, attributes): engine.sheet_from_stats, #93
     sheet: Optional[dict] = None
 
 

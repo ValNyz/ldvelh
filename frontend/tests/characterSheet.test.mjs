@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { d6SkillsByAttribute, fateSkillPyramid, formatFateLevel } from '../lib/game/characterSheet.mjs';
+import {
+	d6SkillsByAttribute, fateSkillPyramid, formatFateLevel, stuntText,
+} from '../lib/game/characterSheet.mjs';
 
 test('Fate skills form a pyramid, highest level first', () => {
 	const pyramid = fateSkillPyramid([
@@ -38,4 +40,14 @@ test('D6 skills sit under their attribute, accents ignored', () => {
 		['Mécanique', '2D+1', ['Pilotage']],
 	]);
 	assert.deepEqual(others.map(s => s.name), ['Sort']);
+});
+
+test('stunts are text whatever their shape, empty ones dropped', () => {
+	const stunts = ['Tireur d\'élite', { name: 'Réflexes', description: '+2 en initiative' },
+		{ name: '', description: 'Toujours prêt' }, { name: ' ' }, {}, null, ''].map(stuntText);
+	assert.deepEqual(stunts.filter(Boolean), [
+		{ name: 'Tireur d\'élite', description: '' },
+		{ name: 'Réflexes', description: '+2 en initiative' },
+		{ name: 'Toujours prêt', description: '' },
+	]);
 });

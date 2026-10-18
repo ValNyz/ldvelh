@@ -6,7 +6,7 @@
 export const ASPECT_TYPE_LABELS = { high_concept: 'Concept', trouble: 'Problème', other: 'Aspect' };
 
 /** Case- and accent-insensitive key ("Dexterite" == "Dextérité"). */
-const fold = (name) => String(name ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+const fold = (name) => String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 
 /** Fate level as "+2" / "0" / "-1". */
 export function formatFateLevel(level) {
@@ -35,4 +35,16 @@ export function d6SkillsByAttribute(attributes = {}, skills = []) {
 	const others = [];
 	for (const s of skills) (byKey.get(fold(s.attribute))?.skills ?? others).push(s);
 	return { rows, others };
+}
+
+/**
+ * Stunt as { name, description }, or null when it has no text. Stunts are plain strings
+ * or {name, description} dicts; progression may store an empty name.
+ */
+export function stuntText(stunt) {
+	if (typeof stunt === 'string') return stunt.trim() ? { name: stunt.trim(), description: '' } : null;
+	const name = String(stunt?.name ?? '').trim();
+	const description = String(stunt?.description ?? '').trim();
+	if (!name && !description) return null;
+	return name ? { name, description } : { name: description, description: '' };
 }

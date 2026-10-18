@@ -278,12 +278,12 @@ All writes happen in a single atomic transaction:
 15. Set initial game state (cycle=1, date, time, location)
 16. Store generation metadata (games.updated_at, extraction_log entry with entity/relation counts)
 17. Caller's `finalize(conn)` (from `run_init`): engine + world_config and game duration on `games`,
-    engine character (Fate Core: character_fate + skills_fate; D6: character_d6 + skills_d6)
+    engine character (Fate Core: character_fate + aspects_fate + skills_fate; D6: character_d6 + skills_d6)
 ```
 
 `populate` uses the caller's connection when given (`run_init` acquires it before the shield, see 2.5), else one from the pool.
 
-**DB tables written:** games, locations, protagonists, personal_assistants, organizations, characters, objects, protagonist_inventory, entity_registry (auto via triggers), relations, narrative_arcs, facts, events, chronology, extraction_log; and through `finalize`: games (engine, world_config, game_duration), character_fate + skills_fate (Fate Core) or character_d6 + skills_d6 (D6).
+**DB tables written:** games, locations, protagonists, personal_assistants, organizations, characters, objects, protagonist_inventory, entity_registry (auto via triggers), relations, narrative_arcs, facts, events, chronology, extraction_log; and through `finalize`: games (engine, world_config, game_duration), character_fate + aspects_fate + skills_fate (Fate Core) or character_d6 + skills_d6 (D6).
 
 #### 2.7 Frontend: Progress Display
 
@@ -545,8 +545,8 @@ All engine-specific logic goes through the `BaseEngine` interface.
 | Method | Type | Description |
 |--------|------|-------------|
 | `get_stats(conn, game_id)` | async | Load character stats from DB |
-| `get_vitals_display(conn, game_id)` | async | Formatted vitals for frontend |
-| `get_sheet_display(conn, game_id)` | async | Read-only character sheet for frontend (`player.sheet`): Fate `aspects` [{type: high_concept/trouble/other, name}], `skills` [{name, level, label}], `stunts`; D6 `attributes` {name: dice}, `skills` [{attribute, name, dice_value}]; empty by default (narrative, none) |
+| `vitals_from_stats(stats)` | sync | Formatted vitals for frontend (`player.engine_stats`), from `get_stats`; `get_vitals_display(conn, game_id)` loads and formats |
+| `sheet_from_stats(stats)` | sync | Read-only character sheet for frontend (`player.sheet`), from `get_stats`; `get_sheet_display(conn, game_id)` loads and formats. `load_game_state` calls `get_stats` once for both: Fate `aspects` [{type: high_concept/trouble/other, name}] with the kind stored in `aspects_fate`, `skills` [{name, level, label}], `stunts`; D6 `attributes` {name: dice}, `skills` [{attribute, name, dice_value}]; empty by default (narrative, none) |
 | `create_character(conn, game_id, data)` | async | Create engine-specific character |
 | `apply_roll_result(conn, game_id, roll)` | async | Apply mechanical consequences |
 | `snapshot_turn_state(conn, game_id)` | async | Capture the state a turn's own transaction writes (Fate: stress, consequences, fate points; D6: wounds, force points; Narrative: nothing), stored with the assistant message |
@@ -594,7 +594,7 @@ When a Fate Core roll fails and the player has fate points + aspects:
 | Engine | Character Table | Skill/Trait Table | Object Extension |
 |--------|----------------|-------------------|------------------|
 | narrative | `character_narrative` | `traits_narrative` | `object_narrative` |
-| fate_core | `character_fate` | `skills_fate` | `object_fate` |
+| fate_core | `character_fate` (+ `aspects_fate`: one row per aspect with its kind, at most one high concept and one trouble) | `skills_fate` | `object_fate` |
 | d6 | `character_d6` | `skills_d6` | `object_d6` |
 
 ### Engine Snapshot & Rollback
@@ -884,8 +884,8 @@ GameState:
     - engine, engine_locked, world_created
   player: PlayerState
     - credits, inventory: [{name, quantity, description}]
-    - engine_stats: dict | None (engine-specific vitals, get_vitals_display)
-    - sheet: dict | None (character sheet, get_sheet_display; {} without one)
+    - engine_stats: dict | None (engine-specific vitals, vitals_from_stats)
+    - sheet: dict | None (character sheet, sheet_from_stats; {} without one)
   ai: AIState
     - name, personality, voice, quirk, relationship
 ```
