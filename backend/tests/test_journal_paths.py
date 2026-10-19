@@ -18,10 +18,6 @@ async def test_every_write_path_of_a_turn_journals_under_it(harness, world_game)
             game_id,
         )
         await conn.execute("UPDATE games SET current_cycle = 11 WHERE id = $1", game_id)
-        char = await conn.fetchrow(
-            "SELECT name FROM characters WHERE game_id = $1 ORDER BY name LIMIT 1",
-            game_id,
-        )
         last_change = await conn.fetchval(
             "SELECT coalesce(max(id), 0) FROM world_changes"
         )
@@ -47,7 +43,8 @@ async def test_every_write_path_of_a_turn_journals_under_it(harness, world_game)
         entity_reveals=[
             {
                 "entity_type": "character",
-                "current_name": char["name"],
+                # Only extraction creates her: only phase 3 can apply this reveal.
+                "current_name": payloads.NEW_CHARACTER_NAME,
                 "real_name": "Nora Révélée",
             }
         ],
@@ -63,6 +60,12 @@ async def test_every_write_path_of_a_turn_journals_under_it(harness, world_game)
         )
         changes = await conn.fetch(
             "SELECT DISTINCT turn_id, table_name, op FROM world_changes WHERE id > $1",
+            last_change,
+        )
+        renames = await conn.fetch(
+            """SELECT turn_id FROM world_changes
+               WHERE id > $1 AND table_name = 'characters' AND op = 'U'
+                 AND new_row ->> 'name' = 'Nora Révélée'""",
             last_change,
         )
         log_turns = await conn.fetch(
@@ -86,6 +89,7 @@ async def test_every_write_path_of_a_turn_journals_under_it(harness, world_game)
     assert ("characters", "I") in {
         (r["table_name"], r["op"]) for r in changes
     }  # extracted
+    assert [r["turn_id"] for r in renames] == [turn_id]  # phase 3 reveal
     assert "extraction_logs" not in tables  # not a world table: not journaled
     assert log_turns and {r["turn_id"] for r in log_turns} == {turn_id}
     assert seed == "archived"
@@ -119,3 +123,32 @@ async def test_extractor_run_without_turn_writes_unjournaled(test_pool, test_use
     assert "Theta" in await character_names(test_pool, game_id)
     async with test_pool.acquire() as conn:
         assert await conn.fetchval("SELECT count(*) FROM world_changes") == 0
+
+
+async def test_progression_extraction_journals_under_the_turn(harness, fate_game):
+    game_id = UUID(fate_game)
+    harness.llm._responses["extract:extract_progression"] = {
+        "new_stunts": [
+            {"name": "Riposte", "description": "Attaque gratuite en défense"}
+        ]
+    }
+    harness.llm._responses["narration"] = narration_with(
+        extraction_triggers=["progression"]
+    )
+    events = await harness.chat(fate_game, "Je m'entraîne au combat.")
+    await harness.drain()
+    assert "done" in harness.summarize(events)
+
+    async with harness.pool.acquire() as conn:
+        turn_id = await conn.fetchval(
+            "SELECT id FROM turns WHERE game_id = $1 ORDER BY created_at DESC LIMIT 1",
+            game_id,
+        )
+        stunts = await conn.fetchval(
+            "SELECT stunts FROM character_fate WHERE game_id = $1", game_id
+        )
+        journal = await conn.fetch(
+            "SELECT table_name, op FROM world_changes WHERE turn_id = $1", turn_id
+        )
+    assert "Riposte" in str(stunts)
+    assert ("character_fate", "U") in {(r["table_name"], r["op"]) for r in journal}

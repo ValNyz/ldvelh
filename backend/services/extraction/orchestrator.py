@@ -295,26 +295,6 @@ async def run_resolve_and_extract(
         return {"success": False, "error": safe_text(e)}
 
 
-# Backward compat alias
-async def run_triggered_extraction(
-    pool: asyncpg.Pool,
-    game_id: UUID,
-    trigger_cycle: int,
-    triggers: list[str],
-    *,
-    session: LLMSession,
-    assistant_message_id: UUID | None = None,
-    message_content: str | None = None,
-    narrator_deltas: dict | None = None,
-) -> dict:
-    """Backward-compatible wrapper."""
-    return await run_resolve_and_extract(
-        pool, game_id, trigger_cycle, triggers,
-        session=session, assistant_message_id=assistant_message_id,
-        message_content=message_content, narrator_deltas=narrator_deltas,
-    )
-
-
 async def _build_first_turn_reference(
     pool: asyncpg.Pool, game_id: UUID
 ) -> tuple[str, list]:

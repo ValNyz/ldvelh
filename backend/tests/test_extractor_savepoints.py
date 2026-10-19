@@ -146,7 +146,7 @@ async def test_empty_response_keeps_the_billed_cost(test_pool, test_user):
 async def test_orchestrator_log_counts_real_outcomes(caplog):
     from services.extraction.orchestrator import (
         EXTRACTOR_MAP,
-        run_triggered_extraction,
+        run_resolve_and_extract,
     )
 
     outcomes = {
@@ -164,9 +164,9 @@ async def test_orchestrator_log_counts_real_outcomes(caplog):
     pool = MagicMock()
     with patch.dict(EXTRACTOR_MAP, {k: _cls(v) for k, v in outcomes.items()}), \
             caplog.at_level(logging.INFO, logger="services.extraction.orchestrator"):
-        await run_triggered_extraction(pool, uuid4(), trigger_cycle=1,
-                                       triggers=list(outcomes), session=MagicMock(),
-                                       message_content="texte")
+        await run_resolve_and_extract(pool, uuid4(), trigger_cycle=1,
+                                      triggers=list(outcomes), session=MagicMock(),
+                                      message_content="texte")
 
     complete = [r.getMessage() for r in caplog.records if "Complete:" in r.getMessage()]
     assert len(complete) == 1
@@ -224,3 +224,34 @@ async def test_cancel_inside_the_guarded_transaction_releases_the_message(test_p
             conn.execute("DELETE FROM messages WHERE id = $1", message_id), 1.0)
     assert deleted == "DELETE 1"
     assert "Eta" not in await character_names(test_pool, game_id)
+
+
+async def test_extraction_log_of_a_turn_rolled_back_meanwhile_is_dropped(
+    test_pool, test_user, caplog
+):
+    """#105: the turn is deleted between the populate commit and the audit insert: the
+    log row would reference a missing turn, so it is dropped with an INFO, no WARNING."""
+    from repos import turns
+
+    extractor, game_id = await extractor_for(
+        test_pool, test_user, {"entities_created": [{"name": "Iota"}]})
+    async with test_pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game_id)
+    real_log = extractor.populator.log_extraction
+
+    async def log_after_rollback(conn, cycle, stats, turn_id=None):
+        async with test_pool.acquire() as other:
+            await other.execute("DELETE FROM turns WHERE id = $1", turn_id)
+        return await real_log(conn, cycle, stats, turn_id)
+
+    extractor.populator.log_extraction = log_after_rollback
+    with caplog.at_level(logging.INFO, logger="services.extraction.base"):
+        result = await extractor.run("texte", {}, 1, turn_id=turn_id)
+
+    assert result["success"] is True
+    assert any("Turn rolled back, extraction log dropped" in r.getMessage()
+               for r in caplog.records)
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT count(*) FROM extraction_logs WHERE game_id = $1", game_id) == 0

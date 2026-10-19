@@ -15,6 +15,8 @@ from collections.abc import Awaitable, Callable, Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from asyncpg import ForeignKeyViolationError
+
 from kg.item_writes import write_item, write_items
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
@@ -150,6 +152,9 @@ class BaseExtractor(ABC):
             # Log extraction for auditing
             try:
                 await self.populator.log_extraction(conn, cycle, stats, turn_id)
+            except ForeignKeyViolationError:
+                # The turn was rolled back since the commit: its log would go with it.
+                logger.info(f"[{et}] Turn rolled back, extraction log dropped")
             except Exception as log_err:
                 log_cause(logger, logging.WARNING, f"[{et}] Log failed", log_err,
                           debug_detail=get_settings().log_prompts)

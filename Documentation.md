@@ -648,7 +648,7 @@ EXTRACTOR_MAP = {
 }
 ```
 
-`run_triggered_extraction()`:
+`run_resolve_and_extract()`:
 1. Filters triggers to valid names from `EXTRACTOR_MAP`
 2. Creates extractor instances
 3. Runs all in parallel via `asyncio.gather()`

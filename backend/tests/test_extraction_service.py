@@ -144,15 +144,15 @@ class TestNarrativeArcsExtraction:
 
 
 class TestOrchestrator:
-    """Tests for the extraction orchestrator (run_resolve_and_extract and its alias)."""
+    """Tests for the extraction orchestrator (run_resolve_and_extract)."""
 
     @pytest.mark.asyncio
     async def test_empty_triggers_skipped(self):
         """Empty triggers list returns None immediately."""
-        from services.extraction.orchestrator import run_triggered_extraction
+        from services.extraction.orchestrator import run_resolve_and_extract
 
         pool, _ = _mock_pool()
-        result = await run_triggered_extraction(
+        result = await run_resolve_and_extract(
             pool, SAMPLE_GAME_ID, trigger_cycle=3,
             triggers=[], session=SESSION,
         )
@@ -163,10 +163,10 @@ class TestOrchestrator:
     @pytest.mark.asyncio
     async def test_invalid_trigger_ignored(self):
         """Unknown trigger names are silently ignored."""
-        from services.extraction.orchestrator import run_triggered_extraction
+        from services.extraction.orchestrator import run_resolve_and_extract
 
         pool, _ = _mock_pool()
-        result = await run_triggered_extraction(
+        result = await run_resolve_and_extract(
             pool, SAMPLE_GAME_ID, trigger_cycle=3,
             triggers=["nonexistent_type"], session=SESSION,
         )
@@ -177,7 +177,7 @@ class TestOrchestrator:
     @pytest.mark.asyncio
     async def test_resolver_called_before_extractors(self):
         """Phase 1 resolver is called before Phase 2 extractors."""
-        from services.extraction.orchestrator import EXTRACTOR_MAP, run_triggered_extraction
+        from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
 
         call_order = []
 
@@ -201,7 +201,7 @@ class TestOrchestrator:
             patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
             patch.dict(EXTRACTOR_MAP, {"characters": mock_extractor_cls}),
         ):
-            await run_triggered_extraction(
+            await run_resolve_and_extract(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters"], session=SESSION,
                 assistant_message_id=SAMPLE_MSG_ID,
@@ -214,7 +214,7 @@ class TestOrchestrator:
     @pytest.mark.asyncio
     async def test_resolution_map_passed_to_extractors(self):
         """Resolution map from Phase 1 is forwarded to each extractor."""
-        from services.extraction.orchestrator import EXTRACTOR_MAP, run_triggered_extraction
+        from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
 
         resolution_map = ResolutionMap(mappings=[
             MentionMapping("le docteur", "Dr. Voss", "character", False),
@@ -246,7 +246,7 @@ class TestOrchestrator:
             patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
             patch.dict(EXTRACTOR_MAP, {"characters": mock_chars_cls, "locations": mock_locs_cls}),
         ):
-            await run_triggered_extraction(
+            await run_resolve_and_extract(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters", "locations"],
                 session=SESSION,
@@ -262,7 +262,7 @@ class TestOrchestrator:
     @pytest.mark.asyncio
     async def test_resolver_failure_does_not_block_extractors(self):
         """If Phase 1 fails, Phase 2 extractors still run normally."""
-        from services.extraction.orchestrator import EXTRACTOR_MAP, run_triggered_extraction
+        from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
 
         pool, mock_conn = _mock_pool(with_messages=True)
 
@@ -285,7 +285,7 @@ class TestOrchestrator:
             patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
             patch.dict(EXTRACTOR_MAP, {"characters": mock_cls}),
         ):
-            result = await run_triggered_extraction(
+            result = await run_resolve_and_extract(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters"], session=SESSION,
                 assistant_message_id=SAMPLE_MSG_ID,
@@ -301,7 +301,7 @@ class TestOrchestrator:
     @pytest.mark.asyncio
     async def test_resolver_cost_aggregated(self):
         """Resolver cost is included in total cost aggregation."""
-        from services.extraction.orchestrator import EXTRACTOR_MAP, run_triggered_extraction
+        from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
 
         pool, mock_conn = _mock_pool(with_messages=True)
 
@@ -324,7 +324,7 @@ class TestOrchestrator:
             patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
             patch.dict(EXTRACTOR_MAP, {"characters": mock_cls}),
         ):
-            result = await run_triggered_extraction(
+            result = await run_resolve_and_extract(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
                 triggers=["characters"], session=SESSION,
                 assistant_message_id=SAMPLE_MSG_ID,
@@ -597,3 +597,19 @@ async def test_progression_failure_keeps_story_out_of_stats_and_logs(caplog):
     formatter = logging.Formatter()
     assert fragment not in error
     assert fragment not in "\n".join(formatter.format(r) for r in caplog.records)
+
+
+def test_every_extractor_accepts_the_orchestrator_call():
+    """A run() override missing a keyword the orchestrator passes would raise a TypeError
+    that gather() swallows: that extraction would silently never run (#105)."""
+    import inspect
+
+    from services.extraction.orchestrator import EXTRACTOR_MAP
+
+    for name, cls in EXTRACTOR_MAP.items():
+        try:
+            inspect.signature(cls.run).bind(
+                None, message_content="m", narrator_deltas={}, trigger_cycle=1,
+                resolution_map=None, source_message_id=None, turn_id=None)
+        except TypeError as exc:
+            pytest.fail(f"{name}: {exc}")

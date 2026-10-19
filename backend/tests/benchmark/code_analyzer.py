@@ -234,7 +234,7 @@ def _inventory_llm_resistance() -> list[dict]:
         })
 
     # Fire-and-forget extraction
-    if "create_task" in routes and "run_triggered_extraction" in routes:
+    if "create_task" in routes and "run_resolve_and_extract" in routes:
         features.append({
             "feature": "Async extraction",
             "detail": "Extraction runs fire-and-forget, never blocks narration",

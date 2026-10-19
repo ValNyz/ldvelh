@@ -27,7 +27,8 @@ class ProgressionExtractor(BaseExtractor):
     writes_entity_refs = False  # engine stats only
 
     async def run(self, message_content: str, narrator_deltas: dict, trigger_cycle: int,
-                  resolution_map=None, *, source_message_id: UUID | None = None) -> dict:
+                  resolution_map=None, *, source_message_id: UUID | None = None,
+                  turn_id: UUID | None = None) -> dict:
         """Override run() to short-circuit for engines without progression."""
         async with self.pool.acquire() as conn:
             engine_type = await self.reader.get_engine_type(conn)
@@ -47,7 +48,8 @@ class ProgressionExtractor(BaseExtractor):
 
         # Delegate to BaseExtractor template
         return await super().run(message_content, narrator_deltas, trigger_cycle,
-                                 source_message_id=source_message_id)
+                                 resolution_map, source_message_id=source_message_id,
+                                 turn_id=turn_id)
 
     async def _build_context(
         self, conn: Connection, narrator_deltas: dict
