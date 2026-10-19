@@ -173,3 +173,208 @@ async def test_insert_event_is_not_journaled(test_pool, game):
         turn_id,
         {"candidates": 2},
     )
+
+
+async def _named(conn, table: str, game_id: UUID, name: str) -> UUID:
+    return await conn.fetchval(
+        f"INSERT INTO {table} (game_id, name) VALUES ($1, $2) RETURNING id",
+        game_id,
+        name,
+    )
+
+
+async def _alias(conn, game_id: UUID, entity_id: UUID, entity_type: str, alias: str):
+    await entities.insert_alias(
+        conn,
+        game_id,
+        entity_id,
+        entity_type,
+        alias,
+        "short",
+        known=True,
+        source="extractor",
+    )
+
+
+async def test_find_any_needs_exactly_one_type_and_one_candidate(test_pool, game):
+    async with test_pool.acquire() as conn:
+        bureau_loc = await _named(conn, "locations", game, "Bureau des Résidences")
+        bureau_org = await _named(conn, "organizations", game, "Bureau des Résidences")
+        ana = await _character(conn, game, true_name="Ana", descriptor="Garde du sas")
+        await _character(conn, game, true_name="Bo", descriptor="Garde du sas")
+        await _named(conn, "locations", game, "Garde du sas")
+        pc = await _named(conn, "protagonists", game, "Rafe")
+        ana_handle = await entities.handle_of(conn, ana)
+        results = {
+            "cross-type homonym": await entities.find_any(
+                conn, game, "le Bureau des Résidences"
+            ),
+            "typed location": await entities.find_entity(
+                conn, game, "Bureau des Résidences", "location"
+            ),
+            "typed organization": await entities.find_entity(
+                conn, game, "Bureau des Résidences", "organization"
+            ),
+            # Ambiguous among characters: never falls through to the location.
+            "ambiguous in a type": await entities.find_any(
+                conn, game, "le garde du sas"
+            ),
+            "unique": await entities.find_any(conn, game, "ana"),
+            "handle": await entities.find_any(conn, game, f"e{ana_handle}"),
+            "token": await entities.find_any(conn, game, " PROTAGONIST "),
+            "unknown": await entities.find_any(conn, game, "Personne"),
+        }
+    assert results == {
+        "cross-type homonym": None,
+        "typed location": bureau_loc,
+        "typed organization": bureau_org,
+        "ambiguous in a type": None,
+        "unique": (ana, "character"),
+        "handle": (ana, "character"),
+        "token": (pc, "protagonist"),
+        "unknown": None,
+    }
+
+
+async def test_find_for_upsert_branches(test_pool, game):
+    async with test_pool.acquire() as conn:
+        hangar = await _named(conn, "locations", game, "Hangar")
+        other = await _named(conn, "locations", game, "Quai 9")
+        await _alias(conn, game, other, "location", "Hangar")
+        dock_a = await _named(conn, "locations", game, "Dock Est")
+        dock_b = await _named(conn, "locations", game, "Dock Ouest")
+        await _alias(conn, game, dock_a, "location", "Dock")
+        await _alias(conn, game, dock_b, "location", "Dock")
+        tesk = await _character(
+            conn, game, true_name="Tesk", descriptor="Le Kethari au tablier"
+        )
+        targets = {
+            "label owner, contested": await entities.find_for_upsert(
+                conn, game, "le hangar", "location"
+            ),
+            "aliases only": await entities.find_for_upsert(
+                conn, game, "Dock", "location"
+            ),
+            "by alias": await entities.find_for_upsert(
+                conn, game, "Kethari au tablier", "character"
+            ),
+            "by label": await entities.find_for_upsert(conn, game, "TESK", "character"),
+            "new": await entities.find_for_upsert(conn, game, "Serres", "location"),
+        }
+    assert targets == {
+        "label owner, contested": entities.UpsertTarget(
+            hangar, True, False, contested=True
+        ),
+        "aliases only": entities.UpsertTarget(None, False, True),
+        "by alias": entities.UpsertTarget(tesk, False, False),
+        "by label": entities.UpsertTarget(tesk, True, False),
+        "new": entities.UpsertTarget(None, False, False),
+    }
+
+
+async def test_an_ambiguous_name_creates_no_location(test_pool, game):
+    from kg.populator import KnowledgeGraphPopulator
+    from repos.turns import _resolve_location
+    from schema import LocationData
+
+    async with test_pool.acquire() as conn:
+        for name in ("Dock Est", "Dock Ouest"):
+            await _alias(
+                conn,
+                game,
+                await _named(conn, "locations", game, name),
+                "location",
+                "Dock",
+            )
+        created = await KnowledgeGraphPopulator(None, game).create_location(
+            conn, LocationData(name="Dock")
+        )
+        stub = await _resolve_location(conn, game, "le Dock", 2)
+        count = await conn.fetchval(
+            "SELECT count(*) FROM locations WHERE game_id = $1", game
+        )
+    assert (created, stub, count) == (None, None, 2)
+
+
+async def test_a_contested_character_name_leaves_the_label_holder_untouched(
+    test_pool, game
+):
+    """The old code skipped a name matching another character's descriptor: the holder of
+    the label is not rewritten with data that may describe the other one."""
+    from kg.populator import KnowledgeGraphPopulator
+    from schema import CharacterData
+
+    async with test_pool.acquire() as conn:
+        holder = await _character(conn, game, true_name="Marek", mood="calme")
+        other = await _character(conn, game, true_name="Ilya")
+        await _alias(conn, game, other, "character", "Marek")
+        result = await KnowledgeGraphPopulator(None, game).create_character(
+            conn, CharacterData(name="Marek", mood="furieux")
+        )
+        mood = await conn.fetchval("SELECT mood FROM characters WHERE id = $1", holder)
+        count = await conn.fetchval(
+            "SELECT count(*) FROM characters WHERE game_id = $1", game
+        )
+    assert (result, mood, count) == (holder, "calme", 2)
+
+
+async def test_a_reveal_never_deletes_through_another_characters_alias(test_pool, game):
+    from kg.populator import KnowledgeGraphPopulator
+
+    async with test_pool.acquire() as conn:
+        elder = await _character(conn, game, descriptor="La Kethari âgée")
+        tesk = await _character(
+            conn, game, true_name="Tesk", descriptor="Le Kethari au tablier"
+        )
+        revealed = await KnowledgeGraphPopulator(None, game).mark_character_known(
+            conn, "la Kethari âgée", "Kethari au tablier"
+        )
+        rows = await conn.fetch(
+            "SELECT id, known_by_protagonist, true_name FROM characters WHERE game_id = $1"
+            " ORDER BY created_at",
+            game,
+        )
+    assert revealed is False
+    assert [tuple(r) for r in rows] == [(elder, False, None), (tesk, False, "Tesk")]
+
+
+async def test_a_descriptive_extracted_name_is_never_a_true_name(test_pool, game):
+    from kg.populator import KnowledgeGraphPopulator
+    from schema import CharacterData
+
+    async with test_pool.acquire() as conn:
+        guard = await KnowledgeGraphPopulator(None, game).create_character(
+            conn, CharacterData(name="Le garde", descriptor="Garde en armure")
+        )
+        row = await conn.fetchrow(
+            "SELECT true_name, descriptor FROM characters WHERE id = $1", guard
+        )
+        kinds = {
+            a.alias: (a.kind, a.known)
+            for a in await entities.list_aliases(conn, game, guard)
+        }
+        by_name = await entities.find_entity(conn, game, "le garde", "character")
+    assert tuple(row) == (None, "Garde en armure")
+    assert kinds == {
+        "Garde en armure": ("descriptor", True),
+        "Le garde": ("descriptor", True),
+    }
+    assert by_name == guard
+
+
+async def test_a_reveal_without_real_name_marks_the_true_name_alias_known(
+    test_pool, game
+):
+    from kg.populator import KnowledgeGraphPopulator
+
+    async with test_pool.acquire() as conn:
+        tesk = await _character(
+            conn, game, true_name="Tesk", descriptor="Le Kethari au tablier"
+        )
+        assert await KnowledgeGraphPopulator(None, game).mark_character_known(
+            conn, "le Kethari au tablier"
+        )
+        kinds = {
+            a.alias: a.known for a in await entities.list_aliases(conn, game, tesk)
+        }
+    assert kinds == {"Tesk": True, "Le Kethari au tablier": True}

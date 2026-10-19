@@ -36,3 +36,12 @@ test('names shorter than 3 letters and empty maps are ignored', () => {
 	assert.equal(injectEntityMarkers('Va à Io.', { io: { name: 'Io' } }), 'Va à Io.');
 	assert.equal(injectEntityMarkers('Vergence.', {}), 'Vergence.');
 });
+
+test('the narration text is tagged, not the tooltip name (#152)', () => {
+	const unknown = { 'la femme aux cernes': { name: 'Inconnu(e)' } };
+	assert.equal(
+		injectEntityMarkers('La femme aux cernes se tait.', unknown),
+		'**La femme aux cernes** se tait.',
+	);
+	assert.equal(injectEntityMarkers('Inconnu(e) ici.', unknown), 'Inconnu(e) ici.');
+});

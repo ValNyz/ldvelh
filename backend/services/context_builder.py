@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
 
-# Entity types a narrator detail request may name, in the order they are tried.
+# Entity types a narrator detail request may name (one of them must know it, once).
 _DETAIL_TYPES = ("character", "location", "organization")
 
 

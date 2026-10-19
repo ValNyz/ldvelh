@@ -33,13 +33,22 @@ class TooltipInfo(BaseModel):
 
 
 class AnnotationEntry(BaseModel):
-    """A single entity span in a message; `name` is what the player may read for it
-    (display_for_player), the resolver's label when it no longer resolves."""
+    """A single entity span in a message.
+
+    `label` is what the player may read for the entity (display_for_player). A span whose
+    label no longer resolves keeps the resolver's label, except a character's: that label
+    may be a hidden true name, so it becomes the language pack's unknown label.
+    `entity_id`/`handle` identify the entity (None when unresolved); `surface` is the text
+    of the span in the narration, which the client tags.
+    """
 
     start: int
     end: int
-    name: str
+    label: str
     entity_type: str
+    entity_id: UUID | None = None
+    handle: int | None = None
+    surface: str | None = None
 
 
 class MessageAnnotations(BaseModel):
@@ -127,7 +136,7 @@ async def get_annotations(
     await GameService(pool).verify_ownership(game_id, user["id"])
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT id, sequence, narrator_context
+            """SELECT id, sequence, content, narrator_context
                FROM messages
                WHERE game_id = $1
                  AND role = 'assistant'
@@ -153,19 +162,13 @@ async def get_annotations(
             parsed.append((row, spans))
 
     async with pool.acquire() as conn:
-        labels = await _player_labels(
+        resolved = await _resolve_spans(
             conn, game_id, [(ann[2], ann[3]) for _, spans in parsed for ann in spans]
         )
 
     messages = []
     for row, spans in parsed:
-        annotations = [
-            AnnotationEntry(
-                start=ann[0], end=ann[1],
-                name=labels.get((ann[2], ann[3])) or ann[2], entity_type=ann[3],
-            )
-            for ann in spans
-        ]
+        annotations = [_annotation(row["content"], ann, resolved) for ann in spans]
         messages.append(MessageAnnotations(
             message_id=row["id"],
             sequence=row["sequence"],
@@ -175,20 +178,46 @@ async def get_annotations(
     return {"messages": [m.model_dump() for m in messages]}
 
 
-async def _player_labels(
+def _annotation(content: str, ann: list, resolved: dict) -> AnnotationEntry:
+    start, end, ref, entity_type = ann[0], ann[1], ann[2], ann[3]
+    found = resolved.get((ref, entity_type)) or {}
+    surface = None
+    if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(content):
+        surface = content[start:end]
+    return AnnotationEntry(
+        start=start, end=end,
+        label=found.get("label") or ref, entity_type=entity_type,
+        entity_id=found.get("entity_id"), handle=found.get("handle"), surface=surface,
+    )
+
+
+async def _resolve_spans(
     conn, game_id: UUID, refs: list[tuple[str, str]]
-) -> dict[tuple[str, str], str]:
-    """{(label, type): display_for_player} of the annotation refs find_entity resolves."""
+) -> dict[tuple[str, str], dict]:
+    """{(resolver label, type): {label, entity_id, handle}} of the annotation refs. A
+    resolved ref reads display_for_player; an unresolved character ref the pack's unknown
+    label (never the stored label: it may be a hidden true name)."""
     pairs = list({(r, t) for r, t in refs if isinstance(r, str) and isinstance(t, str)})
     if not pairs:
         return {}
     rows = await conn.fetch(
-        """SELECT ref.name, ref.entity_type,
-                  display_for_player(find_entity($1, ref.name, ref.entity_type)) AS label
-           FROM unnest($2::text[], $3::text[]) AS ref (name, entity_type)""",
+        """SELECT ref.name, ref.entity_type, found.id AS entity_id, er.handle,
+                  COALESCE(display_for_player(found.id),
+                           CASE WHEN ref.entity_type = 'character'
+                                THEN ldvelh_lang_params($1) ->> 'unknown_character_label'
+                           END) AS label
+           FROM unnest($2::text[], $3::text[]) AS ref (name, entity_type)
+           CROSS JOIN LATERAL (SELECT find_entity($1, ref.name, ref.entity_type) AS id)
+                AS found
+           LEFT JOIN entity_registry AS er ON er.id = found.id""",
         game_id, [p[0] for p in pairs], [p[1] for p in pairs],
     )
-    return {(r["name"], r["entity_type"]): r["label"] for r in rows if r["label"]}
+    return {
+        (r["name"], r["entity_type"]): {
+            "label": r["label"], "entity_id": r["entity_id"], "handle": r["handle"],
+        }
+        for r in rows
+    }
 
 
 # Columns a tooltip reads, per entity type (the table is the type's).

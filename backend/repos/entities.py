@@ -9,14 +9,15 @@ arbitrary pick (spec §4.2). No function opens a connection or a transaction.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
-# Order in which an untyped reference (a fact participant, a relation end) is tried: the
-# first type that resolves it wins. Homonyms of two types are legitimate (spec §4.10);
-# within one type, an ambiguity stays None.
+# Types an untyped reference (a fact participant, a relation end) may name. No order: a
+# reference two types know (homonyms of two types, spec §4.10) is ambiguous, like one two
+# entities of a type share (§4.2): None, never a pick.
 ANY_ENTITY_TYPES: tuple[str, ...] = (
     "protagonist",
     "companion",
@@ -65,11 +66,17 @@ class MentionRow:
 @dataclass(frozen=True)
 class UpsertTarget:
     """The live entity a write by name lands on (None: a new one), and whether the name
-    was ambiguous (then nothing must be created under it)."""
+    was ambiguous (then nothing must be created under it).
+
+    `by_label`: the entity holds the name as its label. `contested`: it was picked only as
+    the holder of the label while the name is also another entity's alias (find_entity
+    returned NULL); a caller that would rewrite the entity's data or delete another must
+    not trust it."""
 
     entity_id: UUID | None
     by_label: bool
     ambiguous: bool
+    contested: bool = False
 
 
 async def find_entity(
@@ -85,26 +92,62 @@ async def find_entity(
     )
 
 
+# References unique by construction: find_entity resolves them for one type at most.
+_RESERVED_REF = re.compile(
+    r"^(protagonist|companion|e[0-9]{1,9}"
+    r"|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
+    re.IGNORECASE,
+)
+
+
 async def find_any(
     conn, game_id: UUID, ref: str | None, types: tuple[str, ...] = ANY_ENTITY_TYPES
 ) -> tuple[UUID, str] | None:
-    """(id, type) of an untyped reference: the typed find_entity of each type of `types`,
-    the first one resolving it wins. None when no type resolves it (unknown, or ambiguous
-    within each type that knows it), logged at INFO without the reference."""
+    """(id, type) of an untyped reference, only when exactly one type of `types` knows it
+    and knows it once. A reference that two types know, or that two entities of one type
+    share (labels and aliases together, as find_entity), is ambiguous: None, so an
+    ambiguity among characters never falls through to a location of the same name. The
+    outcome is logged at INFO with counts only (the reference is story text)."""
     if ref is None or not ref.strip():
         return None
+    if _RESERVED_REF.match(ref.strip()):
+        rows = await conn.fetch(
+            """SELECT t.entity_type, find_entity($1, $2, t.entity_type) AS id
+                 FROM unnest($3::text[]) AS t (entity_type)""",
+            game_id,
+            ref,
+            list(types),
+        )
+        hits = [(r["id"], r["entity_type"]) for r in rows if r["id"] is not None]
+        return hits[0] if len(hits) == 1 else None
     rows = await conn.fetch(
-        """SELECT t.entity_type, find_entity($1, $2, t.entity_type) AS id
-             FROM unnest($3::text[]) WITH ORDINALITY AS t (entity_type, rank)
-            ORDER BY t.rank""",
+        """WITH ref AS (SELECT ldvelh_norm_for_game($1, $2) AS norm),
+                candidates AS (
+                    SELECT er.entity_type, entity_follow_merge(er.id) AS id
+                      FROM entity_registry AS er, ref
+                     WHERE er.game_id = $1 AND er.entity_type = ANY($3::text[])
+                       AND er.name_norm = ref.norm
+                    UNION
+                    SELECT al.entity_type, entity_follow_merge(al.entity_id)
+                      FROM entity_aliases AS al, ref
+                     WHERE al.game_id = $1 AND al.entity_type = ANY($3::text[])
+                       AND al.alias_norm = ref.norm)
+           SELECT entity_type, count(DISTINCT id) AS candidates
+             FROM candidates GROUP BY entity_type""",
         game_id,
         ref,
         list(types),
     )
-    for row in rows:
-        if row["id"] is not None:
-            return row["id"], row["entity_type"]
-    logger.info("[IDENTITY] reference unresolved (unknown or ambiguous)")
+    counts = {r["entity_type"]: r["candidates"] for r in rows}
+    if len(counts) == 1 and next(iter(counts.values())) == 1:
+        [entity_type] = counts
+        entity_id = await find_entity(conn, game_id, ref, entity_type)
+        if entity_id is not None:
+            return entity_id, entity_type
+    logger.info(
+        f"[IDENTITY] untyped reference unresolved (types={len(counts)},"
+        f" candidates={sum(counts.values())})"
+    )
     return None
 
 
@@ -132,7 +175,7 @@ async def find_for_upsert(
         return UpsertTarget(row["found"], row["found"] == row["owner"], False)
     if row["owner"] is not None:
         logger.info("[IDENTITY] ambiguous name, the entity holding it as label is used")
-        return UpsertTarget(row["owner"], True, False)
+        return UpsertTarget(row["owner"], True, False, contested=True)
     if row["aliased"]:
         logger.info("[IDENTITY] ambiguous name, nothing created under it")
         return UpsertTarget(None, False, True)

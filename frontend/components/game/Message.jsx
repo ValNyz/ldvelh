@@ -215,7 +215,7 @@ function extractText(children) {
 
 /**
  * Find tooltip data for an entity name in the tooltipMap.
- * tooltipMap is { lowercase_name: { icon, name, type, infos, relation } }
+ * tooltipMap is { lowercase_surface: { icon, name, type, infos, relation } }
  * Matches case-insensitively and also checks partial names.
  */
 function findEntityTooltip(text, tooltipMap) {

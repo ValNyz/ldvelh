@@ -296,6 +296,16 @@ class KnowledgeGraphReader:
     ) -> list[dict]:
         """Get NPCs whose spatial relations point to a given location (or to the
         organization of the same name), resolved by find_entity."""
+        # The place resolved once, not per relation row (find_entity normalises).
+        places = await conn.fetch(
+            """SELECT find_entity($1, $2, t) AS id
+               FROM unnest(ARRAY['location', 'organization']) AS t""",
+            self.game_id,
+            location_name,
+        )
+        place_ids = [p["id"] for p in places if p["id"] is not None]
+        if not place_ids:
+            return []
         rows = await conn.fetch(
             """SELECT DISTINCT
                 c.id, c.name, c.known_by_protagonist, c.true_name, c.descriptor,
@@ -307,8 +317,7 @@ class KnowledgeGraphReader:
             JOIN relations r ON r.source_id = c.id
                 AND r.type IN ('works_at', 'frequents', 'lives_at')
                 AND r.end_cycle IS NULL
-                AND r.target_id IN (find_entity($1, $2, 'location'),
-                                    find_entity($1, $2, 'organization'))
+                AND r.target_id = ANY($2::uuid[])
             -- Protagonist relation
             LEFT JOIN LATERAL (
                 SELECT rel.level, rel.context
@@ -321,7 +330,7 @@ class KnowledgeGraphReader:
             ) r_knows ON true
             WHERE c.game_id = $1 AND c.removed_cycle IS NULL""",
             self.game_id,
-            location_name,
+            place_ids,
         )
         return [dict(r) for r in rows]
 

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Types an untyped extractor reference may name (updates, removals), in the order tried.
+# Types an untyped extractor reference may name (updates, removals): one type must know it.
 _DETECTABLE_TYPES = (
     EntityType.PROTAGONIST, EntityType.CHARACTER, EntityType.ORGANIZATION,
     EntityType.LOCATION, EntityType.OBJECT,

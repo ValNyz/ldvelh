@@ -32,9 +32,12 @@ async def _resolve_location(conn, game_id: UUID, location: str, new_cycle: int) 
     one's alias, never creates a duplicate."""
     target = await entity_repo.find_for_upsert(conn, game_id, location, "location")
     if target.entity_id:
-        old_loc = await KnowledgeGraphReader(None, game_id).get_current_location_name(conn)
-        if old_loc and old_loc.lower() != location.lower():
-            logger.info(f"[GAME] Location changed: '{old_loc}' → '{location}'")
+        old_id = await conn.fetchval(
+            "SELECT current_location_id FROM games WHERE id = $1", game_id
+        )
+        if old_id != target.entity_id:
+            # Ids only: a location name is story text.
+            logger.info(f"[GAME] Location changed: {old_id} → {target.entity_id}")
         return target.entity_id
     if target.ambiguous:
         return None
@@ -46,7 +49,7 @@ async def _resolve_location(conn, game_id: UUID, location: str, new_cycle: int) 
         game_id, location, new_cycle,
     )
     logger.info(
-        f"[GAME] Created stub location '{location}' "
+        f"[GAME] Created stub location {location_id} "
         f"(cycle {new_cycle}), to be enriched during extraction"
     )
     return location_id

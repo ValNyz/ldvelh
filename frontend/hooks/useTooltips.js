@@ -10,8 +10,9 @@ const MAX_POLLS = 12;
  * Hook to load entity tooltip data from resolver annotations.
  *
  * After each turn, call refresh() to start polling for new annotations.
- * Builds a tooltipMap: { lowercase_name: { icon, name, type, infos, relation } }, keyed by the
- * name the player may read for each annotated entity.
+ * Builds a tooltipMap: { lowercase_surface: { icon, name, type, infos, relation } }: each
+ * text the narration shows for an annotated entity maps to that entity's tooltip, fetched
+ * by entity id (its `name` is what the player may read).
  *
  * Bold text in messages is matched against these names for tooltip display.
  */
@@ -47,13 +48,17 @@ export function useTooltips(gameId) {
 			if (totalAnns <= prevAnnotationCountRef.current) return false;
 			prevAnnotationCountRef.current = totalAnns;
 
-			// Collect unique entity names from annotations
+			// One entry per entity (its id; the label for an unresolved span), with the
+			// texts the narration shows for it: the tooltip is fetched once per entity and
+			// keyed by each surface, so two entities never collapse onto one display name.
 			const entities = new Map();
 			for (const msg of messages) {
 				for (const ann of msg.annotations) {
-					if (!entities.has(ann.name)) {
-						entities.set(ann.name, ann.entity_type);
+					const key = ann.entity_id || `${ann.entity_type}:${ann.label}`;
+					if (!entities.has(key)) {
+						entities.set(key, { ref: ann.entity_id || ann.label, label: ann.label, entityType: ann.entity_type, surfaces: new Set() });
 					}
+					entities.get(key).surfaces.add(ann.surface || ann.label);
 				}
 			}
 
@@ -61,18 +66,18 @@ export function useTooltips(gameId) {
 			const newEntries = {};
 			const icons = { character: '👤', location: '📍', organization: '🏢', object: '📦', arc: '📖' };
 
-			for (const [name, entityType] of entities) {
-				const key = name.toLowerCase();
+			for (const { ref, label, entityType, surfaces } of entities.values()) {
+				let tooltip;
 				try {
-					const result = await tooltipsApi.getEntity(gameId, name, entityType);
-					if (result?.found && result.tooltip) {
-						newEntries[key] = result.tooltip;
-					} else {
-						// Entity not in DB yet — basic tooltip
-						newEntries[key] = { icon: icons[entityType] || '❓', name, type: entityType, infos: [] };
-					}
+					const result = await tooltipsApi.getEntity(gameId, ref, entityType);
+					tooltip = result?.found && result.tooltip ? result.tooltip : null;
 				} catch {
-					newEntries[key] = { icon: icons[entityType] || '❓', name, type: entityType, infos: [] };
+					tooltip = null;
+				}
+				// Entity not in DB yet — basic tooltip
+				tooltip = tooltip || { icon: icons[entityType] || '❓', name: label, type: entityType, infos: [] };
+				for (const surface of surfaces) {
+					newEntries[surface.toLowerCase()] = tooltip;
 				}
 			}
 

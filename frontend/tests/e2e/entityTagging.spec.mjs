@@ -17,7 +17,7 @@ test('a name is tagged as a whole word, not inside a longer word', async ({ page
 		'GET /games': () => ({ games: [{ id: GAME_ID, name: 'Partie Brume', current_cycle: 1 }] }),
 		[`GET /games/${GAME_ID}`]: () => LOADED_GAME,
 		'GET /tooltips/annotations': () => ({
-			messages: [{ annotations: [{ name: 'Vergence', entity_type: 'location' }] }],
+			messages: [{ annotations: [{ label: 'Vergence', entity_type: 'location', surface: 'Vergence' }] }],
 		}),
 		'GET /tooltips/entity': () => ({ found: false }),
 	});

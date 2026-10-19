@@ -407,20 +407,22 @@ class KnowledgeGraphPopulator:
 
     async def _character_names(
         self, conn: Connection, name: str, descriptor: str | None
-    ) -> tuple[str | None, str | None]:
-        """(true_name, descriptor) of a character an extractor names `name`.
+    ) -> tuple[str | None, str | None, str | None]:
+        """(true_name, descriptor, extra descriptor) of a character an extractor names `name`.
 
-        A name that does not look like a proper name (article, descriptor head, no
-        capital) is the descriptor, unless the extractor gave a distinct descriptor: then
-        `name` stays the label (true_name) and the descriptor is what the PC sees, as before.
+        Only a form that looks like a proper name (`looks_like_proper_name`: no leading
+        determiner, no descriptor head, a capital in a cased script) is a true name. Any
+        other `name` is a description: it is the descriptor, or, when the extractor gave a
+        distinct descriptor, a second descriptor of the character (an alias, so references
+        by `name` still resolve), never a true name.
         """
         lexicon = await self._names_lexicon(conn)
         normalizer = Normalizer(lexicon.lang)
         if normalizer.looks_like_proper_name(name, lexicon):
-            return name, descriptor
+            return name, descriptor, None
         if descriptor and normalizer.norm(descriptor) != normalizer.norm(name):
-            return name, descriptor
-        return None, name
+            return None, descriptor, name
+        return None, name, None
 
     async def create_character(
         self,
@@ -434,29 +436,43 @@ class KnowledgeGraphPopulator:
     ) -> UUID | None:
         """Insert character (NPC) into dedicated table.
 
-        `data.name` becomes the true name or the descriptor (`_character_names`), or the
-        true name as it is when `name_is_true_name` (world generation). An existing
-        character with that label keeps its names and known_by_protagonist, and only takes
-        the non-blank fields of `data` (#87); one found by another of its names (a
-        descriptor) is returned untouched. An ambiguous name creates nothing (None).
+        `data.name` becomes the true name or a descriptor (`_character_names`), or the true
+        name as it is when `name_is_true_name` (world generation). An existing character
+        with that label keeps its names and known_by_protagonist, and only takes the
+        non-blank fields of `data` (#87). One found by another of its names (a descriptor),
+        or holding the label while another character has the name as alias, is returned
+        untouched, as the old code skipped a name matching a descriptor. An ambiguous name
+        creates nothing (None).
         """
         target = await entity_repo.find_for_upsert(
             conn, self.game_id, data.name, EntityType.CHARACTER.value
         )
         if target.ambiguous:
             return None
-        if target.entity_id and not target.by_label:
+        if target.entity_id and (not target.by_label or target.contested):
             logger.info("[CHARACTER] Matches another name of an existing character,"
                         " creation skipped")
             return target.entity_id
+        extra_descriptor = None
         if name_is_true_name:
             true_name, descriptor = data.name, data.descriptor
         else:
-            true_name, descriptor = await self._character_names(
+            true_name, descriptor, extra_descriptor = await self._character_names(
                 conn, data.name, data.descriptor
             )
+        if target.entity_id is None and extra_descriptor is not None:
+            # The label is the descriptor, not `data.name`: it must be free too.
+            holder = await entity_repo.find_for_upsert(
+                conn, self.game_id, descriptor, EntityType.CHARACTER.value
+            )
+            if holder.ambiguous:
+                return None
+            if holder.entity_id:
+                logger.info("[CHARACTER] Descriptor already names a character,"
+                            " creation skipped")
+                return holder.entity_id
 
-        return await conn.fetchval(
+        character_id = await conn.fetchval(
             f"""INSERT INTO characters (
                 id, game_id, true_name, known_by_protagonist, descriptor,
                 species, gender, pronouns, age, description,
@@ -491,6 +507,12 @@ class KnowledgeGraphPopulator:
             cycle,
             target.entity_id,
         )
+        if target.entity_id is None and extra_descriptor is not None:
+            await entity_repo.insert_alias(
+                conn, self.game_id, character_id, EntityType.CHARACTER.value,
+                extra_descriptor, "descriptor", known=True, source="extractor",
+            )
+        return character_id
 
     async def create_location(
         self,
@@ -678,8 +700,11 @@ class KnowledgeGraphPopulator:
         """Reveal a character's identity to the protagonist.
 
         `name` is any name the character has (its true name, its descriptor, with or
-        without an article: find_entity). `real_name` becomes its true name; when another
-        character already holds it, that one is marked known and `name`'s is deleted.
+        without an article: find_entity). `real_name` becomes its true name. When another
+        character holds `real_name` as its label (find_entity resolves it to that one, by
+        its label), that one is marked known and `name`'s is deleted, as before. When
+        `real_name` is only another character's alias, or is ambiguous, nothing is written:
+        joining two characters is the guarded merge of the identity service, not a delete.
         """
         entity_id = await self._find(conn, name, EntityType.CHARACTER)
         if entity_id is None:
@@ -690,6 +715,10 @@ class KnowledgeGraphPopulator:
                 conn, self.game_id, real_name, EntityType.CHARACTER.value
             )
             if holder.entity_id and holder.entity_id != entity_id:
+                if not holder.by_label or holder.contested:
+                    logger.info("[REVEAL] Revealed name belongs to another character's"
+                                " names, nothing written")
+                    return False
                 # Mark the real character as known, delete the duplicate
                 await conn.execute(
                     "UPDATE characters SET known_by_protagonist = true,"
@@ -701,6 +730,9 @@ class KnowledgeGraphPopulator:
                     self.game_id, entity_id,
                 )
                 return True
+            if holder.ambiguous:
+                logger.info("[REVEAL] Revealed name is ambiguous, nothing written")
+                return False
             if holder.entity_id is None:
                 result = await conn.execute(
                     "UPDATE characters SET known_by_protagonist = true,"
@@ -712,6 +744,15 @@ class KnowledgeGraphPopulator:
         result = await conn.execute(
             "UPDATE characters SET known_by_protagonist = true,"
             " updated_at = NOW() WHERE id = $1",
+            entity_id,
+        )
+        # The PC now knows the true name it already had: its alias follows (§4.3).
+        await conn.execute(
+            """UPDATE entity_aliases AS al SET known = true
+                 FROM characters AS ch
+                WHERE ch.id = $1 AND al.entity_id = ch.id AND al.kind = 'true_name'
+                  AND NOT al.known
+                  AND al.alias_norm = ldvelh_norm_for_game(ch.game_id, ch.true_name)""",
             entity_id,
         )
         return result != "UPDATE 0"
@@ -741,7 +782,7 @@ class KnowledgeGraphPopulator:
         target_id = await self._find_any(conn, data.target_ref)
         if not source_id or not target_id:
             # The refs are story text (#77): not logged.
-            logger.info("Cannot create relation: an end is unknown or ambiguous")
+            logger.warning("Cannot create relation: an end is unknown or ambiguous")
             return None
 
         return await conn.fetchval(
@@ -1075,7 +1116,7 @@ class KnowledgeGraphPopulator:
                 )
             else:
                 # The ref and the title are story text (#77): not logged.
-                logger.info("[ARC] Participant unknown or ambiguous, not linked")
+                logger.warning("[ARC] Participant unknown or ambiguous, not linked")
         return arc_id
 
     async def update_arc(

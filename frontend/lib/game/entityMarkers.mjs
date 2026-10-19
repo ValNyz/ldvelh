@@ -9,9 +9,10 @@
 export function injectEntityMarkers(text, tooltipMap) {
 	if (!text || !tooltipMap || Object.keys(tooltipMap).length === 0) return text;
 
+	// The keys are the texts the narration shows (matched case-insensitively), not the
+	// tooltip names: an unidentified NPC's tooltip name is a generic label.
 	// Longest first, so "Pater Ondrev" wins over "Pater"
 	const names = Object.keys(tooltipMap)
-		.map(key => tooltipMap[key].name || key)
 		.filter(n => n && n.length >= 3)
 		.sort((a, b) => b.length - a.length);
 

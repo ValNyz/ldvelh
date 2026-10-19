@@ -97,7 +97,7 @@ async def test_unknown_npc_tooltip_and_world_panel_never_carry_the_true_name(
     world = (await client.get(f"/api/games/{game_id}/world", headers=headers)).json()
 
     assert by_true_name["found"] is True
-    assert annotations["messages"][0]["annotations"][0]["name"] == DESCRIPTOR
+    assert annotations["messages"][0]["annotations"][0]["label"] == DESCRIPTOR
     leaks = [
         label
         for label, payload in (
@@ -108,3 +108,87 @@ async def test_unknown_npc_tooltip_and_world_panel_never_carry_the_true_name(
         if SECRET_NAME.casefold() in json.dumps(payload, ensure_ascii=False).casefold()
     ]
     assert leaks == []
+
+
+async def _store_spans(test_pool, game_id: UUID, spans: list) -> None:
+    async with test_pool.acquire() as conn:
+        conversation = await conn.fetchval(
+            "INSERT INTO conversations (game_id, start_cycle) VALUES ($1, 1) RETURNING id",
+            game_id,
+        )
+        await conn.execute(
+            """INSERT INTO messages (game_id, conversation_id, role, content, sequence,
+                                     narrator_context)
+               VALUES ($1, $2, 'assistant', 'Elle lève les yeux vers Ossek.', 1, $3::jsonb)""",
+            game_id,
+            conversation,
+            spans,
+        )
+
+
+async def test_an_unresolved_character_span_never_carries_its_stored_label(
+    client, test_user, test_pool
+):
+    """Two homonyms share the true name the resolver stored: the span no longer resolves
+    (ambiguous), and the stored label, a hidden true name, must not reach the player."""
+    from packs.loader import load_lang
+
+    game_id = await _world(client, test_user, test_pool)
+    async with test_pool.acquire() as conn:
+        for suffix in ("Quai 9", "Bar"):
+            await conn.execute(
+                "INSERT INTO characters (game_id, true_name, label_suffix) VALUES ($1, $2, $3)",
+                game_id,
+                SECRET_NAME,
+                suffix,
+            )
+    await _store_spans(test_pool, game_id, [[0, 4, SECRET_NAME, "character"]])
+
+    annotations = (
+        await client.get(
+            "/api/tooltips/annotations",
+            params={"gameId": str(game_id)},
+            headers=auth_headers(test_user["token"]),
+        )
+    ).json()
+
+    [span] = annotations["messages"][0]["annotations"]
+    assert span["label"] == load_lang("fr").unknown_character_label
+    assert span["entity_id"] is None
+    assert span["surface"] == "Elle"
+    assert (
+        SECRET_NAME.casefold()
+        not in json.dumps(annotations, ensure_ascii=False).casefold()
+    )
+
+
+async def test_a_known_npc_still_shows_its_true_name(client, test_user, test_pool):
+    game_id = await _world(client, test_user, test_pool)
+    async with test_pool.acquire() as conn:
+        ossek = await conn.fetchval(
+            "UPDATE characters SET known_by_protagonist = true"
+            " WHERE game_id = $1 AND true_name = 'Ossek' RETURNING id",
+            game_id,
+        )
+        handle = await conn.fetchval(
+            "SELECT handle FROM entity_registry WHERE id = $1", ossek
+        )
+    await _store_spans(test_pool, game_id, [[24, 29, "Ossek", "character"]])
+
+    annotations = (
+        await client.get(
+            "/api/tooltips/annotations",
+            params={"gameId": str(game_id)},
+            headers=auth_headers(test_user["token"]),
+        )
+    ).json()
+    by_id = await _tooltip(client, test_user, game_id, str(ossek))
+
+    [span] = annotations["messages"][0]["annotations"]
+    assert (span["label"], span["entity_id"], span["handle"], span["surface"]) == (
+        "Ossek",
+        str(ossek),
+        handle,
+        "Ossek",
+    )
+    assert by_id["found"] is True and by_id["tooltip"]["name"] == "Ossek"
