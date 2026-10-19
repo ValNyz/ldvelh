@@ -138,5 +138,65 @@ def get_settings() -> Settings:
     return Settings()
 
 
+class IdentityConfig(BaseSettings):
+    """Thresholds and bounds of entity identity (spec §4.5.2, §4.12): never literals in code.
+
+    Every field is overridden by IDENTITY_<FIELD> (e.g. IDENTITY_S_WORD=0.6). Nominal values
+    are tuned on the dev split and printed in every evaluation report.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="IDENTITY_", env_file=".env", extra="ignore")
+
+    # Language of a game whose language is not chosen (packs/lang/<lang>.yaml).
+    default_language: str = "fr"
+    # pg_trgm word_similarity / similarity floors of the fuzzy candidate generator.
+    s_word: float = 0.55
+    s_sim: float = 0.35
+    # An alias is "rich" (fuzzy-matched) from this many characters, or with two tokens.
+    rich_min_chars: int = 6
+    # Shortest token used by token blocking and short aliases.
+    token_min_len: int = 3
+    # Levenshtein generator: maximum distance, shortest alias it applies to.
+    lev_max: int = 2
+    lev_min_chars: int = 5
+    # word_similarity floor of the occupation/role generator.
+    s_occ: float = 0.5
+    # word_similarity from which a NEW is flagged as a probable duplicate.
+    probable_duplicate: float = 0.6
+    # Similarity an extractor needs to create an entity next to an existing one.
+    create_from_extractor: float = 0.85
+    # Similarity from which a revealed name matches an existing entity.
+    reveal_match: float = 0.8
+    # K: assistant messages (with their mentions) read by the resolver.
+    context_messages: int = 6
+    # Candidates sent to the resolver per turn.
+    max_candidates: int = 25
+    # Share of turns escalated to the strong model: target and alert level (D29).
+    escalation_target_rate: float = 0.20
+    escalation_alert_rate: float = 0.25
+
+    @field_validator("s_word", "s_sim", "s_occ", "probable_duplicate", "create_from_extractor",
+                     "reveal_match", "escalation_target_rate", "escalation_alert_rate")
+    @classmethod
+    def _ratio(cls, value: float, info: ValidationInfo) -> float:
+        if not 0 <= value <= 1:  # also rejects NaN
+            raise ValueError(f"IDENTITY_{info.field_name.upper()} must be within [0, 1], "
+                             f"got {value}")
+        return value
+
+    @field_validator("rich_min_chars", "token_min_len", "lev_min_chars", "context_messages",
+                     "max_candidates")
+    @classmethod
+    def _at_least_one(cls, value: int, info: ValidationInfo) -> int:
+        if value < 1:
+            raise ValueError(f"IDENTITY_{info.field_name.upper()} must be at least 1, got {value}")
+        return value
+
+
+@lru_cache
+def get_identity_config() -> IdentityConfig:
+    return IdentityConfig()
+
+
 # Constants
 DEFAULT_STATS = {"energy": 4.0, "morale": 3.0, "health": 5.0, "credits": 1400}

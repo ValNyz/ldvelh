@@ -128,3 +128,17 @@ def test_more_than_one_worker_is_refused(env, name):
 @pytest.mark.parametrize("env", [{}, {"WEB_CONCURRENCY": "1"}])
 def test_one_worker_or_unset_passes(env):
     assert startup_config_errors(STRONG, FERNET, debug=False, env=env) == []
+
+
+def test_an_invalid_language_pack_refuses_the_start(monkeypatch):
+    from packs import loader
+    from startup_checks import check_lang_packs, lang_pack_errors
+
+    assert lang_pack_errors() == []
+
+    def broken(lang):
+        raise ValueError("a required key is missing")
+
+    monkeypatch.setattr(loader, "load_lang", broken)
+    with pytest.raises(RuntimeError, match="language pack"):
+        check_lang_packs()

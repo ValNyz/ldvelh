@@ -1,0 +1,30 @@
+# English witness pack (spec §4.12, D35): minimal, it proves the identity code is driven
+# by the pack of the game's language. It is not meant for playing in English.
+
+lang: en
+version: "1"
+
+articles: [the, a, an]
+elisions: []
+
+pronouns:
+  personal: [i, you, he, she, it, we, they, him, her, them, us]
+  demonstrative: [this, that, these, those]
+  indefinite: [someone, somebody, anyone, anybody, everyone, nobody]
+
+stop_words: [the, a, an, of, and, or, at, with, from, by, into]
+titles: [mr, mrs, ms, miss, dr, sir, lady, lord, captain, professor]
+descriptor_heads: [man, woman, guy, guard, kid, stranger, figure]
+reveal_cues: ["my name is", "call me"]
+source_cues: [badge, plaque, register, signboard]
+plural_markers: [s]
+ordinal_markers: ["no.", number]
+apostrophes: ["'", "’"]
+
+proper_name_uses_capitals: true
+min_distinctive_token_len: 4
+
+prompt_examples:
+  identity:
+    - input: "\"I'm Rafe Collins,\" says the man in the grey coat."
+      output: "ALIAS true_name: the man in the grey coat, present in the scene, introduces himself."

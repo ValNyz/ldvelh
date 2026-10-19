@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
-from startup_checks import check_startup_config
+from startup_checks import check_lang_packs, check_startup_config, sync_language_packs
 from workers import supervisor
 
 import logging
@@ -61,6 +61,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     check_startup_config(settings)  # weak JWT_SECRET / missing ENCRYPTION_KEY: refuse to start
+    check_lang_packs()  # an invalid language or genre pack: refuse to start
     if settings.rollback_engine == "cycle":
         logger.warning("[ROLLBACK] ROLLBACK_ENGINE=cycle: legacy cycle-based rollback, "
                        "removed in the next release")
@@ -79,6 +80,13 @@ async def lifespan(app: FastAPI):
         server_settings=POOL_SERVER_SETTINGS,
     )
     print("[STARTUP] Pool de connexions créé")
+
+    try:
+        count = await sync_language_packs(db_pool)
+    except BaseException:
+        await db_pool.close()
+        raise
+    logger.info("[STARTUP] %d language packs synchronised", count)
 
     # Seed dev user if debug mode is enabled
     if settings.debug:

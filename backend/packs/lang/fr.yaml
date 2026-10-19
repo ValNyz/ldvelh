@@ -1,0 +1,82 @@
+# French language pack (spec §4.12). Every word the identity code compares with lives here;
+# the code reads the pack of the game's language (games.language) and names no word itself.
+# Entries are written in their usual spelling: the code folds case, accents and apostrophes.
+
+lang: fr
+version: "1"
+
+# Leading determiners: ldvelh_norm drops one of them (« la Coopérative » = « Coopérative »).
+articles: [le, la, les, un, une, des, du, ce, cet, cette, ces, mon, ma, mes, ton, ta, tes,
+  son, sa, ses, notre, nos, votre, vos, leur, leurs]
+# Determiners glued to the noun with an apostrophe (« l'Ordre »); ldvelh_norm drops one.
+elisions: ["l'"]
+
+# Never a mention: the resolver skips them, the corpus validator rejects them.
+pronouns:
+  personal: [je, "j'", tu, il, elle, "on", nous, vous, ils, elles, me, "m'", te, "t'", se,
+    "s'", le, la, les, lui, leur, eux, moi, toi, soi]
+  demonstrative: [celui-ci, celle-ci, ceux-ci, celles-ci, celui-là, celle-là, ceux-là,
+    celles-là]
+  indefinite: ["quelqu'un", quiconque, personne, "l'un", "l'une", "l'autre", les autres,
+    chacun, chacune]
+
+# Function words left out of token blocking (§4.5.2, generator 3).
+stop_words: [le, la, les, "l'", un, une, des, du, de, "d'", au, aux, ce, cet, cette, ces,
+  mon, ma, mes, ton, ta, tes, son, sa, ses, notre, nos, votre, vos, leur, leurs, et, ou, où,
+  mais, donc, ni, car, que, "qu'", qui, quoi, dont, quel, quelle, quels, quelles, à, dans,
+  par, pour, sur, sous, avec, sans, chez, vers, entre, contre, depuis, pendant, avant, après,
+  devant, derrière, près, loin, parmi, selon, malgré, envers, hors, dès, jusque, "jusqu'",
+  lors, ne, "n'", pas, plus, moins, très, trop, peu, bien, mal, tout, toute, tous, toutes,
+  aussi, encore, déjà, jamais, toujours, souvent, ici, là, alors, puis, ensuite, enfin,
+  comme, si, même, mêmes, autre, autres, tel, telle, tels, telles, chaque, quelque,
+  quelques, plusieurs, certain, certaine, certains, certaines, est, sont, était, étaient,
+  être, avoir, ont, avait, avaient, été, fait, faire, il, elle, ils, elles, nous, vous,
+  je, tu, lui, eux, moi, toi, oui, non, cela, ceci, ça, celui, celle, ceux, celles, en, y]
+
+# Common honorifics and ranks: alias derivation and token blocking leave them out
+# (« Dr Elara Voss » → « Elara Voss »); ldvelh_norm keeps them.
+titles: [monsieur, madame, mademoiselle, m., mme, mlle, messire, dame, sire, seigneur,
+  docteur, dr, professeur, pr, capitaine, commandant, lieutenant, sergent, caporal, colonel,
+  général, amiral, major, maître, père, mère, frère, sœur, saint, sainte, révérend, abbé,
+  inspecteur, inspectrice, juge, maire, roi, reine, prince, princesse, duc, duchesse, comte,
+  comtesse, baron, baronne, marquis, marquise, lord, lady, sir]
+
+# Heads of descriptors: a label starting with one of them is a description, not a name
+# (« Cheffe de serre », « homme au manteau »).
+descriptor_heads: [homme, femme, type, garde, gamin, gamine, enfant, fille, garçon, gars,
+  vieillard, vieux, vieille, jeune, individu, inconnu, inconnue, silhouette, client,
+  cliente, marchand, marchande, serveur, serveuse, soldat, voyageur, voyageuse, étranger,
+  étrangère, mendiant, mendiante, ouvrier, ouvrière, gardien, gardienne, technicien,
+  technicienne, ingénieur, ingénieure, chef, cheffe, patron, patronne, vendeur, vendeuse,
+  pilote, médecin, prêtre, prêtresse, moine, sentinelle, officier, agent, employé,
+  employée, responsable, habitant, habitante, passant, passante]
+
+# Phrases that introduce a name in a narration (self-presentation, attribution).
+reveal_cues: ["je m'appelle", "je me nomme", "mon nom est", "on m'appelle", appelez-moi,
+  "s'appelle", "se nomme", "se présente", "se présente comme", dit-il, dit-elle, répond-il,
+  répond-elle, nommé, nommée, surnommé, surnommée]
+
+# In-world sources a character can read a name from.
+source_cues: [badge, plaque, écriteau, registre, enseigne, panneau, étiquette, insigne,
+  inscription, affiche, manifeste, fiche, dossier, carte, papiers]
+
+# Word endings that mark a plural noun.
+plural_markers: [s, x]
+# Number markers ldvelh_norm drops before a number (« Quai n°9 » = « Quai 9 »).
+ordinal_markers: ["n°", "nº", "no", numéro]
+# Apostrophe characters folded into the first one.
+apostrophes: ["'", "’", "ʼ", "‘"]
+
+# The script has letter case: a multi-word name has a capital after its first word.
+proper_name_uses_capitals: true
+# Shortest token that can single out an entity in a text (leak guard, implicit reveals).
+min_distinctive_token_len: 4
+
+# Neutral examples for the resolver prompt, in the language of the game; a genre pack's
+# identity.prompt_examples replace them.
+prompt_examples:
+  identity:
+    - input: "« Je m'appelle Ilan Morvek », dit l'homme au manteau gris."
+      output: "ALIAS true_name : l'homme au manteau gris présent dans la scène se présente."
+    - input: "La femme au manteau gris s'éloigne ; Morvek la regarde partir."
+      output: "Deux personnes distinctes : « la femme au manteau gris » n'est pas Morvek."

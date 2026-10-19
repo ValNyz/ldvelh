@@ -86,3 +86,42 @@ def check_startup_config(settings) -> None:
                                    debug=settings.debug)
     if errors:
         raise RuntimeError("Refusing to start: " + " ".join(errors))
+
+
+def lang_pack_errors() -> list[str]:
+    """Every language or genre pack that does not load, and a default language without pack."""
+    import yaml
+
+    from config import get_identity_config
+    from packs.loader import available_genres, available_langs, load_genre, load_lang
+
+    errors = []
+    for lang in available_langs():
+        try:
+            load_lang(lang)
+        except (ValueError, yaml.YAMLError) as exc:  # pydantic ValidationError is a ValueError
+            errors.append(f"language pack {lang!r} is invalid: {exc}")
+    for slug in available_genres():
+        try:
+            load_genre(slug)
+        except (ValueError, yaml.YAMLError) as exc:
+            errors.append(f"genre pack {slug!r} is invalid: {exc}")
+    default = get_identity_config().default_language
+    if default not in available_langs():
+        errors.append(f"IDENTITY_DEFAULT_LANGUAGE={default!r} has no language pack")
+    return errors
+
+
+def check_lang_packs() -> None:
+    """Raise RuntimeError when a pack is invalid: the backend does not start without them."""
+    errors = lang_pack_errors()
+    if errors:
+        raise RuntimeError("Refusing to start: " + " ".join(errors))
+
+
+async def sync_language_packs(pool) -> int:
+    """Copy the language packs into lang_packs, read by ldvelh_norm (spec §4.12)."""
+    from packs.loader import sync_lang_packs
+
+    async with pool.acquire() as conn:
+        return await sync_lang_packs(conn)

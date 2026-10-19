@@ -1,9 +1,11 @@
-"""Closed word lists of a language, read from evals/identity/lexicon/<language>.yaml (#151).
+"""Closed word lists of a language for the identity corpus code (#151, #152).
 
 The corpus code is language-agnostic: determiners, personal pronouns, the
 indefinite/demonstrative pronouns of ANNOTATION § 4.1 and § 5.2 and the apostrophes come
-from the lexicon of the scene's `language`. Words are stored with the first apostrophe
-of the list; the other apostrophes of a text are folded into it before comparing.
+from the language pack of the scene's `language` (packs/lang/<language>.yaml);
+evals/identity/lexicon/<language>.yaml only adds the evaluation's own lists. Words are
+stored with the first apostrophe of the list; the other apostrophes of a text are folded
+into it before comparing.
 
 Assumption of the lexicon format: a determiner is a separate word (followed by a space)
 or one of `elided_determiners`, glued to the noun. A language that writes determiners
@@ -18,6 +20,8 @@ from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from packs.loader import PackNotFound, available_langs, load_lang
 
 LEXICON_DIR = Path(__file__).resolve().parent / "lexicon"
 DEFAULT_LANGUAGE = "fr"
@@ -83,15 +87,34 @@ _LEXICONS: dict[str, Lexicon] = {}
 
 
 def has_lexicon(language: str) -> bool:
-    return language in _LEXICONS or (LEXICON_DIR / f"{language}.yaml").is_file()
+    return language in _LEXICONS or (
+        language in available_langs() and (LEXICON_DIR / f"{language}.yaml").is_file()
+    )
 
 
 def load_lexicon(language: str) -> Lexicon:
-    """The lexicon of `language` (cached); ValueError when there is none."""
+    """The lexicon of `language` (cached): its language pack plus the evaluation lists;
+    ValueError when either is missing."""
     if language not in _LEXICONS:
         path = LEXICON_DIR / f"{language}.yaml"
         if not path.is_file():
             raise ValueError(f"no lexicon for language {language!r} ({path})")
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        _LEXICONS[language] = Lexicon.model_validate(data)
+        try:
+            pack = load_lang(language)
+        except PackNotFound as exc:
+            raise ValueError(f"no language pack for {language!r}") from exc
+        own = yaml.safe_load(path.read_text(encoding="utf-8"))
+        _LEXICONS[language] = Lexicon.model_validate(
+            {
+                **own,
+                "apostrophes": pack.apostrophes,
+                "determiners": pack.articles,
+                "elided_determiners": pack.elisions,
+                "personal_pronouns": pack.pronouns.personal,
+                "indefinite_pronouns": [
+                    *pack.pronouns.indefinite,
+                    *pack.pronouns.demonstrative,
+                ],
+            }
+        )
     return _LEXICONS[language]

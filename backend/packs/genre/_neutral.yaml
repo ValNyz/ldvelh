@@ -1,0 +1,8 @@
+# Neutral genre pack: the fallback of a game whose genre has no pack (spec §4.12).
+# P6 only defines the optional `identity` section; P8 extends genre packs (#48).
+
+slug: _neutral
+identity:
+  titles_extra: []
+  entity_type_vocab: {}
+  prompt_examples: {}

@@ -335,6 +335,10 @@ async def test_pool():
         pool = await asyncpg.create_pool(TEST_DB_URL, min_size=1, max_size=5, init=_init_conn)
         async with pool.acquire() as conn:
             await conn.execute(_TRUNCATE_SQL)
+            # ldvelh_norm reads its parameters from lang_packs, filled from the YAML packs.
+            from packs.loader import sync_lang_packs
+
+            await sync_lang_packs(conn)
     except Exception as exc:
         _db_unavailable(str(exc))
         return

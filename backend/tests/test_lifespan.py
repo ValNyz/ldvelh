@@ -45,8 +45,12 @@ def fake_pool(monkeypatch):
     async def seed(pool, settings):
         return None
 
+    async def sync_packs(pool):
+        return 0
+
     monkeypatch.setattr(asyncpg, "create_pool", create_pool)
     monkeypatch.setattr(main, "_seed_dev_user", seed)
+    monkeypatch.setattr(main, "sync_language_packs", sync_packs)
     monkeypatch.setattr(llm_providers, "close_shared_clients", close_clients)
     return calls
 

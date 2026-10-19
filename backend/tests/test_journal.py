@@ -16,7 +16,15 @@ pytestmark = pytest.mark.integration
 
 # Tables with a game_id that are not world state: never journaled (llm_calls: cost
 # accounting, #106; a rolled back turn keeps the calls it paid for).
-NOT_JOURNALED = {"messages", "conversations", "extraction_logs", "turns", "llm_calls"}
+# lang_packs (no game_id) is configuration, listed for the record.
+NOT_JOURNALED = {
+    "messages",
+    "conversations",
+    "extraction_logs",
+    "turns",
+    "llm_calls",
+    "lang_packs",
+}
 # World tables without a game_id column (pivots and per-entity engine rows).
 PIVOTS = {
     "fact_participants",
