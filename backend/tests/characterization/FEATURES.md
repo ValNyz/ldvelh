@@ -108,8 +108,11 @@ F-xx touched: F-12, F-15, F-16, F-20. Fixed in this phase: #22.
 - [x] Full suite green (`scripts/test-backend.sh`), ruff gate green
 - [x] Snapshot changed only in C-12 (#22): `response_rollback_result` is `{"deleted_turns": 1, "undone_changes": 3}` (was the cycle rollback's counters); the character and registry row created by the turn's extraction are undone, so `characters` (4 -> 3) and `entity_registry` (14 -> 13) leave `not_restored_by_rollback` for `rollback_changed`, and `db_after_rollback` shows the pre-turn counts. `not_restored_by_rollback` keeps only `llm_calls` (a paid call log, never journaled, kept by design since #106). C-10b, C-11c, C-12b, C-12c, C-12d, C-12e unchanged.
 - [x] Snapshot changed only in C-05 `db_counts.turns` (3 -> 2, fix round 1 of #22): the resuming turn adopts the halted turn, which is deleted, so the arrival and the resume remain. No other key changes.
-- [x] Legacy fixture (C-19) replayed: no migration in this phase's fix round (`test_c19_legacy.py` green)
-- [ ] Manual smoke: recommended, three quick turns then Regenerate with the world panel open (names, credits, inventory back)
+- [x] Legacy fixture (C-19) replayed: the migration of the phase (`world_changes_undo`, deferrable foreign keys) down then up over the legacy rows (`test_c19_legacy.py` green)
+- [x] Acceptances of #22 (4) and #104 (3 exit criteria) mapped to tests: `test_regenerate_restores_inserts_and_updates`, `test_undo_of_a_rename_restores_the_registry_name`, `test_rollback_to_the_arrival_keeps_the_world`, `test_regenerate_after_a_day_change_restores_cycle_date_and_seeds`
+- [x] Overhead gate of P5a not met in the test environment (+0.11 to +0.21 ms per commit); the owner decided to proceed with P5b
+- [x] Removal of `ROLLBACK_ENGINE=cycle`, `rollback_to_cycle` and `engine_snapshot` tracked in a follow-up issue (title: "Remove ROLLBACK_ENGINE=cycle, rollback_to_cycle and messages.engine_snapshot after one release")
+- [ ] Manual smoke (roadmap 5.4, required in P5): one game per engine, 3 turns, a Fate invocation, Regenerate and edit, Anthropic and another provider, world panel open; plus a real legacy game: regenerate its last new turn, then try an older one (refused with the French message)
 
 ## Comment mettre à jour un snapshot
 
