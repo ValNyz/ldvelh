@@ -114,6 +114,18 @@ F-xx touched: F-12, F-15, F-16, F-20. Fixed in this phase: #22.
 - [x] Removal of `ROLLBACK_ENGINE=cycle`, `rollback_to_cycle` and `engine_snapshot` tracked in #160 ("Remove ROLLBACK_ENGINE=cycle, rollback_to_cycle and messages.engine_snapshot after one release")
 - [ ] Manual smoke (roadmap 5.4, required in P5): one game per engine, 3 turns, a Fate invocation, Regenerate and edit, Anthropic and another provider, world panel open; plus a real legacy game: regenerate its last new turn, then try an older one (refused with the French message)
 
+### Phase 6a (identity corpus)
+
+F-xx touched: none. This phase adds an offline evaluation harness (#151): the identity gold corpus (`tests/fixtures/identity/`), its validator, scorer, report and campaign split (`evals/identity/`), the legacy resolver adapter and `scripts/eval_identity.py`. No game code path changes.
+
+- [x] F-xx touched are listed above (none)
+- [x] Full suite green (`scripts/test-backend.sh`), ruff gate green; the identity tests are in `tests/identity/`
+- [x] Snapshots unchanged
+- [x] Legacy fixture (C-19) replayed: no migration in this phase
+- [x] Test split frozen (`tests/fixtures/identity/TEST_SHA256`, guarded by `tests/identity/test_corpus.py::test_frozen_test_split_fingerprint_matches`)
+- [x] Baseline of the legacy resolver committed (`tests/reports/identity/2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md|json`; answers from subagents, not the API path)
+- [ ] Manual smoke: not required (no runtime change)
+
 ## Comment mettre à jour un snapshot
 
 A behavior change is allowed only when it fixes an issue listed in the phase. Then:

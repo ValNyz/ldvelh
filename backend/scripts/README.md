@@ -157,3 +157,8 @@ python -m scripts.eval_identity ... --import-responses DIR --responder subagent:
   turn is its gold history, not the system's own previous annotations: the report
   header says so.
 - `--gate`: exit code 1 when a measured gate row fails. C@10 is measured on dev + test.
+- Reports: only `*-baseline-*` and `*-gate-*` files of `tests/reports/identity/` are
+  committed (`.gitignore`); the legacy baseline is
+  `2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md|json`.
+- When to re-evaluate, and the rules of the frozen test split (`TEST_SHA256`): see
+  CONTRIBUTING.md, "Identity evaluation".
