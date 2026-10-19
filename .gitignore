@@ -26,8 +26,15 @@ docs/
 .venv/
 
 # Test artifacts (coverage reports, generated fixtures)
-backend/tests/fixtures/
-backend/tests/reports/
+# `dir/*` (not `dir/`) so that the identity corpus and its committed reports can be re-included.
+backend/tests/fixtures/*
+backend/tests/reports/*
+# The identity gold corpus (P6) is committed; of its reports, only baseline and gate ones.
+!backend/tests/fixtures/identity/
+!backend/tests/reports/identity/
+backend/tests/reports/identity/*
+!backend/tests/reports/identity/*-baseline.*
+!backend/tests/reports/identity/*-gate.*
 
 # Playwright e2e outputs
 frontend/test-results/

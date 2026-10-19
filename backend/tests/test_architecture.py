@@ -22,6 +22,7 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
     "utils": {"fastapi", "starlette"},
     "workers": {"api", "pipeline", "services", "repos", "kg", "llm", "schema", "prompts",
                 "asyncpg", "fastapi", "starlette"},
+    "evals": {"api", "pipeline", "fastapi", "starlette"},  # offline evaluation code (P6 identity corpus)
 }
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
 LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)
@@ -103,6 +104,10 @@ def functions_with_sql(relative_path):
 def test_layer_rules_name_existing_packages():
     missing = {layer for layer in LAYER_RULES if not (BACKEND / layer).is_dir()}
     assert not missing, f"LAYER_RULES keys that are not backend directories (typo?): {sorted(missing)}"
+
+
+def test_evals_layer_is_guarded():
+    assert LAYER_RULES["evals"] == {"api", "pipeline", "fastapi", "starlette"}
 
 
 def test_layers_respect_the_dependency_rule():

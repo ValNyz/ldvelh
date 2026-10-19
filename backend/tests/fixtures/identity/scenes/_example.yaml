@@ -1,0 +1,715 @@
+# Example scene (not part of the measured corpus): game f134 « Relais Ombelle », turn 15.
+# Audit case Kethari/Nahle: the narrator reveals « Nahle Irun-Sa » for « La Kethari âgée »;
+# « sa paume » (history, turn 11) was linked to the canteen manager by the old resolver: SKIP.
+# World = gold graph before the turn (duplicates merged, Pervenche added). See ANNOTATION.md.
+id: example-f134-t15
+genre: sf
+source: real
+turn: 15
+world:
+- id: protagonist_valentin
+  type: protagonist
+  label: Valentin
+  true_name: Valentin
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_cantine_du_puits
+  last_seen_turn: 14
+  aliases:
+  - text: Valentin
+    kind: true_name
+    known: true
+- id: companion_pervenche
+  type: companion
+  label: Pervenche
+  true_name: Pervenche
+  descriptor: la voix basse sur ton terminal
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Pervenche
+    kind: true_name
+    known: true
+  - text: la voix basse sur ton terminal
+    kind: descriptor
+    known: true
+  - text: la voix de la borne
+    kind: descriptor
+    known: true
+- id: character_kethari_agee
+  type: character
+  label: La Kethari âgée
+  true_name: null
+  descriptor: La Kethari âgée
+  known: false
+  occupation: null
+  location: location_cantine_du_puits
+  last_seen_turn: 14
+  aliases:
+  - text: La Kethari âgée
+    kind: descriptor
+    known: true
+- id: character_tesk_vahrun_oo
+  type: character
+  label: Tesk Vahrun-Oo
+  true_name: Tesk Vahrun-Oo
+  descriptor: Le Kethari au tablier
+  known: false
+  occupation: gérant de la Cantine du Puits
+  location: location_cantine_du_puits
+  last_seen_turn: 14
+  aliases:
+  - text: Tesk Vahrun-Oo
+    kind: true_name
+    known: false
+  - text: Tesk
+    kind: short
+    known: false
+  - text: Vahrun-Oo
+    kind: short
+    known: false
+  - text: Le Kethari au tablier
+    kind: descriptor
+    known: true
+- id: character_type_en_bleu_de_travail
+  type: character
+  label: Le type en bleu de travail
+  true_name: null
+  descriptor: Le type en bleu de travail
+  known: false
+  occupation: ouvrier (supposé)
+  location: location_cantine_du_puits
+  last_seen_turn: 12
+  aliases:
+  - text: Le type en bleu de travail
+    kind: descriptor
+    known: true
+  - text: un client en bleu de travail
+    kind: descriptor
+    known: true
+- id: character_oriane_mbeki_larsson
+  type: character
+  label: Oriane Mbeki-Larsson
+  true_name: Oriane Mbeki-Larsson
+  descriptor: La femme grise à la tablette
+  known: false
+  occupation: cheffe de la Serre Numéro Quatre
+  location: location_serre_numero_quatre
+  last_seen_turn: 5
+  aliases:
+  - text: Oriane Mbeki-Larsson
+    kind: true_name
+    known: false
+  - text: Oriane
+    kind: short
+    known: false
+  - text: Mbeki-Larsson
+    kind: short
+    known: false
+  - text: La femme grise à la tablette
+    kind: descriptor
+    known: true
+- id: character_ilyes_brandt
+  type: character
+  label: Ilyès Brandt
+  true_name: Ilyès Brandt
+  descriptor: Le jeune type aux cernes
+  known: false
+  occupation: technicien de nuit en serre
+  location: location_serre_numero_quatre
+  last_seen_turn: null
+  aliases:
+  - text: Ilyès Brandt
+    kind: true_name
+    known: false
+  - text: Ilyès
+    kind: short
+    known: false
+  - text: Brandt
+    kind: short
+    known: false
+  - text: Le jeune type aux cernes
+    kind: descriptor
+    known: true
+- id: character_marguerite_doan
+  type: character
+  label: Marguerite Doan
+  true_name: Marguerite Doan
+  descriptor: La vieille dame au gilet vert
+  known: false
+  occupation: agente du Bureau des Résidences
+  location: location_residence_les_fougeres
+  last_seen_turn: null
+  aliases:
+  - text: Marguerite Doan
+    kind: true_name
+    known: false
+  - text: Marguerite
+    kind: short
+    known: false
+  - text: Doan
+    kind: short
+    known: false
+  - text: La vieille dame au gilet vert
+    kind: descriptor
+    known: true
+- id: location_relais_ombelle
+  type: location
+  label: Relais Ombelle
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Relais Ombelle
+    kind: label
+    known: true
+- id: location_hall_d_arrivee_quai_sud
+  type: location
+  label: Hall d'Arrivée Quai Sud
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 12
+  aliases:
+  - text: Hall d'Arrivée Quai Sud
+    kind: label
+    known: true
+- id: location_coursive_du_hall
+  type: location
+  label: Coursive du Hall
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Coursive du Hall
+    kind: label
+    known: true
+- id: location_cantine_du_puits
+  type: location
+  label: Cantine du Puits
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 12
+  aliases:
+  - text: Cantine du Puits
+    kind: label
+    known: true
+- id: location_serre_numero_quatre
+  type: location
+  label: Serre Numéro Quatre
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 13
+  aliases:
+  - text: Serre Numéro Quatre
+    kind: label
+    known: true
+- id: location_bureau_des_residences
+  type: location
+  label: Bureau des Résidences
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 12
+  aliases:
+  - text: Bureau des Résidences
+    kind: label
+    known: true
+- id: location_anneau_residentiel
+  type: location
+  label: Anneau Résidentiel
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Anneau Résidentiel
+    kind: label
+    known: true
+- id: location_residence_les_fougeres
+  type: location
+  label: Résidence Les Fougères
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Résidence Les Fougères
+    kind: label
+    known: true
+- id: location_chambre_3_17
+  type: location
+  label: Chambre 3-17
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Chambre 3-17
+    kind: label
+    known: true
+- id: organization_cooperative_agronomique_d_ombelle
+  type: organization
+  label: Coopérative Agronomique d'Ombelle
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Coopérative Agronomique d'Ombelle
+    kind: label
+    known: true
+  - text: Coopérative
+    kind: short
+    known: true
+- id: organization_bureau_des_residences
+  type: organization
+  label: Bureau des Résidences
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 8
+  aliases:
+  - text: Bureau des Résidences
+    kind: label
+    known: true
+- id: object_terminal_personnel
+  type: object
+  label: Terminal personnel
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Terminal personnel
+    kind: label
+    known: true
+- id: object_valise_souple
+  type: object
+  label: Valise souple
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 9
+  aliases:
+  - text: Valise souple
+    kind: label
+    known: true
+- id: object_trousse_d_outils_de_precision
+  type: object
+  label: Trousse d'outils de précision
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Trousse d'outils de précision
+    kind: label
+    known: true
+- id: object_vetements_de_rechange
+  type: object
+  label: Vêtements de rechange
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Vêtements de rechange
+    kind: label
+    known: true
+- id: object_tasse_ebrechee
+  type: object
+  label: Tasse ébréchée
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Tasse ébréchée
+    kind: label
+    known: true
+- id: object_couverture_lestee
+  type: object
+  label: Couverture lestée
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Couverture lestée
+    kind: label
+    known: true
+history:
+- text: |-
+    La pause est longue. Le gérant attend toujours, la louche au-dessus de la marmite.
+
+    *Un programme. Je peux te donner un ordre possible, pas un ordre à suivre.* Un temps. *Un : demander à quelqu'un où est la Serre Numéro Quatre. Il y a quelqu'un devant toi. Deux : être à la serre à huit heures. Trois : passer au Bureau des Résidences pendant ta pause, si tu en as une. Ton contrat le dit peut-être. Tu ne l'as pas lu.* Encore un silence. *Quatre : décider si tu veux le fond de bouillon. Il attend.*
+
+    Le Kethari au tablier n'a pas bougé. Son terminal vibre une troisième fois sous sa paume. Il ne le regarde pas.
+
+    — Alors ? dit-il. Oui ou non, j'ai la plonge à faire.
+
+    Dans son coin, la Kethari âgée a rangé sa boîte et te fixe maintenant, ouvertement, comme si elle aussi attendait ta réponse.
+  mentions:
+  - surface: Le gérant
+    start: 21
+    category: DESC
+    expected: MATCH character_tesk_vahrun_oo
+  - surface: la Serre Numéro Quatre
+    start: 204
+    category: EASY
+    expected: MATCH location_serre_numero_quatre
+  - surface: la serre
+    start: 271
+    category: PART
+    expected: MATCH location_serre_numero_quatre
+  - surface: Bureau des Résidences
+    start: 313
+    category: XTYPE
+    expected: MATCH location_bureau_des_residences
+  - surface: Ton contrat
+    start: 370
+    category: SKIP
+    expected: SKIP
+  - surface: Le Kethari au tablier
+    start: 502
+    category: DESC
+    expected: MATCH character_tesk_vahrun_oo
+  - surface: Son terminal
+    start: 539
+    category: SKIP
+    expected: SKIP
+  - surface: sa paume
+    start: 582
+    category: SKIP
+    expected: SKIP
+  - surface: la Kethari âgée
+    start: 685
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: sa boîte
+    start: 709
+    category: SKIP
+    expected: SKIP
+- text: |-
+    — Pas de pardon, grogne le Kethari au tablier.
+
+    Il racle la marmite et verse le fond dans ton bol. C'est plus épais, presque une purée, avec des fils de racine collés au bord. Il ajoute le dernier coin de pain d'algue sans rien demander, puis emporte la marmite vers la plonge. L'eau se met à couler et son terminal reste sur le comptoir, face contre le métal. Il vibre encore une fois, tout seul.
+
+    Pendant que tu manges, la Kethari âgée se lève. Elle traverse la cantine en tirant sa valise, dont une roue grince, et s'arrête à deux pas de ta table.
+
+    — Tu viens de la navette aussi, dit-elle. Ce n'est pas une question. On devait m'attendre au quai. Personne. Tu sais où est ce Bureau des Résidences, toi ?
+
+    Au fond, le type en bleu de travail remue sur son plateau et grommelle quelque chose dans son sommeil.
+
+    *Tu ne le sais pas non plus*, remarque la voix basse sur ton terminal. *Mais le panneau du hall, lui, le savait.*
+  mentions:
+  - surface: le Kethari au tablier
+    start: 24
+    category: DESC
+    expected: MATCH character_tesk_vahrun_oo
+  - surface: ton bol
+    start: 90
+    category: SKIP
+    expected: SKIP
+  - surface: son terminal
+    start: 303
+    category: SKIP
+    expected: SKIP
+  - surface: la Kethari âgée
+    start: 422
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: la cantine
+    start: 461
+    category: PART
+    expected: MATCH location_cantine_du_puits
+  - surface: sa valise
+    start: 482
+    category: SKIP
+    expected: SKIP
+  - surface: quai
+    start: 645
+    category: PART
+    expected: MATCH location_hall_d_arrivee_quai_sud
+  - surface: ce Bureau des Résidences
+    start: 676
+    category: XTYPE
+    expected: MATCH location_bureau_des_residences
+  - surface: le type en bleu de travail
+    start: 718
+    category: DESC
+    expected: MATCH character_type_en_bleu_de_travail
+  - surface: son plateau
+    start: 755
+    category: SKIP
+    expected: SKIP
+  - surface: la voix basse sur ton terminal
+    start: 852
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: ton terminal
+    start: 870
+    category: PART
+    expected: MATCH object_terminal_personnel
+  - surface: hall
+    start: 904
+    category: PART
+    expected: MATCH location_hall_d_arrivee_quai_sud
+- text: |-
+    La Kethari âgée ne répond pas tout de suite. Elle pose les deux mains sur la poignée de sa valise, comme sur une canne.
+
+    — Pour finir, dit-elle. Mon habitat ferme son aile des anciens. On nous a répartis là où il restait des lits. Ici, il en restait un. Elle hausse une épaule. J'ai cultivé des tubercules pendant quarante ans. Ils ont dû trouver ça logique.
+
+    Elle jette un regard vers la porte de la coursive, puis revient sur toi.
+
+    — Et toi ? Tu n'as pas l'air de quelqu'un qu'on attendait non plus.
+
+    À la plonge, l'eau s'arrête de couler. Sur le comptoir, le terminal du Kethari au tablier vibre une fois de plus dans le vide.
+
+    *Le panneau est sur le chemin de la serre*, note la voix basse sur ton terminal. *Elle marche lentement. Je le dis, c'est tout.*
+  mentions:
+  - surface: La Kethari âgée
+    start: 0
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: les deux mains
+    start: 55
+    category: SKIP
+    expected: SKIP
+  - surface: sa valise
+    start: 88
+    category: SKIP
+    expected: SKIP
+  - surface: Mon habitat
+    start: 145
+    category: SKIP
+    expected: SKIP
+  - surface: son aile des anciens
+    start: 163
+    category: SKIP
+    expected: SKIP
+  - surface: une épaule
+    start: 266
+    category: SKIP
+    expected: SKIP
+  - surface: la coursive
+    start: 398
+    category: PART
+    expected: MATCH location_coursive_du_hall
+  - surface: le terminal du Kethari au tablier
+    start: 559
+    category: SKIP
+    expected: SKIP
+  - surface: Kethari au tablier
+    start: 574
+    category: DESC
+    expected: MATCH character_tesk_vahrun_oo
+  - surface: la serre
+    start: 664
+    category: PART
+    expected: MATCH location_serre_numero_quatre
+  - surface: la voix basse sur ton terminal
+    start: 680
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: ton terminal
+    start: 698
+    category: PART
+    expected: MATCH object_terminal_personnel
+- text: |-
+    La Kethari âgée hoche lentement la tête, comme si la réponse lui convenait.
+
+    — Rien de passionnant, c'est ce qui tient le plus longtemps, dit-elle. Les tubercules non plus, ce n'était pas passionnant.
+
+    Elle regarde ton bol presque vide, puis la porte de la coursive.
+
+    — Mes yeux ne lisent plus les petites lettres. Si tu passes devant ce panneau, je marcherai derrière toi. Je ne suis pas pressée. Personne ne m'attend, de toute façon.
+
+    À la plonge, le Kethari au tablier a coupé l'eau. Il revient essuyer le comptoir et ramasse son terminal au passage. Il le glisse dans la poche de son tablier sans le regarder.
+
+    *Six heures cinquante*, dit la voix basse sur ton terminal. *Le panneau est sur le chemin. Elle, elle a dit qu'elle n'était pas pressée. Toi, tu l'es un peu.*
+  mentions:
+  - surface: La Kethari âgée
+    start: 0
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: la tête
+    start: 32
+    category: SKIP
+    expected: SKIP
+  - surface: ton bol
+    start: 215
+    category: SKIP
+    expected: SKIP
+  - surface: la coursive
+    start: 254
+    category: PART
+    expected: MATCH location_coursive_du_hall
+  - surface: Mes yeux
+    start: 270
+    category: SKIP
+    expected: SKIP
+  - surface: le Kethari au tablier
+    start: 450
+    category: DESC
+    expected: MATCH character_tesk_vahrun_oo
+  - surface: son terminal
+    start: 529
+    category: SKIP
+    expected: SKIP
+  - surface: la poche de son tablier
+    start: 572
+    category: SKIP
+    expected: SKIP
+  - surface: la voix basse sur ton terminal
+    start: 643
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: ton terminal
+    start: 661
+    category: PART
+    expected: MATCH object_terminal_personnel
+scene:
+  location: location_cantine_du_puits
+  present:
+  - protagonist_valentin
+  - companion_pervenche
+  - character_kethari_agee
+  - character_tesk_vahrun_oo
+  - character_type_en_bleu_de_travail
+  reveals:
+  - ref: La Kethari âgée
+    real_name: Nahle Irun-Sa
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  La Kethari âgée cligne lentement des yeux, comme si la question venait de loin.
+
+  — Nahle Irun-Sa, dit-elle. Nahle suffit. Le reste, c'était pour les formulaires de mon ancien habitat. Ici, je ne sais pas encore ce qu'ils voudront.
+
+  Elle resserre les doigts sur la poignée de sa valise.
+
+  — Et toi ? Si je dois marcher derrière quelqu'un, autant savoir comment l'appeler quand il va trop vite.
+
+  Derrière le comptoir, le Kethari au tablier empile les bols sales sans un bruit. Sa poche de tablier s'allume à travers le tissu, puis s'éteint.
+
+  *Six heures cinquante-deux*, dit la voix basse sur ton terminal. *Ton bol est vide.*
+gold:
+- surface: La Kethari âgée
+  start: 0
+  category: DESC
+  expected: MATCH character_kethari_agee
+- surface: yeux
+  start: 37
+  category: SKIP
+  expected: SKIP
+- surface: Nahle Irun-Sa
+  start: 83
+  category: REVEAL
+  expected: ALIAS character_kethari_agee true_name
+- surface: Nahle
+  start: 108
+  category: PART
+  expected: ALIAS character_kethari_agee short
+  accept_also:
+  - MATCH character_kethari_agee
+- surface: mon ancien habitat
+  start: 164
+  category: SKIP
+  expected: SKIP
+- surface: les doigts
+  start: 246
+  category: SKIP
+  expected: SKIP
+- surface: sa valise
+  start: 275
+  category: SKIP
+  expected: SKIP
+- surface: le Kethari au tablier
+  start: 415
+  category: DESC
+  expected: MATCH character_tesk_vahrun_oo
+- surface: Sa poche de tablier
+  start: 474
+  category: SKIP
+  expected: SKIP
+- surface: la voix basse sur ton terminal
+  start: 572
+  category: PC
+  expected: MATCH companion_pervenche
+- surface: ton terminal
+  start: 590
+  category: PART
+  expected: MATCH object_terminal_personnel
+- surface: Ton bol
+  start: 605
+  category: SKIP
+  expected: SKIP
+gold_effects:
+  reveals:
+  - ref: character_kethari_agee
+    real_name: Nahle Irun-Sa
+  merges: []
+  forbidden_merges:
+  - a: character_kethari_agee
+    b: character_tesk_vahrun_oo
+gold_knowledge:
+- ref: character_tesk_vahrun_oo
+  kind: name
+  state: unknown
+  text: Tesk Vahrun-Oo
+- ref: character_oriane_mbeki_larsson
+  kind: name
+  state: unknown
+  text: Oriane Mbeki-Larsson
+- ref: character_ilyes_brandt
+  kind: name
+  state: unknown
+  text: Ilyès Brandt
+- ref: character_marguerite_doan
+  kind: name
+  state: unknown
+  text: Marguerite Doan
