@@ -15,8 +15,14 @@ from pipeline.steps.narrate import Narrated
 class _Session:
     provider_name = "scripted"
 
+    def __init__(self):
+        self.flushes = 0
+
     def model_for(self, purpose):
         return "scripted-model"
+
+    async def flush_calls(self):
+        self.flushes += 1
 
 
 class _Pool:
@@ -77,24 +83,30 @@ def steps(monkeypatch, call_log):
 
 
 async def test_run_turn_runs_every_step_in_order(steps, call_log):
-    await turn.run_turn(_ctx())
+    ctx = _ctx()
+    await turn.run_turn(ctx)
     assert call_log == ["load_turn", "arbitrate", "narrate", "commit_turn", "respond",
                         "schedule_background"]
+    assert ctx.session.flushes == 1  # the request's call log, once (#106)
 
 
 async def test_run_turn_stops_at_halt(steps):
     steps["arbitrate"].result = HALT
-    await turn.run_turn(_ctx())
+    ctx = _ctx()
+    await turn.run_turn(ctx)
     assert steps["narrate"].calls == 0
     assert steps["commit_turn"].calls == 0  # no message saved
     assert steps["respond"].calls == 0
+    assert ctx.session.flushes == 1  # the halted turn's mechanical call is logged
 
 
 async def test_run_turn_propagates_errors(steps):
     steps["narrate"].error = TurnError("narration_invalid", "Réponse inutilisable.")
+    ctx = _ctx()
     with pytest.raises(TurnError):
-        await turn.run_turn(_ctx())
+        await turn.run_turn(ctx)
     assert steps["commit_turn"].calls == 0
+    assert ctx.session.flushes == 1  # the failed turn's paid calls are logged
 
 
 @pytest.mark.parametrize("failing", ["respond", "schedule_background", "_log_summary"])

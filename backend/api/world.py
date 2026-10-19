@@ -89,4 +89,6 @@ async def world_enhance(
             status_code=502,
             detail="L'IA n'a pas pu remplir le formulaire. Réessaie ou reformule ton texte.",
         )
+    finally:
+        await session.flush_calls()  # the form helper's paid calls, failed or not (#106)
     return {**result, "cost": cost}

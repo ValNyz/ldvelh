@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from config import get_settings
+from llm.session import LLMSession
 from domain.game import GameSnapshot
 from pipeline import director_runs, init_params, narration_stream
 from pipeline.chosen_name import apply_chosen_name, chosen_name
@@ -128,6 +129,15 @@ def _start_initial_director(ctx: TurnContext) -> asyncio.Task:
 
 async def _run_initial_director(ctx: TurnContext) -> None:
     """Initial Director run, streamed to the client; a failure is only a warning."""
+    # A job that may outlive the request: its call is logged by the job itself (#106).
+    session = ctx.session.for_background()
+    try:
+        await _initial_director(ctx, session)
+    finally:
+        await session.flush_calls()
+
+
+async def _initial_director(ctx: TurnContext, session: LLMSession) -> None:
     try:
         # The world was just saved: its game cycle and time are the arrival ones.
         async with ctx.pool.acquire() as conn:
@@ -141,7 +151,7 @@ async def _run_initial_director(ctx: TurnContext) -> None:
         await asyncio.wait_for(
             # world generation and the initial Director are never rolled back: not journaled
             run_director(pool=ctx.pool, game_id=ctx.request.game_id, current_cycle=cycle,
-                         current_time=game_time, session=ctx.session, sse_writer=ctx.sink,
+                         current_time=game_time, session=session, sse_writer=ctx.sink,
                          turn_id=None),
             timeout=DIRECTOR_INIT_TIMEOUT,
         )
@@ -152,6 +162,14 @@ async def _run_initial_director(ctx: TurnContext) -> None:
 
 async def run_init(ctx: TurnContext) -> None:
     """Generate the world. Catches nothing: the API adapter reports failures."""
+    try:
+        await _run_init(ctx)
+    finally:
+        # The world generation call, saved world or not (no turn yet: turn_id NULL, #106).
+        await ctx.session.flush_calls()
+
+
+async def _run_init(ctx: TurnContext) -> None:
     logger.info("[CHAT] Mode: INIT (World Builder)")
     game_id = ctx.request.game_id
     async with ctx.pool.acquire() as conn:

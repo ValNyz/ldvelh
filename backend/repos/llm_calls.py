@@ -1,11 +1,22 @@
 """LLM call log (#106): one row per billed call, and the account's cost summary read from it.
 
-Accounting, not world state: written on its own connection right after each call, outside
-any turn transaction, and never journaled.
+Accounting, not world state: written once per phase (llm/call_log.py) on its own
+connection, outside any turn transaction, and never journaled.
 """
 
 from uuid import UUID
 
+_ROW_FIELDS = (
+    "turn_id",
+    "game_id",
+    "user_id",
+    "purpose",
+    "provider",
+    "model",
+    "usage",
+    "cost_usd",
+    "cost_unknown",
+)
 _TOKEN_FIELDS = (
     "input_tokens",
     "output_tokens",
@@ -14,33 +25,24 @@ _TOKEN_FIELDS = (
 )
 
 
-async def insert_call(
-    conn,
-    *,
-    turn_id: UUID | None,
-    game_id: UUID | None,
-    user_id: UUID | None,
-    purpose: str,
-    provider: str,
-    model: str,
-    usage: dict,
-    cost_usd: float,
-    cost_unknown: bool,
-) -> None:
-    """Log one call. `turn_id` is None outside a turn, `game_id` outside a game."""
+async def insert_calls(conn, rows: list[dict]) -> None:
+    """Log the calls of one phase in one insert. Each row: turn_id (None outside a turn),
+    game_id (None outside a game), user_id, purpose, provider, model, usage (dict),
+    cost_usd, cost_unknown. A turn deleted meanwhile (rollback) is stored as NULL, as its
+    ON DELETE SET NULL would have done."""
+    if not rows:
+        return
     await conn.execute(
         """INSERT INTO llm_calls
            (turn_id, game_id, user_id, purpose, provider, model, usage, cost_usd, cost_unknown)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)""",
-        turn_id,
-        game_id,
-        user_id,
-        purpose,
-        provider,
-        model,
-        usage,
-        cost_usd,
-        cost_unknown,
+        SELECT t.id, r.game_id, r.user_id, r.purpose, r.provider, r.model, r.usage,
+               r.cost_usd, r.cost_unknown
+        FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::text[],
+                    $7::jsonb[], $8::numeric[], $9::boolean[])
+             AS r(turn_id, game_id, user_id, purpose, provider, model, usage, cost_usd,
+                  cost_unknown)
+        LEFT JOIN turns t ON t.id = r.turn_id""",
+        *([row[key] for row in rows] for key in _ROW_FIELDS),
     )
 
 

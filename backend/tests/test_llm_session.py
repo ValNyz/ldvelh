@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 
+from llm.call_log import CallLog
 from llm.session import LLMCall, LLMSession, Purpose
 from llm.usage import UsageLedger
 from tests.helpers import RecordingLedger
@@ -218,38 +219,110 @@ async def test_text_extraction_replaces_lone_surrogates():
     assert call.value == {"t": "x�"}
 
 
-class _FailingPool:
-    """Pool whose connections cannot be acquired: the call log is down."""
+class _CapturingPool:
+    """Pool whose connection records each llm_calls insert: (rows) per execute."""
 
-    def __init__(self):
+    def __init__(self, fail: Exception | None = None):
+        self.inserts: list[list[dict]] = []
         self.acquired = 0
+        self.fail = fail
+        pool = self
 
-    def acquire(self):
+        class _Conn:
+            async def execute(self, sql, *columns):
+                assert "INSERT INTO llm_calls" in sql
+                fields = ("turn_id", "game_id", "user_id", "purpose", "provider", "model",
+                          "usage", "cost_usd", "cost_unknown")
+                pool.inserts.append([dict(zip(fields, row)) for row in zip(*columns)])
+
+        self._conn = _Conn()
+
+    def acquire(self, timeout=None):
         self.acquired += 1
-        raise ConnectionError("pool closed")
+        if self.fail:
+            raise self.fail
+        pool = self
+
+        class _Ctx:
+            async def __aenter__(self):
+                return pool._conn
+
+            async def __aexit__(self, *exc):
+                return False
+
+        return _Ctx()
 
 
-async def test_record_without_pool_inserts_nothing():
-    session = LLMSession.from_provider(FakeProvider())
-    assert session.pool is None
-    call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
-    assert call.cost["input_tokens"] == 10
+def _logged_session(pool, provider=None) -> LLMSession:
+    session = LLMSession.from_provider(provider or FakeProvider())
+    session.calls = CallLog(pool, game_id=GAME, user_id=USER)
+    return session
 
 
-async def test_insert_failure_is_logged_not_raised(caplog):
-    session = LLMSession.from_provider(FakeProvider())
-    session.pool = pool = _FailingPool()
-    with caplog.at_level(logging.ERROR, logger="llm.session"):
-        call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
-    assert pool.acquired == 1
-    assert call.cost["input_tokens"] == 10  # the caller still gets its cost
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert [r.getMessage() for r in errors] == ["[COST] llm_calls insert failed purpose=resolver"]
+GAME = uuid4()
 
 
-def test_bind_turn_sets_the_turn_of_later_calls():
-    session = LLMSession("anthropic", api_key="k", user_id=USER, game_id=uuid4())
-    assert session.turn_id is None
+async def test_calls_are_buffered_until_the_phase_flushes():
+    pool = _CapturingPool()
+    session = _logged_session(pool)
+    await session.complete_json(Purpose.MECHANICAL, "sys", "user", 0.2, 100)
+    await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    assert pool.acquired == 0 and session.calls.pending == 2  # no pool access per call
+    await session.flush_calls()
+    await session.flush_calls()  # nothing left: no second insert
+    assert pool.acquired == 1 and len(pool.inserts) == 1
+    assert [(r["purpose"], r["provider"], r["model"]) for r in pool.inserts[0]] == [
+        ("mechanical", "fake", "fake-main"), ("resolver", "fake", "fake-main")]
+    row = pool.inserts[0][0]
+    assert (row["game_id"], row["user_id"], row["turn_id"]) == (GAME, USER, None)
+    assert row["usage"] == {"input_tokens": 10, "output_tokens": 5,
+                            "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+    assert row["cost_usd"] == 0 and row["cost_unknown"] is True
+
+
+async def test_each_row_carries_the_turn_bound_when_its_call_was_made():
+    pool = _CapturingPool()
+    session = _logged_session(pool)
+    await session.complete_json(Purpose.WORLD_GEN, "sys", "user", 1.0, 100)
     turn_id = uuid4()
     session.bind_turn(turn_id)
-    assert session.turn_id == turn_id
+    await session.complete_json(Purpose.NARRATION, "sys", "user", 0.7, 100)
+    await session.flush_calls()
+    assert [(r["purpose"], r["turn_id"]) for r in pool.inserts[0]] == [
+        ("world_gen", None), ("narration", turn_id)]
+
+
+async def test_a_background_session_keeps_the_turn_with_its_own_buffer():
+    pool = _CapturingPool()
+    session = _logged_session(pool)
+    turn_id = uuid4()
+    session.bind_turn(turn_id)
+    await session.complete_json(Purpose.NARRATION, "sys", "user", 0.7, 100)
+    job = session.for_background()
+    await job.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    assert (session.calls.pending, job.calls.pending) == (1, 1)
+    await job.flush_calls()
+    await session.flush_calls()
+    assert [[(r["purpose"], r["turn_id"]) for r in rows] for rows in pool.inserts] == [
+        [("resolver", turn_id)], [("narration", turn_id)]]
+
+
+async def test_a_session_without_pool_buffers_nothing():
+    session = LLMSession.from_provider(FakeProvider())
+    call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    assert call.cost["input_tokens"] == 10
+    assert session.calls.pending == 0
+    await session.flush_calls()  # no pool: a no-op
+
+
+async def test_flush_failure_is_logged_not_raised_and_not_retried(caplog):
+    pool = _CapturingPool(fail=ConnectionError("pool closed"))
+    session = _logged_session(pool)
+    call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    with caplog.at_level(logging.ERROR, logger="llm.call_log"):
+        await session.flush_calls()
+        await session.flush_calls()
+    assert call.cost["input_tokens"] == 10  # the caller still got its cost
+    assert pool.acquired == 1 and session.calls.pending == 0  # dropped, never inserted twice
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert [r.getMessage() for r in errors] == ["[COST] llm_calls insert failed rows=1"]

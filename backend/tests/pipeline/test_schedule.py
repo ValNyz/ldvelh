@@ -17,22 +17,33 @@ from workers import supervisor
 TIMEOUT = 5.0
 
 
+class _Session:
+    """The request's session; the job gets its background copy (own call buffer, #106)."""
+
+    def __init__(self):
+        self.background = object()
+
+    def for_background(self):
+        return self.background
+
+
 def _ctx() -> TurnContext:
     game_id = uuid4()
     snapshot = GameSnapshot(id=game_id, world_created=True, current_cycle=1,
                             current_time="08h00", current_location_name="Bar")
     ctx = TurnContext(request=TurnRequest(game_id=game_id, user_id=uuid4(), message="Je regarde."),
-                      snapshot=snapshot, session=object(), sink=None, pool=object(),
+                      snapshot=snapshot, session=_Session(), sink=None, pool=object(),
                       engine=None, ref="test")
     ctx.turn_id = uuid4()
     return ctx
 
 
 async def test_schedule_enqueues_one_post_turn_job(monkeypatch):
-    calls = []
+    calls, sessions = [], []
 
     async def spy_post_turn(pool, session, event, **kwargs):
         calls.append((event, kwargs))
+        sessions.append(session)
 
     monkeypatch.setattr(schedule, "run_post_turn", spy_post_turn)
     ctx = _ctx()
@@ -51,6 +62,7 @@ async def test_schedule_enqueues_one_post_turn_job(monkeypatch):
     assert f"post_turn:{game_id}" in names
     await supervisor.wait_idle(game_id, timeout=TIMEOUT)
     [(event, kwargs)] = calls
+    assert sessions == [ctx.session.background]
     assert isinstance(event, TurnCommitted)
     assert event.game_id == game_id
     assert event.cycle == committed.state.cycle

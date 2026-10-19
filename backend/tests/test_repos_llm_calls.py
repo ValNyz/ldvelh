@@ -3,8 +3,9 @@
 
 import pytest
 
+from llm.call_log import CallLog
 from llm.session import LLMSession, Purpose
-from repos import llm_calls
+from repos import llm_calls, turns
 from services.game_service import GameService
 from services.llm_providers import LLMUsage
 from tests.test_llm_session import FakeProvider
@@ -21,18 +22,25 @@ def _usage(inp: int, out: int, cache_write: int = 0, cache_read: int = 0) -> dic
     }
 
 
+def _row(
+    user_id, game_id, purpose, model, usage, cost, *, provider="mistral", turn_id=None
+):
+    return {
+        "turn_id": turn_id,
+        "game_id": game_id,
+        "user_id": user_id,
+        "purpose": purpose,
+        "provider": provider,
+        "model": model,
+        "usage": usage,
+        "cost_usd": cost,
+        "cost_unknown": False,
+    }
+
+
 async def _insert(conn, user_id, game_id, purpose, model, usage, cost):
-    await llm_calls.insert_call(
-        conn,
-        turn_id=None,
-        game_id=game_id,
-        user_id=user_id,
-        purpose=purpose,
-        provider="mistral",
-        model=model,
-        usage=usage,
-        cost_usd=cost,
-        cost_unknown=False,
+    await llm_calls.insert_calls(
+        conn, [_row(user_id, game_id, purpose, model, usage, cost)]
     )
 
 
@@ -133,21 +141,21 @@ async def test_summary_uses_each_call_provider(test_pool, test_user, monkeypatch
             f"{provider}/qwen",
             pricing.ModelPricing(input=rate, output=rate),
         )
+    usage = LLMUsage(input_tokens=1_000_000)
+    rows = [
+        _row(
+            test_user["id"],
+            None,
+            "narration",
+            "qwen",
+            _usage(1_000_000, 0),
+            call_cost(usage, provider, "qwen"),
+            provider=provider,
+        )
+        for provider in ("nebius", "wandb")
+    ]
     async with test_pool.acquire() as conn:
-        for provider in ("nebius", "wandb"):
-            usage = LLMUsage(input_tokens=1_000_000)
-            await llm_calls.insert_call(
-                conn,
-                turn_id=None,
-                game_id=None,
-                user_id=test_user["id"],
-                purpose="narration",
-                provider=provider,
-                model="qwen",
-                usage=_usage(1_000_000, 0),
-                cost_usd=call_cost(usage, provider, "qwen"),
-                cost_unknown=False,
-            )
+        await llm_calls.insert_calls(conn, rows)  # one insert for both rows
         summary = await llm_calls.user_summary(conn, test_user["id"])
     assert summary["total_cost_usd"] == 4.0
     assert summary["purposes"]["narration"]["calls"] == 2
@@ -165,8 +173,9 @@ async def test_insert_marks_unpriced_models(test_pool, test_user):
     game_id = await GameService(test_pool).create_game(test_user["id"])
     # A session of the game, logging to the pool: "fake-main" has no price.
     session = LLMSession.from_provider(FakeProvider(usage=LLMUsage(10, 5)))
-    session.pool, session.game_id, session.user_id = test_pool, game_id, test_user["id"]
+    session.calls = CallLog(test_pool, game_id=game_id, user_id=test_user["id"])
     call = await session.complete_json(Purpose.MECHANICAL, "sys", "user", 0.2, 100)
+    await session.flush_calls()
 
     async with test_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM llm_calls WHERE game_id = $1", game_id)
@@ -179,3 +188,39 @@ async def test_insert_marks_unpriced_models(test_pool, test_user):
     )
     assert row["user_id"] == test_user["id"] and row["turn_id"] is None
     assert row["usage"]["input_tokens"] == 10 and row["usage"]["output_tokens"] == 5
+
+
+async def test_a_row_of_a_deleted_turn_is_stored_without_turn(test_pool, test_user):
+    # A rollback may delete the turn before its job flushes: the paid call is kept, as the
+    # turn FK's ON DELETE SET NULL would have kept it.
+    user_id = test_user["id"]
+    game_id = await GameService(test_pool).create_game(user_id)
+    async with test_pool.acquire() as conn:
+        kept = await turns.open_turn(conn, game_id)
+        gone = await turns.open_turn(conn, game_id)
+        await conn.execute("DELETE FROM turns WHERE id = $1", gone)
+        await llm_calls.insert_calls(
+            conn,
+            [
+                _row(
+                    user_id, game_id, "narration", "m", _usage(1, 1), 0.1, turn_id=kept
+                ),
+                _row(
+                    user_id, game_id, "resolver", "m", _usage(1, 1), 0.1, turn_id=gone
+                ),
+            ],
+        )
+        rows = await conn.fetch(
+            "SELECT purpose, turn_id FROM llm_calls WHERE game_id = $1 ORDER BY id",
+            game_id,
+        )
+    assert [(r["purpose"], r["turn_id"]) for r in rows] == [
+        ("narration", kept),
+        ("resolver", None),
+    ]
+
+
+async def test_insert_of_no_rows_is_a_no_op(test_pool):
+    async with test_pool.acquire() as conn:
+        await llm_calls.insert_calls(conn, [])
+        assert await conn.fetchval("SELECT count(*) FROM llm_calls") == 0

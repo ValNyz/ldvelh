@@ -22,18 +22,22 @@ async def run_post_turn(
     message_content: str,
     narrator_deltas: dict,
 ) -> None:
-    """Resolver (always), the extractors (if triggered), then the hooks of the turn."""
-    await run_resolve_and_extract(
-        pool,
-        event.game_id,
-        trigger_cycle=event.cycle,
-        triggers=triggers,
-        session=session,
-        assistant_message_id=event.assistant_message_id,
-        message_content=message_content,
-        narrator_deltas=narrator_deltas,
-        turn_id=event.turn_id,
-    )
-    if event.new_cycle:
-        await hooks.run_new_cycle(pool, event)
-    await hooks.run_turn_committed(pool, session, event)
+    """Resolver (always), the extractors (if triggered), then the hooks of the turn; the
+    job's paid calls are logged at its end, even when it fails or is cancelled (#106)."""
+    try:
+        await run_resolve_and_extract(
+            pool,
+            event.game_id,
+            trigger_cycle=event.cycle,
+            triggers=triggers,
+            session=session,
+            assistant_message_id=event.assistant_message_id,
+            message_content=message_content,
+            narrator_deltas=narrator_deltas,
+            turn_id=event.turn_id,
+        )
+        if event.new_cycle:
+            await hooks.run_new_cycle(pool, event)
+        await hooks.run_turn_committed(pool, session, event)
+    finally:
+        await session.flush_calls()

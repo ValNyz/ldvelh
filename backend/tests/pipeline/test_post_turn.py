@@ -23,6 +23,16 @@ def _no_hooks(monkeypatch):
     monkeypatch.setattr(hooks, "run_turn_committed", nothing)
 
 
+class _Session:
+    """The job's session: counts the flushes of its call log."""
+
+    def __init__(self):
+        self.flushes = 0
+
+    async def flush_calls(self):
+        self.flushes += 1
+
+
 def _event(game_id, cycle: int) -> TurnCommitted:
     return TurnCommitted(game_id=game_id, previous_cycle=cycle, cycle=cycle, time="08h00",
                          user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
@@ -53,7 +63,7 @@ async def test_two_post_turn_jobs_run_in_order_and_both_extract(monkeypatch):
     _no_hooks(monkeypatch)
     monkeypatch.setattr(post_turn, "run_resolve_and_extract", recorder)
     first, second = _event(game_id, 1), _event(game_id, 1)
-    pool, session = object(), object()
+    pool, session = object(), _Session()
 
     for event in (first, second):
         supervisor.enqueue(game_id, "post_turn", post_turn.run_post_turn(
@@ -80,7 +90,7 @@ async def test_run_post_turn_forwards_the_turn(monkeypatch):
     monkeypatch.setattr(post_turn, "run_resolve_and_extract", recorder)
     event = TurnCommitted(game_id=uuid4(), previous_cycle=1, cycle=2, time="09h00",
                           user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
-    pool, session = object(), object()
+    pool, session = object(), _Session()
 
     await post_turn.run_post_turn(pool, session, event, triggers=None, message_content="texte",
                                   narrator_deltas={"a": 1})
@@ -117,7 +127,24 @@ async def test_post_turn_runs_extraction_then_cycle_hooks_then_turn_hooks(
     event = TurnCommitted(game_id=uuid4(), previous_cycle=1, cycle=cycle, time="09h00",
                           user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
 
-    await post_turn.run_post_turn(object(), object(), event, triggers=None,
+    session = _Session()
+    await post_turn.run_post_turn(object(), session, event, triggers=None,
                                   message_content="texte", narrator_deltas={})
 
     assert calls == expected
+    assert session.flushes == 1
+
+
+async def test_a_failed_post_turn_job_still_logs_its_calls(monkeypatch):
+    async def extraction(pool, game_id, **kwargs):
+        raise RuntimeError("extraction down")
+
+    _no_hooks(monkeypatch)
+    monkeypatch.setattr(post_turn, "run_resolve_and_extract", extraction)
+    event = TurnCommitted(game_id=uuid4(), previous_cycle=1, cycle=1, time="09h00",
+                          user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
+    session = _Session()
+    with pytest.raises(RuntimeError):
+        await post_turn.run_post_turn(object(), session, event, triggers=None,
+                                      message_content="texte", narrator_deltas={})
+    assert session.flushes == 1  # its paid calls are logged (#106)

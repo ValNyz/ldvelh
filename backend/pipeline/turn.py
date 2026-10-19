@@ -41,6 +41,15 @@ def _log_halted(ctx: TurnContext, started: float) -> None:
 
 async def run_turn(ctx: TurnContext) -> None:
     """Run one narration turn. Catches nothing: the API adapter reports failures."""
+    try:
+        await _run_turn(ctx)
+    finally:
+        # The request's paid calls, committed, halted, failed or disconnected alike (#106).
+        # A cancellation is delivered once: this await still runs after a disconnect.
+        await ctx.session.flush_calls()
+
+
+async def _run_turn(ctx: TurnContext) -> None:
     started = time.perf_counter()
     prepared = await load_turn(ctx)
     arbitration = await arbitrate(ctx, prepared)

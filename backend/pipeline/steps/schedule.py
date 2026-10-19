@@ -34,7 +34,7 @@ async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: C
     )
     supervisor.enqueue(ctx.request.game_id, "post_turn", run_post_turn(
         ctx.pool,
-        ctx.session,
+        ctx.session.for_background(),  # same turn, its own call buffer (flushed by the job)
         event,
         triggers=triggers or None,
         message_content=narrated.display_text,

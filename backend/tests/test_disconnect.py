@@ -454,14 +454,10 @@ async def test_cancelled_resend_does_not_make_the_next_request_busy(
 
 async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
         harness, fate_game, test_user, monkeypatch):
-    """Exhausted pool at commit time: a disconnect cancels the wait, nothing is saved."""
+    """Exhausted pool at commit time: a disconnect cancels the wait, nothing is saved; the
+    turn's paid calls are still logged once a connection frees (#106)."""
     game_id = UUID(fate_game)
     before = await _game_state(harness.pool, game_id)
-    # Without the call log: its insert would be the first wait for a connection, at the end
-    # of the narration stream (covered by the next test).
-    real_session = routes.LLMSession
-    monkeypatch.setattr(routes, "LLMSession",
-                        lambda *a, **kw: real_session(*a, **{**kw, "pool": None}))
     gate = asyncio.Event()
     harness.llm.stream_gate = gate
     narrated = asyncio.Event()
@@ -485,55 +481,24 @@ async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
         # yielding, so it is already blocked on the exhausted pool when this wait returns.
         await asyncio.wait_for(narrated.wait(), TIMEOUT)
         await stream.aclose()
-        await asyncio.wait({writer._task}, timeout=TIMEOUT)
-        assert writer._task.cancelled()  # done while the pool is still exhausted
+        await asyncio.wait({writer._task}, timeout=0.2)
+        # Cancelled at the commit wait, the turn now waits to flush its call log.
+        assert not writer._task.done()
     finally:
         for conn in held:
             await harness.pool.release(conn)
+    await asyncio.wait({writer._task}, timeout=TIMEOUT)
+    assert writer._task.cancelled()
 
     await asyncio.wait_for(harness.drain(), TIMEOUT)
     assert await _game_state(harness.pool, game_id) == before
     assert game_locks.is_held(game_id) is False
-
-
-async def test_disconnect_while_logging_the_narration_call_cancels_the_turn(
-        harness, fate_game, test_user, monkeypatch):
-    """Exhausted pool when the narration call is logged (#106): a disconnect cancels the
-    wait, nothing is saved."""
-    from llm.session import LLMSession
-
-    game_id = UUID(fate_game)
-    before = await _game_state(harness.pool, game_id)
-    gate, recording = asyncio.Event(), asyncio.Event()
-    harness.llm.stream_gate = gate
-    original_record = LLMSession._record
-
-    async def spy_record(self, purpose, provider, usage):
-        recording.set()
-        return await original_record(self, purpose, provider, usage)
-
-    monkeypatch.setattr(LLMSession, "_record", spy_record)
-    writer = routes.start_chat(routes.ChatRequest(message="Je regarde autour.", gameId=game_id),
-                               harness.pool, get_settings(), test_user["id"])
-    stream = writer.iterate()
-    await asyncio.wait_for(_read_until_chunk(stream), TIMEOUT)
-    recording.clear()  # the mechanical call was logged before the narration started
-    held = [await harness.pool.acquire() for _ in range(harness.pool.get_max_size())]
-    try:
-        harness.llm.stream_gate = None
-        gate.set()
-        # The narration's record goes from the spy to pool.acquire() without yielding.
-        await asyncio.wait_for(recording.wait(), TIMEOUT)
-        await stream.aclose()
-        await asyncio.wait({writer._task}, timeout=TIMEOUT)
-        assert writer._task.cancelled()  # done while the pool is still exhausted
-    finally:
-        for conn in held:
-            await harness.pool.release(conn)
-
-    await asyncio.wait_for(harness.drain(), TIMEOUT)
-    assert await _game_state(harness.pool, game_id) == before
-    assert game_locks.is_held(game_id) is False
+    async with harness.pool.acquire() as conn:
+        turn_id = await conn.fetchval(
+            "SELECT id FROM turns WHERE game_id = $1 ORDER BY created_at DESC LIMIT 1", game_id)
+        logged = await conn.fetch(
+            "SELECT purpose FROM llm_calls WHERE turn_id = $1 ORDER BY id", turn_id)
+    assert [r["purpose"] for r in logged] == ["mechanical", "narration"]
 
 
 async def test_disconnect_during_initial_director_releases_the_lock(
