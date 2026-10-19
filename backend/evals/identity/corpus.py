@@ -6,14 +6,17 @@ shape (unknown keys, negative offsets and malformed `expected` strings are rejec
 mechanical category rules (evals/identity/categories.py), reveals and knowledge flags.
 """
 
-import itertools
 from pathlib import Path
 from typing import Literal, NamedTuple
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from evals.identity.categories import category_error
+from evals.identity.categories import (
+    category_error,
+    knows_no_name,
+    missing_pronoun_mentions,
+)
 
 EntityType = Literal[
     "character", "location", "organization", "object", "protagonist", "companion", "arc"
@@ -238,12 +241,26 @@ def _offset_errors(where: str, text: str, mentions: list[GoldMention]) -> list[s
     starts = [m.start for m in mentions]
     for start in sorted({s for s in starts if starts.count(s) > 1}):
         errors.append(f"{where}: several mentions at the same start {start}")
-    spans = sorted((m.start, m.start + len(m.surface), m.surface) for m in mentions)
-    for (s1, e1, a), (s2, e2, b) in itertools.pairwise(spans):
-        if s2 < e1 and e2 > e1:
-            errors.append(
-                f"{where}: mentions {a!r}@{s1} and {b!r}@{s2} overlap without nesting"
-            )
+    errors += _nesting_errors(where, mentions)
+    errors += [f"{where}: {e}" for e in missing_pronoun_mentions(text, mentions)]
+    return errors
+
+
+def _nesting_errors(where: str, mentions: list[GoldMention]) -> list[str]:
+    """Sweep the spans with a stack of open ones: overlap without nesting, SKIP inside a SKIP."""
+    errors: list[str] = []
+    stack: list[GoldMention] = []
+    for m in sorted(mentions, key=lambda m: (m.start, -len(m.surface))):
+        while stack and stack[-1].start + len(stack[-1].surface) <= m.start:
+            stack.pop()
+        top = stack[-1] if stack else None
+        if top is not None and top.start != m.start:  # same start is reported apart
+            label = f"{where}: mentions {top.surface!r}@{top.start} and {m.surface!r}@{m.start}"
+            if m.start + len(m.surface) > top.start + len(top.surface):
+                errors.append(f"{label} overlap without nesting")
+            elif top.category == "SKIP" and m.category == "SKIP":
+                errors.append(f"{label}: a SKIP inside a SKIP (one mention)")
+        stack.append(m)
     return errors
 
 
@@ -389,6 +406,10 @@ def _world_errors(scene: Scene) -> list[str]:
         if entity.location is not None and entity.location not in seen:
             errors.append(
                 f"world: location {entity.location!r} of {entity.id!r} is not in the world"
+            )
+        if entity.known and knows_no_name(entity):
+            errors.append(
+                f"world: {entity.id!r} has no name the PC knows (descriptor only): known must be false"
             )
         if entity.secret and entity.id not in scene.scene.secrets:
             errors.append(

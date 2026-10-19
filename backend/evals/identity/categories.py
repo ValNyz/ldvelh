@@ -28,6 +28,52 @@ _DETERMINERS = {
 }  # fmt: skip
 
 
+# Personal pronouns are never mentions (documented departure from spec § 3.2, ANNOTATION § 4.1).
+PERSONAL_PRONOUNS = frozenset({
+    "je", "j'", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
+    "me", "m'", "te", "t'", "se", "s'", "le", "la", "les", "lui", "leur", "eux",
+    "moi", "toi", "soi",
+})  # fmt: skip
+# Indefinite and demonstrative pronouns a resolver could link or create from: always SKIP.
+INDEFINITE_PRONOUNS = frozenset({
+    "quelqu'un", "quiconque", "personne", "l'un", "l'une", "l'autre", "les autres",
+    "chacun", "chacune", "celui-ci", "celle-ci", "ceux-ci", "celles-ci",
+    "celui-là", "celle-là", "ceux-là", "celles-là",
+})  # fmt: skip
+# The unambiguous ones (never a determiner or a noun): every occurrence must be annotated.
+_UNAMBIGUOUS_PRONOUN_RE = re.compile(
+    r"(?<![\w'’-])(quelqu['’]un|quiconque|ce(?:lui|lle|ux|lles)-(?:ci|là))(?![\w-])",
+    re.IGNORECASE,
+)
+
+
+def _pronoun_key(surface: str) -> str:
+    return surface.strip().replace("’", "'").casefold()
+
+
+def pronoun_error(m: GoldMention) -> str | None:
+    key = _pronoun_key(m.surface)
+    if key in PERSONAL_PRONOUNS:
+        return "a personal pronoun is never a mention (ANNOTATION § 4.1)"
+    if key in INDEFINITE_PRONOUNS and (
+        m.category != "SKIP" or m.parsed.decision != "SKIP"
+    ):
+        return (
+            "an indefinite or demonstrative pronoun is always SKIP (ANNOTATION § 4.1)"
+        )
+    return None
+
+
+def missing_pronoun_mentions(text: str, mentions: list[GoldMention]) -> list[str]:
+    """Unambiguous indefinite/demonstrative pronouns of `text` that no mention covers."""
+    starts = {m.start for m in mentions}
+    return [
+        f"pronoun {found.group(0)!r} at {found.start()} must be annotated SKIP"
+        for found in _UNAMBIGUOUS_PRONOUN_RE.finditer(text)
+        if found.start() not in starts
+    ]
+
+
 def strip_determiner(text: str) -> str:
     """Drop one leading determiner (« la », « l' », « ce »…), keep case and accents."""
     text = text.strip().replace("’", "'")
@@ -44,11 +90,25 @@ def norm(text: str) -> str:
     return re.sub(r"\s+", " ", plain).strip()
 
 
+def label_is_a_name(entity: WorldEntity) -> bool:
+    """The label is a name when it is the true name or a `label` alias; otherwise a descriptor."""
+    return entity.label == entity.true_name or any(
+        a.kind == "label" and a.text == entity.label for a in entity.aliases
+    )
+
+
+def knows_no_name(entity: WorldEntity) -> bool:
+    """True when the PC knows the entity only by a descriptor (it must then be `known: false`)."""
+    return entity.true_name is None and not any(
+        a.known and a.kind in NAME_KINDS for a in entity.aliases
+    )
+
+
 def entity_names(entity: WorldEntity) -> set[str]:
-    """Normalized names of an entity (label, true name, name-like aliases; no descriptor)."""
+    """Normalized names of an entity (true name, name-like aliases, label if a name; no descriptor)."""
     names = {a.text for a in entity.aliases if a.kind in NAME_KINDS}
     names |= {n for n in (entity.true_name,) if n}
-    if entity.type not in PERSON_TYPES or entity.label == entity.true_name:
+    if label_is_a_name(entity):
         names.add(entity.label)
     return {norm(n) for n in names}
 
@@ -58,9 +118,17 @@ def exact_names(entity: WorldEntity) -> set[str]:
     kinds = {"true_name"} if entity.type in PERSON_TYPES else {"true_name", "label"}
     names = {a.text for a in entity.aliases if a.kind in kinds}
     names |= {n for n in (entity.true_name,) if n}
-    if entity.type not in PERSON_TYPES:
+    if entity.type not in PERSON_TYPES and label_is_a_name(entity):
         names.add(entity.label)
     return {strip_determiner(n) for n in names}
+
+
+def revealed_before(scene: Scene, m: GoldMention, entity_id: str) -> bool:
+    """A REVEAL of `entity_id` precedes `m` in the narration (the entity is reintroduced)."""
+    return any(
+        g.category == "REVEAL" and g.parsed.entity_id == entity_id and g.start < m.start
+        for g in scene.gold
+    )
 
 
 def is_shared_name(scene: Scene, surface: str) -> bool:
@@ -118,9 +186,12 @@ def _linked_category_error(
         return (
             f"category {m.category} on a name shared by several world entities (XTYPE)"
         )
+    reintroduced = not history and revealed_before(scene, m, entity.id)
     if m.category == "GAP":
+        if reintroduced:
+            return "GAP is not allowed after a REVEAL of the same entity in the turn"
         return gap_blocker(scene, entity)
-    if not history and gap_blocker(scene, entity) is None:
+    if not history and not reintroduced and gap_blocker(scene, entity) is None:
         return f"category {m.category} but the GAP conditions hold (GAP)"
     return _easy_error(scene, m, entity) if m.category == "EASY" else None
 
@@ -129,6 +200,9 @@ def category_error(
     scene: Scene, m: GoldMention, *, history: bool = False
 ) -> str | None:
     """The first mechanical rule `m.category` breaks, or None (history: MATCH/SKIP golds only)."""
+    pronoun = pronoun_error(m)
+    if pronoun:
+        return pronoun
     expected = m.parsed
     if expected.decision == "SKIP":
         return (

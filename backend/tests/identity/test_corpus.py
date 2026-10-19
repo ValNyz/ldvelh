@@ -336,8 +336,12 @@ def test_validation_requires_the_true_name_kind_on_a_reveal():
 def test_validation_rejects_a_reveal_of_a_name_already_known():
     scene = _scene()
     scene["world"][1]["known"] = True
+    scene["world"][1]["true_name"] = "Nahle"
+    scene["world"][1]["aliases"].append(
+        {"text": "Nahle", "kind": "true_name", "known": True}
+    )
     errors = validate_scene(Scene.model_validate(scene))
-    assert len(errors) == 1 and "known" in errors[0]
+    assert len(errors) == 1 and "already known" in errors[0]
 
 
 def test_gap_needs_the_scene_turn():
@@ -632,3 +636,185 @@ def test_sequence_cluster_key_must_be_the_gold_entity():
 def test_sequence_rejects_duplicate_turn_ids():
     seq = _sequence(turns=[_scene(id="seq-t1"), _scene(id="seq-t1")])
     assert any("duplicate turn id" in e for e in validate_sequence(seq))
+
+
+# --- fix round 2: overlap sweep, reveal versus GAP, nameless entities, pronouns ---
+
+
+def test_validation_finds_an_overlap_hidden_by_a_nested_span():
+    gold = [
+        {
+            "surface": "La Kethari âgée",
+            "category": "DESC",
+            "expected": "MATCH character_kethari_agee",
+        },
+        {
+            "surface": "Kethari",
+            "category": "DESC",
+            "expected": "MATCH character_kethari_agee",
+        },
+        {"surface": "âgée cligne", "category": "SKIP", "expected": "SKIP"},
+    ]
+    errors = _custom_errors(NARRATION, gold)
+    assert len(errors) == 1 and "overlap" in errors[0]
+
+
+def test_validation_rejects_a_skip_inside_a_skip():
+    gold = _scene()["gold"] + [
+        {
+            "surface": "paume",
+            "start": NARRATION.index("paume"),
+            "category": "SKIP",
+            "expected": "SKIP",
+        }
+    ]
+    errors = _errors(gold=gold)
+    assert len(errors) == 1 and "SKIP inside a SKIP" in errors[0]
+
+
+TESK_OLD = _entity(
+    "character_tesk",
+    "character",
+    "Tesk Vahrun-Oo",
+    true_name="Tesk Vahrun-Oo",
+    known=False,
+    last_seen_turn=3,
+    aliases=[
+        {"text": "Tesk Vahrun-Oo", "kind": "true_name", "known": False},
+        {"text": "Tesk", "kind": "short", "known": False},
+    ],
+)
+TESK_REVEAL = "— Tesk Vahrun-Oo, dit-il. Tesk suffit."
+
+
+def _tesk_reveal(short_category: str) -> list[str]:
+    gold = [
+        {
+            "surface": "Tesk Vahrun-Oo",
+            "category": "REVEAL",
+            "expected": "ALIAS character_tesk true_name",
+        },
+        {
+            "surface": "Tesk",
+            "start": TESK_REVEAL.index("Tesk suffit"),
+            "category": short_category,
+            "expected": "ALIAS character_tesk short",
+            "accept_also": ["MATCH character_tesk"],
+        },
+    ]
+    return _custom_errors(
+        TESK_REVEAL,
+        gold,
+        world_extra=[TESK_OLD],
+        turn=21,
+        gold_effects={
+            "reveals": [{"ref": "character_tesk", "real_name": "Tesk Vahrun-Oo"}],
+            "merges": [],
+            "forbidden_merges": [],
+        },
+        gold_knowledge=[TESK_NAME],
+    )
+
+
+def test_a_short_form_after_a_reveal_is_part_even_when_gap_conditions_hold():
+    assert _tesk_reveal("PART") == []
+
+
+def test_gap_is_not_allowed_after_a_reveal_in_the_same_turn():
+    errors = _tesk_reveal("GAP")
+    assert len(errors) == 1 and "REVEAL" in errors[0]
+
+
+ROOM = _entity(
+    "location_salle_au_bout_du_couloir",
+    "location",
+    "la salle au bout du couloir",
+    descriptor="la salle au bout du couloir",
+    known=False,
+    aliases=[
+        {"text": "la salle au bout du couloir", "kind": "descriptor", "known": True}
+    ],
+)
+BADGE = "Le badge dit : Salle des Pompes. Tu entres dans la salle au bout du couloir."
+
+
+def _room_scene(room=ROOM, room_category="DESC") -> list[str]:
+    gold = [
+        {
+            "surface": "Salle des Pompes",
+            "category": "REVEAL",
+            "expected": "ALIAS location_salle_au_bout_du_couloir true_name",
+        },
+        {
+            "surface": "la salle au bout du couloir",
+            "category": room_category,
+            "expected": "MATCH location_salle_au_bout_du_couloir",
+        },
+    ]
+    effects = {
+        "reveals": [
+            {
+                "ref": "location_salle_au_bout_du_couloir",
+                "real_name": "Salle des Pompes",
+            }
+        ],
+        "merges": [],
+        "forbidden_merges": [],
+    }
+    return _custom_errors(BADGE, gold, world_extra=[room], gold_effects=effects)
+
+
+def test_a_nameless_location_can_be_revealed():
+    assert _room_scene() == []
+
+
+def test_a_nameless_entity_must_have_known_false():
+    errors = _room_scene(room={**ROOM, "known": True})
+    assert any("known" in e and "world" in e for e in errors)
+
+
+def test_the_label_of_a_nameless_entity_is_a_descriptor_not_an_easy_name():
+    errors = _room_scene(room_category="EASY")
+    assert len(errors) == 1 and "EASY" in errors[0]
+
+
+def test_a_personal_pronoun_is_never_a_mention():
+    narration = "Elle cligne des yeux."
+    errors = _custom_errors(
+        narration,
+        [
+            {
+                "surface": "Elle",
+                "category": "DESC",
+                "expected": "MATCH character_kethari_agee",
+            }
+        ],
+    )
+    assert len(errors) == 1 and "pronoun" in errors[0]
+
+
+def test_an_indefinite_pronoun_is_skip():
+    narration = "Il y a quelqu'un devant toi."
+    errors = _custom_errors(
+        narration,
+        [
+            {
+                "surface": "quelqu'un",
+                "category": "DESC",
+                "expected": "MATCH character_kethari_agee",
+            }
+        ],
+    )
+    assert len(errors) == 1 and "SKIP" in errors[0]
+    assert (
+        _custom_errors(
+            narration,
+            [{"surface": "quelqu'un", "category": "SKIP", "expected": "SKIP"}],
+        )
+        == []
+    )
+
+
+def test_an_unannotated_indefinite_pronoun_is_reported():
+    errors = _custom_errors("Il y a quelqu'un devant toi.", [])
+    assert len(errors) == 1 and "quelqu'un" in errors[0]

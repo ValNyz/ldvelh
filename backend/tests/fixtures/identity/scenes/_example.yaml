@@ -396,10 +396,18 @@ history:
     start: 21
     category: DESC
     expected: MATCH character_tesk_vahrun_oo
+  - surface: quelqu'un
+    start: 187
+    category: SKIP
+    expected: SKIP
   - surface: la Serre Numéro Quatre
     start: 204
     category: EASY
     expected: MATCH location_serre_numero_quatre
+  - surface: quelqu'un
+    start: 235
+    category: SKIP
+    expected: SKIP
   - surface: la serre
     start: 271
     category: PART
@@ -473,6 +481,10 @@ history:
     start: 645
     category: PART
     expected: MATCH location_hall_d_arrivee_quai_sud
+  - surface: Personne
+    start: 651
+    category: SKIP
+    expected: SKIP
   - surface: ce Bureau des Résidences
     start: 676
     category: XTYPE
@@ -538,6 +550,10 @@ history:
     start: 398
     category: PART
     expected: MATCH location_coursive_du_hall
+  - surface: quelqu'un
+    start: 466
+    category: SKIP
+    expected: SKIP
   - surface: le terminal du Kethari au tablier
     start: 559
     category: SKIP
@@ -589,6 +605,10 @@ history:
     expected: MATCH location_coursive_du_hall
   - surface: Mes yeux
     start: 270
+    category: SKIP
+    expected: SKIP
+  - surface: Personne
+    start: 398
     category: SKIP
     expected: SKIP
   - surface: le Kethari au tablier
@@ -666,6 +686,10 @@ gold:
   expected: SKIP
 - surface: la poignée de sa valise
   start: 261
+  category: SKIP
+  expected: SKIP
+- surface: quelqu'un
+  start: 326
   category: SKIP
   expected: SKIP
 - surface: le Kethari au tablier
