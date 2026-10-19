@@ -353,9 +353,18 @@ async def test_undo_ignores_a_dropped_column(test_pool, world):
             {"mood": "calme", "ghost_col": 1},
             {"mood": "triste", "ghost_col": 2},
         )
-        await _undo(conn, turn_id)
+        await conn.execute(
+            """INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row, new_row)
+            VALUES ($1, 'characters', $2, 'U', $3::jsonb, $4::jsonb)""",
+            turn_id,
+            char_id,
+            {"ghost_col": 0},
+            {"ghost_col": 1},
+        )
+        replayed = await _undo(conn, turn_id)
         mood = await conn.fetchval("SELECT mood FROM characters WHERE id = $1", char_id)
     assert mood == "calme"
+    assert replayed == 1  # the U with no surviving column is skipped, not counted
 
 
 async def test_undo_writes_no_journal(test_pool, world):
@@ -397,7 +406,7 @@ async def test_undo_still_enforces_foreign_keys(test_pool, world):
 
 
 async def test_undo_skips_rows_of_a_dropped_table(test_pool, world):
-    """Whatever the op: the table's rows went with it."""
+    """Whatever the op: the table's rows went with it. Skipped rows are not counted."""
     _, turn_id = world
     async with test_pool.acquire() as conn:
         for op, old_row in (("I", None), ("U", {"x": 1}), ("D", {"id": None, "x": 1})):
@@ -408,7 +417,7 @@ async def test_undo_skips_rows_of_a_dropped_table(test_pool, world):
                 op,
                 old_row,
             )
-        assert await _undo(conn, turn_id) == 3
+        assert await _undo(conn, turn_id) == 0
 
 
 async def test_undo_refuses_a_table_that_is_not_journaled(test_pool, world):

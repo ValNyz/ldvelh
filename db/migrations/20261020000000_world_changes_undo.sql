@@ -96,11 +96,13 @@ END;
 $$;
 
 -- Undo the journal of p_turn_ids, newest change first; returns the number of journal rows
--- replayed. Idempotent: a row already deleted, already present or already restored is a
--- no-op. Keys of old_row that are no longer columns of the table are ignored; on a D,
--- columns added since the row was journaled take their default. A row on a table that no
--- longer exists is skipped, whatever its op (the table's rows are gone with it); a row on
--- an existing table that is not journaled (no zz_journal_id trigger) raises.
+-- replayed, skipped rows (dropped table, no surviving column) not counted; a replayed row
+-- that changes nothing (already undone) still counts. Idempotent: a row already deleted,
+-- already present or already restored is a no-op. Keys of old_row that are no longer
+-- columns of the table are ignored; on a D, columns added since the row was journaled
+-- take their default. A row on a table that no longer exists is skipped, whatever its op
+-- (the table's rows are gone with it); a row on an existing table that is not journaled
+-- (no zz_journal_id trigger) raises.
 -- Caller's transaction: the call ends with SET CONSTRAINTS ALL IMMEDIATE, so the replay's
 -- deferred foreign keys are all checked inside the call (a broken reference raises here),
 -- and any constraint the caller had deferred is immediate again afterwards.
@@ -119,7 +121,6 @@ BEGIN
   FOR r IN SELECT table_name, row_id, op, old_row FROM public.world_changes
             WHERE turn_id = ANY(p_turn_ids) ORDER BY id DESC
   LOOP
-    v_count := v_count + 1;
     v_table := to_regclass(format('public.%I', r.table_name));
     IF v_table IS NULL THEN
       CONTINUE;
@@ -130,6 +131,7 @@ BEGIN
     END IF;
     IF r.op = 'I' THEN
       EXECUTE format('DELETE FROM %s WHERE id = $1', v_table) USING r.row_id;
+      v_count := v_count + 1;
       CONTINUE;
     END IF;
     SELECT string_agg(quote_ident(a.attname), ', ' ORDER BY a.attnum)
@@ -140,6 +142,7 @@ BEGIN
     IF v_cols IS NULL THEN
       CONTINUE;
     END IF;
+    v_count := v_count + 1;
     IF r.op = 'U' THEN
       EXECUTE format(
         'UPDATE %s SET (%s) = (SELECT %s FROM jsonb_populate_record(NULL::%s, $1)) '

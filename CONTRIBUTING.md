@@ -101,7 +101,7 @@ Turn journal (#105): every table holding world state must be attached to the jou
 | `SUPERVISOR_MAX_GAMES` | Games that may run a background job (extraction, Director) at once; at least 1 | `3` |
 | `SUPERVISOR_DRAIN_TIMEOUT` | Seconds the shutdown waits for background jobs before cancelling them; greater than 0. Keep it, plus the 5 s cancel grace, under `stop_grace_period` | `20` |
 | `SUPERVISOR_CANCEL_TIMEOUT` | Seconds a rollback waits for the game's cancelled background jobs; greater than 0 | `10` |
-| `ROLLBACK_ENGINE` | `journal` replays the turn journal; `cycle` is the legacy cycle-based rollback, kept one release (WARNING at startup). Do not switch back to `journal` for games rolled back under `cycle` meanwhile: the cycle path rewrites world rows outside the journal | `journal` |
+| `ROLLBACK_ENGINE` | `journal` replays the turn journal; `cycle` is the legacy cycle-based rollback, kept one release (WARNING at startup; removal #160). Do not switch back to `journal` for games rolled back under `cycle` meanwhile: the cycle path rewrites world rows outside the journal | `journal` |
 
 ## Running tests
 

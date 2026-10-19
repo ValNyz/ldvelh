@@ -645,3 +645,14 @@ async def test_rollback_delete_waits_for_a_held_message(test_pool, test_user):
     await asyncio.wait_for(deleting, 5)
     async with test_pool.acquire() as conn:
         assert await conn.fetchval("SELECT 1 FROM messages WHERE id = $1", message_id) is None
+
+
+async def test_every_reference_to_turns_is_moved_by_the_adoption(test_pool):
+    """A new foreign key to turns missing from _TURN_REFERENCES would make the adoption's
+    DELETE fail (NO ACTION: every Fate resume stuck) or lose its rows' turn (SET NULL)."""
+    async with test_pool.acquire() as conn:
+        referencing = {r["t"] for r in await conn.fetch(
+            """SELECT conrelid::regclass::text AS t FROM pg_constraint
+               WHERE contype = 'f' AND confrelid = 'turns'::regclass""")}
+    assert set(turns._TURN_REFERENCES) == referencing
+    assert turns._TURN_REFERENCES[0] == "world_changes"

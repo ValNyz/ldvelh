@@ -361,7 +361,7 @@ async def test_legacy_resume_after_its_halted_turn_was_purged(
     harness, pending, monkeypatch
 ):
     """A P5a resume whose halted turn an earlier rollback purged, with the roll's insert:
-    the dangling old turn_id is cleared and the roll removed after the undo."""
+    the roll is removed before the undo, so its claim restores no dangling turn_id."""
     game_id, event = pending
     before = await _roll_state(harness, game_id, event["roll_id"])
     restore = _without_adoption(monkeypatch)
@@ -379,6 +379,67 @@ async def test_legacy_resume_after_its_halted_turn_was_purged(
     await rollback_last_turn(harness, game_id)
     after = await _roll_state(harness, game_id, event["roll_id"])
     assert after["roll"] is None
+    assert after["fate_points"] == before["fate_points"]
+    assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
+
+
+async def _second_pending_roll(harness, game_id) -> dict:
+    """The next action halts on a Fate roll again (the fixture keeps the dice at -1)."""
+    harness.llm._responses["mechanical"] = payloads.mechanical(
+        requires_test=True, skill="Athlétisme", skill_value=0, difficulty=4
+    )
+    events = await harness.chat(game_id, "Je saute encore.")
+    return next(e for e in events if e["type"] == "roll_pending")
+
+
+async def _rolls(harness, game_id) -> list:
+    async with harness.pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT id FROM mechanic_rolls WHERE game_id = $1", game_id
+        )
+
+
+async def test_two_legacy_resumes_with_purged_halted_turns_roll_back_together(
+    harness, pending, monkeypatch
+):
+    """Final review I1: two P5a resumes whose halted turns an earlier rollback purged.
+    Undone, each claim puts its roll back to pending (one per game, not deferrable)
+    with no insert left to remove it: the orphaned rolls go before the undo."""
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    restore = _without_adoption(monkeypatch)
+    await _resume(harness, game_id, event)
+    first_resume = await last_user_message_id(harness, game_id)
+    await _resume(harness, game_id, await _second_pending_roll(harness, game_id))
+    await _play_on(harness, game_id)
+    restore()
+    await rollback_last_turn(harness, game_id)  # purges both open halted turns
+
+    await _rollback_to(harness, game_id, first_resume)
+    after = await _roll_state(harness, game_id, event["roll_id"])
+    assert await _rolls(harness, game_id) == []
+    assert after["fate_points"] == before["fate_points"]
+    assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
+
+
+async def test_a_purged_and_an_open_legacy_halted_turn_roll_back_together(
+    harness, pending, monkeypatch
+):
+    """Same, the second halted turn still open: the repair adopts it while the first
+    roll is orphaned."""
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    restore = _without_adoption(monkeypatch)
+    await _resume(harness, game_id, event)
+    first_resume = await last_user_message_id(harness, game_id)
+    await _play_on(harness, game_id)
+    await rollback_last_turn(harness, game_id)  # purges the first halted turn
+    await _resume(harness, game_id, await _second_pending_roll(harness, game_id))
+    restore()
+
+    await _rollback_to(harness, game_id, first_resume)
+    after = await _roll_state(harness, game_id, event["roll_id"])
+    assert await _rolls(harness, game_id) == []
     assert after["fate_points"] == before["fate_points"]
     assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
 

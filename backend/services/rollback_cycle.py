@@ -1,4 +1,6 @@
-"""Legacy cycle-based rollback, kept one release behind ROLLBACK_ENGINE=cycle (#22)."""
+"""Legacy cycle-based rollback, kept one release behind ROLLBACK_ENGINE=cycle (#22).
+
+Removed with the flag, rollback_to_cycle and messages.engine_snapshot in #160."""
 
 import logging
 from uuid import UUID

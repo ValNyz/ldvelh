@@ -59,19 +59,19 @@ def plan_rollback(
     )
 
 
-async def _adopt_legacy_halted_turns(
+async def _repair_resumed_rolls(
     conn, game_id: UUID, turn_ids: list[UUID]
 ) -> list[UUID]:
-    """Resumes committed before a resuming turn adopted its halted turn (P5a games).
+    """The resumes among `turn_ids`, found by their claim: a mechanic_rolls U whose old
+    turn_id is the halted turn that stored the roll. Returns the rolls the undo cannot
+    remove.
 
-    Their claim is journaled as a mechanic_rolls U whose old turn_id is the halted turn:
-    - still there (open): adopted now, as the commit does today, so the undo removes the roll;
-    - already purged by an earlier rollback (with the roll's insert): the old turn_id is
-      cleared in the journal row, which goes with its turn in this transaction, so the
-      undo cannot restore a dangling reference. Returns those rolls: the undo leaves them
-      pending with no insert left to undo, the caller deletes them. A resume committed
-      with adoption also lands here (its halted turn is gone): the roll's insert, moved to
-      the resuming turn, removes the roll anyway and the caller's delete finds nothing."""
+    - Halted turn still open (a resume committed before the adoption, P5a games): adopted
+      now, as the commit does today, so the undo removes the roll with its insert.
+    - Halted turn gone: either adopted at commit (every resume since P5b: the roll's
+      insert moved to the resuming turn) or purged by an earlier rollback with the roll's
+      insert (P5a games). The roll is returned in both cases; in the first one the undo
+      would have removed it anyway."""
     rows = await conn.fetch(
         """SELECT DISTINCT turn_id, row_id, old_row ->> 'turn_id' AS halted
            FROM world_changes
@@ -86,14 +86,6 @@ async def _adopt_legacy_halted_turns(
             continue
         if await conn.fetchval("SELECT 1 FROM turns WHERE id = $1", halted):
             continue
-        await conn.execute(
-            """UPDATE world_changes SET old_row = jsonb_set(old_row, '{turn_id}', 'null')
-               WHERE turn_id = $1 AND row_id = $2 AND table_name = 'mechanic_rolls'
-                 AND old_row ->> 'turn_id' = $3""",
-            r["turn_id"],
-            r["row_id"],
-            r["halted"],
-        )
         orphaned.append(r["row_id"])
     return orphaned
 
@@ -118,13 +110,18 @@ async def undo_turns(conn, game_id: UUID, plan: RollbackPlan) -> dict:
         # A roll pending now belongs to an open turn purged below: expire it (R12) before
         # the undo, which may put an older roll back to pending (one per game).
         await turns.expire_pending_rolls(conn, game_id)
-        orphaned_rolls = await _adopt_legacy_halted_turns(conn, game_id, plan.turn_ids)
-        undone = await _undo_changes(conn, plan.turn_ids)
+        orphaned_rolls = await _repair_resumed_rolls(conn, game_id, plan.turn_ids)
         if orphaned_rolls:
+            # Before the undo: with no insert left to undo, it could only put these rolls
+            # back to pending (one per game, not deferrable: two of them fail) and never
+            # remove them. Deleted now, their claim's U finds no row, so it cannot restore
+            # a turn_id pointing at the purged halted turn either.
             await conn.execute(
-                "DELETE FROM mechanic_rolls WHERE id = ANY($1) AND status = 'pending'",
+                "DELETE FROM mechanic_rolls WHERE id = ANY($1) AND game_id = $2",
                 orphaned_rolls,
+                game_id,
             )
+        undone = await _undo_changes(conn, plan.turn_ids)
         # After the undo: a restored row may point at a turn deleted here; the undo checks
         # its foreign keys while those turns still exist, then deleting them sets the
         # references NULL.
