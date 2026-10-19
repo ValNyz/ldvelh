@@ -225,16 +225,32 @@ def load_split(root: Path) -> Split:
     return Split.model_validate(_read_yaml(Path(root) / "split.yaml"))
 
 
-def test_fingerprint(root: Path) -> str:
+def file_name_errors(root: Path) -> list[str]:
+    """Measured scene files not named `<scene id>.yaml` (the fingerprint relies on it)."""
+    errors = []
+    for path in sorted((Path(root) / "scenes").glob("*.yaml")):
+        if path.name.startswith("_"):
+            continue
+        scene_id = (_read_yaml(path) or {}).get("id")
+        if path.stem != scene_id:
+            errors.append(
+                f"scenes/{path.name}: scene id {scene_id!r} (file must be <id>.yaml)"
+            )
+    return errors
+
+
+def fingerprint_test_split(root: Path) -> str:
     """sha256 of the test split's scene files, sorted by id (the content of TEST_SHA256).
 
     Each file is hashed with its id and byte length in front, so that renaming,
     moving a scene between dev and test or editing it all change the fingerprint.
+    Line endings are normalised to LF first: a CRLF checkout keeps the same hash.
     """
     root = Path(root)
     digest = hashlib.sha256()
     for scene_id in sorted(load_split(root).test):
-        data = (root / "scenes" / f"{scene_id}.yaml").read_bytes()
+        raw = (root / "scenes" / f"{scene_id}.yaml").read_bytes()
+        data = raw.replace(b"\r\n", b"\n")
         digest.update(f"{scene_id}\n{len(data)}\n".encode())
         digest.update(data)
     return digest.hexdigest()

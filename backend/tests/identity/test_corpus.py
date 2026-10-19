@@ -861,9 +861,27 @@ def _share_errors(scenes, split) -> list[str]:
     return errors
 
 
+# Spec § 3.3: >= 50 mentions per hard category. Once a split is frozen (non-empty, the
+# fingerprint is not the empty digest) every hard category must reach it, so the band
+# above applies to all six and the check cannot stay vacuous.
+FROZEN_MIN_MENTIONS = 50
+EMPTY_DIGEST = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+
+def _coverage_errors(scenes, split, frozen: str) -> list[str]:
+    if not split.test or frozen == EMPTY_DIGEST:
+        return []
+    shares = shares_in_test(scenes, split)
+    return [
+        f"{c}: {shares.get(c, (0, 0))[1]} mentions, {FROZEN_MIN_MENTIONS} needed"
+        for c in HARD_CATEGORIES
+        if shares.get(c, (0, 0))[1] < FROZEN_MIN_MENTIONS
+    ]
+
+
 def test_frozen_test_split_fingerprint_matches():
     frozen = (ROOT / "TEST_SHA256").read_text(encoding="utf-8").strip()
-    assert corpus.test_fingerprint(ROOT) == frozen, (
+    assert corpus.fingerprint_test_split(ROOT) == frozen, (
         "the test split changed: a gold correction of the test needs its own PR "
         "(ANNOTATION.md § 12), then scripts/identity_corpus_split.py --freeze"
     )
@@ -875,6 +893,8 @@ def test_split_is_stratified_and_disjoint():
     assert not set(split.dev) & set(split.test)
     assert sorted(split.dev + split.test) == sorted(s.id for s in scenes)
     assert _share_errors(scenes, split) == []
+    frozen = (ROOT / "TEST_SHA256").read_text(encoding="utf-8").strip()
+    assert _coverage_errors(scenes, split, frozen) == []
 
 
 def _synthetic_scene(scene_id: str, categories: list[str]) -> Scene:
@@ -913,6 +933,50 @@ def test_split_script_writes_the_split_and_its_fingerprint(tmp_path):
     split = load_split(tmp_path)
     assert sorted(split.dev + split.test) == [f"s{i}" for i in range(5)]
     frozen = (tmp_path / "TEST_SHA256").read_text(encoding="utf-8").strip()
-    assert frozen == corpus.test_fingerprint(tmp_path)
+    assert frozen == corpus.fingerprint_test_split(tmp_path)
     (tmp_path / "scenes" / f"{split.test[0]}.yaml").write_text("id: x\n")
-    assert corpus.test_fingerprint(tmp_path) != frozen
+    assert corpus.fingerprint_test_split(tmp_path) != frozen
+
+
+def test_a_frozen_split_needs_fifty_mentions_per_hard_category():
+    scenes = [_synthetic_scene(f"s{i}", ["PART", "DESC"]) for i in range(4)]
+    split = stratified_split(scenes, ratio=0.6, seed=42)
+    assert _coverage_errors(scenes, split, EMPTY_DIGEST) == []
+    errors = _coverage_errors(scenes, split, "0" * 64)
+    assert len(errors) == 6 and errors[0].startswith("PART: 4 mentions")
+
+
+def _write_scenes(root, ids, *, names=None) -> None:
+    import yaml
+
+    (root / "scenes").mkdir()
+    for scene_id, name in zip(ids, names or ids, strict=True):
+        text = yaml.safe_dump(_scene(id=scene_id), allow_unicode=True)
+        (root / "scenes" / f"{name}.yaml").write_text(text, encoding="utf-8")
+
+
+def test_fingerprint_ignores_line_endings(tmp_path):
+    _write_scenes(tmp_path, ["s0"])
+    (tmp_path / "split.yaml").write_text("dev: []\ntest: [s0]\n", encoding="utf-8")
+    lf = corpus.fingerprint_test_split(tmp_path)
+    path = tmp_path / "scenes" / "s0.yaml"
+    path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    assert corpus.fingerprint_test_split(tmp_path) == lf
+
+
+def test_scene_file_name_must_be_its_id(tmp_path):
+    _write_scenes(tmp_path, ["s0", "s1"], names=["s0", "other"])
+    errors = corpus.file_name_errors(tmp_path)
+    assert len(errors) == 1 and "other.yaml" in errors[0] and "'s1'" in errors[0]
+
+
+def test_committed_scene_files_are_named_after_their_id():
+    assert corpus.file_name_errors(ROOT) == []
+
+
+def test_split_script_refuses_a_file_not_named_after_its_scene(tmp_path):
+    from scripts.identity_corpus_split import main
+
+    _write_scenes(tmp_path, ["s0"], names=["other"])
+    assert main(["--root", str(tmp_path), "--freeze"]) == 1
+    assert not (tmp_path / "split.yaml").exists()

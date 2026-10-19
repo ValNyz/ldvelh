@@ -115,27 +115,30 @@ def test_report_prints_the_single_annotator_caveat_and_both_floor_readings():
     assert data["caveat"] == CAVEAT
 
 
-def test_report_gate_rows_use_the_mean_of_runs_and_pooled_scene_bootstrap():
+def test_report_gate_rows_use_the_pooled_estimator_and_pooled_scene_bootstrap():
     _, data = _render()
     pool = _row(data, "hard_pool")
-    assert pool["per_run"] == [1.0, 2 / 3, 1.0]
-    assert math.isclose(pool["mean"], (1 + 2 / 3 + 1) / 3)
-    assert pool["threshold"] == 0.90 and pool["verdict"] == "ÉCHEC"
     pooled = [s for run in RUNS for s in run]
+    assert pool["per_run"] == [1.0, 2 / 3, 1.0]
+    assert pool["estimator"] == "pooled"
+    assert pool["value"] == aggregate(pooled).hard_pool.value
+    assert math.isclose(pool["value"], (1 + 2 / 3 + 1) / 3)
+    assert pool["threshold"] == 0.90 and pool["verdict"] == "ÉCHEC"
     expected = bootstrap.ci(
         pooled, lambda s: aggregate(s).hard_pool.value, iterations=200
     )
     assert pool["ci"] == list(expected)
     assert _row(data, "easy_pool")["verdict"] == "OK"
-    assert _row(data, "c_at_10")["mean"] == 1.0
+    assert _row(data, "c_at_10")["value"] == 1.0
     assert data["gate_passed"] is False
+    assert pool["undefined_draws"] == 0
 
 
 def test_report_names_missing_hard_categories_and_never_passes_the_macro():
     markdown, data = _render()
     assert data["missing_hard_categories"] == ["GAP", "REVEAL", "XTYPE"]
     macro = _row(data, "hard_macro")
-    assert macro["mean"] is None and macro["verdict"] == "ÉCHEC"
+    assert macro["value"] is None and macro["verdict"] == "ÉCHEC"
     assert "GAP, REVEAL, XTYPE" in markdown
 
 
@@ -174,3 +177,31 @@ def test_report_prints_the_cheap_tier_line_and_coref_lines():
     assert data["coref"]["b_cubed"]["mean"] == 1.0
     assert data["coref"]["ceaf_e"]["mean"] == 1.0
     assert "B³" in markdown and "CEAF-e" in markdown
+
+
+def test_report_never_reads_as_a_complete_pass_while_r_p_l_are_unmeasured():
+    markdown, data = _render()
+    assert data["gate_complete"] is False
+    assert "incomplète (R, P, L non mesurés)" in markdown
+
+
+def test_report_takes_c_at_10_from_the_dev_and_test_blocking_run_when_given():
+    miss = RunResult("b", [], {0: ["location_cantine"], 10: ["protagonist_val"]}, {})
+    scores = [_run(False)[0], score_scene(SCENE_B, miss)]
+    markdown, data = _render(c_at_10_scores=scores)
+    row = _row(data, "c_at_10")
+    assert row["value"] == 3 / 4 and row["per_run"] == [3 / 4]
+    assert row["verdict"] == "ÉCHEC"
+    assert data["c_at_10_source"] == "dev + test, 1 run"
+    _, default = _render()
+    assert default["c_at_10_source"] == "runs of this report"
+    assert "dev + test" in markdown
+
+
+def test_report_counts_the_bootstrap_draws_where_a_row_is_undefined():
+    markdown, data = _render()
+    assert _row(data, "hard_macro")["undefined_draws"] == 200
+    # PART is only in scene b: a draw without b leaves it undefined
+    part = _row(data, "A_PART")["undefined_draws"]
+    assert 0 < part < 200
+    assert "tirages" in markdown

@@ -2,7 +2,7 @@
 
 The split is stratified by each scene's dominant category (evals/identity/split.py) and
 written to tests/fixtures/identity/split.yaml. `--freeze` then writes TEST_SHA256, the
-sha256 of the test scene files (corpus.test_fingerprint), checked by the CI.
+sha256 of the test scene files (corpus.fingerprint_test_split), checked by the CI.
 
 While the corpus is being annotated, rerun it with `--freeze` after each new scene.
 Once the corpus is complete the test split is frozen (D25): never re-split it; a gold
@@ -44,7 +44,7 @@ def write_split(root: Path, split: Split, *, ratio: float, seed: int) -> None:
 
 
 def write_fingerprint(root: Path) -> str:
-    fingerprint = corpus.test_fingerprint(root)
+    fingerprint = corpus.fingerprint_test_split(root)
     (root / "TEST_SHA256").write_text(fingerprint + "\n", encoding="utf-8")
     return fingerprint
 
@@ -59,6 +59,10 @@ def main(argv: list[str] | None = None) -> int:
         "--keep-split", action="store_true", help="keep split.yaml as it is"
     )
     args = parser.parse_args(argv)
+    misnamed = corpus.file_name_errors(args.root)
+    if misnamed:
+        print("\n".join(misnamed), file=sys.stderr)
+        return 1
     scenes = load_scenes(args.root)
     if args.keep_split:
         split = load_split(args.root)

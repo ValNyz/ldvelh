@@ -7,11 +7,18 @@ per-category floors (0.85; 0.88 once every hard category has 60 test mentions), 
 spurious-decision rates and NEW type errors, the category x type table, the cheap tier
 alone, the deterministic share, the cost per turn, and B³/CEAF-e on sequences.
 
-A row's value is the mean over runs of the per-run metric (nan if a run has none); its
-interval is computed on the POOLED scores of all runs, resampled by whole scenes
-(bootstrap.ci). A row that cannot be computed fails. R, P and L (knowledge checks,
-§ 3.4 bis) are not measured here and are listed as such; B³ is reported, not gated,
-until PR 5. The report is written in French, like the spec it is read against.
+One estimator for the verdict and the interval: a row's value is the metric of the
+POOLED scores of all runs (`aggregate(run1 + run2 + run3)`, equal to the mean of the runs
+when every run scores the same scenes), and its interval resamples those pooled scores
+by whole scenes (bootstrap.ci); the per-run values are kept in the json. A row that
+cannot be computed fails. Bootstrap draws where a row is undefined (a category absent
+from the draw) are dropped by bootstrap.ci; the report counts them per row and prints
+them, so a narrow interval on few valid draws is visible. C@10 is defined on dev + test
+in one run (spec § 3.5): the runner passes those scores as `c_at_10_scores`; without
+them the row falls back on the runs of this report, and the source is printed. R, P
+and L (knowledge checks, § 3.4 bis) are not measured here: `gate_passed` covers the
+measured rows only and `gate_complete` stays false. B³ is reported, not gated, until
+PR 5. The report is written in French, like the spec it is read against.
 """
 
 from __future__ import annotations
@@ -45,6 +52,11 @@ DEFAULT_THRESHOLDS = {
 }
 MIN_TYPE_SHARE = 0.15  # spec § 3.2: no type under 15 % of the hard mentions
 OK, FAIL = "OK", "ÉCHEC"
+C_AT_10_SOURCES = {
+    "dev + test, 1 run": "blocage sur dev + test, 1 exécution (spec § 3.5)",
+    "runs of this report": "sur les exécutions de ce rapport (la spec le définit "
+    "sur dev + test, 1 exécution)",
+}
 NOT_MEASURED = (
     ("R", "Révélations correctes R", "≥ 0,90"),
     ("P", "Erreurs de point de vue P", "≤ 0,05"),
@@ -135,23 +147,30 @@ class _Aggregator:
 # --- gate rows --------------------------------------------------------------
 
 
-def _row(name, label, op, threshold, extract, ctx) -> dict:
-    per_run = [extract(m) for m in ctx["metrics"]]
-    mean = _mean(per_run)
-    interval = bootstrap.ci(
-        ctx["pooled"],
-        lambda scores: extract(ctx["aggregate"](scores)),
-        iterations=ctx["iterations"],
-    )
+def _row(name, label, op, threshold, extract, ctx, source: str = "runs") -> dict:
+    """One gate row on `ctx[source]` = (per-run metrics, pooled scores)."""
+    metrics, pooled = ctx[source]
+    value = extract(ctx["aggregate"](pooled))
+    undefined = 0
+
+    def replicate(scores: list[SceneScore]) -> float:
+        nonlocal undefined
+        result = extract(ctx["aggregate"](scores))
+        undefined += math.isnan(result)
+        return result
+
+    interval = bootstrap.ci(pooled, replicate, iterations=ctx["iterations"])
     return {
         "name": name,
         "label": label,
         "op": op,
         "threshold": threshold,
-        "per_run": per_run,
-        "mean": mean,
+        "estimator": "pooled",
+        "per_run": [extract(m) for m in metrics],
+        "value": value,
         "ci": list(interval),
-        "verdict": _verdict(mean, op, threshold),
+        "undefined_draws": undefined,
+        "verdict": _verdict(value, op, threshold),
     }
 
 
@@ -164,7 +183,7 @@ def _category_extract(category: str) -> Callable[[Metrics], float]:
 
 
 def _floors(ctx: dict, thresholds: dict) -> dict:
-    first = ctx["metrics"][0].by_category
+    first = ctx["runs"][0][0].by_category
     mentions = {c: first[c].total if c in first else 0 for c in HARD_CATEGORIES}
     minimum = thresholds["binding_min_mentions"]
     applies = all(n >= minimum for n in mentions.values())
@@ -186,7 +205,7 @@ def _floors(ctx: dict, thresholds: dict) -> dict:
             "min_mentions": minimum,
             "applies": applies,
             "verdicts": {
-                c: _verdict(r["mean"], ">=", binding) for c, r in rows.items()
+                c: _verdict(r["value"], ">=", binding) for c, r in rows.items()
             },
         },
     }
@@ -194,9 +213,10 @@ def _floors(ctx: dict, thresholds: dict) -> dict:
 
 def _gate(ctx: dict, thresholds: dict) -> tuple[list[dict], dict]:
     rows = [
-        _row(name, label, op, thresholds[key], extract, ctx)
+        _row(name, label, op, thresholds[key], extract, ctx,
+             "c_at_10" if name == "c_at_10" else "runs")
         for name, label, key, op, extract in GLOBAL_ROWS
-    ]
+    ]  # fmt: skip
     floors = _floors(ctx, thresholds)
     reading = "binding" if floors["binding"]["applies"] else "indicative"
     for category, row in floors["rows"].items():
@@ -294,12 +314,15 @@ def _md_gate(data: dict, rows: list[dict], b_cubed_threshold: float) -> list[str
         "",
         "## Gate (spec § 3.5)",
         "",
-        f"| Condition | Seuil | Moyenne ({runs} exéc.) | IC 95 % (bootstrap par scène) | Verdict |",
+        (
+            f"| Condition | Seuil | Valeur ({runs} exéc. groupées) "
+            "| IC 95 % (bootstrap par scène) | Verdict |"
+        ),
         "|---|---|---|---|---|",
     ]
     for r in rows:
         lines.append(
-            f"| {r['label']} | {_op_text(r['op'], r['threshold'])} | {_fmt(r['mean'])} "
+            f"| {r['label']} | {_op_text(r['op'], r['threshold'])} | {_fmt(r['value'])} "
             f"| {_fmt_ci(r['ci'])} | {r['verdict']} |"
         )
     for _, label, threshold in NOT_MEASURED:
@@ -312,7 +335,15 @@ def _md_gate(data: dict, rows: list[dict], b_cubed_threshold: float) -> list[str
     )
     missing = data["missing_hard_categories"]
     verdict = OK if data["gate_passed"] else FAIL
-    lines += ["", f"**Gate des conditions mesurées ici : {verdict}.**"]
+    lines += [
+        "",
+        (
+            f"**Gate des conditions mesurées ici : {verdict} ; gate incomplète "
+            "(R, P, L non mesurés).**"
+        ),
+        f"C@10 : {C_AT_10_SOURCES[data['c_at_10_source']]}.",
+    ]
+    lines += _md_undefined_draws(rows, data["iterations"])
     if missing:
         lines.append(
             f"Catégories dures absentes : {', '.join(missing)} ; la macro-moyenne "
@@ -322,6 +353,21 @@ def _md_gate(data: dict, rows: list[dict], b_cubed_threshold: float) -> list[str
     else:
         lines.append("Catégories dures absentes : aucune.")
     return lines
+
+
+def _md_undefined_draws(rows: list[dict], iterations: int) -> list[str]:
+    undefined = [r for r in rows if r["undefined_draws"]]
+    if not undefined:
+        return ["IC : la mesure est définie sur tous les tirages."]
+    parts = ", ".join(
+        f"{r['name']} {r['undefined_draws']}/{iterations}" for r in undefined
+    )
+    return [
+        (
+            "IC calculés sur les seuls tirages où la mesure est définie ; tirages "
+            f"indéfinis (catégorie absente du tirage) : {parts}."
+        )
+    ]
 
 
 def _md_floors(floors: dict) -> list[str]:
@@ -346,7 +392,7 @@ def _md_floors(floors: dict) -> list[str]:
     ]
     for category, row in floors["rows"].items():
         lines.append(
-            f"| {category} | {floors['test_mentions'][category]} | {_fmt(row['mean'])} "
+            f"| {category} | {floors['test_mentions'][category]} | {_fmt(row['value'])} "
             f"| {_fmt_ci(row['ci'])} | {ind['verdicts'][category]} "
             f"| {bind['verdicts'][category]} |"
         )
@@ -447,6 +493,7 @@ def render(
     header_note: str = "",
     cheap_scores_by_run: list[list[SceneScore]] | None = None,
     sequence_results_by_run: list[list[tuple[Sequence, list[RunResult]]]] | None = None,
+    c_at_10_scores: list[SceneScore] | None = None,
     iterations: int = 2000,
 ) -> tuple[str, dict]:
     """Markdown report and its json data (nan as null). See the module doc."""
@@ -455,8 +502,13 @@ def render(
     limits = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
     metrics = [aggregate(run) for run in scores_by_run]
     pooled = [s for run in scores_by_run for s in run]
-    ctx = {"metrics": metrics, "pooled": pooled, "iterations": iterations,
-           "aggregate": _Aggregator()}  # fmt: skip
+    blocking = c_at_10_scores or None
+    ctx = {
+        "runs": (metrics, pooled),
+        "c_at_10": ([aggregate(blocking)], blocking) if blocking else (metrics, pooled),
+        "iterations": iterations,
+        "aggregate": _Aggregator(),
+    }
     rows, floors = _gate(ctx, limits)
     table, shares = _category_type(aggregate(pooled), len(scores_by_run))
     cheap = [aggregate(run) for run in cheap_scores_by_run or []]
@@ -471,6 +523,9 @@ def render(
         "thresholds": limits,
         "gate": rows,
         "gate_passed": all(r["verdict"] == OK for r in rows),
+        "gate_complete": False,  # R, P, L are not measured by this report
+        "c_at_10_source": "dev + test, 1 run" if blocking else "runs of this report",
+        "iterations": iterations,
         "not_measured": [
             {"name": n, "label": label, "threshold": t} for n, label, t in NOT_MEASURED
         ],
