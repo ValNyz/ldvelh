@@ -167,13 +167,13 @@ Images: both run as an unprivileged user (backend `app`, uid 10001; frontend `no
 Take a backup before deploying a migration that changes data (not needed for one that only adds an empty table or column):
 
 ```bash
-docker compose exec db pg_dump -U "$DB_USER" -Fc ldvelh > ldvelh-$(date +%F).dump
+docker compose exec -T db pg_dump -U ldvelh -Fc ldvelh > ldvelh-$(date +%F).dump
 ```
 
-To go back, restore it over the database (the backend stopped):
+To go back, restore it over the database (the backend stopped; `-T` is needed so the binary dump is not altered by a TTY):
 
 ```bash
-docker compose exec -T db pg_restore -U "$DB_USER" -d ldvelh --clean --if-exists < ldvelh-<date>.dump
+docker compose exec -T db pg_restore -U ldvelh -d ldvelh --clean --if-exists < ldvelh-<date>.dump
 ```
 
 `*.dump` files are git-ignored: keep them out of the repository. dbmate never runs from the host against a real database; migrations run at backend boot inside the container.

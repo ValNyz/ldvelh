@@ -11,6 +11,7 @@ Replica mode (see load_legacy_game) means triggers do not run on load: regenerat
 fixture when a migration adds triggers or derived tables, or they will be missing here.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import asyncpg
@@ -21,6 +22,7 @@ from services.auth_service import create_token
 from tests.characterization.harness import ChatHarness
 from tests.conftest import _db_unavailable
 
+Migration = tuple[str, str]  # (up SQL, down SQL)
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_game.sql"
 MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 LEGACY_PENDING_ROLL = "7c1d1f0e-5b7a-4c8e-9a51-2f4d3b6e8a10"
@@ -31,7 +33,7 @@ def legacy_schema_version() -> str:
     return FIXTURE.read_text(encoding="utf-8").splitlines()[1].split()[-1]
 
 
-def newer_migrations(version: str, extra: tuple[tuple[str, str], ...] | list[tuple[str, str]] = ()) -> list[tuple[str, str]]:
+def newer_migrations(version: str, extra: Sequence[Migration] = ()) -> list[Migration]:
     """(up, down) SQL of every dbmate migration newer than `version`, oldest first, then `extra`."""
     sections = []
     for path in sorted(MIGRATIONS.glob("*.sql")):
@@ -43,7 +45,7 @@ def newer_migrations(version: str, extra: tuple[tuple[str, str], ...] | list[tup
     return sections + list(extra)
 
 
-async def load_legacy_game(pool, extra: tuple[tuple[str, str], ...] | list[tuple[str, str]] = ()) -> tuple[str, str]:
+async def load_legacy_game(pool, extra: Sequence[Migration] = ()) -> tuple[str, str]:
     """Replace the test DB content with the legacy dump; return (game_id, user_email).
 
     `extra` is a list of (up, down) migrations appended after the real ones (harness test only).
@@ -135,9 +137,10 @@ async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, l
 
 async def test_c19_harness_catches_a_data_breaking_migration(test_pool, scripted_llm):
     """Meta-test: a migration that damages legacy rows must make the invariants fail."""
-    game_id, _ = await load_legacy_game(test_pool, extra=[("UPDATE messages SET cycle = NULL WHERE role = 'assistant';", "")])
+    breaking = ("UPDATE messages SET cycle = NULL WHERE role = 'assistant';", "")
+    game_id, _ = await load_legacy_game(test_pool, extra=[breaking])
     async with test_pool.acquire() as conn:
-        with pytest.raises(AssertionError):
+        with pytest.raises(AssertionError, match="lost its cycle"):
             await legacy_invariants(conn, game_id)
 
 
