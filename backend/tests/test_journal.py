@@ -293,3 +293,20 @@ async def test_delete_turns_purges_open_turns_of_the_game(test_pool, test_user, 
         other_listed: "committed",
     }
     assert stale_open not in remaining
+
+
+async def test_director_commitments_insert_is_journaled(test_pool, world):
+    game_id, turn_id = world
+    async with test_pool.acquire() as conn:
+        async with uow(conn, turn_id):
+            row_id = await conn.fetchval(
+                """INSERT INTO director_commitments (game_id, kind, text)
+                VALUES ($1, 'clock', 'The tide rises') RETURNING id""",
+                game_id,
+            )
+        rows = [
+            r
+            for r in await _journal(conn, turn_id)
+            if r["table_name"] == "director_commitments"
+        ]
+    assert [(r["row_id"], r["op"]) for r in rows] == [(row_id, "I")]

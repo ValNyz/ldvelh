@@ -65,6 +65,7 @@ F-xx touched: F-02, F-06, F-07, F-08, F-09, F-10, F-11, F-12, F-13, F-14, F-15, 
 - [x] F-xx touched are listed above
 - [x] Full suite green (`scripts/test-backend.sh`), C-17 still xfail(strict) (P4)
 - [x] Snapshots changed only for fixed issues (#16, #20, #32, #33, #45), each explained in the "Known bugs" column
+- [x] Snapshots changed only by schema (#107): migration `20261019000001` adds `director_commitments` (it has a `game_id`), so every `db_counts` / `db_*` summary gains the key `"director_commitments": 0` (C-12 in its three summaries). No pipeline code writes it yet; C-12/C-16 diffs gain no entry. No other line changes.
 - [x] Legacy fixture (C-19) replayed: migration `20261017000000` expires the old pending rows (`test_legacy_pending_rows_are_expired`)
 - [ ] Manual smoke (F-26, F-27): done by the user before the merge
 
