@@ -120,3 +120,28 @@ async def test_enhance_llm_garbage_gives_502(client, test_user, seeded_genres, w
     resp = await client.post("/api/world/enhance", json=_body(),
                              headers=auth_headers(test_user["token"]))
     assert resp.status_code == 502
+
+
+async def _enhance_calls(test_pool, user_id):
+    async with test_pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT purpose, game_id, turn_id FROM llm_calls WHERE user_id = $1", user_id)
+
+
+async def test_enhance_logs_its_call(client, test_user, test_pool, seeded_genres, world_llm):
+    resp = await client.post("/api/world/enhance", json=_body(),
+                             headers=auth_headers(test_user["token"]))
+    assert resp.status_code == 200, resp.text
+    rows = await _enhance_calls(test_pool, test_user["id"])
+    assert [(r["purpose"], r["game_id"], r["turn_id"]) for r in rows] == [
+        ("world_gen", None, None)]
+
+
+async def test_failed_enhance_still_logs_its_paid_call(client, test_user, test_pool,
+                                                       seeded_genres, world_llm):
+    world_llm._responses["world_enhance"] = "pas du JSON"
+    resp = await client.post("/api/world/enhance", json=_body(),
+                             headers=auth_headers(test_user["token"]))
+    assert resp.status_code == 502
+    rows = await _enhance_calls(test_pool, test_user["id"])
+    assert rows and {r["purpose"] for r in rows} == {"world_gen"}

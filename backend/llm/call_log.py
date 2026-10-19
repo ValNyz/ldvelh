@@ -7,6 +7,7 @@ call or a flush (a request would then hold two and could starve the pool, #94, #
 """
 
 import logging
+from datetime import UTC, datetime
 from uuid import UUID
 
 import asyncpg
@@ -68,6 +69,7 @@ class CallLog:
                 "usage": usage,
                 "cost_usd": cost_usd,
                 "cost_unknown": cost_unknown,
+                "created_at": datetime.now(UTC),  # the call's time, not the flush's
             }
         )
 
@@ -83,7 +85,12 @@ class CallLog:
             return
         try:
             async with self.pool.acquire(timeout=FLUSH_ACQUIRE_TIMEOUT) as conn:
-                await llm_calls.insert_calls(conn, rows)
+                try:
+                    await llm_calls.insert_calls(conn, rows)
+                except asyncpg.ForeignKeyViolationError:
+                    # A turn or game deleted while the insert ran: once more, the insert
+                    # then sees the deletion and stores NULL for it.
+                    await llm_calls.insert_calls(conn, rows)
         except Exception as e:
             log_exception(
                 logger,

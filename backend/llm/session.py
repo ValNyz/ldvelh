@@ -8,14 +8,13 @@ buffered (llm/call_log.py) and flushed once per phase by its owner (#106).
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 from uuid import UUID
-
-import copy
 
 import asyncpg
 

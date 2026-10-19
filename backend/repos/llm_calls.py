@@ -16,6 +16,7 @@ _ROW_FIELDS = (
     "usage",
     "cost_usd",
     "cost_unknown",
+    "created_at",
 )
 _TOKEN_FIELDS = (
     "input_tokens",
@@ -26,23 +27,29 @@ _TOKEN_FIELDS = (
 
 
 async def insert_calls(conn, rows: list[dict]) -> None:
-    """Log the calls of one phase in one insert. Each row: turn_id (None outside a turn),
-    game_id (None outside a game), user_id, purpose, provider, model, usage (dict),
-    cost_usd, cost_unknown. A turn (rollback) or a game deleted meanwhile is stored as NULL,
-    as their ON DELETE SET NULL would have done: the insert never fails on those FKs."""
+    """Log the calls of one phase in one insert, in their order. Each row: turn_id (None
+    outside a turn), game_id (None outside a game), user_id, purpose, provider, model,
+    usage (dict), cost_usd, cost_unknown, created_at (the call's time). A turn (rollback)
+    or a game deleted before the insert is stored as NULL, as their ON DELETE SET NULL
+    would have done; a deletion racing the statement raises ForeignKeyViolationError
+    (the caller retries)."""
     if not rows:
         return
     await conn.execute(
         """INSERT INTO llm_calls
-           (turn_id, game_id, user_id, purpose, provider, model, usage, cost_usd, cost_unknown)
-        SELECT t.id, g.id, r.user_id, r.purpose, r.provider, r.model, r.usage,
-               r.cost_usd, r.cost_unknown
+           (turn_id, game_id, user_id, purpose, provider, model, usage, cost_usd,
+            cost_unknown, created_at)
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM turns WHERE id = r.turn_id)
+                    THEN r.turn_id END,
+               CASE WHEN EXISTS (SELECT 1 FROM games WHERE id = r.game_id)
+                    THEN r.game_id END,
+               r.user_id, r.purpose, r.provider, r.model, r.usage, r.cost_usd,
+               r.cost_unknown, r.created_at
         FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::text[],
-                    $7::jsonb[], $8::numeric[], $9::boolean[]) WITH ORDINALITY
+                    $7::jsonb[], $8::numeric[], $9::boolean[], $10::timestamptz[])
+             WITH ORDINALITY
              AS r(turn_id, game_id, user_id, purpose, provider, model, usage, cost_usd,
-                  cost_unknown, n)
-        LEFT JOIN turns t ON t.id = r.turn_id
-        LEFT JOIN games g ON g.id = r.game_id
+                  cost_unknown, created_at, n)
         ORDER BY r.n""",  # ids follow the call order
         *([row[key] for row in rows] for key in _ROW_FIELDS),
     )

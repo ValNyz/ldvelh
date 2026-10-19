@@ -19,6 +19,15 @@ from workers import game_locks, supervisor
 TIMEOUT = 5.0
 
 
+async def _until(condition, timeout: float = TIMEOUT) -> None:
+    """Poll `condition` until it holds; fail after `timeout` seconds."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        assert loop.time() < deadline, "condition not reached before the deadline"
+        await asyncio.sleep(0.01)
+
+
 async def test_send_after_disconnect_does_not_enqueue():
     writer = SSEWriter()
     writer.disconnected = True
@@ -481,11 +490,10 @@ async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
         # yielding, so it is already blocked on the exhausted pool when this wait returns.
         await asyncio.wait_for(narrated.wait(), TIMEOUT)
         await stream.aclose()
-        await asyncio.wait({writer._task}, timeout=0.2)
-        # Cancelled at the commit wait, the request now waits to flush its call log, with
-        # the game lock already released: the next request is not held behind it.
+        # Cancelled at the commit wait, the request releases the game lock, then waits to
+        # flush its call log (exhausted pool): the next request is not held behind it.
+        await _until(lambda: not game_locks.is_held(game_id))
         assert not writer._task.done()
-        assert game_locks.is_held(game_id) is False
     finally:
         for conn in held:
             await harness.pool.release(conn)

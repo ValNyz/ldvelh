@@ -232,7 +232,7 @@ class _CapturingPool:
             async def execute(self, sql, *columns):
                 assert "INSERT INTO llm_calls" in sql
                 fields = ("turn_id", "game_id", "user_id", "purpose", "provider", "model",
-                          "usage", "cost_usd", "cost_unknown")
+                          "usage", "cost_usd", "cost_unknown", "created_at")
                 pool.inserts.append([dict(zip(fields, row)) for row in zip(*columns)])
 
         self._conn = _Conn()
@@ -278,6 +278,9 @@ async def test_calls_are_buffered_until_the_phase_flushes():
     assert row["usage"] == {"input_tokens": 10, "output_tokens": 5,
                             "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
     assert row["cost_usd"] == 0 and row["cost_unknown"] is True
+    # Stamped at call time, in order.
+    stamps = [r["created_at"] for r in pool.inserts[0]]
+    assert stamps == sorted(stamps) and stamps[0].tzinfo is not None
 
 
 async def test_each_row_carries_the_turn_bound_when_its_call_was_made():

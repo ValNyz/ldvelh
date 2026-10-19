@@ -1,6 +1,10 @@
 """LLM call log (repos.llm_calls): one row per billed call, the account summary read from it
 (#106)."""
 
+import logging
+from datetime import UTC, datetime, timedelta
+
+import asyncpg
 import pytest
 
 from llm.call_log import CallLog
@@ -35,6 +39,7 @@ def _row(
         "usage": usage,
         "cost_usd": cost,
         "cost_unknown": False,
+        "created_at": datetime.now(UTC),
     }
 
 
@@ -268,3 +273,61 @@ async def test_a_flush_after_the_game_is_deleted_stores_no_game(test_pool, test_
         summary = await llm_calls.user_summary(conn, user_id)
     assert [(r["game_id"], r["purpose"]) for r in rows] == [(None, "director")]
     assert summary["total_cost_usd"] == 0.5
+
+
+async def test_rows_keep_the_time_of_their_call(test_pool, test_user):
+    user_id = test_user["id"]
+    called = datetime.now(UTC) - timedelta(minutes=5)
+    row = {
+        **_row(user_id, None, "narration", "m", _usage(1, 1), 0.1),
+        "created_at": called,
+    }
+    async with test_pool.acquire() as conn:
+        await llm_calls.insert_calls(conn, [row])
+        stored = await conn.fetchval(
+            "SELECT created_at FROM llm_calls WHERE user_id = $1", user_id
+        )
+    assert stored == called
+
+
+async def test_a_turn_deleted_during_the_flush_is_retried_without_it(
+    test_pool, test_user, monkeypatch, caplog
+):
+    # The turn goes away while the insert runs (FK error): the batch is retried once and
+    # kept, with no turn.
+    user_id = test_user["id"]
+    game_id = await GameService(test_pool).create_game(user_id)
+    async with test_pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game_id)
+    log = CallLog(test_pool, game_id=game_id, user_id=user_id, turn_id=turn_id)
+    log.add(
+        purpose="resolver",
+        provider="fake",
+        model="m",
+        usage=_usage(1, 1),
+        cost_usd=0.5,
+        cost_unknown=False,
+    )
+    real_insert, attempts = llm_calls.insert_calls, []
+
+    async def racing_insert(conn, rows):
+        attempts.append(len(rows))
+        if len(attempts) == 1:
+            async with test_pool.acquire() as other:
+                await other.execute("DELETE FROM turns WHERE id = $1", turn_id)
+            raise asyncpg.ForeignKeyViolationError("turn deleted meanwhile")
+        await real_insert(conn, rows)
+
+    monkeypatch.setattr(llm_calls, "insert_calls", racing_insert)
+    with caplog.at_level(logging.ERROR, logger="llm.call_log"):
+        await log.flush()
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT turn_id, game_id, purpose FROM llm_calls WHERE user_id = $1",
+            user_id,
+        )
+    assert attempts == [1, 1]
+    assert [(r["turn_id"], r["game_id"], r["purpose"]) for r in rows] == [
+        (None, game_id, "resolver")
+    ]
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
