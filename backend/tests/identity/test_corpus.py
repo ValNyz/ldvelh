@@ -818,3 +818,23 @@ def test_an_indefinite_pronoun_is_skip():
 def test_an_unannotated_indefinite_pronoun_is_reported():
     errors = _custom_errors("Il y a quelqu'un devant toi.", [])
     assert len(errors) == 1 and "quelqu'un" in errors[0]
+
+
+# --- scorer review: accept_also stays on the gold entity (ANNOTATION § 4.3) ---
+
+
+def test_accept_also_must_name_the_expected_entity():
+    errors = _errors(gold=_with_gold(0, accept_also=["MATCH protagonist_valentin"]))
+    assert len(errors) == 1 and "accept_also" in errors[0]
+    assert "protagonist_valentin" in errors[0]
+
+
+def test_accept_also_cannot_be_new_or_skip():
+    for alternative in ("NEW character", "SKIP"):
+        errors = _errors(gold=_with_gold(0, accept_also=[alternative]))
+        assert len(errors) == 1 and alternative in errors[0]
+
+
+def test_accept_also_on_the_same_entity_is_valid():
+    accept = ["ALIAS character_kethari_agee descriptor"]
+    assert _errors(gold=_with_gold(0, accept_also=accept)) == []

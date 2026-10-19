@@ -1,11 +1,13 @@
 """Identity scorer, per-scene bootstrap and coreference metrics (#151)."""
 
+import itertools
 import math
+import random
 
 import pytest
 
 from evals.identity import bootstrap, coref
-from evals.identity.corpus import Scene
+from evals.identity.corpus import Scene, Sequence
 from evals.identity.scorer import Decision, RunResult, aggregate, score_scene
 
 WORLD = [
@@ -19,37 +21,42 @@ WORLD = [
 ]  # fmt: skip
 
 
-def _mention(start, category, expected, **extra) -> dict:
-    return {"surface": f"m{start}", "start": start, "category": category,
+def _mention(start, category, expected, surface=None, **extra) -> dict:
+    return {"surface": surface or f"m{start}", "start": start, "category": category,
             "expected": expected, **extra}  # fmt: skip
 
 
 def _scene(gold: list[dict], scene_id: str = "s1") -> Scene:
-    return Scene.model_validate(
-        {
-            "id": scene_id,
-            "genre": "sf",
-            "source": "synthetic",
-            "world": WORLD,
-            "history": [],
-            "scene": {
-                "location": "",
-                "present": [],
-                "reveals": [],
-                "planned_npcs": [],
-                "secrets": [],
-                "open_disclosures": [],
-            },
-            "narration": "x" * 200,
-            "gold": gold,
-            "gold_effects": {"reveals": [], "merges": [], "forbidden_merges": []},
-            "gold_knowledge": [],
-        }
-    )
+    return Scene.model_validate(_scene_data(gold, scene_id))
 
 
-def _d(start, decision, entity_id=None, kind=None, new_type=None, **flags) -> Decision:
-    return Decision(f"m{start}", start, decision, entity_id, kind, new_type, **flags)
+def _scene_data(gold: list[dict], scene_id: str) -> dict:
+    return {
+        "id": scene_id,
+        "genre": "sf",
+        "source": "synthetic",
+        "world": WORLD,
+        "history": [],
+        "scene": {
+            "location": "",
+            "present": [],
+            "reveals": [],
+            "planned_npcs": [],
+            "secrets": [],
+            "open_disclosures": [],
+        },
+        "narration": "x" * 200,
+        "gold": gold,
+        "gold_effects": {"reveals": [], "merges": [], "forbidden_merges": []},
+        "gold_knowledge": [],
+    }
+
+
+def _d(
+    start, decision, entity_id=None, kind=None, new_type=None, surface=None, **flags
+) -> Decision:
+    surface = surface or f"m{start}"
+    return Decision(surface, start, decision, entity_id, kind, new_type, **flags)
 
 
 def _run(scene: Scene, decisions, candidates=None, usage=None) -> RunResult:
@@ -193,7 +200,9 @@ def test_hard_pool_and_macro_differ_on_unbalanced_categories():
     decisions.append(_d(110, "MATCH", "character_tesk"))
     m = _metrics(gold, decisions)
     assert m.hard_pool.value == pytest.approx(9 / 10)
-    assert m.hard_macro == pytest.approx((1.0 + 0.0) / 2)  # only categories present
+    assert m.hard_macro_present == pytest.approx((1.0 + 0.0) / 2)
+    assert math.isnan(m.hard_macro)  # PART, REVEAL, NEW, XTYPE are missing
+    assert m.hard_categories_missing == ("PART", "REVEAL", "NEW", "XTYPE")
     assert m.easy_pool.value == 1.0
     assert m.by_category_type[("DESC", "character")].value == 1.0
 
@@ -281,3 +290,197 @@ def test_ceaf_e_uses_the_best_alignment():
     expected = (0.8 + 2 / 3) / 2
     assert coref.ceaf_e(gold, system) == pytest.approx(expected)
     assert coref.ceaf_e(gold, {}) == 0.0
+
+
+# --- fix round 1 -------------------------------------------------------------
+
+
+def test_new_needs_the_right_type():
+    gold = [_mention(0, "NEW", "NEW character"), _mention(10, "NEW", "NEW location")]
+    decisions = [
+        _d(0, "NEW", new_type="location"),
+        _d(10, "NEW", new_type="location"),
+    ]
+    m = _metrics(gold, decisions)
+    assert m.by_category["NEW"].correct == 1
+    assert m.new_type_errors == 1
+    assert m.new_recall == 1.0 and m.new_precision == 1.0  # NIL detection only
+
+
+def test_hard_macro_needs_every_hard_category():
+    categories = ["PART", "DESC", "GAP", "REVEAL", "NEW", "XTYPE"]
+    gold, decisions = [], []
+    for i, category in enumerate(categories):
+        if category == "NEW":
+            gold.append(_mention(i * 10, category, "NEW character"))
+            decisions.append(_d(i * 10, "NEW", new_type="character"))
+        else:
+            gold.append(_mention(i * 10, category, "MATCH character_tesk"))
+            ok = category != "GAP"
+            decisions.append(_d(i * 10, "MATCH", "character_tesk" if ok else "x"))
+    m = _metrics(gold, decisions)
+    assert m.hard_categories_missing == ()
+    assert m.hard_macro == pytest.approx(5 / 6) == m.hard_macro_present
+
+
+def test_duplicate_decisions_at_one_start_are_rejected():
+    scene = _scene([_mention(0, "EASY", "MATCH character_tesk")])
+    decisions = [_d(0, "MATCH", "character_tesk"), _d(0, "NEW", new_type="object")]
+    with pytest.raises(ValueError, match="start 0"):
+        score_scene(scene, _run(scene, decisions))
+
+
+KETHARI = "La Kethari âgée"
+
+
+def test_a_surface_without_its_determiner_aligns_by_its_end():
+    gold = [_mention(0, "DESC", "MATCH character_nahle", surface=KETHARI)]
+    decision = _d(3, "MATCH", "character_nahle", surface="Kethari âgée")
+    m = _metrics(gold, [decision], candidates={3: ["character_nahle"]})
+    assert m.by_category["DESC"].value == 1.0
+    assert m.c_at_10 == 1.0  # candidates keyed by the system start are found
+    assert m.spurious_link_per_turn == 0.0
+
+
+TERMINAL = "le terminal du Kethari au tablier"
+NESTED = TERMINAL.index("Kethari")
+
+
+def _nested_gold() -> list[dict]:
+    return [
+        _mention(0, "SKIP", "SKIP", surface=TERMINAL),
+        _mention(NESTED, "DESC", "MATCH character_tesk", surface="Kethari au tablier"),
+    ]
+
+
+def test_a_shared_end_falls_back_to_the_innermost_containing_mention():
+    start = TERMINAL.index("au tablier")
+    decision = _d(start, "MATCH", "character_tesk", surface="au tablier")
+    m = _metrics(_nested_gold(), [decision])
+    assert m.by_category["DESC"].value == 1.0  # not the enclosing SKIP
+    assert m.by_category["SKIP"].value == 1.0
+
+
+def test_a_span_inside_a_skip_aligns_to_the_skip():
+    decision = _d(3, "MATCH", "object_terminal", surface="terminal")
+    m = _metrics(_nested_gold(), [decision])
+    assert m.by_category["SKIP"].value == 0.0
+    assert m.W == pytest.approx(1 / 2)
+
+
+def test_unaligned_decisions_are_counted_as_spurious():
+    gold = [_mention(0, "EASY", "MATCH character_tesk")]
+    decisions = [
+        _d(0, "MATCH", "character_tesk"),
+        _d(50, "NEW", new_type="object"),  # junk entity on unannotated scenery
+        _d(80, "MATCH", "character_tesk"),  # a link on an unannotated span
+        _d(120, "SKIP"),  # not linked, not created: ignored
+        _d(150, "UNSURE"),
+    ]
+    m = _metrics(gold, decisions)
+    assert m.spurious_new_per_turn == 1.0
+    assert m.spurious_link_per_turn == 1.0
+    assert m.new_precision == 0.0  # the spurious NEW is a false NEW
+    assert m.W == 1.0  # 1 spurious link over 1 gold mention
+    assert m.by_category["EASY"].value == 1.0
+
+
+def _bootstrap_pattern():
+    return [_hard_scene(i, c) for i, c in enumerate([4, 2, 3, 1, 4, 3, 0, 4])]
+
+
+def test_bootstrap_resamples_whole_scenes_across_runs():
+    single = _bootstrap_pattern()
+    pooled = single * 3  # 3 runs of the same 8 scenes
+    one_run = bootstrap.ci(single, _hard_pool, iterations=500, seed=2)
+    assert bootstrap.ci(pooled, _hard_pool, iterations=500, seed=2) == one_run
+    unique = iter(range(len(pooled)))
+    low, high = bootstrap.ci(
+        pooled, _hard_pool, iterations=500, seed=2, key=lambda s: next(unique)
+    )
+    assert high - low < one_run[1] - one_run[0]  # independent draws: too narrow
+
+
+def _seq_turn(scene_id: str, gold: list[dict]) -> dict:
+    return _scene_data(gold, scene_id)
+
+
+def test_system_clusters_follow_the_ids_the_system_gave():
+    sequence = Sequence.model_validate(
+        {
+            "id": "seq",
+            "turns": [
+                _seq_turn("t1", [
+                    _mention(0, "EASY", "MATCH character_tesk"),
+                    _mention(10, "NEW", "NEW character"),
+                    _mention(20, "SKIP", "SKIP"),
+                ]),
+                _seq_turn("t2", [
+                    _mention(0, "DESC", "MATCH character_tesk"),
+                    _mention(30, "DESC", "MATCH character_tesk"),
+                ]),
+            ],
+            "gold_clusters": {
+                "character_tesk": ["t1:0", "t2:0", "t2:30"],
+                "character_new": ["t1:10"],
+            },
+        }
+    )  # fmt: skip
+    results = [
+        RunResult("t1", [
+            _d(0, "MATCH", "character_tesk"),
+            _d(10, "NEW", "sys_1", new_type="character"),
+            _d(20, "SKIP"),
+        ], {}, {}),
+        RunResult("t2", [
+            _d(0, "MATCH", "sys_1"),
+            _d(30, "MATCH", "character_tesk"),
+            _d(60, "NEW", new_type="object"),  # spurious, no system id
+        ], {}, {}),
+    ]  # fmt: skip
+    system = coref.system_clusters(sequence, results)
+    assert sorted(map(sorted, system.values())) == [
+        ["t1:0", "t2:30"],
+        ["t1:10", "t2:0"],
+        ["t2:60"],
+    ]
+    gold = coref.gold_clusters(sequence)
+    assert gold == {"character_tesk": {"t1:0", "t2:0", "t2:30"},
+                    "character_new": {"t1:10"}}  # fmt: skip
+    p, r, _ = coref.b_cubed(gold, system)
+    assert p < 1.0 and r < 1.0
+
+
+def test_b_cubed_accepts_any_cluster_id_and_rejects_double_membership():
+    gold = {"": {"1", "2"}, "b": {"3"}}
+    assert coref.b_cubed(gold, {"x": {"1", "2"}, "y": {"3"}}) == (1.0, 1.0, 1.0)
+    assert coref.b_cubed({"a": {"1"}}, {"": {"2"}})[0] == 0.0
+    with pytest.raises(ValueError, match="'1'"):
+        coref.b_cubed({"a": {"1"}, "b": {"1", "2"}}, gold)
+
+
+def test_ceaf_e_ignores_empty_clusters():
+    gold = {"a": {"1", "2"}, "b": {"3"}}
+    assert coref.ceaf_e(gold, {**gold, "empty": set()}) == pytest.approx(1.0)
+
+
+def test_kuhn_munkres_beats_a_greedy_matching():
+    pairs = coref.max_weight_assignment([[0.9, 0.8], [0.8, 0.0]])
+    assert sorted(pairs) == [(0, 1), (1, 0)]  # 1.6; greedy takes 0.9 then 0.0
+
+
+def test_kuhn_munkres_matches_brute_force():
+    rng = random.Random(7)
+    for _ in range(300):
+        rows, cols = rng.randint(1, 5), rng.randint(1, 5)
+        weights = [[rng.choice([0, 0.25, 0.5, 2 / 3, 1]) for _ in range(cols)]
+                   for _ in range(rows)]  # fmt: skip
+        if rows <= cols:
+            best = max(sum(weights[i][p[i]] for i in range(rows))
+                       for p in itertools.permutations(range(cols), rows))  # fmt: skip
+        else:
+            best = max(sum(weights[p[j]][j] for j in range(cols))
+                       for p in itertools.permutations(range(rows), cols))  # fmt: skip
+        pairs = coref.max_weight_assignment(weights)
+        assert sum(weights[i][j] for i, j in pairs) == pytest.approx(best)
+        assert len({i for i, _ in pairs}) == len({j for _, j in pairs}) == len(pairs)

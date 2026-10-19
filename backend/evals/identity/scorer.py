@@ -1,29 +1,38 @@
 """Per-mention scoring of identity decisions against the gold corpus (#151, spec § 3.4).
 
 A scene is scored on its narration gold only (history mentions are context, never
-scored). Decisions are aligned to gold mentions by `start`; a decision at a start with
-no gold mention is ignored, since every measure is per gold mention (ANNOTATION § 13,
-pronouns). What counts as correct, from ANNOTATION.md § 4.3 and § 5:
+scored). Decisions are aligned to gold mentions by span (evals/identity/alignment.py:
+same start, then same end, then containment); two decisions at one start are an error.
+What counts as correct, from ANNOTATION.md § 4.3 and § 5:
 
 - the decision must equal `expected` or one of `accept_also`, in the same form:
   `MATCH <id>` needs the id; `ALIAS <id> <kind>` needs the id **and** the alias kind
   (a MATCH on an ALIAS gold leaves the name unrecorded, the Kethari failure; an ALIAS
-  on a MATCH gold is right only when `accept_also` lists it); `NEW` needs the mention to
-  be new, whatever `new_type` the system chose (spec § 3.4: "la mention est vraiment
-  nouvelle");
+  on a MATCH gold is right only when `accept_also` lists it); `NEW <type>` needs the
+  type too (the created stub's type drives the graph; a wrong type is counted apart in
+  `new_type_errors`);
 - a SKIP gold ("à ne pas lier") is right when the system decides SKIP **or** emits no
-  decision at that start; any link, NEW or UNSURE on it is wrong;
+  decision on it; any link, NEW or UNSURE on it is wrong;
 - a linked gold (MATCH, ALIAS, NEW) with no decision is wrong;
 - UNSURE is wrong, except on a NEW trap (`trap: true`), where not merging is right.
 
-Rates: `W` = MATCH/ALIAS to an id that no accepted form names, over all gold mentions
-(a link on a NEW or SKIP gold is a wrong merge); `D` = NEW on a gold MATCH/ALIAS, over
-those golds; NEW precision over the NEW decisions on gold mentions, recall over gold
-NEW (UNSURE on a trap is right but is not a NEW); `C@10` = an accepted gold id among the
-first 10 candidates of the mention, over gold MATCH/ALIAS; `unsure_rate` over gold
-mentions; `deterministic_share` over the aligned decisions; `escalation_rate` = scenes
-(turns) with an escalated decision over scenes; `cost` = summed `usage` counters plus
-their per-turn means. The hard macro averages only the hard categories present.
+Decisions aligned to no gold mention are **spurious**: a spurious MATCH/ALIAS that names
+an id is a wrong merge (it links an unannotated span: scenery, a personal pronoun) and a
+spurious NEW is a junk creation; both are also reported per turn. SKIP and UNSURE left
+over are ignored (nothing linked, nothing created).
+
+Rates: `W` = MATCH/ALIAS to an id that no accepted form names, on gold mentions plus the
+spurious links, over the gold mentions (a link on a NEW or SKIP gold is a wrong merge);
+`D` = NEW on a gold MATCH/ALIAS, over those golds; NEW precision over every NEW decision
+(aligned or spurious) and recall over gold NEW, both type-agnostic (NIL detection;
+UNSURE on a trap is right but is not a NEW); `C@10` = an accepted gold id among the
+first 10 candidates of the mention (looked up by gold start, then by the aligned
+decision's start), over gold MATCH/ALIAS; `unsure_rate` over gold mentions;
+`deterministic_share` over the aligned decisions; `escalation_rate` = scenes (turns)
+with an escalated decision over scenes; `cost` = summed `usage` counters plus their
+per-turn means. `hard_macro` is nan unless all six hard categories are present
+(`hard_categories_missing` names the absent ones, `hard_macro_present` averages the
+present ones).
 """
 
 from __future__ import annotations
@@ -31,8 +40,8 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Literal
 
+from evals.identity.alignment import align
 from evals.identity.corpus import (
     HARD_CATEGORIES,
     Expected,
@@ -40,30 +49,13 @@ from evals.identity.corpus import (
     Scene,
     parse_expected,
 )
+from evals.identity.run import Decision, RunResult
 
-DecisionKind = Literal["MATCH", "ALIAS", "NEW", "UNSURE", "SKIP"]
 EASY_POOL = ("EASY", "PC", "SKIP")
 CANDIDATES_K = 10
+LINKS = ("MATCH", "ALIAS")
 
-
-@dataclass(frozen=True)
-class Decision:
-    surface: str
-    start: int
-    decision: DecisionKind
-    entity_id: str | None
-    alias_kind: str | None
-    new_type: str | None
-    deterministic: bool = False
-    escalated: bool = False
-
-
-@dataclass(frozen=True)
-class RunResult:
-    scene_id: str
-    decisions: list[Decision]
-    candidates: dict[int, list[str]]  # mention start -> candidate ids, best first
-    usage: dict
+__all__ = ["Decision", "RunResult", "aggregate", "score_scene"]
 
 
 @dataclass
@@ -90,6 +82,7 @@ class MentionOutcome:
     duplicate: bool
     new_gold: bool
     new_decided: bool
+    new_type_error: bool  # NEW on a gold NEW, with another type
     unsure: bool
     candidate_hit: bool | None  # None when the gold is not existing
 
@@ -98,10 +91,13 @@ class MentionOutcome:
 class SceneScore:
     scene_id: str
     outcomes: list[MentionOutcome]
-    decisions: int
+    decisions: int  # aligned decisions
     deterministic: int
     escalated: bool
     usage: dict
+    spurious_new: int = 0
+    spurious_links: int = 0  # unaligned MATCH/ALIAS
+    spurious_wrong_merges: int = 0  # the spurious links that name an id
 
 
 @dataclass
@@ -109,12 +105,17 @@ class Metrics:
     by_category: dict[str, Acc]
     by_category_type: dict[tuple[str, str], Acc]
     hard_macro: float
+    hard_macro_present: float
+    hard_categories_missing: tuple[str, ...]
     hard_pool: Acc
     easy_pool: Acc
     W: float
     D: float
     new_precision: float
     new_recall: float
+    new_type_errors: int
+    spurious_new_per_turn: float
+    spurious_link_per_turn: float
     c_at_10: float
     unsure_rate: float
     deterministic_share: float
@@ -135,7 +136,7 @@ def _matches(decision: Decision | None, form: Expected) -> bool:
     if decision is None or decision.decision != form.decision:
         return False
     if form.decision == "NEW":
-        return True
+        return decision.new_type == form.new_type
     if decision.entity_id != form.entity_id:
         return False
     return form.decision == "MATCH" or decision.alias_kind == form.alias_kind
@@ -163,8 +164,8 @@ def _outcome(
     forms = _accepted(m)
     gold_ids = {f.entity_id for f in forms if f.entity_id is not None}
     kind = decision.decision if decision is not None else None
-    existing = m.parsed.decision in ("MATCH", "ALIAS")
-    new_accepted = any(f.decision == "NEW" for f in forms)
+    existing = m.parsed.decision in LINKS
+    new_gold = m.parsed.decision == "NEW"
     hit = None
     if existing:
         hit = bool(gold_ids & set((candidates or [])[:CANDIDATES_K]))
@@ -172,11 +173,14 @@ def _outcome(
         category=m.category,
         entity_type=_entity_type(scene, m.parsed),
         correct=_is_correct(m, decision),
-        wrong_merge=kind in ("MATCH", "ALIAS") and decision.entity_id not in gold_ids,
+        wrong_merge=kind in LINKS and decision.entity_id not in gold_ids,
         existing_gold=existing,
-        duplicate=existing and kind == "NEW" and not new_accepted,
-        new_gold=m.parsed.decision == "NEW",
+        duplicate=existing and kind == "NEW",
+        new_gold=new_gold,
         new_decided=kind == "NEW",
+        new_type_error=new_gold
+        and kind == "NEW"
+        and decision.new_type != m.parsed.new_type,
         unsure=kind == "UNSURE",
         candidate_hit=hit,
     )
@@ -185,15 +189,24 @@ def _outcome(
 # --- scene and corpus -------------------------------------------------------
 
 
+def _candidates(result: RunResult, m: GoldMention, d: Decision | None):
+    found = result.candidates.get(m.start)
+    if found is None and d is not None:
+        found = result.candidates.get(d.start)
+    return found
+
+
 def score_scene(scene: Scene, result: RunResult) -> SceneScore:
     if result.scene_id != scene.id:
         raise ValueError(f"result of {result.scene_id!r} scored against {scene.id!r}")
-    by_start = {d.start: d for d in result.decisions}
-    aligned = [by_start[m.start] for m in scene.gold if m.start in by_start]
-    outcomes = [
-        _outcome(scene, m, by_start.get(m.start), result.candidates.get(m.start))
-        for m in scene.gold
-    ]
+    alignment = align(scene.gold, result.decisions)
+    by_gold = alignment.by_gold
+    outcomes = []
+    for m in scene.gold:
+        d = by_gold.get(m.start)
+        outcomes.append(_outcome(scene, m, d, _candidates(result, m, d)))
+    aligned = list(by_gold.values())
+    links = [d for d in alignment.spurious if d.decision in LINKS]
     return SceneScore(
         scene_id=scene.id,
         outcomes=outcomes,
@@ -201,11 +214,18 @@ def score_scene(scene: Scene, result: RunResult) -> SceneScore:
         deterministic=sum(d.deterministic for d in aligned),
         escalated=any(d.escalated for d in result.decisions),
         usage=dict(result.usage),
+        spurious_new=sum(d.decision == "NEW" for d in alignment.spurious),
+        spurious_links=len(links),
+        spurious_wrong_merges=sum(d.entity_id is not None for d in links),
     )
 
 
 def _ratio(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else math.nan
+
+
+def _mean(values: list[float]) -> float:
+    return sum(values) / len(values) if values else math.nan
 
 
 def _accuracies(outcomes: list[MentionOutcome]):
@@ -219,9 +239,7 @@ def _accuracies(outcomes: list[MentionOutcome]):
             hard.add(o.correct)
         elif o.category in EASY_POOL:
             easy.add(o.correct)
-    present = [by_category[c].value for c in HARD_CATEGORIES if c in by_category]
-    macro = sum(present) / len(present) if present else math.nan
-    return dict(by_category), dict(by_type), macro, hard, easy
+    return dict(by_category), dict(by_type), hard, easy
 
 
 def _cost(scores: list[SceneScore]) -> dict[str, float]:
@@ -236,21 +254,36 @@ def _cost(scores: list[SceneScore]) -> dict[str, float]:
 
 def aggregate(scores: list[SceneScore]) -> Metrics:
     outcomes = [o for s in scores for o in s.outcomes]
-    by_category, by_type, macro, hard, easy = _accuracies(outcomes)
+    by_category, by_type, hard, easy = _accuracies(outcomes)
+    missing = tuple(c for c in HARD_CATEGORIES if c not in by_category)
+    present = _mean([by_category[c].value for c in HARD_CATEGORIES if c in by_category])
     existing = [o for o in outcomes if o.existing_gold]
-    decided_new = [o for o in outcomes if o.new_decided]
     gold_new = [o for o in outcomes if o.new_gold]
+    spurious_new = sum(s.spurious_new for s in scores)
+    wrong_merges = sum(o.wrong_merge for o in outcomes) + sum(
+        s.spurious_wrong_merges for s in scores
+    )
     hits = [o.candidate_hit for o in existing]
     return Metrics(
         by_category=by_category,
         by_category_type=by_type,
-        hard_macro=macro,
+        hard_macro=math.nan if missing else present,
+        hard_macro_present=present,
+        hard_categories_missing=missing,
         hard_pool=hard,
         easy_pool=easy,
-        W=_ratio(sum(o.wrong_merge for o in outcomes), len(outcomes)),
+        W=_ratio(wrong_merges, len(outcomes)),
         D=_ratio(sum(o.duplicate for o in existing), len(existing)),
-        new_precision=_ratio(sum(o.new_gold for o in decided_new), len(decided_new)),
+        new_precision=_ratio(
+            sum(o.new_gold and o.new_decided for o in outcomes),
+            sum(o.new_decided for o in outcomes) + spurious_new,
+        ),
         new_recall=_ratio(sum(o.new_decided for o in gold_new), len(gold_new)),
+        new_type_errors=sum(o.new_type_error for o in outcomes),
+        spurious_new_per_turn=_ratio(spurious_new, len(scores)),
+        spurious_link_per_turn=_ratio(
+            sum(s.spurious_links for s in scores), len(scores)
+        ),
         c_at_10=_ratio(sum(bool(h) for h in hits), len(hits)),
         unsure_rate=_ratio(sum(o.unsure for o in outcomes), len(outcomes)),
         deterministic_share=_ratio(

@@ -5,14 +5,65 @@ Clusters are `{cluster id: set of mention keys}` (keys `<scene id>:<start>`, as 
 side only are allowed: B³ precision is averaged over the system mentions, recall over
 the gold mentions, and a mention missing from the other side shares nothing with it.
 CEAF-e aligns gold and system clusters one-to-one with the entity similarity
-phi4(K, R) = 2 |K ∩ R| / (|K| + |R|), maximised by a local Kuhn-Munkres.
+phi4(K, R) = 2 |K ∩ R| / (|K| + |R|), maximised by a local Kuhn-Munkres; empty
+clusters are dropped first. A mention in two clusters of one side is an error.
+
+`system_clusters` builds the system side of a sequence from its per-turn run results,
+with the scorer's alignment: an aligned decision takes the key of its gold mention, a
+spurious one `<scene id>:<its start>` (a system-only mention, which lowers precision).
+MATCH/ALIAS group by `entity_id`, NEW by the id the system gave the created entity
+(`Decision.entity_id`); a NEW or link without id is a singleton. SKIP and UNSURE are not
+mentions of any cluster.
 """
 
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
+
+from evals.identity.alignment import align
+
+if TYPE_CHECKING:
+    from evals.identity.corpus import Sequence
+    from evals.identity.run import RunResult
 
 Clusters = dict[str, set[str]]
+LINKED = ("MATCH", "ALIAS", "NEW")
+
+
+def gold_clusters(sequence: Sequence) -> Clusters:
+    return {entity: set(keys) for entity, keys in sequence.gold_clusters.items()}
+
+
+def system_clusters(sequence: Sequence, results: list[RunResult]) -> Clusters:
+    """System clusters of `sequence`, keys `<scene id>:<start>` (see the module doc)."""
+    turns = {t.id: t for t in sequence.turns}
+    clusters: Clusters = {}
+    for result in results:
+        turn = turns.get(result.scene_id)
+        if turn is None:
+            raise ValueError(
+                f"result of {result.scene_id!r} is not a turn of {sequence.id!r}"
+            )
+        alignment = align(turn.gold, result.decisions)
+        placed = list(alignment.by_gold.items())
+        placed += [(d.start, d) for d in alignment.spurious]
+        for start, d in placed:
+            if d.decision not in LINKED:
+                continue
+            key = f"{turn.id}:{start}"
+            cluster = d.entity_id if d.entity_id is not None else f"new:{key}"
+            clusters.setdefault(cluster, set()).add(key)
+    return clusters
+
+
+def _check_single_membership(side: str, clusters: Clusters) -> None:
+    seen: set[str] = set()
+    for cluster in clusters.values():
+        twice = sorted(cluster & seen)
+        if twice:
+            raise ValueError(f"{side} mention {twice[0]!r} is in several clusters")
+        seen |= cluster
 
 
 def _f1(precision: float, recall: float) -> float:
@@ -26,13 +77,16 @@ def _b_cubed_side(key: Clusters, response: Clusters) -> float:
     shares, count = 0.0, 0
     for cluster in key.values():
         for mention in cluster:
-            other = response.get(owner.get(mention, ""), set())
+            cid = owner.get(mention)
+            other = response[cid] if cid is not None else set()
             shares += len(cluster & other) / len(cluster)
             count += 1
     return shares / count if count else 0.0
 
 
 def b_cubed(gold: Clusters, system: Clusters) -> tuple[float, float, float]:
+    _check_single_membership("gold", gold)
+    _check_single_membership("system", system)
     precision = _b_cubed_side(system, gold)
     recall = _b_cubed_side(gold, system)
     return precision, recall, _f1(precision, recall)
@@ -94,7 +148,8 @@ def max_weight_assignment(weights: list[list[float]]) -> list[tuple[int, int]]:
 
 def ceaf_e(gold: Clusters, system: Clusters) -> float:
     """Entity-based CEAF F1 (phi4)."""
-    keys, responses = list(gold.values()), list(system.values())
+    keys = [cluster for cluster in gold.values() if cluster]
+    responses = [cluster for cluster in system.values() if cluster]
     if not keys or not responses:
         return 0.0
     weights = [[_phi4(k, r) for r in responses] for k in keys]

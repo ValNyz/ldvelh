@@ -264,6 +264,22 @@ def _nesting_errors(where: str, mentions: list[GoldMention]) -> list[str]:
     return errors
 
 
+def _accept_also_errors(label: str, m: GoldMention, ids: set[str]) -> list[str]:
+    """`accept_also` only widens the form on the gold entity (ANNOTATION § 4.3)."""
+    errors = []
+    for text in m.accept_also:
+        alternative = parse_expected(text)
+        if alternative.decision in ("NEW", "SKIP"):
+            errors.append(f"{label}: accept_also {text!r} must link the gold entity")
+        elif (
+            alternative.entity_id in ids and alternative.entity_id != m.parsed.entity_id
+        ):
+            errors.append(
+                f"{label}: accept_also {text!r} names another entity than {m.expected!r}"
+            )
+    return errors
+
+
 def _mention_errors(
     scene: Scene, where: str, m: GoldMention, ids: set[str], *, history: bool
 ) -> list[str]:
@@ -273,6 +289,7 @@ def _mention_errors(
         entity_id = parse_expected(text).entity_id
         if entity_id is not None and entity_id not in ids:
             errors.append(f"{label}: id {entity_id!r} of {text!r} is not in the world")
+    errors += _accept_also_errors(label, m, ids)
     if history and m.parsed.decision not in ("MATCH", "SKIP"):
         return [*errors, f"{label}: history mentions are MATCH or SKIP"]
     rule = category_error(scene, m, history=history)
