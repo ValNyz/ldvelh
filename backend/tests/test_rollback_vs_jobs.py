@@ -9,10 +9,11 @@ from uuid import UUID
 import pytest
 
 from config import get_settings
+from repos.uow import uow
 from services.extraction.characters import CharactersExtractor
 from tests.characterization import payloads
 from tests.characterization.scripted_llm import classify_call
-from tests.helpers import rollback_last_turn
+from tests.helpers import last_user_message_id, rollback_last_turn
 from workers import supervisor
 
 pytestmark = pytest.mark.integration
@@ -34,12 +35,16 @@ async def _new_character_count(harness, game_id) -> int:
     async with harness.pool.acquire() as conn:
         return await conn.fetchval(
             "SELECT COUNT(*) FROM characters WHERE game_id = $1 AND name = $2",
-            game_id, payloads.NEW_CHARACTER_NAME)
+            game_id,
+            payloads.NEW_CHARACTER_NAME,
+        )
 
 
 def _script_new_character(harness):
     harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    harness.llm._responses["extract:extract_characters"] = (
+        payloads.EXTRACT_CHARACTERS_NEW
+    )
 
 
 def _hold_first_resolver(harness) -> tuple[asyncio.Event, asyncio.Event]:
@@ -69,9 +74,11 @@ async def test_rollback_cancels_the_running_extraction(harness, world_game):
     gate, entered = _hold_first_resolver(harness)
     msgs_before = await _messages(harness, world_game)
     try:
-        await harness.chat(world_game, "Premier tour.")  # no drain: the job stays blocked
+        # No drain: the job stays blocked.
+        await harness.chat(world_game, "Premier tour.")
         await asyncio.wait_for(entered.wait(), TIMEOUT)
-        assert supervisor.pending(UUID(world_game)) == 1  # the job's _jobs key is the UUID
+        # The job's _jobs key is the UUID.
+        assert supervisor.pending(UUID(world_game)) == 1
         await rollback_last_turn(harness, world_game)
         assert supervisor.pending(UUID(world_game)) == 0
     finally:
@@ -99,8 +106,9 @@ async def test_regenerate_extracts_the_replacement_turn(harness, world_game):
     assert await _new_character_count(harness, world_game) == 1
 
 
-async def test_job_past_the_cancel_timeout_writes_nothing(harness, world_game, monkeypatch,
-                                                         caplog):
+async def test_job_past_the_cancel_timeout_writes_nothing(
+    harness, world_game, monkeypatch, caplog
+):
     # Patched on the cached Settings object the route reads through get_settings_dep.
     monkeypatch.setattr(get_settings(), "supervisor_cancel_timeout", 0.05)
     _script_new_character(harness)
@@ -130,7 +138,8 @@ async def test_job_past_the_cancel_timeout_writes_nothing(harness, world_game, m
         await asyncio.wait_for(entered.wait(), TIMEOUT)
         with caplog.at_level(logging.ERROR, logger="workers.supervisor"):
             started = time.monotonic()
-            await rollback_last_turn(harness, world_game)  # 200 although the job lives on
+            # 200 although the job lives on.
+            await rollback_last_turn(harness, world_game)
             elapsed = time.monotonic() - started
         assert "still running after cancel" in caplog.text
         assert elapsed < 2.0  # the 0.05 s cancel timeout was used, not the 10 s default
@@ -153,8 +162,11 @@ async def test_rejected_rollback_still_returns_400(harness, world_game):
         await asyncio.wait_for(entered.wait(), TIMEOUT)
         assert supervisor.pending(UUID(world_game)) == 1
         msgs_before = await _messages(harness, world_game)
-        r = await harness.client.post(f"/api/games/{world_game}/rollback",
-                                      json={"fromIndex": 0}, headers=harness.headers)
+        r = await harness.client.post(
+            f"/api/games/{world_game}/rollback",
+            json={"fromIndex": 0},
+            headers=harness.headers,
+        )
         assert r.status_code == 400, r.text
         assert r.json()["detail"] == "Impossible de revenir avant la scène d'arrivée."
         assert supervisor.pending(UUID(world_game)) == 0
@@ -162,3 +174,60 @@ async def test_rejected_rollback_still_returns_400(harness, world_game):
         gate.set()
     await harness.drain()
     assert _brief(await _messages(harness, world_game)) == _brief(msgs_before)
+
+
+async def test_populate_that_wins_the_for_share_race_is_undone(harness, world_game):
+    """A background write that share-locked the assistant message first commits before the
+    rollback's DELETE goes through; journaled under the turn, the undo removes it too."""
+    _script_new_character(harness)
+    await harness.chat(world_game, "Premier tour.")
+    await harness.drain()
+    assert await _new_character_count(harness, world_game) == 1
+    async with harness.pool.acquire() as conn:
+        last = await conn.fetchrow(
+            """SELECT id, turn_id FROM messages WHERE game_id = $1 AND role = 'assistant'
+               ORDER BY sequence DESC LIMIT 1""",
+            world_game,
+        )
+    user_msg = await last_user_message_id(harness, world_game)
+    written, release = asyncio.Event(), asyncio.Event()
+
+    async def late_populate():
+        async with (
+            harness.pool.acquire() as conn,
+            uow(conn, last["turn_id"], source_message_id=last["id"]),
+        ):
+            await conn.execute(
+                "INSERT INTO characters (game_id, name) VALUES ($1, 'Témoin')",
+                world_game,
+            )
+            written.set()
+            await release.wait()
+
+    writer = asyncio.create_task(late_populate())
+    await asyncio.wait_for(written.wait(), TIMEOUT)
+    rollback = asyncio.create_task(
+        harness.client.post(
+            f"/api/games/{world_game}/rollback",
+            json={"messageId": str(user_msg)},
+            headers=harness.headers,
+        )
+    )
+    try:
+        await asyncio.sleep(0.2)
+        assert not rollback.done()  # blocked on the DELETE by the FOR SHARE lock
+    finally:
+        release.set()
+    await asyncio.wait_for(writer, TIMEOUT)
+    r = await asyncio.wait_for(rollback, TIMEOUT)
+    assert r.status_code == 200, r.text
+
+    async with harness.pool.acquire() as conn:
+        names = {
+            r["name"]
+            for r in await conn.fetch(
+                "SELECT name FROM characters WHERE game_id = $1", world_game
+            )
+        }
+    assert payloads.NEW_CHARACTER_NAME not in names
+    assert "Témoin" not in names

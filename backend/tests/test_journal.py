@@ -9,6 +9,7 @@ import pytest
 from domain.turn import NarrationState
 from repos import turns
 from repos.uow import uow
+from services.rollback import RollbackPlan, undo_turns
 from tests.test_game_and_populator import _setup_game_with_world
 
 pytestmark = pytest.mark.integration
@@ -311,3 +312,28 @@ async def test_director_commitments_insert_is_journaled(test_pool, world):
             if r["table_name"] == "director_commitments"
         ]
     assert [(r["row_id"], r["op"]) for r in rows] == [(row_id, "I")]
+
+
+async def test_rollback_removes_commitments_created_after_the_target(test_pool, world):
+    """#107 case 2: a commitment the Director made inside a rolled back turn goes with it."""
+    game_id, turn_id = world
+    async with test_pool.acquire() as conn:
+        async with uow(conn, turn_id):
+            await conn.execute(
+                """INSERT INTO director_commitments (game_id, kind, text)
+                VALUES ($1, 'clock', 'The tide rises')""",
+                game_id,
+            )
+        plan = RollbackPlan(
+            messages_to_delete=[],
+            target_cycle=1,
+            turn_ids=[turn_id],
+            has_legacy_message=False,
+        )
+        await undo_turns(conn, game_id, plan)
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM director_commitments WHERE game_id = $1", game_id
+            )
+            == 0
+        )

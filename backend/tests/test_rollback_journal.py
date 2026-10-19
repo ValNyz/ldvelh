@@ -412,6 +412,207 @@ async def test_rollback_of_a_resume_while_a_new_roll_is_pending(
     assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
 
 
+async def _clock(harness, game_id) -> dict:
+    async with harness.pool.acquire() as conn:
+        return dict(
+            await conn.fetchrow(
+                """SELECT current_cycle, "current_date", "current_time", current_location_id
+                   FROM games WHERE id = $1""",
+                game_id,
+            )
+        )
+
+
+async def _seed_status(harness, game_id) -> str:
+    async with harness.pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT status FROM narrative_seeds WHERE game_id = $1 AND cycle = 1",
+            game_id,
+        )
+
+
+async def test_regenerate_after_a_day_change_restores_cycle_date_and_seeds(
+    harness, fate_game, monkeypatch
+):
+    """The new-day hooks (cycle, date, stale seeds archived) and the turn's roll undo."""
+    async with harness.pool.acquire() as conn:
+        # Outside any turn: a seed stale once day 12 starts, the game on the eve of day 12.
+        await conn.execute(
+            "INSERT INTO narrative_seeds (game_id, cycle, text) VALUES ($1, 1, 'graine')",
+            fate_game,
+        )
+        await conn.execute(
+            "UPDATE games SET current_cycle = 11 WHERE id = $1", fate_game
+        )
+    before = await _clock(harness, fate_game)
+    assert await _seed_status(harness, fate_game) == "active"
+
+    harness.llm._responses["mechanical"] = payloads.mechanical(requires_test=True)
+    monkeypatch.setattr(fate_core, "random", SimpleNamespace(choice=lambda seq: 1))
+    await _turn(
+        harness,
+        fate_game,
+        narration_with(
+            time={"new_time": "07h30", "ellipse": False, "ellipse_summary": None},
+            day_transition={"new_cycle": 12, "new_date": "Jour 12"},
+        ),
+        "Je dors jusqu'au matin puis je saute la barrière.",
+    )
+    async with harness.pool.acquire() as conn:
+        turn_rolls = [
+            r["id"]
+            for r in await conn.fetch(
+                """SELECT id FROM mechanic_rolls WHERE turn_id = (
+                       SELECT turn_id FROM messages WHERE game_id = $1
+                       ORDER BY sequence DESC LIMIT 1)""",
+                fate_game,
+            )
+        ]
+    during = await _clock(harness, fate_game)
+    assert (
+        during["current_cycle"] == 12
+        and during["current_date"] != before["current_date"]
+    )
+    assert await _seed_status(harness, fate_game) == "archived"
+    assert len(turn_rolls) == 1
+
+    await rollback_last_turn(harness, fate_game)
+    assert await _clock(harness, fate_game) == before
+    assert before["current_cycle"] == 11
+    assert await _seed_status(harness, fate_game) == "active"
+    async with harness.pool.acquire() as conn:
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM mechanic_rolls WHERE id = ANY($1)", turn_rolls
+            )
+            == 0
+        )
+
+
+async def _turn_ids(harness, game_id) -> set:
+    async with harness.pool.acquire() as conn:
+        return {
+            r["id"]
+            for r in await conn.fetch(
+                "SELECT id FROM turns WHERE game_id = $1", game_id
+            )
+        }
+
+
+async def test_rollback_of_three_turns_undoes_them_in_reverse_order(
+    harness, world_game
+):
+    """Turn 1 creates Mira, turn 2 renames her, turn 3 cites the new name in a fact: the
+    newest-first replay unwinds the fact, the rename, then the creation."""
+    turns_before = await _turn_ids(harness, world_game)
+    await _first_turn_creates_mira(harness, world_game)
+    first_user_msg = await last_user_message_id(harness, world_game)
+    await _turn(
+        harness,
+        world_game,
+        narration_with(
+            entity_reveals=[
+                {
+                    "entity_type": "character",
+                    "current_name": MIRA,
+                    "real_name": "Mira Vance",
+                }
+            ]
+        ),
+        "Je lui demande son vrai nom.",
+    )
+    harness.llm._responses["extract:extract_characters"] = {
+        "facts": [
+            {
+                "cycle": 1,
+                "fact_type": "observation",
+                "description": "Mira Vance observe la foule.",
+                "semantic_key": "mira:observe:foule",
+                "importance": 2,
+                "participants": [{"entity_ref": "Mira Vance", "role": "actor"}],
+            }
+        ]
+    }
+    await _turn(
+        harness,
+        world_game,
+        narration_with(extraction_triggers=["characters"]),
+        "Je l'observe.",
+    )
+    async with harness.pool.acquire() as conn:
+        cited = await conn.fetchval(
+            """SELECT count(*) FROM facts f
+               JOIN fact_participants p ON p.fact_id = f.id
+               JOIN entity_registry e ON e.id = p.entity_id
+               WHERE f.game_id = $1 AND f.semantic_key = 'mira:observe:foule'
+                 AND e.name = 'Mira Vance'""",
+            world_game,
+        )
+    assert cited == 1
+
+    r = await harness.client.post(
+        f"/api/games/{world_game}/rollback",
+        json={"messageId": str(first_user_msg)},
+        headers=harness.headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rollback_result"]["deleted_turns"] == 3
+    world = await _world(harness, world_game)
+    for name in (MIRA, "Mira Vance"):
+        assert name not in world["characters"] and name not in world["registry"]
+    async with harness.pool.acquire() as conn:
+        assert (
+            await conn.fetchval(
+                """SELECT count(*) FROM facts
+                   WHERE game_id = $1 AND semantic_key = 'mira:observe:foule'""",
+                world_game,
+            )
+            == 0
+        )
+    assert await _turn_ids(harness, world_game) == turns_before
+
+
+async def _journal_ids(harness, game_id) -> set:
+    async with harness.pool.acquire() as conn:
+        return {
+            r["id"]
+            for r in await conn.fetch(
+                """SELECT w.id FROM world_changes w JOIN turns t ON t.id = w.turn_id
+                   WHERE t.game_id = $1""",
+                game_id,
+            )
+        }
+
+
+async def test_rollback_to_the_arrival_keeps_the_world(harness, world_game):
+    """Back to just after the arrival: every table as the arrival left it, its journal only."""
+    ignored = {"turns", "llm_calls"}
+    arrival = {
+        k: v
+        for k, v in (await harness.db_summary(world_game)).items()
+        if k not in ignored
+    }
+    arrival_journal = await _journal_ids(harness, world_game)
+    assert arrival_journal
+    await _first_turn_creates_mira(harness, world_game)
+    await _b08_turn(harness, world_game)
+
+    r = await harness.client.post(
+        f"/api/games/{world_game}/rollback",
+        json={"fromIndex": 2},
+        headers=harness.headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["rollback_result"]["deleted_turns"] == 2
+    after = {
+        k: v
+        for k, v in (await harness.db_summary(world_game)).items()
+        if k not in ignored
+    }
+    assert after == arrival
+    assert await _journal_ids(harness, world_game) == arrival_journal
+
+
 def test_rollback_to_message_is_thin():
     source = inspect.getsource(GameService.rollback_to_message)
     node = ast.parse(textwrap.dedent(source)).body[0]

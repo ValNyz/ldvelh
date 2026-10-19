@@ -19,13 +19,19 @@ import pytest
 import pytest_asyncio
 
 from services.auth_service import create_token
+from tests.characterization import payloads
 from tests.characterization.harness import ChatHarness
 from tests.conftest import _db_unavailable
+from tests.helpers import rollback_last_turn
 
 Migration = tuple[str, str]  # (up SQL, down SQL)
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_game.sql"
 MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 LEGACY_PENDING_ROLL = "7c1d1f0e-5b7a-4c8e-9a51-2f4d3b6e8a10"
+BEFORE_JOURNAL = (
+    "Impossible de revenir sur un tour joué avant la mise en place du journal "
+    "des tours."
+)
 
 
 def legacy_schema_version() -> str:
@@ -238,3 +244,60 @@ async def test_legacy_arrival_facts_get_protagonist_keys(test_pool, legacy_game)
     assert arrival["initial_mood"] == "fatigué, nauséeux, décalé"
     assert arrival["immediate_need"] == "Trouver l'appartement et dormir"
     assert arrival["incident"] == "Systèmes bagages en panne, attente indéterminée"
+
+
+async def test_legacy_game_new_turn_rolls_back_through_the_journal(
+    client, test_pool, legacy_game, legacy_token, scripted_llm
+):
+    """#22: a turn played on a legacy game is journaled and undone like any other."""
+    game_id, _ = legacy_game
+    h = ChatHarness(client, test_pool, legacy_token, scripted_llm)
+    ignored = {"turns", "llm_calls"}  # llm_calls: paid calls are kept (#106)
+    before = {
+        k: v for k, v in (await h.db_summary(game_id)).items() if k not in ignored
+    }
+    scripted_llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
+    scripted_llm._responses["extract:extract_characters"] = (
+        payloads.EXTRACT_CHARACTERS_NEW
+    )
+    await h.chat(game_id, "Je reprends ma partie.")
+    await h.drain()
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval(
+            "SELECT 1 FROM characters WHERE game_id = $1::uuid AND name = $2",
+            game_id,
+            payloads.NEW_CHARACTER_NAME,
+        )
+
+    await rollback_last_turn(h, game_id)
+    after = {k: v for k, v in (await h.db_summary(game_id)).items() if k not in ignored}
+    assert after == before
+    async with test_pool.acquire() as conn:
+        assert not await conn.fetchval(
+            "SELECT 1 FROM characters WHERE game_id = $1::uuid AND name = $2",
+            game_id,
+            payloads.NEW_CHARACTER_NAME,
+        )
+
+
+async def test_legacy_turn_rollback_is_refused_with_a_clear_message(
+    client, test_pool, legacy_game, legacy_token
+):
+    """#22: a message saved before the journal cannot be rolled back (400, nothing deleted)."""
+    game_id, _ = legacy_game
+    async with test_pool.acquire() as conn:
+        last = await conn.fetchval(
+            "SELECT id FROM messages WHERE game_id = $1::uuid ORDER BY sequence DESC LIMIT 1",
+            game_id,
+        )
+        count = "SELECT count(*) FROM messages WHERE game_id = $1::uuid"
+        before = await conn.fetchval(count, game_id)
+    r = await client.post(
+        f"/api/games/{game_id}/rollback",
+        json={"messageId": str(last)},
+        headers={"Authorization": f"Bearer {legacy_token}"},
+    )
+    assert r.status_code == 400, r.text
+    assert r.json()["detail"] == BEFORE_JOURNAL
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval(count, game_id) == before
