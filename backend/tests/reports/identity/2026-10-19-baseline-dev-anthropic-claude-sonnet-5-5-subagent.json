@@ -7,7 +7,7 @@
   "runs": 1,
   "scenes": 64,
   "caveat": "chiffres = accord avec l'annotateur unique, plafond humain non mesuré",
-  "header_note": "Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder). Sequences: MESSAGE 1 of each turn is the gold history annotated with world labels, not the system's own annotations of its previous turn.",
+  "header_note": "Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder). Sequences: MESSAGE 1 of each turn is the gold history annotated with world labels, not the system's own annotations of its previous turn. C@10: on a scene without history, the first-turn reference lists the registry entities in (type, name) order and the scorer keeps the first 10, so a gold id can fall outside for alphabetical reasons, not for the blocking's quality.",
   "thresholds": {
     "hard_macro": 0.9,
     "hard_pool": 0.9,
@@ -464,6 +464,7 @@
     "per_turn_input_tokens": 0.0,
     "per_turn_output_tokens": 0.0
   },
+  "cost_measured": false,
   "cheap_tier": null,
   "coref": {
     "sequences": 7,

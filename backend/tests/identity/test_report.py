@@ -206,3 +206,18 @@ def test_report_counts_the_bootstrap_draws_where_a_row_is_undefined():
     part = _row(data, "A_PART")["undefined_draws"]
     assert 0 < part < 200
     assert "tirages" in markdown
+
+
+# --- final review M2 and M6 ---
+
+
+def test_the_floors_table_names_the_split_it_counts():
+    markdown, _ = _render(split="dev")
+    assert "| Mentions dev |" in markdown and "Mentions test" not in markdown
+
+
+def test_imported_answers_print_an_unmeasured_cost():
+    markdown, data = _render(cost_measured=False)
+    assert "Coût par tour : non mesuré (réponses importées)" in markdown
+    assert data["cost_measured"] is False
+    assert "non mesuré (réponses importées)" not in _render()[0]

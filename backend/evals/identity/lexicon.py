@@ -1,9 +1,13 @@
 """Closed word lists of a language, read from evals/identity/lexicon/<language>.yaml (#151).
 
-The corpus code is language-agnostic: determiners, personal pronouns and the
-indefinite/demonstrative pronouns of ANNOTATION § 4.1 and § 5.2 come from the lexicon of
-the scene's `language`. Words are stored with a straight apostrophe; the typographic
-apostrophe of a text is folded into it before comparing.
+The corpus code is language-agnostic: determiners, personal pronouns, the
+indefinite/demonstrative pronouns of ANNOTATION § 4.1 and § 5.2 and the apostrophes come
+from the lexicon of the scene's `language`. Words are stored with the first apostrophe
+of the list; the other apostrophes of a text are folded into it before comparing.
+
+Assumption of the lexicon format: a determiner is a separate word (followed by a space)
+or one of `elided_determiners`, glued to the noun. A language that writes determiners
+otherwise (clitics, suffixes) needs a new key here.
 """
 
 from __future__ import annotations
@@ -13,32 +17,41 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 LEXICON_DIR = Path(__file__).resolve().parent / "lexicon"
 DEFAULT_LANGUAGE = "fr"
-APOSTROPHES = "'’"
-
-
-def fold_apostrophes(text: str) -> str:
-    return text.replace(APOSTROPHES[1], APOSTROPHES[0])
 
 
 class Lexicon(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    apostrophes: tuple[str, ...]  # the first is the one the word lists use
     determiners: frozenset[str]
     elided_determiners: frozenset[str]
     personal_pronouns: frozenset[str]
     indefinite_pronouns: frozenset[str]
     unambiguous_pronouns: frozenset[str]
 
+    @field_validator("apostrophes")
+    @classmethod
+    def _single_characters(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or any(len(a) != 1 for a in value):
+            raise ValueError("apostrophes: a non-empty list of single characters")
+        return value
+
+    def fold(self, text: str) -> str:
+        """Every apostrophe of `text` as the first one of the lexicon."""
+        for other in self.apostrophes[1:]:
+            text = text.replace(other, self.apostrophes[0])
+        return text
+
     def key(self, surface: str) -> str:
-        return fold_apostrophes(surface.strip()).casefold()
+        return self.fold(surface.strip()).casefold()
 
     def strip_determiner(self, text: str) -> str:
         """Drop one leading determiner, keep case and accents (apostrophes folded)."""
-        text = fold_apostrophes(text.strip())
+        text = self.fold(text.strip())
         lowered = text.casefold()
         for elided in self.elided_determiners:
             if lowered.startswith(elided):
@@ -49,17 +62,21 @@ class Lexicon(BaseModel):
     @property
     def unambiguous_pronoun_re(self) -> re.Pattern[str] | None:
         """Whole-word occurrences of the unambiguous pronouns (None when there are none)."""
-        return _pronoun_re(self.unambiguous_pronouns)
+        return _pronoun_re(self.unambiguous_pronouns, self.apostrophes)
 
 
 @lru_cache
-def _pronoun_re(forms: frozenset[str]) -> re.Pattern[str] | None:
+def _pronoun_re(
+    forms: frozenset[str], apostrophes: tuple[str, ...]
+) -> re.Pattern[str] | None:
     if not forms:
         return None
-    quote = f"[{APOSTROPHES}]"
+    quotes = "".join(re.escape(a) for a in apostrophes)
     ordered = sorted(forms, key=len, reverse=True)
-    body = "|".join(re.escape(f).replace(APOSTROPHES[0], quote) for f in ordered)
-    return re.compile(rf"(?<![\w{APOSTROPHES}-])({body})(?![\w-])", re.IGNORECASE)
+    body = "|".join(
+        re.escape(f).replace(re.escape(apostrophes[0]), f"[{quotes}]") for f in ordered
+    )
+    return re.compile(rf"(?<![\w{quotes}-])({body})(?![\w-])", re.IGNORECASE)
 
 
 _LEXICONS: dict[str, Lexicon] = {}

@@ -156,5 +156,6 @@ def build_report(
         sequence_results_by_run=sequence_results_by_run or None,
         c_at_10_scores=c_at_10_scores,
         iterations=iterations,
+        cost_measured=responder is None,
     )
     return markdown, {**data, "responder": responder}

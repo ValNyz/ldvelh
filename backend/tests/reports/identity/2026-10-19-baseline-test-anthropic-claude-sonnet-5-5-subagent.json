@@ -7,7 +7,7 @@
   "runs": 1,
   "scenes": 39,
   "caveat": "chiffres = accord avec l'annotateur unique, plafond humain non mesuré",
-  "header_note": "Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder).",
+  "header_note": "Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder). C@10: on a scene without history, the first-turn reference lists the registry entities in (type, name) order and the scorer keeps the first 10, so a gold id can fall outside for alphabetical reasons, not for the blocking's quality.",
   "thresholds": {
     "hard_macro": 0.9,
     "hard_pool": 0.9,
@@ -28,12 +28,12 @@
       "threshold": 0.9,
       "estimator": "pooled",
       "per_run": [
-        0.2579081125592753
+        0.2544689591201219
       ],
-      "value": 0.2579081125592753,
+      "value": 0.2544689591201219,
       "ci": [
-        0.20408165551341237,
-        0.30998778243478864
+        0.2003886625933593,
+        0.3044551702085382
       ],
       "undefined_draws": 1,
       "verdict": "ÉCHEC"
@@ -45,12 +45,12 @@
       "threshold": 0.9,
       "estimator": "pooled",
       "per_run": [
-        0.2681704260651629
+        0.2675
       ],
-      "value": 0.2681704260651629,
+      "value": 0.2675,
       "ci": [
-        0.1950535714285714,
-        0.3419122129967757
+        0.1948044236048987,
+        0.34091200466200466
       ],
       "undefined_draws": 0,
       "verdict": "ÉCHEC"
@@ -130,12 +130,12 @@
       "threshold": 0.85,
       "estimator": "pooled",
       "per_run": [
-        0.7428571428571429
+        0.7222222222222222
       ],
-      "value": 0.7428571428571429,
+      "value": 0.7222222222222222,
       "ci": [
-        0.5,
-        0.9259259259259259
+        0.4770933014354067,
+        0.9000980392156862
       ],
       "undefined_draws": 1,
       "verdict": "ÉCHEC"
@@ -164,12 +164,12 @@
       "threshold": 0.97,
       "estimator": "pooled",
       "per_run": [
-        0.8109452736318408
+        0.81
       ],
-      "value": 0.8109452736318408,
+      "value": 0.81,
       "ci": [
-        0.7299964454976303,
-        0.8772739945927679
+        0.7297262824048538,
+        0.8766082253655059
       ],
       "undefined_draws": 0,
       "verdict": "ÉCHEC"
@@ -248,14 +248,14 @@
     }
   ],
   "missing_hard_categories": [],
-  "hard_macro_present": 0.2579081125592753,
+  "hard_macro_present": 0.2544689591201219,
   "floors": {
     "test_mentions": {
       "PART": 129,
       "DESC": 130,
       "GAP": 39,
       "REVEAL": 27,
-      "NEW": 35,
+      "NEW": 36,
       "XTYPE": 39
     },
     "indicative": {
@@ -340,8 +340,8 @@
     },
     "NEW": {
       "character": {
-        "accuracy": 0.7777777777777778,
-        "mentions": 9
+        "accuracy": 0.7,
+        "mentions": 10
       },
       "location": {
         "accuracy": 0.45454545454545453,
@@ -404,8 +404,8 @@
     },
     "SKIP": {
       "none": {
-        "accuracy": 0.9732142857142857,
-        "mentions": 112
+        "accuracy": 0.972972972972973,
+        "mentions": 111
       }
     },
     "XTYPE": {
@@ -428,17 +428,17 @@
     }
   },
   "hard_type_shares": {
-    "character": 0.3233082706766917,
-    "location": 0.22556390977443608,
-    "object": 0.23558897243107768,
-    "organization": 0.21553884711779447
+    "character": 0.325,
+    "location": 0.225,
+    "object": 0.235,
+    "organization": 0.215
   },
   "rates": {
     "spurious_link_per_turn": 0.23076923076923078,
     "spurious_new_per_turn": 0.07692307692307693,
     "new_type_errors": 1.0,
     "new_precision": 0.13432835820895522,
-    "new_recall": 0.7105263157894737,
+    "new_recall": 0.6923076923076923,
     "unsure_rate": 0.0,
     "deterministic_share": 0.0,
     "escalation_rate": 0.0
@@ -459,6 +459,7 @@
     "per_turn_input_tokens": 0.0,
     "per_turn_output_tokens": 0.0
   },
+  "cost_measured": false,
   "cheap_tier": null,
   "coref": null,
   "responder": "subagent:claude-sonnet"

@@ -370,7 +370,7 @@ def _md_undefined_draws(rows: list[dict], iterations: int) -> list[str]:
     ]
 
 
-def _md_floors(floors: dict) -> list[str]:
+def _md_floors(floors: dict, split: str) -> list[str]:
     ind, bind = floors["indicative"], floors["binding"]
     applies = "s'applique" if bind["applies"] else "ne s'applique pas"
     lines = [
@@ -385,7 +385,7 @@ def _md_floors(floors: dict) -> list[str]:
         ),
         "",
         (
-            "| Catégorie | Mentions test | Moyenne | IC 95 % "
+            f"| Catégorie | Mentions {split} | Moyenne | IC 95 % "
             f"| Plancher {_fmt_limit(ind['threshold'])} | Plancher {_fmt_limit(bind['threshold'])} |"
         ),
         "|---|---|---|---|---|---|",
@@ -453,6 +453,8 @@ def _md_cost(data: dict) -> list[str]:
         k[len("per_turn_") :]: v for k, v in cost.items() if k.startswith("per_turn_")
     }
     cost_text = ", ".join(f"{k} {_fmt_amount(v)}" for k, v in per_turn.items()) or "—"
+    if not data["cost_measured"]:
+        cost_text = "non mesuré (réponses importées)"
     return [
         "",
         "## Cascade et coût",
@@ -495,8 +497,12 @@ def render(
     sequence_results_by_run: list[list[tuple[Sequence, list[RunResult]]]] | None = None,
     c_at_10_scores: list[SceneScore] | None = None,
     iterations: int = 2000,
+    cost_measured: bool = True,
 ) -> tuple[str, dict]:
-    """Markdown report and its json data (nan as null). See the module doc."""
+    """Markdown report and its json data (nan as null). See the module doc.
+
+    `cost_measured` is False when the answers were imported (no API usage to count).
+    """
     if not scores_by_run or not all(scores_by_run):
         raise ValueError("render needs at least one run with scored scenes")
     limits = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
@@ -536,12 +542,13 @@ def render(
         "hard_type_shares": shares,
         "rates": _rates(metrics),
         "cost": _cost(metrics),
+        "cost_measured": cost_measured,
         "cheap_tier": _summary(cheap) if cheap else None,
         "coref": _coref(sequence_results_by_run, iterations),
     }
     lines = _md_header(data)
     lines += _md_gate(data, rows, limits["b_cubed"])
-    lines += _md_floors(floors)
+    lines += _md_floors(floors, split)
     lines += _md_rates(data)
     lines += _md_category_type(data)
     lines += _md_cheap(data)

@@ -1292,3 +1292,40 @@ def test_scenes_sharing_a_history_share_a_campaign():
         if h.text in owner and owner[h.text] != s.campaign
     ]
     assert mixed == []
+
+
+# --- final review I2: a sanctioned way to add a dev scene after the freeze ---
+
+
+def test_add_dev_appends_a_new_scene_and_leaves_the_test_untouched(tmp_path):
+    import yaml
+
+    from scripts.identity_corpus_split import main
+
+    (tmp_path / "scenes").mkdir()
+    for i in range(6):
+        data = _scene(id=f"s{i}", campaign=f"c{i}")
+        text = yaml.safe_dump(data, allow_unicode=True)
+        (tmp_path / "scenes" / f"s{i}.yaml").write_text(text, encoding="utf-8")
+    assert main(["--root", str(tmp_path), "--freeze"]) == 0
+    before = load_split(tmp_path)
+    frozen = (tmp_path / "TEST_SHA256").read_text(encoding="utf-8")
+    header = (tmp_path / "split.yaml").read_text(encoding="utf-8").split("dev:")[0]
+
+    new = _scene(id="s9", campaign="c9")
+    (tmp_path / "scenes" / "s9.yaml").write_text(
+        yaml.safe_dump(new, allow_unicode=True), encoding="utf-8"
+    )
+    test_campaign = _scene(id="s8", campaign=f"c{before.test[0][1:]}")
+    (tmp_path / "scenes" / "s8.yaml").write_text(
+        yaml.safe_dump(test_campaign, allow_unicode=True), encoding="utf-8"
+    )
+    assert main(["--root", str(tmp_path), "--add-dev", "s8"]) == 1  # a test campaign
+    assert main(["--root", str(tmp_path), "--add-dev", "s0"]) == 1  # already split
+    assert main(["--root", str(tmp_path), "--add-dev", "s9"]) == 0
+
+    after = load_split(tmp_path)
+    assert after.test == before.test and after.dev == sorted([*before.dev, "s9"])
+    assert (tmp_path / "TEST_SHA256").read_text(encoding="utf-8") == frozen
+    assert corpus.fingerprint_test_split(tmp_path) == frozen.strip()
+    assert (tmp_path / "split.yaml").read_text(encoding="utf-8").startswith(header)

@@ -65,6 +65,11 @@ SEQUENCE_NOTE = (
     "Sequences: MESSAGE 1 of each turn is the gold history annotated with world "
     "labels, not the system's own annotations of its previous turn."
 )
+CANDIDATES_NOTE = (
+    "C@10: on a scene without history, the first-turn reference lists the registry "
+    "entities in (type, name) order and the scorer keeps the first 10, so a gold id "
+    "can fall outside for alphabetical reasons, not for the blocking's quality."
+)
 EMPTY_RESOLUTION = '{"existing": [], "new": []}'  # the capture's quiet reply
 USAGE_COUNTERS = (
     "cost_usd",
@@ -277,6 +282,7 @@ def _usage(cost: dict | None, failed: bool) -> dict:
 class LegacyResolverAdapter:
     name = "legacy"
     sequence_note = SEQUENCE_NOTE
+    candidates_note = CANDIDATES_NOTE
     needs_db = False  # everything comes from the scene; the pool is never read
 
     def __init__(self) -> None:

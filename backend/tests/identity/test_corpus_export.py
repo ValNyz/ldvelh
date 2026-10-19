@@ -183,8 +183,7 @@ class _FakeConnection:
         self.calls.append("close")
 
 
-def test_the_live_export_sets_read_only_before_any_query(monkeypatch):
-    import asyncio
+async def test_the_live_export_sets_read_only_before_any_query(monkeypatch):
     import sys
     import types
 
@@ -194,7 +193,7 @@ def test_the_live_export_sets_read_only_before_any_query(monkeypatch):
         return conn
 
     monkeypatch.setitem(sys.modules, "asyncpg", types.SimpleNamespace(connect=connect))
-    asyncio.run(fetch_dump("postgresql://x", "f1340000-0000-0000-0000-000000000000"))
+    await fetch_dump("postgresql://x", "f1340000-0000-0000-0000-000000000000")
     assert conn.calls[0] == "SET default_transaction_read_only = on"
     assert len(conn.calls) > 2 and conn.calls[-1] == "close"
 

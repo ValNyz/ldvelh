@@ -655,3 +655,15 @@ def test_unsure_on_a_repeat_of_an_unborn_trap_chain_is_right():
     )
     born = _d(0, "NEW", "sys_1", new_type="character")
     assert _metrics(gold, [born, _d(20, "UNSURE")]).by_category["EASY"].value == 0.0
+
+
+def test_a_same_repeat_after_its_birth_has_no_candidate_hit():
+    gold = [_mention(0, "NEW", "NEW character"), _mention(20, "DESC", "SAME 0")]
+    scene = _scene(gold)
+    decisions = [
+        _d(0, "NEW", "sys_1", new_type="character"),
+        _d(20, "MATCH", "sys_1"),
+    ]
+    score = score_scene(scene, _run(scene, decisions, {20: ["character_tesk"]}))
+    assert [o.candidate_hit for o in score.outcomes] == [None, None]
+    assert math.isnan(aggregate([score]).c_at_10)

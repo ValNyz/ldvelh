@@ -44,7 +44,8 @@ over those golds; NEW precision over every NEW decision
 (aligned or spurious) and recall over gold NEW, both type-agnostic (NIL detection;
 UNSURE on a trap is right but is not a NEW); `C@10` = an accepted gold id among the
 first 10 candidates of the mention (looked up by gold start, then by the aligned
-decision's start), over gold MATCH/ALIAS; `unsure_rate` over gold mentions;
+decision's start), over gold MATCH/ALIAS (a SAME repeat linked to the system's own
+id is left out: no candidate list of world ids can hold it); `unsure_rate` over gold mentions;
 `deterministic_share` over the aligned decisions; `escalation_rate` = scenes (turns)
 with an escalated decision over scenes; `cost` = summed `usage` counters plus their
 per-turn means. `hard_macro` is nan unless all six hard categories are present
@@ -245,7 +246,7 @@ def _outcome(
     kind = decision.decision if decision is not None else None
     new_gold = any(f.decision == "NEW" for f in gold.forms)
     hit = None
-    if gold.existing:
+    if gold.existing and m.parsed.decision != "SAME":  # a SAME's id is the system's own
         hit = bool(gold_ids & set((candidates or [])[:CANDIDATES_K]))
     return MentionOutcome(
         category=m.category,
@@ -363,7 +364,7 @@ def aggregate(scores: list[SceneScore]) -> Metrics:
     wrong_merges = sum(o.wrong_merge for o in outcomes) + sum(
         s.spurious_wrong_merges for s in scores
     )
-    hits = [o.candidate_hit for o in existing]
+    hits = [o.candidate_hit for o in existing if o.candidate_hit is not None]
     return Metrics(
         by_category=by_category,
         by_category_type=by_type,

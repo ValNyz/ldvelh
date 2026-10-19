@@ -26,15 +26,6 @@ HARD_WEIGHT = 4.0
 RESTARTS = 16
 
 
-def dominant_category(scene: Scene) -> str:
-    counts = Counter(m.category for m in scene.gold)
-    hard = [c for c in HARD_CATEGORIES if counts[c]]
-    pool = hard or [c for c in CATEGORY_ORDER if counts[c]]
-    if not pool:
-        return "NONE"
-    return max(pool, key=lambda c: (counts[c], -CATEGORY_ORDER.index(c)))
-
-
 def _cost(test: Counter, totals: Counter, share: float) -> float:
     return sum(
         (HARD_WEIGHT if c in HARD_CATEGORIES else 1.0)

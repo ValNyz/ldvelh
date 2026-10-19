@@ -3,7 +3,7 @@
 Modèles : resolver=claude-sonnet-5-5 · exécutions : 1 · scènes : 64
 
 > **Avertissement (D25)** : chiffres = accord avec l'annotateur unique, plafond humain non mesuré.
-> Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder). Sequences: MESSAGE 1 of each turn is the gold history annotated with world labels, not the system's own annotations of its previous turn.
+> Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder). Sequences: MESSAGE 1 of each turn is the gold history annotated with world labels, not the system's own annotations of its previous turn. C@10: on a scene without history, the first-turn reference lists the registry entities in (type, name) order and the scorer keeps the first 10, so a gold id can fall outside for alphabetical reasons, not for the blocking's quality.
 
 ## Gate (spec § 3.5)
 
@@ -36,7 +36,7 @@ Catégories dures absentes : aucune.
 - Lecture indicative : plancher 0,85, lu avec son IC large.
 - Lecture contraignante : plancher 0,88 si chaque catégorie dure a ≥ 60 mentions en test ; elle ne s'applique pas à ce corpus.
 
-| Catégorie | Mentions test | Moyenne | IC 95 % | Plancher 0,85 | Plancher 0,88 |
+| Catégorie | Mentions dev | Moyenne | IC 95 % | Plancher 0,85 | Plancher 0,88 |
 |---|---|---|---|---|---|
 | PART | 196 | 0,454 | [0,363 ; 0,556] | ÉCHEC | ÉCHEC |
 | DESC | 192 | 0,380 | [0,281 ; 0,490] | ÉCHEC | ÉCHEC |
@@ -80,7 +80,7 @@ Résultat de l'étage bon marché seul : non exécuté.
 
 - Part déterministe des décisions : 0,000
 - Taux d'escalade (tours) : 0,000
-- Coût par tour : cache_creation_input_tokens 0, cache_read_input_tokens 0, calls 1, cost_usd 0, failed_calls 0, input_tokens 0, output_tokens 0
+- Coût par tour : non mesuré (réponses importées)
 
 ## Séquences (B³, CEAF-e)
 

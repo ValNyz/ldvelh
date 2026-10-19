@@ -1,18 +1,23 @@
 """Write the dev/test split of the identity corpus and freeze the test fingerprint (#151).
 
-The split is stratified by each scene's dominant category (evals/identity/split.py) and
-written to tests/fixtures/identity/split.yaml. `--freeze` then writes TEST_SHA256, the
-sha256 of the test scene files (corpus.fingerprint_test_split), checked by the CI.
+The split moves whole campaigns (`Scene.campaign`) so that each category keeps about
+`1 - ratio` of its mentions in test (evals/identity/split.py), and is written to
+tests/fixtures/identity/split.yaml. `--freeze` then writes TEST_SHA256, the sha256 of
+the test scene files (corpus.fingerprint_test_split), checked by the CI.
 
 While the corpus is being annotated, rerun it with `--freeze` after each new scene.
-Once the corpus is complete the test split is frozen (D25): never re-split it; a gold
-correction of a test scene goes in its own PR and refreshes only the fingerprint
-(`--freeze --keep-split`).
+Once the corpus is complete the test split is frozen (D25): never re-split it.
+- A gold correction of a test scene goes in its own PR and refreshes only the
+  fingerprint (`--freeze --keep-split`).
+- A new scene goes to dev with `--add-dev ID...`: appended to the dev list, the test
+  list and TEST_SHA256 untouched. It is refused if its campaign has a test scene
+  (the new scene's history would show test gold on the dev side).
 
 Usage (from backend/):
   python -m scripts.identity_corpus_split --ratio 0.6 --seed 42
   python -m scripts.identity_corpus_split --ratio 0.6 --seed 42 --freeze
   python -m scripts.identity_corpus_split --freeze --keep-split
+  python -m scripts.identity_corpus_split --add-dev syn-sf-new-06 syn-sf-new-07
 """
 
 from __future__ import annotations
@@ -43,6 +48,35 @@ def write_split(root: Path, split: Split, *, ratio: float, seed: int) -> None:
     (root / "split.yaml").write_text(_header(ratio, seed) + body, encoding="utf-8")
 
 
+def add_dev(root: Path, scene_ids: list[str]) -> list[str]:
+    """Append new scenes to dev, keeping split.yaml's header; errors as lines (none = done)."""
+    split = load_split(root)
+    scenes = {s.id: s for s in load_scenes(root)}
+    test_campaigns = {scenes[i].campaign for i in split.test if i in scenes}
+    errors = []
+    for scene_id in scene_ids:
+        if scene_id not in scenes:
+            errors.append(f"{scene_id}: no scene file scenes/{scene_id}.yaml")
+        elif scene_id in split.dev or scene_id in split.test:
+            errors.append(f"{scene_id}: already in the split")
+        elif scenes[scene_id].campaign in test_campaigns:
+            errors.append(
+                f"{scene_id}: campaign {scenes[scene_id].campaign!r} has test scenes"
+            )
+    if errors:
+        return errors
+    path = root / "split.yaml"
+    header = "".join(
+        line
+        for line in path.read_text(encoding="utf-8").splitlines(keepends=True)
+        if line.startswith("#")
+    )
+    grown = Split(dev=sorted({*split.dev, *scene_ids}), test=split.test)
+    body = yaml.safe_dump(grown.model_dump(), allow_unicode=True, sort_keys=False)
+    path.write_text(header + body, encoding="utf-8")
+    return []
+
+
 def write_fingerprint(root: Path) -> str:
     fingerprint = corpus.fingerprint_test_split(root)
     (root / "TEST_SHA256").write_text(fingerprint + "\n", encoding="utf-8")
@@ -58,11 +92,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--keep-split", action="store_true", help="keep split.yaml as it is"
     )
+    parser.add_argument(
+        "--add-dev", nargs="+", metavar="ID", help="append new scenes to dev only"
+    )
     args = parser.parse_args(argv)
     misnamed = corpus.file_name_errors(args.root)
     if misnamed:
         print("\n".join(misnamed), file=sys.stderr)
         return 1
+    if args.add_dev:
+        errors = add_dev(args.root, args.add_dev)
+        print("\n".join(errors or [f"added to dev: {' '.join(args.add_dev)}"]))
+        return 1 if errors else 0
     scenes = load_scenes(args.root)
     if args.keep_split:
         split = load_split(args.root)

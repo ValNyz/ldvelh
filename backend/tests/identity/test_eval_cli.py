@@ -48,8 +48,16 @@ def _gold_decisions(scene: Scene) -> list[Decision]:
     return decisions
 
 
+async def _main(argv: list[str]) -> int:
+    """`eval_identity.main` without `asyncio.run`, which would unset the test's loop."""
+    return await eval_identity._run(eval_identity._parser().parse_args(argv))
+
+
 class ScriptedAdapter:
     name = "scripted"
+    sequence_note = ""
+    needs_db = False
+    candidates_note = ""
 
     def __init__(self, decisions_by_scene: dict[str, list[Decision]]) -> None:
         self.decisions_by_scene = decisions_by_scene
@@ -202,11 +210,11 @@ async def test_emitted_request_is_what_resolve_entities_sends(tmp_path, monkeypa
     assert ("temperature" in emitted) == ("temperature" in wire)
 
 
-def test_emit_then_import_round_trips_on_two_scenes(tmp_path, monkeypatch):
+async def test_emit_then_import_round_trips_on_two_scenes(tmp_path, monkeypatch):
     root = _corpus(tmp_path, WITH_HISTORY, WITHOUT_HISTORY)
     prompts, out = tmp_path / "prompts", tmp_path / "out"
     base = ["--root", str(root), "--split", "test"]
-    assert eval_identity.main([*base, "--emit-prompts", str(prompts)]) == 0
+    assert await _main([*base, "--emit-prompts", str(prompts)]) == 0
     assert sorted(p.name for p in prompts.iterdir()) == [
         f"{WITHOUT_HISTORY}.json",
         f"{WITH_HISTORY}.json",
@@ -226,10 +234,8 @@ def test_emit_then_import_round_trips_on_two_scenes(tmp_path, monkeypatch):
     args = [*base, "--import-responses", str(prompts), "--out", str(out)]
     responder = "subagent:claude-sonnet"
     with pytest.raises(SystemExit, match="--responder"):
-        eval_identity.main(args)
-    assert (
-        eval_identity.main([*args, "--responder", responder, "--iterations", "20"]) == 0
-    )
+        await _main(args)
+    assert await _main([*args, "--responder", responder, "--iterations", "20"]) == 0
     (report,) = out.glob("*.md")
     assert report.name.endswith("-test-anthropic-claude-sonnet-5-5-subagent.md")
     assert f"answers of {responder}" in report.read_text("utf-8")
@@ -320,6 +326,6 @@ async def test_a_new_entity_chains_within_a_turn_and_across_turns(monkeypatch):
     assert clusters[born] == {f"{first.id}:89", f"{first.id}:302", f"{second.id}:300"}
 
 
-def test_needs_db_reports_the_adapter_attribute(capsys):
-    assert eval_identity.main(["--split", "test", "--needs-db"]) == 0
+async def test_needs_db_reports_the_adapter_attribute(capsys):
+    assert await _main(["--split", "test", "--needs-db"]) == 0
     assert capsys.readouterr().out.strip() == str(int(LegacyResolverAdapter.needs_db))

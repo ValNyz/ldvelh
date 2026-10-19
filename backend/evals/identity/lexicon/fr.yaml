@@ -2,6 +2,8 @@
 # The code never names a language's words: it reads them from lexicon/<language>.yaml,
 # chosen by the scene's `language` field. ANNOTATION.md explains each list.
 
+# Apostrophes of a text; the first is the one the lists below are written with.
+apostrophes: ["'", "’"]
 # Leading determiners dropped before comparing names (« la Coopérative » = « Coopérative »).
 determiners: [le, la, les, un, une, des, du, ce, cet, cette, ces, mon, ma, mes, ton, ta, tes,
   son, sa, ses, notre, nos, votre, vos, leur, leurs]

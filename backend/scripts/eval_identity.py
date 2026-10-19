@@ -168,6 +168,8 @@ async def _run(args: argparse.Namespace) -> int:
     if args.emit_prompts:
         return await _emit(selection, like, args.emit_prompts)
     notes = [adapter.sequence_note] if selection.sequences else []
+    if adapter.candidates_note:
+        notes.append(adapter.candidates_note)
     if args.import_responses:
         if args.runs != 1:
             raise SystemExit("--import-responses holds one run: use --runs 1")

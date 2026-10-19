@@ -36,8 +36,6 @@ backend/tests/reports/*
 backend/tests/fixtures/identity/surfaces-only/
 !backend/tests/reports/identity/
 backend/tests/reports/identity/*
-!backend/tests/reports/identity/*-baseline.*
-!backend/tests/reports/identity/*-gate.*
 !backend/tests/reports/identity/*-baseline-*
 !backend/tests/reports/identity/*-gate-*
 

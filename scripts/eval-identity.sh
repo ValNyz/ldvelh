@@ -20,6 +20,8 @@ SUFFIX="$$"
 PG="ldvelh-eval-pg-${SUFFIX}"
 BOX="ldvelh-eval-${SUFFIX}"
 NET="ldvelh-eval-${SUFFIX}"
+# Keep in step with KEY_FIELDS of backend/scripts/smoke_providers.py (a new provider
+# key goes in both places).
 KEY_VARS=(ANTHROPIC_API_KEY MISTRAL_API_KEY WANDB_API_KEY NEBIUS_API_KEY NOUS_API_KEY)
 mkdir -p "$OUT"
 
@@ -55,7 +57,7 @@ run() {  # run the script as the host user, with `docker exec` options before `-
   while [ "$1" != "--" ]; do opts+=("$1"); shift; done
   shift
   docker exec -u "$(id -u):$(id -g)" -w /w/backend -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 \
-    "${opts[@]}" "$BOX" bash -c '
+    ${opts[@]+"${opts[@]}"} "$BOX" bash -c '
 export JWT_SECRET="$(python -c "import secrets; print(secrets.token_hex(32))")"
 export ENCRYPTION_KEY="$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")"
 exec python -m scripts.eval_identity "$@"

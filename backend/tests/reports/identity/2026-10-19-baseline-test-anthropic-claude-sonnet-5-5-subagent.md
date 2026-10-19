@@ -3,21 +3,21 @@
 Modèles : resolver=claude-sonnet-5-5 · exécutions : 1 · scènes : 39
 
 > **Avertissement (D25)** : chiffres = accord avec l'annotateur unique, plafond humain non mesuré.
-> Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder).
+> Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder). C@10: on a scene without history, the first-turn reference lists the registry entities in (type, name) order and the scorer keeps the first 10, so a gold id can fall outside for alphabetical reasons, not for the blocking's quality.
 
 ## Gate (spec § 3.5)
 
 | Condition | Seuil | Valeur (1 exéc. groupées) | IC 95 % (bootstrap par scène) | Verdict |
 |---|---|---|---|---|
-| Macro-moyenne A_cat (6 catégories dures) | ≥ 0,90 | 0,258 | [0,204 ; 0,310] | ÉCHEC |
-| Accuracy groupée, mentions dures (pool) | ≥ 0,90 | 0,268 | [0,195 ; 0,342] | ÉCHEC |
+| Macro-moyenne A_cat (6 catégories dures) | ≥ 0,90 | 0,254 | [0,200 ; 0,304] | ÉCHEC |
+| Accuracy groupée, mentions dures (pool) | ≥ 0,90 | 0,268 | [0,195 ; 0,341] | ÉCHEC |
 | Catégorie dure PART seule | ≥ 0,85 | 0,264 | [0,179 ; 0,350] | ÉCHEC |
 | Catégorie dure DESC seule | ≥ 0,85 | 0,285 | [0,195 ; 0,407] | ÉCHEC |
 | Catégorie dure GAP seule | ≥ 0,85 | 0,000 | [0,000 ; 0,000] | ÉCHEC |
 | Catégorie dure REVEAL seule | ≥ 0,85 | 0,000 | [0,000 ; 0,000] | ÉCHEC |
-| Catégorie dure NEW seule | ≥ 0,85 | 0,743 | [0,500 ; 0,926] | ÉCHEC |
+| Catégorie dure NEW seule | ≥ 0,85 | 0,722 | [0,477 ; 0,900] | ÉCHEC |
 | Catégorie dure XTYPE seule | ≥ 0,85 | 0,256 | [0,108 ; 0,396] | ÉCHEC |
-| Accuracy EASY + PC + SKIP | ≥ 0,97 | 0,811 | [0,730 ; 0,877] | ÉCHEC |
+| Accuracy EASY + PC + SKIP | ≥ 0,97 | 0,810 | [0,730 ; 0,877] | ÉCHEC |
 | W fusions abusives | ≤ 0,02 | 0,108 | [0,076 ; 0,143] | ÉCHEC |
 | D doublons | ≤ 0,08 | 0,378 | [0,316 ; 0,439] | ÉCHEC |
 | C@10 blocage | ≥ 0,98 | 0,397 | [0,350 ; 0,449] | ÉCHEC |
@@ -42,7 +42,7 @@ Catégories dures absentes : aucune.
 | DESC | 130 | 0,285 | [0,195 ; 0,407] | ÉCHEC | ÉCHEC |
 | GAP | 39 | 0,000 | [0,000 ; 0,000] | ÉCHEC | ÉCHEC |
 | REVEAL | 27 | 0,000 | [0,000 ; 0,000] | ÉCHEC | ÉCHEC |
-| NEW | 35 | 0,743 | [0,500 ; 0,926] | ÉCHEC | ÉCHEC |
+| NEW | 36 | 0,722 | [0,477 ; 0,900] | ÉCHEC | ÉCHEC |
 | XTYPE | 39 | 0,256 | [0,108 ; 0,396] | ÉCHEC | ÉCHEC |
 
 ## Décisions parasites et NEW
@@ -51,7 +51,7 @@ Catégories dures absentes : aucune.
 - NEW parasites par tour (hors or) : 0,077
 - Erreurs de type NEW (par exécution) : 1,000
 - Précision du NEW : 0,134
-- Rappel du NEW : 0,711
+- Rappel du NEW : 0,692
 - Taux d'UNSURE : 0,000
 - Une fusion parasite ne compte dans W que si elle contredit une mention or.
 
@@ -63,13 +63,13 @@ Catégories dures absentes : aucune.
 | DESC | 0,596 (52) | — | 0,042 (24) | — | 0,125 (32) | 0,045 (22) | — |
 | GAP | 0,000 (11) | — | 0,000 (11) | — | 0,000 (10) | 0,000 (7) | — |
 | REVEAL | 0,000 (9) | — | 0,000 (7) | — | 0,000 (6) | 0,000 (5) | — |
-| NEW | 0,778 (9) | — | 0,455 (11) | — | 0,857 (7) | 1,000 (8) | — |
+| NEW | 0,700 (10) | — | 0,455 (11) | — | 0,857 (7) | 1,000 (8) | — |
 | XTYPE | 0,364 (11) | — | 0,100 (10) | — | 0,333 (6) | 0,250 (12) | — |
 | EASY | 1,000 (16) | — | 0,643 (14) | — | 0,286 (7) | 0,167 (6) | — |
 | PC | — | 0,634 (41) | — | — | — | — | 0,000 (5) |
-| SKIP | — | — | — | 0,973 (112) | — | — | — |
+| SKIP | — | — | — | 0,973 (111) | — | — | — |
 
-Part de chaque type dans les mentions dures : character 0,323, location 0,226, object 0,236, organization 0,216.
+Part de chaque type dans les mentions dures : character 0,325, location 0,225, object 0,235, organization 0,215.
 
 ## Étage bon marché seul
 
@@ -79,7 +79,7 @@ Résultat de l'étage bon marché seul : non exécuté.
 
 - Part déterministe des décisions : 0,000
 - Taux d'escalade (tours) : 0,000
-- Coût par tour : cache_creation_input_tokens 0, cache_read_input_tokens 0, calls 1, cost_usd 0, failed_calls 0, input_tokens 0, output_tokens 0
+- Coût par tour : non mesuré (réponses importées)
 
 ## Séquences (B³, CEAF-e)
 

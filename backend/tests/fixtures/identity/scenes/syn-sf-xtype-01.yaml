@@ -515,8 +515,8 @@ gold:
   - ALIAS character_saskia_lindqvist descriptor
 - surface: un apprenti
   start: 320
-  category: SKIP
-  expected: SKIP
+  category: NEW
+  expected: NEW character
 - surface: Lindqvist
   start: 341
   category: XTYPE
