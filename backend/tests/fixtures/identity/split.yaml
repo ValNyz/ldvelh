@@ -1,0 +1,5 @@
+# Dev/test split of the identity corpus (generated, do not edit by hand):
+# python -m scripts.identity_corpus_split --ratio 0.6 --seed 42
+# Frozen with TEST_SHA256 once the corpus is complete (D25).
+dev: []
+test: []

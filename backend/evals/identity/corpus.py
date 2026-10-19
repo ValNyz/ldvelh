@@ -6,6 +6,7 @@ shape (unknown keys, negative offsets and malformed `expected` strings are rejec
 mechanical category rules (evals/identity/categories.py), reveals and knowledge flags.
 """
 
+import hashlib
 from pathlib import Path
 from typing import Literal, NamedTuple
 
@@ -222,6 +223,21 @@ def load_sequences(root: Path) -> list[Sequence]:
 
 def load_split(root: Path) -> Split:
     return Split.model_validate(_read_yaml(Path(root) / "split.yaml"))
+
+
+def test_fingerprint(root: Path) -> str:
+    """sha256 of the test split's scene files, sorted by id (the content of TEST_SHA256).
+
+    Each file is hashed with its id and byte length in front, so that renaming,
+    moving a scene between dev and test or editing it all change the fingerprint.
+    """
+    root = Path(root)
+    digest = hashlib.sha256()
+    for scene_id in sorted(load_split(root).test):
+        data = (root / "scenes" / f"{scene_id}.yaml").read_bytes()
+        digest.update(f"{scene_id}\n{len(data)}\n".encode())
+        digest.update(data)
+    return digest.hexdigest()
 
 
 # --- validation ------------------------------------------------------------

@@ -1,19 +1,24 @@
 """Identity gold corpus: format, loader and validation (#151)."""
 
+import random
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from evals.identity import corpus
 from evals.identity.corpus import (
+    HARD_CATEGORIES,
     Scene,
     Sequence,
     load_scenes,
     load_sequences,
+    load_split,
     parse_expected,
     validate_scene,
     validate_sequence,
 )
+from evals.identity.split import shares_in_test, stratified_split
 
 ROOT = Path(__file__).resolve().parent.parent / "fixtures" / "identity"
 NARRATION = "La Kethari âgée cligne des yeux. — Nahle, dit-elle. Le terminal vibre sous sa paume."
@@ -838,3 +843,76 @@ def test_accept_also_cannot_be_new_or_skip():
 def test_accept_also_on_the_same_entity_is_valid():
     accept = ["ALIAS character_kethari_agee descriptor"]
     assert _errors(gold=_with_gold(0, accept_also=accept)) == []
+
+
+# --- split and frozen test fingerprint (D25) ---
+
+# Below this many mentions a category cannot hold a 35-45 % test share (one scene moves
+# several mentions at once): the band is checked once the category is that large.
+SPLIT_BAND_MIN_MENTIONS = 20
+
+
+def _share_errors(scenes, split) -> list[str]:
+    errors = []
+    for category, (in_test, total) in shares_in_test(scenes, split).items():
+        large = category in HARD_CATEGORIES and total >= SPLIT_BAND_MIN_MENTIONS
+        if large and not 0.35 <= in_test / total <= 0.45:
+            errors.append(f"{category}: {in_test}/{total} mentions in test")
+    return errors
+
+
+def test_frozen_test_split_fingerprint_matches():
+    frozen = (ROOT / "TEST_SHA256").read_text(encoding="utf-8").strip()
+    assert corpus.test_fingerprint(ROOT) == frozen, (
+        "the test split changed: a gold correction of the test needs its own PR "
+        "(ANNOTATION.md § 12), then scripts/identity_corpus_split.py --freeze"
+    )
+
+
+def test_split_is_stratified_and_disjoint():
+    scenes = load_scenes(ROOT)
+    split = load_split(ROOT)
+    assert not set(split.dev) & set(split.test)
+    assert sorted(split.dev + split.test) == sorted(s.id for s in scenes)
+    assert _share_errors(scenes, split) == []
+
+
+def _synthetic_scene(scene_id: str, categories: list[str]) -> Scene:
+    gold = [
+        {"surface": "x", "start": i, "category": c, "expected": "SKIP"}
+        for i, c in enumerate(categories)
+    ]
+    return Scene.model_validate(_scene(id=scene_id, gold=gold))
+
+
+def test_stratified_split_holds_each_category_share_on_a_synthetic_corpus():
+    rng = random.Random(7)
+    pool = [*HARD_CATEGORIES, "EASY", "EASY", "PC", "SKIP"]
+    scenes = [
+        _synthetic_scene(f"s{i:03}", rng.choices(pool, k=rng.randint(2, 8)))
+        for i in range(110)
+    ]
+    split = stratified_split(scenes, ratio=0.6, seed=42)
+    assert _share_errors(scenes, split) == []
+    assert sorted(split.dev + split.test) == sorted(s.id for s in scenes)
+    assert 0.3 <= len(split.test) / len(scenes) <= 0.5
+    assert stratified_split(list(reversed(scenes)), ratio=0.6, seed=42) == split
+
+
+def test_split_script_writes_the_split_and_its_fingerprint(tmp_path):
+    import yaml
+
+    from scripts.identity_corpus_split import main
+
+    (tmp_path / "scenes").mkdir()
+    for i in range(5):
+        data = _scene(id=f"s{i}")
+        text = yaml.safe_dump(data, allow_unicode=True)
+        (tmp_path / "scenes" / f"s{i}.yaml").write_text(text, encoding="utf-8")
+    assert main(["--root", str(tmp_path), "--freeze"]) == 0
+    split = load_split(tmp_path)
+    assert sorted(split.dev + split.test) == [f"s{i}" for i in range(5)]
+    frozen = (tmp_path / "TEST_SHA256").read_text(encoding="utf-8").strip()
+    assert frozen == corpus.test_fingerprint(tmp_path)
+    (tmp_path / "scenes" / f"{split.test[0]}.yaml").write_text("id: x\n")
+    assert corpus.test_fingerprint(tmp_path) != frozen
