@@ -172,8 +172,9 @@ async def measure(pool, game_id: UUID, *, rounds: int) -> dict:
                 )
             set_config_ms = (time.perf_counter() - started) * 1000 / 200
 
-        journal_bytes = await conn.fetchval(
-            "SELECT coalesce(sum(pg_column_size(w.*)), 0) FROM world_changes w WHERE turn_id = $1",
+        journal = await conn.fetchrow(
+            """SELECT count(*) AS changes, coalesce(sum(pg_column_size(w.*)), 0) AS bytes
+            FROM world_changes w WHERE turn_id = $1""",
             turn_id,
         )
 
@@ -191,7 +192,8 @@ async def measure(pool, game_id: UUID, *, rounds: int) -> dict:
         "disabled_ms": medians["disabled"],
         "overhead": medians["journaled"] / medians["disabled"] - 1,
         # Per micro transaction (not a real turn): see commit_journal_bytes_per_turn.
-        "micro_journal_bytes_per_round": journal_bytes / rounds,
+        "micro_journal_bytes_per_round": journal["bytes"] / rounds,
+        "micro_journal_changes_per_round": journal["changes"] / rounds,
     }
 
 
@@ -295,6 +297,7 @@ async def measure_commit(pool, game_id: UUID, *, rounds: int) -> dict:
         "commit_journaled_changes": stats["journaled"]["changes"],
         "commit_disabled_changes": stats["disabled"]["changes"],
         "commit_journal_bytes_per_turn": stats["journaled"]["bytes"] / rounds,
+        "commit_journal_changes_per_turn": stats["journaled"]["changes"] / rounds,
     }
 
 
@@ -332,11 +335,13 @@ async def _main(rounds: int) -> None:
         micro = await measure(pool, game_id, rounds=rounds)
         commit = await measure_commit(pool, game_id, rounds=rounds)
     finally:
-        if user_id:
-            async with pool.acquire() as conn:  # games cascade to turns and journal
-                await conn.execute("DELETE FROM games WHERE user_id = $1", user_id)
-                await conn.execute("DELETE FROM users WHERE id = $1", user_id)
-        await pool.close()
+        try:
+            if user_id:
+                async with pool.acquire() as conn:  # games cascade to turns and journal
+                    await conn.execute("DELETE FROM games WHERE user_id = $1", user_id)
+                    await conn.execute("DELETE FROM users WHERE id = $1", user_id)
+        finally:
+            await pool.close()
     for key, value in {**micro, **commit}.items():
         print(f"{key}: {value:.3f}" if isinstance(value, float) else f"{key}: {value}")
     print(f"micro overhead: {micro['overhead'] * 100:.1f} %")
