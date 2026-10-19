@@ -18,8 +18,8 @@ CREATE FUNCTION public.ldvelh_unaccent(p_text text) RETURNS text
     LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
     AS $$ SELECT public.unaccent('public.unaccent'::regdictionary, p_text) $$;
 
--- Steps 1-2 of ldvelh_norm, also applied to the pack entries before comparing: lower case,
--- unaccent, every Unicode space as a plain space, every pack apostrophe as a plain one.
+-- Steps 1-2 of ldvelh_norm: lower case, unaccent, every Unicode space as a plain space,
+-- every pack apostrophe as a plain one.
 CREATE FUNCTION public.ldvelh_norm_fold(p_text text, p_params jsonb) RETURNS text
     LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE
     AS $$
@@ -36,10 +36,15 @@ BEGIN
     RETURN v_out;
 END $$;
 
--- 3. drop an ordinal marker before a number; 4. drop every character that is not a letter,
--- a digit, a space, an apostrophe or a hyphen; 5. keep a hyphen only between two letters,
--- collapse spaces; 6. drop one leading elision (prefix) or article (whole word) when
--- something follows it; 7. drop apostrophes, collapse spaces.
+-- 3. drop an ordinal marker before a number; 4. replace by a space every character that is
+-- not a letter, a digit, a space, an apostrophe or a hyphen; 5. keep a hyphen only between
+-- two letters (a space otherwise), collapse spaces; 6. drop one leading elision (prefix) or
+-- article (whole word) when something follows it; 7. drop apostrophes, collapse spaces.
+--
+-- p_params is what packs.loader.norm_params writes into lang_packs: the articles, elisions
+-- and ordinal markers already folded (steps 1-2), longest first, so they are compared as
+-- they are. About 13 µs a call: meant for the trigger-filled name_norm/alias_norm columns
+-- and for one ldvelh_norm_for_game($1) per query, not for a per-row predicate of a query.
 CREATE FUNCTION public.ldvelh_norm(p_text text, p_params jsonb) RETURNS text
     LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE
     AS $$
@@ -52,28 +57,21 @@ DECLARE
 BEGIN
     v_out := public.ldvelh_norm_fold(p_text, p_params);
 
-    SELECT string_agg(regexp_replace(mrk.folded, '([^[:alnum:] ])', '\\\1', 'g'), '|'
-                      ORDER BY length(mrk.folded) DESC)
+    SELECT string_agg(regexp_replace(mrk.entry, '([^[:alnum:] ])', '\\\1', 'g'), '|'
+                      ORDER BY mrk.pos)
       INTO v_markers
-      FROM (SELECT btrim(public.ldvelh_norm_fold(entry, p_params), ' ') AS folded
-              FROM jsonb_array_elements_text(p_params -> 'ordinal_markers') AS entry) AS mrk
-     WHERE mrk.folded <> '';
+      FROM jsonb_array_elements_text(p_params -> 'ordinal_markers')
+           WITH ORDINALITY AS mrk(entry, pos);
     IF v_markers IS NOT NULL THEN
         v_out := regexp_replace(v_out, '(^|[^[:alnum:]])(' || v_markers || ') *(?=[0-9])',
                                 '\1', 'g');
     END IF;
 
-    v_out := regexp_replace(v_out, '[^[:alnum:] ''-]', '', 'g');
-    v_out := regexp_replace(v_out, '(?<![[:alpha:]])-|-(?![[:alpha:]])', '', 'g');
+    v_out := regexp_replace(v_out, '[^[:alnum:] ''-]', ' ', 'g');
+    v_out := regexp_replace(v_out, '(?<![[:alpha:]])-|-(?![[:alpha:]])', ' ', 'g');
     v_out := btrim(regexp_replace(v_out, ' +', ' ', 'g'), ' ');
 
-    FOR v_prefix IN
-        SELECT eli.folded
-          FROM (SELECT btrim(public.ldvelh_norm_fold(entry, p_params), ' ') AS folded
-                  FROM jsonb_array_elements_text(p_params -> 'elisions') AS entry) AS eli
-         WHERE eli.folded <> ''
-         ORDER BY length(eli.folded) DESC
-    LOOP
+    FOR v_prefix IN SELECT jsonb_array_elements_text(p_params -> 'elisions') LOOP
         IF length(v_out) > length(v_prefix) AND left(v_out, length(v_prefix)) = v_prefix THEN
             v_out := ltrim(substr(v_out, length(v_prefix) + 1), ' ');
             v_stripped := true;
@@ -82,8 +80,7 @@ BEGIN
     END LOOP;
     IF NOT v_stripped AND position(' ' IN v_out) > 0 THEN
         v_head := split_part(v_out, ' ', 1);
-        IF EXISTS (SELECT 1 FROM jsonb_array_elements_text(p_params -> 'articles') AS entry
-                    WHERE btrim(public.ldvelh_norm_fold(entry, p_params), ' ') = v_head) THEN
+        IF (p_params -> 'articles') ? v_head THEN
             v_out := substr(v_out, length(v_head) + 2);
         END IF;
     END IF;

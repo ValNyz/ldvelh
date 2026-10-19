@@ -1,7 +1,8 @@
 """Words of a game: its language pack plus the identity section of its genre pack (§4.12).
 
-Every word set holds pack entries in `Normalizer.key` form, so that normalised tokens and
-heads compare with them directly.
+Word sets hold pack entries in `Normalizer.key` form, so that normalised tokens and heads
+compare with them directly; `elisions` and `elided` hold folded entries ending with an
+apostrophe.
 """
 
 from __future__ import annotations
@@ -9,19 +10,29 @@ from __future__ import annotations
 from functools import lru_cache
 
 from packs.loader import Example, GenrePack, LangPack, load_genre, load_lang
-from services.identity.normalize import Normalizer
+from services.identity.normalize import APOSTROPHE, Normalizer
 
 
 class Lexicon:
     def __init__(self, lang: LangPack, genre: GenrePack):
         self.lang = lang
         self.genre = genre
-        key = Normalizer(lang).key
+        normalizer = Normalizer(lang)
+        key = normalizer.key
 
         def keys(*lists: list[str]) -> frozenset[str]:
             return frozenset(key(w) for words in lists for w in words) - {""}
 
+        def glued(*lists: list[str]) -> frozenset[str]:
+            folded = normalizer.folded_entries([w for words in lists for w in words])
+            return frozenset(w for w in folded if w.endswith(APOSTROPHE))
+
         pronouns = lang.pronouns
+        self.articles = keys(lang.articles)
+        # Folded elided words (« l' »): leading elisions, and every word glued with an
+        # apostrophe that tokens and short aliases split off.
+        self.elisions = glued(lang.elisions)
+        self.elided = glued(lang.elisions, lang.stop_words)
         self.titles = keys(lang.titles, genre.identity.titles_extra)
         self.stop_words = keys(lang.stop_words)
         self.pronouns_flat = keys(

@@ -5,7 +5,13 @@ LDVELH - Configuration
 import os
 from functools import lru_cache
 
-from pydantic import AliasChoices, Field, ValidationInfo, field_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROLLBACK_ENGINES = ("journal", "cycle")
@@ -191,6 +197,15 @@ class IdentityConfig(BaseSettings):
         if value < 1:
             raise ValueError(f"IDENTITY_{info.field_name.upper()} must be at least 1, got {value}")
         return value
+
+
+    @model_validator(mode="after")
+    def _alert_above_target(self) -> "IdentityConfig":
+        if self.escalation_alert_rate <= self.escalation_target_rate:
+            raise ValueError(
+                "IDENTITY_ESCALATION_ALERT_RATE must be above IDENTITY_ESCALATION_TARGET_RATE"
+                f" ({self.escalation_alert_rate} <= {self.escalation_target_rate})")
+        return self
 
 
 @lru_cache

@@ -6,11 +6,14 @@ from pydantic import ValidationError
 
 from packs.loader import (
     PACKS_DIR,
+    GenreIdentity,
     LangPack,
     PackNotFound,
+    all_negative_answers,
     available_langs,
     load_genre,
     load_lang,
+    misnamed_packs,
     norm_params,
     sync_lang_packs,
 )
@@ -81,3 +84,41 @@ async def test_sync_lang_packs_is_idempotent(test_pool):
     by_lang = {r["lang"]: r for r in again}
     assert by_lang["fr"]["version"] == load_lang("fr").version
     assert by_lang["fr"]["params"] == norm_params(load_lang("fr"))
+
+
+@pytest.mark.parametrize(
+    "key, entry",
+    [
+        ("articles", "de la"),
+        ("titles", "grand maitre"),
+        ("ordinal_markers", "numero de"),
+        ("articles", " "),
+        ("stop_words", ""),
+        ("reveal_cues", "  "),
+    ],
+)
+def test_entries_the_code_cannot_match_are_rejected(key, entry):
+    raw = _raw("fr")
+    with pytest.raises(ValidationError, match=key):
+        LangPack.model_validate({**raw, key: [*raw[key], entry]})
+
+
+def test_genre_titles_extra_must_be_single_words():
+    with pytest.raises(ValidationError):
+        GenreIdentity(titles_extra=["grand pater"])
+
+
+def test_norm_params_are_folded_and_longest_first():
+    params = norm_params(load_lang("fr"))
+    assert params["ordinal_markers"][0] == "numero"
+    assert all(e == e.lower() for e in params["articles"])
+    lengths = [len(e) for e in params["elisions"]]
+    assert lengths == sorted(lengths, reverse=True)
+
+
+def test_negative_answers_gather_every_pack():
+    assert {"non", "aucune", "no"} <= all_negative_answers()
+
+
+def test_pack_files_are_well_named():
+    assert misnamed_packs() == []

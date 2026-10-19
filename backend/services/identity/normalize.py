@@ -1,18 +1,23 @@
-"""Python mirror of the SQL `ldvelh_norm(text, params)` and the name heuristics (spec §4.2-4.3).
+r"""Python mirror of the SQL `ldvelh_norm(text, params)` and the name heuristics (spec §4.2-4.3).
 
 `Normalizer(pack).norm` returns what `ldvelh_norm(text, norm_params(pack))` returns; the
 parity test compares both on every pack. Steps, in this order on both sides:
 
-1. lower case, then the `unaccent` dictionary of PostgreSQL (`unaccent.rules`, copied from
-   the postgres:18 image: language-independent character folding);
+1. lower case (character by character), then the `unaccent` dictionary of PostgreSQL
+   (`unaccent.rules`, copied from the postgres:18 image: language-independent folding);
 2. every Unicode space as a plain space, every pack apostrophe as `'`;
 3. an ordinal marker of the pack dropped before a number (whole word);
-4. every character other than a letter, a digit, a space, `'` or `-` removed;
-5. `-` kept only between two letters; spaces collapsed;
+4. every character other than a letter, a digit, a space, `'` or `-` replaced by a space;
+5. `-` kept only between two letters (a space otherwise); spaces collapsed;
 6. one leading elision (prefix) or article (whole word) of the pack dropped;
 7. apostrophes removed, spaces collapsed.
 
 Pack entries go through steps 1-2 before being compared. No word of any language here.
+
+Parity scope: letters and digits are Python's `\w` on one side and the database ctype's
+`[[:alnum:]]` (glibc) on the other. They agree on Latin, Greek and Cyrillic letters and on
+decimal digits; they differ on a few symbols that are neither, such as superscript digits
+(`²`) and enclosed letters (`Ⓐ`), which no name of a game is expected to hold.
 """
 
 from __future__ import annotations
@@ -31,7 +36,9 @@ if TYPE_CHECKING:
 _UNACCENT_RULES = Path(__file__).with_name("unaccent.rules")
 APOSTROPHE = "'"
 # Unicode spaces folded into " " (step 2); the SQL function lists the same characters.
-_SPACES = re.compile("[\t\n\v\f\r   -     　]")
+_SPACES = re.compile(
+    "[\t\n\v\f\r\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"
+)
 _PUNCTUATION = re.compile(r"[^\w '-]|_")  # SQL: [^[:alnum:] '-]
 _LOOSE_HYPHEN = re.compile(r"(?<![^\W\d_])-|-(?![^\W\d_])")  # SQL: [[:alpha:]] around
 _RUNS_OF_SPACES = re.compile(" +")
@@ -88,28 +95,30 @@ class Normalizer:
     # --- ldvelh_norm mirror -------------------------------------------------------------
 
     def fold(self, text: str) -> str:
-        """Steps 1-2: lower case, unaccent, plain spaces, one apostrophe."""
-        folded = _SPACES.sub(" ", unaccent(text.lower()))
+        """Steps 1-2: lower case, unaccent, plain spaces, one apostrophe. Lower case goes
+        character by character, like the database (no context rule such as a final sigma)."""
+        lowered = "".join(c.lower() for c in text)
+        folded = _SPACES.sub(" ", unaccent(lowered))
         for apostrophe in self.pack.apostrophes:
             folded = folded.replace(apostrophe, APOSTROPHE)
         return folded
 
-    def _folded_entries(self, entries: list[str]) -> list[str]:
-        """Pack entries after steps 1-2, longest first, empty ones dropped."""
+    def folded_entries(self, entries: list[str]) -> list[str]:
+        """Pack entries after steps 1-2, without duplicates, longest first."""
         folded = {self.fold(e).strip(" ") for e in entries} - {""}
         return sorted(folded, key=lambda e: (-len(e), e))
 
     @cached_property
     def _elisions(self) -> list[str]:
-        return self._folded_entries(self.pack.elisions)
+        return self.folded_entries(self.pack.elisions)
 
     @cached_property
     def _articles(self) -> frozenset[str]:
-        return frozenset(self._folded_entries(self.pack.articles))
+        return frozenset(self.folded_entries(self.pack.articles))
 
     @cached_property
     def _ordinal(self) -> re.Pattern[str] | None:
-        markers = self._folded_entries(self.pack.ordinal_markers)
+        markers = self.folded_entries(self.pack.ordinal_markers)
         if not markers:
             return None
         body = "|".join(re.escape(m) for m in markers)
@@ -120,8 +129,8 @@ class Normalizer:
         cleaned = self.fold(text)
         if self._ordinal is not None:
             cleaned = self._ordinal.sub(r"\1", cleaned)
-        cleaned = _PUNCTUATION.sub("", cleaned)
-        cleaned = _LOOSE_HYPHEN.sub("", cleaned)
+        cleaned = _PUNCTUATION.sub(" ", cleaned)
+        cleaned = _LOOSE_HYPHEN.sub(" ", cleaned)
         return _collapse(cleaned)
 
     def _strip_head(self, cleaned: str) -> str:
@@ -145,16 +154,31 @@ class Normalizer:
         """`norm` without dropping a leading article: how pack words are compared."""
         return self._finish(self._clean(text))
 
-    # --- name heuristics ----------------------------------------------------------------
+    # --- words of a name ----------------------------------------------------------------
+
+    def drop_elided(self, word: str, elided: frozenset[str]) -> str:
+        """`word` without a glued elided word of `elided` (« d'Ombelle » → « Ombelle »), case
+        kept; `elided` holds folded entries ending with an apostrophe."""
+        cut = next((i for i, c in enumerate(word) if c in self.pack.apostrophes), None)
+        if cut is None or cut == len(word) - 1:
+            return word
+        prefix = self.fold(word[: cut + 1]).strip(" ")
+        return word[cut + 1 :] if prefix in elided else word
 
     def tokens(self, text: str, lexicon: Lexicon) -> list[str]:
-        """Normalised tokens of `text` long enough to block on, stop words and titles out."""
+        """Normalised words of `text` long enough to block on (elided words split off),
+        articles, stop words and titles left out."""
+        words = (
+            self._finish(self.drop_elided(w, lexicon.elided))
+            for w in self._clean(text).split(" ")
+        )
         return [
             t
-            for t in self.norm(text).split(" ")
+            for t in words
             if len(t) >= self.config.token_min_len
             and t not in lexicon.stop_words
             and t not in lexicon.titles
+            and t not in lexicon.articles
         ]
 
     def looks_like_proper_name(self, text: str, lexicon: Lexicon) -> bool:
@@ -171,11 +195,24 @@ class Normalizer:
         return True
 
     def strip_title(self, text: str, lexicon: Lexicon) -> str:
-        """`text` without its leading titles (language and genre), one word kept at least."""
+        """`text` without its leading titles (language and genre), one word kept at least.
+        A leading article goes with the titles (« Le Pater Ondrev » → « Ondrev »); without a
+        title, `text` is returned as it is."""
         words = text.split()
-        while len(words) > 1 and self.key(words[0]) in lexicon.titles:
-            words.pop(0)
-        return " ".join(words)
+        if words and self.key(words[0]) in lexicon.articles and len(words) > 1:
+            rest = words[1:]
+        elif (
+            words
+            and (unglued := self.drop_elided(words[0], lexicon.elisions)) != words[0]
+        ):
+            rest = [unglued, *words[1:]]
+        else:
+            rest = words
+        stripped = False
+        while len(rest) > 1 and self.key(rest[0]) in lexicon.titles:
+            rest.pop(0)
+            stripped = True
+        return " ".join(rest) if stripped else " ".join(words)
 
 
 def _initial(word: str) -> str:

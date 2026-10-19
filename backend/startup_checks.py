@@ -89,22 +89,32 @@ def check_startup_config(settings) -> None:
 
 
 def lang_pack_errors() -> list[str]:
-    """Every language or genre pack that does not load, and a default language without pack."""
+    """Every language or genre pack that does not load, every pack file with an invalid name,
+    and a default language without pack."""
     import yaml
 
     from config import get_identity_config
-    from packs.loader import available_genres, available_langs, load_genre, load_lang
+    from packs.loader import (
+        PackNotFound,
+        available_genres,
+        available_langs,
+        load_genre,
+        load_lang,
+        misnamed_packs,
+    )
 
-    errors = []
+    # pydantic's ValidationError is a ValueError.
+    broken = (ValueError, yaml.YAMLError, PackNotFound)
+    errors = [f"pack file {name} has an invalid name" for name in misnamed_packs()]
     for lang in available_langs():
         try:
             load_lang(lang)
-        except (ValueError, yaml.YAMLError) as exc:  # pydantic ValidationError is a ValueError
+        except broken as exc:
             errors.append(f"language pack {lang!r} is invalid: {exc}")
     for slug in available_genres():
         try:
             load_genre(slug)
-        except (ValueError, yaml.YAMLError) as exc:
+        except broken as exc:
             errors.append(f"genre pack {slug!r} is invalid: {exc}")
     default = get_identity_config().default_language
     if default not in available_langs():

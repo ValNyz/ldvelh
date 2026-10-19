@@ -26,15 +26,9 @@ EXCLUDED_DIRS = ("packs/", "tests/", "evals/identity/lexicon/")
 # Identity code: any literal equal to a pack word is a hard-coded rule.
 IDENTITY_CODE = ("services/identity/", "prompts/identity_prompt.py")
 # Justified exceptions as (path relative to backend/, folded literal) -> reason.
-_NARRATOR_OUTPUT = (
-    "day_transition values of the narrator's French output: a narrator "
-    "language rule, outside identity; narrator languages are P8 (#48)"
-)
-ALLOWED: dict[tuple[str, str], str] = {
-    ("schema/narration.py", "non"): _NARRATOR_OUTPUT,
-    ("schema/narration.py", "no"): _NARRATOR_OUTPUT,
-}
-# English SQL keywords: words of the query language, not of a game's language.
+ALLOWED: dict[tuple[str, str], str] = {}
+# English SQL keywords: words of the query language, not of a game's language. Only
+# unquoted SQL is filtered with them: quoted literals are text, scanned word by word.
 SQL_KEYWORDS = frozenset(
     {
         "as",
@@ -103,6 +97,21 @@ def _skipped_nodes(tree: ast.AST) -> set[int]:
     return skipped
 
 
+def _field_names(tree: ast.AST) -> set[int]:
+    """Constants that name a field, not a text: dict keys, subscripts (`row["type"]`) and the
+    arguments of `Literal[...]` (a subscript too)."""
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Dict):
+            names |= {id(k) for k in node.keys if k is not None}
+        elif isinstance(node, ast.Subscript):
+            index = node.slice
+            names.add(id(index))
+            if isinstance(index, ast.Tuple):
+                names |= {id(e) for e in index.elts}
+    return names
+
+
 def _is_word(node: ast.AST, words: set[str]) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         folded = _fold(node.value)
@@ -115,18 +124,22 @@ _ALTERNATIVE = re.compile(r"(?<=[|(:])([\w'’-]+)(?=[|)])")
 
 
 def _python_hits(path: Path, rel: str, words: set[str]) -> set[str]:
-    """Hits of a module: in identity code every literal equal to a pack word (docstrings
-    and f-string fragments aside); everywhere a collection whose items (dict values, not
-    keys: those are field names) hold two distinct pack words, i.e. a word list, or a
+    """Hits of a module: in identity code every literal equal to a pack word (docstrings,
+    f-string fragments and field names aside); everywhere a collection whose items (dict values, not
+    keys: those are field names; subscripts and Literal[...] neither) hold two distinct pack
+    words, i.e. a word list, or a
     regex alternation of two pack words."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     strict = rel.startswith(IDENTITY_CODE)
-    skipped = _skipped_nodes(tree)
+    skipped = _skipped_nodes(tree) | _field_names(tree)
     hits = set()
     for node in ast.walk(tree):
         if strict and id(node) not in skipped and (word := _is_word(node, words)):
             hits.add(word)
-        elif isinstance(node, ast.List | ast.Tuple | ast.Set | ast.Dict):
+        elif (
+            isinstance(node, ast.List | ast.Tuple | ast.Set | ast.Dict)
+            and id(node) not in skipped
+        ):
             items = (
                 node.values if isinstance(node, ast.Dict) else node.elts
             )  # keys: field names
@@ -159,6 +172,13 @@ def _sql_without_comments(sql: str) -> str:
 
 
 _SQL_QUOTED = re.compile(r"'((?:[^']|'')*)'")
+_WORD = re.compile(r"\w+(?:['-]\w+)*'?")
+
+
+def _sql_literal_words(sql: str) -> set[str]:
+    """Every word inside the quoted literals of `sql` (a regex or a default text included)."""
+    literals = _SQL_QUOTED.findall(_sql_without_comments(sql))
+    return {w for q in literals for w in _WORD.findall(_fold(q.replace("''", "'")))}
 
 
 def test_no_language_lexicon_in_code():
@@ -169,11 +189,7 @@ def test_no_language_lexicon_in_code():
         if (hits := _python_hits(path, rel, words))
     }
     for path in _identity_sql_files():
-        literals = _SQL_QUOTED.findall(
-            _sql_without_comments(path.read_text(encoding="utf-8"))
-        )
-        hits = {_fold(q.replace("''", "'")) for q in literals} & words
-        if hits:
+        if hits := _sql_literal_words(path.read_text(encoding="utf-8")) & words:
             found.add(f"{path.name}: {sorted(hits)}")
     assert found == set()
 
@@ -193,6 +209,40 @@ def test_the_literal_scan_catches_a_word_list_and_a_pattern(tmp_path):
     assert _python_hits(module, "services/identity/m.py", words) == {"la"}
 
 
+def test_the_strict_scan_lets_field_names_through(tmp_path):
+    words = {"type", "client"}
+    module = tmp_path / "m.py"
+    module.write_text(
+        'SCHEMA = {"type": "object"}\nKIND = row["type"]\n'
+        'Kind = Literal["type", "client"]\nPAIR = table["type", "client"]\n',
+        encoding="utf-8",
+    )
+    assert _python_hits(module, "services/identity/m.py", words) == set()
+    module.write_text(
+        'SINGLE = "type"\nSCHEMA = {"kind": "client"}\n', encoding="utf-8"
+    )
+    assert _python_hits(module, "services/identity/m.py", words) == {"type", "client"}
+
+
+def test_the_scan_catches_a_negative_answer_list(tmp_path):
+    """The narrator parser's former word list is caught by construction: its words are
+    `negative_answers` of the packs."""
+    words = _pack_words()
+    assert {"non", "aucune", "no"} <= words
+    module = tmp_path / "m.py"
+    module.write_text(
+        'WORDS = frozenset({"", "null", "false", "none", "aucune", "non", "no"})\n',
+        encoding="utf-8",
+    )
+    assert {"aucune", "non", "no"} <= _python_hits(module, "schema/narration.py", words)
+
+
+def test_sql_literal_words_are_scanned_inside_the_literal():
+    words = {"no", "inconnu"}
+    sql = "SELECT regexp_replace(x, 'no|numero', ''), COALESCE(d, 'Inconnu(e)') -- no"
+    assert _sql_literal_words(sql) & words == {"no", "inconnu"}
+
+
 _SQL_FUNCTION = re.compile(
     r"CREATE (?:OR REPLACE )?FUNCTION\s+(?:\w+\.)?(\w+).*?AS\s+\$(\w*)\$(.*?)\$\2\$",
     re.DOTALL | re.IGNORECASE,
@@ -210,8 +260,9 @@ def test_sql_identity_functions_contain_no_pack_word():
     assert {"ldvelh_unaccent", "ldvelh_norm", "ldvelh_norm_for_game"} <= set(bodies)
     found = {}
     for name, body in bodies.items():
-        tokens = set(re.findall(r"\w+(?:['-]\w+)*'?", body.casefold())) - SQL_KEYWORDS
-        if hits := tokens & words:
+        unquoted = _SQL_QUOTED.sub(" ", body)
+        tokens = set(_WORD.findall(unquoted.casefold())) - SQL_KEYWORDS
+        if hits := (tokens | _sql_literal_words(body)) & words:
             found[name] = sorted(hits)
     assert found == {}
 

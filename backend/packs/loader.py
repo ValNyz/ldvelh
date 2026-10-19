@@ -15,13 +15,14 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 PACKS_DIR = Path(__file__).resolve().parent
 LANG_DIR = PACKS_DIR / "lang"
 GENRE_DIR = PACKS_DIR / "genre"
 NEUTRAL_GENRE = "_neutral"
-_SLUG = re.compile(r"^[a-z_][a-z0-9_-]*$")
+# Pack file names (language codes, genre slugs); also keeps paths inside the pack folders.
+SLUG = re.compile(r"^[a-z_][a-z0-9_-]*$")
 
 
 class PackNotFound(LookupError):
@@ -42,9 +43,34 @@ class Pronouns(_Strict):
     demonstrative: list[str]
     indefinite: list[str]
 
+    @field_validator("personal", "demonstrative", "indefinite")
+    @classmethod
+    def _non_empty(cls, value: list[str], info: ValidationInfo) -> list[str]:
+        return _check_entries(f"pronouns.{info.field_name}", value, one_word=False)
+
 
 class LangExamples(_Strict):
     identity: list[Example]
+
+
+def _check_entries(field: str, value: list[str], *, one_word: bool) -> list[str]:
+    for entry in value:
+        if not entry.strip():
+            raise ValueError(f"{field}: empty entry")
+        if one_word and len(entry.split()) > 1:
+            # The code compares these with a single word: a longer entry would never match.
+            raise ValueError(f"{field}: {entry!r} must be a single word")
+    return value
+
+
+_ONE_WORD_KEYS = ("articles", "elisions", "titles", "ordinal_markers", "plural_markers")
+_PHRASE_KEYS = (
+    "stop_words",
+    "descriptor_heads",
+    "reveal_cues",
+    "source_cues",
+    "negative_answers",
+)
 
 
 class LangPack(_Strict):
@@ -58,6 +84,7 @@ class LangPack(_Strict):
     descriptor_heads: list[str]
     reveal_cues: list[str]
     source_cues: list[str]
+    negative_answers: list[str]
     plural_markers: list[str]
     ordinal_markers: list[str]
     apostrophes: list[str]
@@ -72,6 +99,16 @@ class LangPack(_Strict):
             raise ValueError("apostrophes: a non-empty list of single characters")
         return value
 
+    @field_validator(*_ONE_WORD_KEYS)
+    @classmethod
+    def _single_words(cls, value: list[str], info: ValidationInfo) -> list[str]:
+        return _check_entries(info.field_name, value, one_word=True)
+
+    @field_validator(*_PHRASE_KEYS)
+    @classmethod
+    def _non_empty(cls, value: list[str], info: ValidationInfo) -> list[str]:
+        return _check_entries(info.field_name, value, one_word=False)
+
     @field_validator("min_distinctive_token_len")
     @classmethod
     def _positive(cls, value: int) -> int:
@@ -85,6 +122,11 @@ class GenreIdentity(_Strict):
     entity_type_vocab: dict[str, list[str]] = {}
     prompt_examples: dict[str, list[Example]] = {}
 
+    @field_validator("titles_extra")
+    @classmethod
+    def _single_words(cls, value: list[str]) -> list[str]:
+        return _check_entries("identity.titles_extra", value, one_word=True)
+
 
 class GenrePack(_Strict):
     slug: str
@@ -97,7 +139,7 @@ def _read(path: Path) -> dict:
 
 def _pack_path(directory: Path, name: str) -> Path | None:
     path = directory / f"{name}.yaml"
-    return path if _SLUG.match(name) and path.is_file() else None
+    return path if SLUG.match(name) and path.is_file() else None
 
 
 @lru_cache
@@ -129,12 +171,38 @@ def available_genres() -> list[str]:
     return sorted(p.stem for p in GENRE_DIR.glob("*.yaml"))
 
 
+def misnamed_packs() -> list[str]:
+    """Pack files whose name is not a valid slug: they could never be loaded."""
+    return sorted(
+        f"{p.parent.name}/{p.name}"
+        for directory in (LANG_DIR, GENRE_DIR)
+        for p in directory.glob("*.yaml")
+        if not SLUG.match(p.stem)
+    )
+
+
+@lru_cache
+def all_negative_answers() -> frozenset[str]:
+    """The negative answers of every language pack, lower case: for parsers that read model
+    output without a game (hence without a language) at hand."""
+    return frozenset(
+        a.strip().lower()
+        for lang in available_langs()
+        for a in load_lang(lang).negative_answers
+    )
+
+
 def norm_params(pack: LangPack) -> dict[str, list[str]]:
-    """The parameters of ldvelh_norm: the only pack keys the SQL side reads."""
+    """The parameters of ldvelh_norm, the only pack keys the SQL side reads. Entries are
+    given folded (steps 1-2 of the normalisation), without duplicates, longest first, so
+    that the SQL function compares them as they are instead of folding them on each call."""
+    from services.identity.normalize import Normalizer
+
+    normalizer = Normalizer(pack)
     return {
-        "articles": pack.articles,
-        "elisions": pack.elisions,
-        "ordinal_markers": pack.ordinal_markers,
+        "articles": normalizer.folded_entries(pack.articles),
+        "elisions": normalizer.folded_entries(pack.elisions),
+        "ordinal_markers": normalizer.folded_entries(pack.ordinal_markers),
         "apostrophes": pack.apostrophes,
     }
 

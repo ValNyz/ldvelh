@@ -142,3 +142,46 @@ def test_an_invalid_language_pack_refuses_the_start(monkeypatch):
     monkeypatch.setattr(loader, "load_lang", broken)
     with pytest.raises(RuntimeError, match="language pack"):
         check_lang_packs()
+
+
+def test_a_pack_with_broken_yaml_refuses_the_start(monkeypatch):
+    import yaml
+
+    from packs import loader
+    from startup_checks import lang_pack_errors
+
+    def broken(lang):
+        raise yaml.YAMLError("bad indentation")
+
+    monkeypatch.setattr(loader, "load_lang", broken)
+    assert any("language pack" in e for e in lang_pack_errors())
+
+
+def test_a_misnamed_pack_file_refuses_the_start(monkeypatch):
+    from packs import loader
+    from startup_checks import check_lang_packs
+
+    monkeypatch.setattr(loader, "misnamed_packs", lambda: ["lang/pt-BR.yaml"])
+    with pytest.raises(RuntimeError, match="pt-BR"):
+        check_lang_packs()
+
+
+def test_a_default_language_without_pack_refuses_the_start(monkeypatch):
+    import config
+    from startup_checks import lang_pack_errors
+
+    monkeypatch.setenv("IDENTITY_DEFAULT_LANGUAGE", "xx")
+    config.get_identity_config.cache_clear()
+    try:
+        assert any("IDENTITY_DEFAULT_LANGUAGE='xx'" in e for e in lang_pack_errors())
+    finally:
+        monkeypatch.delenv("IDENTITY_DEFAULT_LANGUAGE")
+        config.get_identity_config.cache_clear()
+
+
+def test_the_escalation_alert_rate_must_exceed_the_target():
+    from config import IdentityConfig
+
+    with pytest.raises(ValueError, match="ESCALATION_ALERT_RATE"):
+        IdentityConfig(escalation_target_rate=0.3, escalation_alert_rate=0.3)
+    assert IdentityConfig(escalation_target_rate=0.2, escalation_alert_rate=0.25)

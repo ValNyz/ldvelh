@@ -7,7 +7,12 @@ import asyncpg
 import pytest
 
 from packs.loader import load_lang, norm_params
-from services.identity.normalize import Normalizer
+from services.identity.normalize import (
+    _UNACCENT_RULES,
+    Normalizer,
+    _parse_unaccent_rules,
+    unaccent,
+)
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "identity"
 
@@ -89,3 +94,33 @@ async def test_norm_for_game_raises_without_pack(test_pool):
     async with test_pool.acquire() as conn:
         with pytest.raises(asyncpg.RaiseError, match="missing lang pack"):
             await conn.fetchval("SELECT ldvelh_norm_for_game($1, 'La Guilde')", uuid4())
+
+
+async def test_unaccent_mirror_matches_every_rule_of_the_database(test_pool):
+    """The vendored unaccent.rules still matches the database's dictionary, rule by rule."""
+    sources = sorted(_parse_unaccent_rules(_UNACCENT_RULES))
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT s, unaccent('unaccent', s) AS u FROM unnest($1::text[]) AS s",
+            sources,
+        )
+    assert len(rows) == len(sources)
+    assert {r["s"]: r["u"] for r in rows if r["u"] != unaccent(r["s"])} == {}
+
+
+@pytest.mark.parametrize("lang", ["fr", "en"])
+async def test_pack_entries_fold_alike_in_sql_and_python(test_pool, lang):
+    """norm_params sends the entries folded by Python; SQL would fold them the same way."""
+    pack = load_lang(lang)
+    entries = [*pack.articles, *pack.elisions, *pack.ordinal_markers, *pack.titles]
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT s, btrim(ldvelh_norm_fold(s, $2::text::jsonb), ' ') AS f"
+            " FROM unnest($1::text[]) AS s",
+            entries,
+            _json(norm_params(pack)),
+        )
+    normalizer = Normalizer(pack)
+    assert {
+        r["s"]: r["f"] for r in rows if r["f"] != normalizer.fold(r["s"]).strip(" ")
+    } == {}

@@ -8,6 +8,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
+from packs.loader import all_negative_answers
 from utils.log_safe import validation_summary
 
 from .core import (
@@ -389,8 +390,16 @@ class EventHint(BaseModel):
     location: str | None = None  # Location name
 
 
-# A day_transition string meaning "no transition" (compared stripped, case-insensitive).
-_NO_TRANSITION_WORDS = frozenset({"", "null", "false", "none", "aucune", "non", "no"})
+# Spellings of an empty value in JSON or Python, whatever the language of the output.
+_EMPTY_SPELLINGS = frozenset({"", "null", "false", "none"})
+
+
+def _means_no_transition(value: str) -> bool:
+    """A day_transition string meaning "no transition" (stripped, case-insensitive): an
+    empty spelling or a negative answer of a language pack (the narrator output carries no
+    language, so every pack counts)."""
+    folded = value.strip().lower()
+    return folded in _EMPTY_SPELLINGS or folded in all_negative_answers()
 
 
 class NarrationOutput(BaseModel):
@@ -459,7 +468,7 @@ class NarrationOutput(BaseModel):
     def _falsy_means_no_transition(cls, v):
         if v is None or v is False or (isinstance(v, (int, float)) and not v):
             return None
-        if isinstance(v, str) and v.strip().lower() in _NO_TRANSITION_WORDS:
+        if isinstance(v, str) and _means_no_transition(v):
             return None
         return v
 

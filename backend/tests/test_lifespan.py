@@ -151,3 +151,14 @@ async def test_cycle_engine_warns_at_startup(fake_pool, monkeypatch, caplog, eng
     async with main.lifespan(main.app):
         pass
     assert ("ROLLBACK_ENGINE=cycle" in caplog.text) is warned
+
+
+async def test_pool_closes_when_the_pack_sync_fails(fake_pool, monkeypatch):
+    async def failing(pool):
+        raise RuntimeError("lang_packs is missing")
+
+    monkeypatch.setattr(main, "sync_language_packs", failing)
+    with pytest.raises(RuntimeError, match="lang_packs"):
+        async with main.lifespan(main.app):
+            pass
+    assert "pool.close" in fake_pool

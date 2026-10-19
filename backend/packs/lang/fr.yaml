@@ -60,6 +60,9 @@ reveal_cues: ["je m'appelle", "je me nomme", "mon nom est", "on m'appelle", appe
 source_cues: [badge, plaque, écriteau, registre, enseigne, panneau, étiquette, insigne,
   inscription, affiche, manifeste, fiche, dossier, carte, papiers]
 
+# Answers meaning "none" or "no" in a model's output (e.g. a narrator field left empty).
+negative_answers: [non, aucune, aucun]
+
 # Word endings that mark a plural noun.
 plural_markers: [s, x]
 # Number markers ldvelh_norm drops before a number (« Quai n°9 » = « Quai 9 »).
