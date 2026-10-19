@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import DiceRollDisplay from './DiceRollDisplay';
 import EntityTooltip from './EntityTooltip';
+import { injectEntityMarkers } from '../../lib/game/entityMarkers.mjs';
 
 /**
  * Composant Message unique
@@ -125,35 +126,6 @@ export default function Message({
 			</div>
 		</div>
 	);
-}
-
-/**
- * Inject bold markers around known entity names in raw text.
- * This lets ReactMarkdown's strong override catch them for tooltip rendering.
- */
-function injectEntityMarkers(text, tooltipMap) {
-	if (!text || !tooltipMap || Object.keys(tooltipMap).length === 0) return text;
-
-	// Sort entity names by length (longest first) to avoid partial matches
-	const names = Object.keys(tooltipMap)
-		.map(key => tooltipMap[key].name || key)
-		.filter(n => n && n.length >= 3)
-		.sort((a, b) => b.length - a.length);
-
-	if (names.length === 0) return text;
-
-	// Build regex matching all entity names (case-insensitive, word boundaries)
-	const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-	const regex = new RegExp(`(?<!\\*\\*)(${escaped.join('|')})(?!\\*\\*)`, 'gi');
-
-	// Replace first occurrence of each entity with bold markers
-	const seen = new Set();
-	return text.replace(regex, (match) => {
-		const lower = match.toLowerCase();
-		if (seen.has(lower)) return `**${match}**`; // Bold all occurrences
-		seen.add(lower);
-		return `**${match}**`;
-	});
 }
 
 /**
