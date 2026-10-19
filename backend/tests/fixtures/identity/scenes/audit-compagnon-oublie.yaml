@@ -1,0 +1,211 @@
+# Data-audit pattern « recurring entity never created » (Pervenche), SF variant: the companion AI
+# is named and described several ways; all PC, it must exist in the world and never be created again.
+id: audit-compagnon-oublie
+genre: sf
+source: synthetic
+turn: 3
+world:
+- id: protagonist_naoki
+  type: protagonist
+  label: Naoki
+  true_name: Naoki
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_gare_de_transit_nord
+  last_seen_turn: 2
+  aliases:
+  - text: Naoki
+    kind: true_name
+    known: true
+- id: companion_lumen
+  type: companion
+  label: Lumen
+  true_name: Lumen
+  descriptor: la voix de la borne
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Lumen
+    kind: true_name
+    known: true
+  - text: la voix de la borne
+    kind: descriptor
+    known: true
+  - text: la voix dans ton terminal
+    kind: descriptor
+    known: true
+- id: character_gardien_de_nuit
+  type: character
+  label: Le gardien de nuit
+  true_name: null
+  descriptor: Le gardien de nuit
+  known: false
+  occupation: gardien de la Gare de transit Nord
+  location: location_gare_de_transit_nord
+  last_seen_turn: 2
+  aliases:
+  - text: Le gardien de nuit
+    kind: descriptor
+    known: true
+  - text: le vieil homme en uniforme
+    kind: descriptor
+    known: true
+- id: location_gare_de_transit_nord
+  type: location
+  label: Gare de transit Nord
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Gare de transit Nord
+    kind: label
+    known: true
+- id: organization_regie_des_transports
+  type: organization
+  label: Régie des Transports
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Régie des Transports
+    kind: label
+    known: true
+- id: object_terminal_de_poche
+  type: object
+  label: Terminal de poche
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Terminal de poche
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_gare_de_transit_nord
+  present:
+  - protagonist_naoki
+  - companion_lumen
+  - character_gardien_de_nuit
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  *Correspondance dans quatorze minutes*, annonce la voix de la borne. *Je te suis sur ton terminal, ne t'inquiète pas.*
+
+  Le gardien de nuit lève les yeux de son journal.
+
+  — Tu parles à l'IA de la Régie ? Elle ne répond jamais à personne, d'habitude.
+
+  — Lumen, réponds-tu. Elle s'appelle Lumen, et elle me répond, à moi.
+
+  Le vieil homme en uniforme hausse les épaules et fait glisser un jeton de transit sur le comptoir.
+
+  — Pour le quai 12. Le dernier train de la Régie des Transports ne t'attendra pas, avec ou sans ta copine électronique.
+
+  Tu empoches le jeton et traverses le hall de la Gare de transit Nord.
+
+  *Ta copine électronique te remercie*, dit Lumen sur ton terminal de poche. *Le gardien a raison pour une chose : il reste neuf minutes.*
+gold:
+- surface: la voix de la borne
+  start: 48
+  category: PC
+  expected: MATCH companion_lumen
+- surface: ton terminal
+  start: 85
+  category: PART
+  expected: MATCH object_terminal_de_poche
+- surface: Le gardien de nuit
+  start: 120
+  category: DESC
+  expected: MATCH character_gardien_de_nuit
+- surface: son journal
+  start: 156
+  category: SKIP
+  expected: SKIP
+- surface: l'IA
+  start: 184
+  category: PC
+  expected: MATCH companion_lumen
+- surface: la Régie
+  start: 192
+  category: PART
+  expected: MATCH organization_regie_des_transports
+- surface: personne
+  start: 227
+  category: SKIP
+  expected: SKIP
+- surface: Lumen
+  start: 252
+  category: PC
+  expected: MATCH companion_lumen
+- surface: Lumen
+  start: 286
+  category: PC
+  expected: MATCH companion_lumen
+- surface: Le vieil homme en uniforme
+  start: 320
+  category: DESC
+  expected: MATCH character_gardien_de_nuit
+- surface: un jeton de transit
+  start: 382
+  category: NEW
+  expected: NEW object
+- surface: le quai 12
+  start: 427
+  category: NEW
+  expected: NEW location
+- surface: la Régie des Transports
+  start: 459
+  category: EASY
+  expected: MATCH organization_regie_des_transports
+- surface: ta copine électronique
+  start: 515
+  category: PC
+  expected: MATCH companion_lumen
+- surface: le jeton
+  start: 552
+  category: DESC
+  expected: SAME 382
+- surface: la Gare de transit Nord
+  start: 585
+  category: EASY
+  expected: MATCH location_gare_de_transit_nord
+- surface: Ta copine électronique
+  start: 612
+  category: PC
+  expected: MATCH companion_lumen
+- surface: Lumen
+  start: 653
+  category: PC
+  expected: MATCH companion_lumen
+- surface: ton terminal de poche
+  start: 663
+  category: PART
+  expected: MATCH object_terminal_de_poche
+- surface: Le gardien
+  start: 687
+  category: DESC
+  expected: MATCH character_gardien_de_nuit
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: organization_regie_des_transports
+  kind: fact
+  state: unknown
+  text: La Régie des Transports coupe ses bornes d'assistance après minuit.

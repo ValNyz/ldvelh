@@ -14,7 +14,17 @@ What counts as correct, from ANNOTATION.md § 4.3 and § 5:
 - a SKIP gold ("à ne pas lier") is right when the system decides SKIP **or** emits no
   decision on it; any link, NEW or UNSURE on it is wrong;
 - a linked gold (MATCH, ALIAS, NEW) with no decision is wrong;
-- UNSURE is wrong, except on a NEW trap (`trap: true`), where not merging is right.
+- UNSURE is wrong, except on a NEW trap (`trap: true`), where not merging is right;
+- `SAME <start>` (a repeat of an entity born at the NEW mention at `<start>` of the same
+  narration) is resolved against the system's own decision on that NEW mention: when
+  the system decided NEW there, the repeat must be a MATCH or an ALIAS (any kind) to the
+  id it gave the created entity (`Decision.entity_id`), and it is scored as an existing
+  gold (a link elsewhere is a wrong merge, a second NEW a duplicate; a NEW without an id
+  leaves nothing to link to, so no decision is right). When the system missed the NEW
+  (a link, SKIP, UNSURE or no decision there), the entity does not exist on its side
+  yet: the repeat is scored exactly like a gold `NEW <type of the target>` without trap
+  (counted in NEW recall; a link on it is a wrong merge). Its category stays the one of
+  its surface (EASY, PART, DESC), its type is the target's NEW type.
 
 Decisions aligned to no gold mention are **spurious**, reported per turn
 (`spurious_link_per_turn`, `spurious_new_per_turn`). A spurious MATCH/ALIAS is a wrong
@@ -46,9 +56,11 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import NamedTuple
 
 from evals.identity.alignment import align, overlaps
 from evals.identity.corpus import (
+    ALIAS_KINDS,
     HARD_CATEGORIES,
     Expected,
     GoldMention,
@@ -137,6 +149,31 @@ def _accepted(m: GoldMention) -> list[Expected]:
     return [m.parsed, *(parse_expected(text) for text in m.accept_also)]
 
 
+class _Gold(NamedTuple):
+    """A gold mention's accepted forms once SAME is resolved against the system run."""
+
+    forms: list[Expected]
+    existing: bool  # an entity the system should link to
+    new_type: str | None  # the type of a gold NEW (or of the entity a SAME repeats)
+
+
+def _resolve(scene: Scene, m: GoldMention, by_gold: dict[int, Decision]) -> _Gold:
+    expected = m.parsed
+    if expected.decision != "SAME":
+        return _Gold(_accepted(m), expected.decision in LINKS, expected.new_type)
+    born = next(g for g in scene.gold if g.start == expected.same_start)
+    new_type = born.parsed.new_type
+    at_birth = by_gold.get(born.start)
+    if at_birth is None or at_birth.decision != "NEW":
+        return _Gold([Expected("NEW", new_type=new_type)], False, new_type)
+    system_id = at_birth.entity_id
+    if system_id is None:
+        return _Gold([], True, new_type)
+    forms = [Expected("MATCH", system_id)]
+    forms += [Expected("ALIAS", system_id, alias_kind=k) for k in sorted(ALIAS_KINDS)]
+    return _Gold(forms, True, new_type)
+
+
 def _matches(decision: Decision | None, form: Expected) -> bool:
     if form.decision == "SKIP":
         return decision is None or decision.decision == "SKIP"
@@ -149,45 +186,46 @@ def _matches(decision: Decision | None, form: Expected) -> bool:
     return form.decision == "MATCH" or decision.alias_kind == form.alias_kind
 
 
-def _is_correct(m: GoldMention, decision: Decision | None) -> bool:
+def _is_correct(m: GoldMention, gold: _Gold, decision: Decision | None) -> bool:
     if decision is not None and decision.decision == "UNSURE":
         return m.trap
-    return any(_matches(decision, form) for form in _accepted(m))
+    return any(_matches(decision, form) for form in gold.forms)
 
 
-def _entity_type(scene: Scene, form: Expected) -> str:
-    if form.decision == "NEW":
-        return form.new_type or "none"
-    entity = next((e for e in scene.world if e.id == form.entity_id), None)
+def _entity_type(scene: Scene, m: GoldMention, gold: _Gold) -> str:
+    if m.parsed.decision in ("NEW", "SAME"):
+        return gold.new_type or "none"
+    if m.parsed.decision == "SKIP":
+        return "none"
+    entity = next((e for e in scene.world if e.id == m.parsed.entity_id), None)
     return entity.type if entity is not None else "none"
 
 
 def _outcome(
     scene: Scene,
     m: GoldMention,
+    gold: _Gold,
     decision: Decision | None,
     candidates: list[str] | None,
 ) -> MentionOutcome:
-    forms = _accepted(m)
-    gold_ids = {f.entity_id for f in forms if f.entity_id is not None}
+    gold_ids = {f.entity_id for f in gold.forms if f.entity_id is not None}
     kind = decision.decision if decision is not None else None
-    existing = m.parsed.decision in LINKS
-    new_gold = m.parsed.decision == "NEW"
+    new_gold = any(f.decision == "NEW" for f in gold.forms)
     hit = None
-    if existing:
+    if gold.existing:
         hit = bool(gold_ids & set((candidates or [])[:CANDIDATES_K]))
     return MentionOutcome(
         category=m.category,
-        entity_type=_entity_type(scene, m.parsed),
-        correct=_is_correct(m, decision),
+        entity_type=_entity_type(scene, m, gold),
+        correct=_is_correct(m, gold, decision),
         wrong_merge=kind in LINKS and decision.entity_id not in gold_ids,
-        existing_gold=existing,
-        duplicate=existing and kind == "NEW",
+        existing_gold=gold.existing,
+        duplicate=gold.existing and kind == "NEW",
         new_gold=new_gold,
         new_decided=kind == "NEW",
         new_type_error=new_gold
         and kind == "NEW"
-        and decision.new_type != m.parsed.new_type,
+        and decision.new_type != gold.new_type,
         unsure=kind == "UNSURE",
         candidate_hit=hit,
     )
@@ -208,10 +246,13 @@ def score_scene(scene: Scene, result: RunResult) -> SceneScore:
         raise ValueError(f"result of {result.scene_id!r} scored against {scene.id!r}")
     alignment = align(scene.gold, result.decisions)
     by_gold = alignment.by_gold
+    golds = {m.start: _resolve(scene, m, by_gold) for m in scene.gold}
     outcomes = []
     for m in scene.gold:
         d = by_gold.get(m.start)
-        outcomes.append(_outcome(scene, m, d, _candidates(result, m, d)))
+        outcomes.append(
+            _outcome(scene, m, golds[m.start], d, _candidates(result, m, d))
+        )
     aligned = list(by_gold.values())
     links = [d for d in alignment.spurious if d.decision in LINKS]
     new = [d for d in alignment.spurious if d.decision == "NEW"]
@@ -224,20 +265,26 @@ def score_scene(scene: Scene, result: RunResult) -> SceneScore:
         usage=dict(result.usage),
         spurious_new=len(new),
         spurious_links=len(links),
-        spurious_wrong_merges=sum(_conflicts(scene.gold, d) for d in links),
-        spurious_duplicates=sum(_on_existing_gold(scene.gold, d) for d in new),
+        spurious_wrong_merges=sum(_conflicts(scene.gold, golds, d) for d in links),
+        spurious_duplicates=sum(_on_existing_gold(scene.gold, golds, d) for d in new),
     )
 
 
-def _conflicts(mentions: list[GoldMention], d: Decision) -> bool:
+def _conflicts(
+    mentions: list[GoldMention], golds: dict[int, _Gold], d: Decision
+) -> bool:
     """A spurious link overlapping gold mentions, none of which accepts its id."""
     hit = [m for m in mentions if overlaps(m, d)]
-    accepting = [m for m in hit if d.entity_id in {f.entity_id for f in _accepted(m)}]
+    accepting = [
+        m for m in hit if d.entity_id in {f.entity_id for f in golds[m.start].forms}
+    ]
     return d.entity_id is not None and bool(hit) and not accepting
 
 
-def _on_existing_gold(mentions: list[GoldMention], d: Decision) -> bool:
-    return any(m.parsed.decision in LINKS and overlaps(m, d) for m in mentions)
+def _on_existing_gold(
+    mentions: list[GoldMention], golds: dict[int, _Gold], d: Decision
+) -> bool:
+    return any(golds[m.start].existing and overlaps(m, d) for m in mentions)
 
 
 def _ratio(numerator: int, denominator: int) -> float:

@@ -1,0 +1,525 @@
+id: syn-sf-new-04
+genre: sf
+source: synthetic
+turn: 21
+world:
+- id: protagonist_elio
+  type: protagonist
+  label: Elio
+  true_name: Elio
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Elio
+    kind: true_name
+    known: true
+- id: companion_vesper
+  type: companion
+  label: Vesper
+  true_name: Vesper
+  descriptor: la voix douce dans ton oreillette
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Vesper
+    kind: true_name
+    known: true
+  - text: la voix douce dans ton oreillette
+    kind: descriptor
+    known: true
+  - text: ta compagne de veille
+    kind: descriptor
+    known: true
+- id: character_aurele_dussault
+  type: character
+  label: Aurèle Dussault
+  true_name: Aurèle Dussault
+  descriptor: l'homme aux bras couverts de terre
+  known: true
+  occupation: chef du Pont Hydroponique
+  location: location_pont_hydroponique
+  last_seen_turn: 19
+  aliases:
+  - text: Aurèle Dussault
+    kind: true_name
+    known: true
+  - text: Aurèle
+    kind: short
+    known: true
+  - text: Dussault
+    kind: short
+    known: true
+  - text: l'homme aux bras couverts de terre
+    kind: descriptor
+    known: true
+- id: character_hanna_wohler
+  type: character
+  label: Hanna Wöhler
+  true_name: Hanna Wöhler
+  descriptor: la vieille navigatrice aveugle
+  known: true
+  occupation: navigatrice retraitée
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Hanna Wöhler
+    kind: true_name
+    known: true
+  - text: Hanna
+    kind: short
+    known: true
+  - text: Wöhler
+    kind: short
+    known: true
+  - text: Boussole
+    kind: nickname
+    known: true
+  - text: la vieille navigatrice aveugle
+    kind: descriptor
+    known: true
+- id: character_tilio_marchetti
+  type: character
+  label: Tilio Marchetti
+  true_name: Tilio Marchetti
+  descriptor: l'enfant aux cheveux ras
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Tilio Marchetti
+    kind: true_name
+    known: true
+  - text: Tilio
+    kind: short
+    known: true
+  - text: Marchetti
+    kind: short
+    known: true
+  - text: l'enfant aux cheveux ras
+    kind: descriptor
+    known: true
+- id: character_irene_valcourt
+  type: character
+  label: Irène Valcourt
+  true_name: Irène Valcourt
+  descriptor: la prêtresse voilée
+  known: false
+  occupation: prêtresse de la Fraternité du Retour
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Irène Valcourt
+    kind: true_name
+    known: false
+    secret: true
+  - text: Irène
+    kind: short
+    known: false
+    secret: true
+  - text: Valcourt
+    kind: short
+    known: false
+    secret: true
+  - text: la prêtresse voilée
+    kind: descriptor
+    known: true
+- id: location_pont_hydroponique
+  type: location
+  label: Pont Hydroponique
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Pont Hydroponique
+    kind: label
+    known: true
+- id: location_pont_sept
+  type: location
+  label: Pont Sept
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Pont Sept
+    kind: label
+    known: true
+- id: location_nef
+  type: location
+  label: La Nef
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Nef
+    kind: label
+    known: true
+- id: location_lanterne
+  type: location
+  label: La Lanterne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Lanterne
+    kind: label
+    known: true
+- id: location_porte_aux_symboles_effaces
+  type: location
+  label: Archives du Départ
+  true_name: Archives du Départ
+  descriptor: la porte aux symboles effacés
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Archives du Départ
+    kind: label
+    known: true
+  - text: la porte aux symboles effacés
+    kind: descriptor
+    known: true
+  - text: Archives du Départ
+    kind: true_name
+    known: true
+- id: location_coursive_inondee
+  type: location
+  label: la coursive inondée
+  true_name: null
+  descriptor: la coursive inondée
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: la coursive inondée
+    kind: descriptor
+    known: true
+- id: location_second_cockpit
+  type: location
+  label: Second Cockpit
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Second Cockpit
+    kind: label
+    known: false
+    secret: true
+- id: organization_nef
+  type: organization
+  label: La Nef
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Nef
+    kind: label
+    known: true
+- id: organization_ordre_des_mecaniciens
+  type: organization
+  label: Ordre des Mécaniciens
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Ordre des Mécaniciens
+    kind: label
+    known: true
+  - text: Mécaniciens
+    kind: short
+    known: true
+- id: organization_porteurs_de_cendres
+  type: organization
+  label: Fraternité du Retour
+  true_name: Fraternité du Retour
+  descriptor: les porteurs de cendres
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 18
+  aliases:
+  - text: Fraternité du Retour
+    kind: label
+    known: true
+  - text: les porteurs de cendres
+    kind: descriptor
+    known: true
+  - text: Fraternité du Retour
+    kind: true_name
+    known: true
+- id: organization_comite_zero
+  type: organization
+  label: Comité Zéro
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Comité Zéro
+    kind: label
+    known: false
+    secret: true
+- id: object_lanterne
+  type: object
+  label: La Lanterne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Lanterne
+    kind: label
+    known: true
+- id: object_boussole
+  type: object
+  label: Boussole
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Boussole
+    kind: label
+    known: true
+- id: object_carte_de_rationnement
+  type: object
+  label: Carte de rationnement
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Carte de rationnement
+    kind: label
+    known: true
+- id: object_coffret_de_bois_noir
+  type: object
+  label: Coffret des Fondateurs
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Coffret des Fondateurs
+    kind: label
+    known: true
+  - text: le coffret de bois noir
+    kind: descriptor
+    known: true
+- id: object_journal_du_capitaine
+  type: object
+  label: Journal du Capitaine
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Journal du Capitaine
+    kind: label
+    known: false
+    secret: true
+- id: arc_derive_de_l_esperance
+  type: arc
+  label: La dérive de l'Espérance
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La dérive de l'Espérance
+    kind: label
+    known: true
+history:
+- text: Tu descends l'échelle de service, une marche après l'autre. *L'eau a encore monté de dix centimètres*, prévient ta compagne de veille. *Je n'ai plus de capteur en dessous.*
+  mentions:
+  - surface: ta compagne de veille
+    start: 112
+    category: PC
+    expected: MATCH companion_vesper
+scene:
+  location: location_pont_sept
+  present:
+  - protagonist_elio
+  - companion_vesper
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - arc_derive_de_l_esperance
+  - character_irene_valcourt
+  - location_second_cockpit
+  - object_journal_du_capitaine
+  - organization_comite_zero
+  open_disclosures: []
+narration: |-
+  Au pont 7, l'eau monte jusqu'aux chevilles. Une technicienne en ciré orange pompe à la main, seule.
+
+  — Tu viens de la part d'Aurèle ? Moi, c'est Mina. Tiens, prends ce passe-coque, il ouvre les vannes du secteur.
+
+  Elle sort de sa sacoche une deuxième carte de rationnement, vierge, et tu la glisses contre ta propre carte.
+
+  — Pour le gamin. Il n'en a plus depuis que la Fraternité du Retour l'a recueilli. Et ne la montre pas à la Fraternité du Départ : ceux de la poupe valent encore moins que ceux du Retour.
+
+  — Qui t'envoie, toi ?
+
+  — La Guilde des Plongeurs. On doit atteindre la Salle des Vannes avant la nuit.
+
+  *Une Fraternité de chaque côté du vaisseau*, soupire Vesper. *Il faudra que je mette mes fiches à jour.*
+gold:
+- surface: pont 7
+  start: 3
+  category: PART
+  expected: MATCH location_pont_sept
+- surface: Une technicienne en ciré orange
+  start: 44
+  category: NEW
+  expected: NEW character
+- surface: Aurèle
+  start: 125
+  category: PART
+  expected: MATCH character_aurele_dussault
+- surface: Mina
+  start: 145
+  category: EASY
+  expected: SAME 44
+- surface: ce passe-coque
+  start: 165
+  category: NEW
+  expected: NEW object
+- surface: sa sacoche
+  start: 227
+  category: SKIP
+  expected: SKIP
+- surface: une deuxième carte de rationnement
+  start: 238
+  category: NEW
+  expected: NEW object
+  trap: true
+- surface: ta propre carte
+  start: 306
+  category: PART
+  expected: MATCH object_carte_de_rationnement
+- surface: le gamin
+  start: 331
+  category: DESC
+  expected: MATCH character_tilio_marchetti
+  accept_also:
+  - ALIAS character_tilio_marchetti descriptor
+- surface: la Fraternité du Retour
+  start: 367
+  category: EASY
+  expected: MATCH organization_porteurs_de_cendres
+- surface: la Fraternité du Départ
+  start: 428
+  category: NEW
+  expected: NEW organization
+  trap: true
+- surface: La Guilde des Plongeurs
+  start: 537
+  category: NEW
+  expected: NEW organization
+- surface: la Salle des Vannes
+  start: 580
+  category: NEW
+  expected: NEW location
+- surface: Vesper
+  start: 669
+  category: PC
+  expected: MATCH companion_vesper
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_irene_valcourt
+  kind: name
+  state: secret
+  text: Irène Valcourt
+- ref: location_second_cockpit
+  kind: name
+  state: secret
+  text: Second Cockpit
+- ref: organization_comite_zero
+  kind: name
+  state: secret
+  text: Comité Zéro
+- ref: object_journal_du_capitaine
+  kind: name
+  state: secret
+  text: Journal du Capitaine
+- ref: character_irene_valcourt
+  kind: fact
+  state: secret
+  text: Irène Valcourt siège en secret au Comité Zéro.
+- ref: character_tilio_marchetti
+  kind: fact
+  state: unknown
+  text: Tilio Marchetti est l'orphelin recueilli par la Fraternité du Retour.
+- ref: location_second_cockpit
+  kind: fact
+  state: secret
+  text: Le Second Cockpit permet de changer le cap du vaisseau sans la Nef.
+- ref: arc_derive_de_l_esperance
+  kind: fact
+  state: unknown
+  text: La dérive de l'Espérance a dévié le vaisseau de deux degrés en dix ans.
+- ref: arc_derive_de_l_esperance
+  kind: fact
+  state: secret
+  text: Le Comité Zéro provoque la dérive de l'Espérance pour forcer un demi-tour.
+- ref: object_journal_du_capitaine
+  kind: fact
+  state: secret
+  text: Le Journal du Capitaine prouve que la destination n'existe plus.
+- ref: object_coffret_de_bois_noir
+  kind: fact
+  state: unknown
+  text: Le coffret de bois noir contient les codes du Second Cockpit.
+- ref: location_porte_aux_symboles_effaces
+  kind: fact
+  state: unknown
+  text: La porte aux symboles effacés n'a pas été ouverte depuis le départ.

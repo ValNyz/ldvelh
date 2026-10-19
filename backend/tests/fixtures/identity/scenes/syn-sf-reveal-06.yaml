@@ -1,0 +1,482 @@
+id: syn-sf-reveal-06
+genre: sf
+source: synthetic
+turn: 7
+world:
+- id: protagonist_lou
+  type: protagonist
+  label: Lou
+  true_name: Lou
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Lou
+    kind: true_name
+    known: true
+- id: companion_grain
+  type: companion
+  label: Grain
+  true_name: Grain
+  descriptor: le murmure dans ton gant
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Grain
+    kind: true_name
+    known: true
+  - text: le murmure dans ton gant
+    kind: descriptor
+    known: true
+  - text: ton assistant
+    kind: descriptor
+    known: true
+- id: character_mireille_abadie
+  type: character
+  label: Mireille Abadie
+  true_name: Mireille Abadie
+  descriptor: la marchande aux lunettes rondes
+  known: true
+  occupation: marchande de pièces détachées
+  location: location_ruche
+  last_seen_turn: 5
+  aliases:
+  - text: Mireille Abadie
+    kind: true_name
+    known: true
+  - text: Mireille
+    kind: short
+    known: true
+  - text: Abadie
+    kind: short
+    known: true
+  - text: la marchande aux lunettes rondes
+    kind: descriptor
+    known: true
+- id: character_osei_mensah
+  type: character
+  label: Osei Mensah
+  true_name: Osei Mensah
+  descriptor: le garde aux dents dorées
+  known: true
+  occupation: sergent de la Régie de l'Habitat
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Osei Mensah
+    kind: true_name
+    known: true
+  - text: Osei
+    kind: short
+    known: true
+  - text: Mensah
+    kind: short
+    known: true
+  - text: le Sergent
+    kind: title
+    known: true
+  - text: le garde aux dents dorées
+    kind: descriptor
+    known: true
+- id: character_carmen_lisowski
+  type: character
+  label: Carmen Lisowski
+  true_name: Carmen Lisowski
+  descriptor: l'inconnue au parapluie rouge
+  known: false
+  occupation: messagère de la Société des Antennistes
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Carmen Lisowski
+    kind: true_name
+    known: false
+  - text: Carmen
+    kind: short
+    known: false
+  - text: Lisowski
+    kind: short
+    known: false
+  - text: l'inconnue au parapluie rouge
+    kind: descriptor
+    known: true
+- id: location_ruche
+  type: location
+  label: La Ruche
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Ruche
+    kind: label
+    known: true
+- id: location_rue_des_lampions
+  type: location
+  label: Rue des Lampions
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Rue des Lampions
+    kind: label
+    known: true
+- id: location_quartier_bas
+  type: location
+  label: Quartier Bas
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Quartier Bas
+    kind: label
+    known: true
+- id: location_escalier_sans_fin
+  type: location
+  label: l'escalier sans fin
+  true_name: Puits Sainte-Clotilde
+  descriptor: l'escalier sans fin
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: l'escalier sans fin
+    kind: descriptor
+    known: true
+  - text: Puits Sainte-Clotilde
+    kind: true_name
+    known: false
+- id: location_cour_aux_pigeons
+  type: location
+  label: la cour aux pigeons
+  true_name: null
+  descriptor: la cour aux pigeons
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: la cour aux pigeons
+    kind: descriptor
+    known: true
+- id: organization_sablier
+  type: organization
+  label: Le Sablier
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le Sablier
+    kind: label
+    known: true
+- id: organization_regie_de_l_habitat
+  type: organization
+  label: Régie de l'Habitat
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Régie de l'Habitat
+    kind: label
+    known: true
+  - text: Régie
+    kind: short
+    known: true
+- id: organization_manteaux_verts
+  type: organization
+  label: les manteaux verts
+  true_name: Brigade Salubrité
+  descriptor: les manteaux verts
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: les manteaux verts
+    kind: descriptor
+    known: true
+  - text: Brigade Salubrité
+    kind: true_name
+    known: false
+- id: organization_association_des_toits
+  type: organization
+  label: l'association des toits
+  true_name: null
+  descriptor: l'association des toits
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: l'association des toits
+    kind: descriptor
+    known: true
+- id: object_sablier
+  type: object
+  label: Le Sablier
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le Sablier
+    kind: label
+    known: true
+- id: object_ruche
+  type: object
+  label: La Ruche
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Ruche
+    kind: label
+    known: true
+- id: object_fiole_bleue
+  type: object
+  label: la fiole bleue
+  true_name: Sérum Azur-3
+  descriptor: la fiole bleue
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: la fiole bleue
+    kind: descriptor
+    known: true
+  - text: Sérum Azur-3
+    kind: true_name
+    known: false
+- id: object_cassette_rayee
+  type: object
+  label: la cassette rayée
+  true_name: null
+  descriptor: la cassette rayée
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: la cassette rayée
+    kind: descriptor
+    known: true
+- id: arc_penurie_d_air_du_quartier_bas
+  type: arc
+  label: La pénurie d'air du Quartier Bas
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La pénurie d'air du Quartier Bas
+    kind: label
+    known: true
+history:
+- text: La marchande aux lunettes rondes t'a glissé une fiole bleue dans la main avant de fermer son étal. « Pour ta voisine. Ne la montre à personne. »
+  mentions:
+  - surface: La marchande aux lunettes rondes
+    start: 0
+    category: DESC
+    expected: MATCH character_mireille_abadie
+  - surface: une fiole bleue
+    start: 44
+    category: DESC
+    expected: MATCH object_fiole_bleue
+  - surface: son étal
+    start: 89
+    category: SKIP
+    expected: SKIP
+  - surface: personne
+    start: 133
+    category: SKIP
+    expected: SKIP
+- text: |-
+    Tu prends l'escalier sans fin pour éviter les manteaux verts qui filtrent l'ascenseur.
+
+    *Quatre cents marches*, compte le murmure dans ton gant. *Tu n'en as fait que quatre-vingts.*
+  mentions:
+  - surface: l'escalier sans fin
+    start: 10
+    category: DESC
+    expected: MATCH location_escalier_sans_fin
+  - surface: les manteaux verts
+    start: 42
+    category: DESC
+    expected: MATCH organization_manteaux_verts
+  - surface: le murmure dans ton gant
+    start: 119
+    category: PC
+    expected: MATCH companion_grain
+scene:
+  location: location_escalier_sans_fin
+  present:
+  - protagonist_lou
+  - companion_grain
+  - organization_manteaux_verts
+  - object_fiole_bleue
+  reveals:
+  - ref: l'escalier sans fin
+    real_name: Puits Sainte-Clotilde
+  - ref: les manteaux verts
+    real_name: Brigade Salubrité
+  - ref: la fiole bleue
+    real_name: Sérum Azur-3
+  planned_npcs: []
+  secrets:
+  - arc_penurie_d_air_du_quartier_bas
+  - character_mireille_abadie
+  - organization_regie_de_l_habitat
+  open_disclosures: []
+narration: |-
+  À mi-hauteur de l'escalier sans fin, une plaque d'émail à moitié arrachée indique encore : « Puits Sainte-Clotilde, palier 9 ».
+
+  Au palier suivant, deux silhouettes en manteau vert te barrent le passage. Un insigne holographique s'allume devant ton visage : « Brigade Salubrité, contrôle sanitaire ».
+
+  — Produits médicaux non déclarés ? demande une agente à la capuche baissée.
+
+  Tu sens la fiole bleue peser dans ta poche. Sur son étiquette, que tu n'avais pas lue, il est écrit en petites lettres : « Sérum Azur-3 ».
+
+  *La Brigade ne fouille que ceux qui transpirent*, chuchote Grain. *Respire, Lou.*
+
+  — Rien à déclarer, dis-tu. Je vais voir Mireille à la Ruche.
+gold:
+- surface: l'escalier sans fin
+  start: 16
+  category: DESC
+  expected: MATCH location_escalier_sans_fin
+- surface: Puits Sainte-Clotilde
+  start: 93
+  category: REVEAL
+  expected: ALIAS location_escalier_sans_fin true_name
+- surface: deux silhouettes en manteau vert
+  start: 148
+  category: SKIP
+  expected: SKIP
+- surface: ton visage
+  start: 245
+  category: SKIP
+  expected: SKIP
+- surface: Brigade Salubrité
+  start: 260
+  category: REVEAL
+  expected: ALIAS organization_manteaux_verts true_name
+- surface: une agente à la capuche baissée
+  start: 345
+  category: NEW
+  expected: NEW character
+- surface: la fiole bleue
+  start: 387
+  category: DESC
+  expected: MATCH object_fiole_bleue
+- surface: ta poche
+  start: 413
+  category: SKIP
+  expected: SKIP
+- surface: son étiquette
+  start: 427
+  category: SKIP
+  expected: SKIP
+- surface: Sérum Azur-3
+  start: 502
+  category: REVEAL
+  expected: ALIAS object_fiole_bleue true_name
+- surface: La Brigade
+  start: 520
+  category: PART
+  expected: ALIAS organization_manteaux_verts short
+  accept_also:
+  - MATCH organization_manteaux_verts
+- surface: Grain
+  start: 578
+  category: PC
+  expected: MATCH companion_grain
+- surface: Lou
+  start: 595
+  category: PC
+  expected: MATCH protagonist_lou
+- surface: Mireille
+  start: 642
+  category: PART
+  expected: MATCH character_mireille_abadie
+- surface: la Ruche
+  start: 653
+  category: XTYPE
+  expected: MATCH location_ruche
+gold_effects:
+  reveals:
+  - ref: location_escalier_sans_fin
+    real_name: Puits Sainte-Clotilde
+  - ref: organization_manteaux_verts
+    real_name: Brigade Salubrité
+  - ref: object_fiole_bleue
+    real_name: Sérum Azur-3
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_carmen_lisowski
+  kind: name
+  state: unknown
+  text: Carmen Lisowski
+- ref: location_escalier_sans_fin
+  kind: name
+  state: unknown
+  text: Puits Sainte-Clotilde
+- ref: organization_manteaux_verts
+  kind: name
+  state: unknown
+  text: Brigade Salubrité
+- ref: object_fiole_bleue
+  kind: name
+  state: unknown
+  text: Sérum Azur-3
+- ref: arc_penurie_d_air_du_quartier_bas
+  kind: fact
+  state: unknown
+  text: La pénurie d'air du Quartier Bas touche d'abord les immeubles sans compteur.
+- ref: arc_penurie_d_air_du_quartier_bas
+  kind: fact
+  state: secret
+  text: La Régie de l'Habitat coupe l'air du Quartier Bas pour vider les immeubles à revendre.
+- ref: object_fiole_bleue
+  kind: fact
+  state: unknown
+  text: La fiole bleue soigne la fièvre des poumons.
+- ref: character_mireille_abadie
+  kind: fact
+  state: secret
+  text: Mireille Abadie revend les informations du Sablier à la Régie.
+- ref: organization_regie_de_l_habitat
+  kind: fact
+  state: secret
+  text: La Régie de l'Habitat a racheté en secret les immeubles du Quartier Bas.
+- ref: character_osei_mensah
+  kind: fact
+  state: unknown
+  text: Osei Mensah ferme les yeux sur le marché noir de la Ruche.

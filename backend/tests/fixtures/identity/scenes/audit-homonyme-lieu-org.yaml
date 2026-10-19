@@ -1,0 +1,257 @@
+# Data-audit pattern « location vs organization with the same name » (Bureau des Résidences), SF variant:
+# the Capitainerie is a building and an authority; Vigie is the PC's drone and the port militia.
+id: audit-homonyme-lieu-org
+genre: sf
+source: synthetic
+turn: 6
+world:
+- id: protagonist_naoki
+  type: protagonist
+  label: Naoki
+  true_name: Naoki
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_capitainerie_du_port_sec
+  last_seen_turn: 5
+  aliases:
+  - text: Naoki
+    kind: true_name
+    known: true
+- id: companion_sillage
+  type: companion
+  label: Sillage
+  true_name: Sillage
+  descriptor: la voix dans ton oreillette
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Sillage
+    kind: true_name
+    known: true
+  - text: la voix dans ton oreillette
+    kind: descriptor
+    known: true
+- id: location_capitainerie_du_port_sec
+  type: location
+  label: Capitainerie du Port-Sec
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Capitainerie du Port-Sec
+    kind: label
+    known: true
+  - text: Capitainerie
+    kind: short
+    known: true
+- id: organization_capitainerie_du_port_sec
+  type: organization
+  label: Capitainerie du Port-Sec
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Capitainerie du Port-Sec
+    kind: label
+    known: true
+  - text: Capitainerie
+    kind: short
+    known: true
+- id: object_vigie
+  type: object
+  label: Vigie
+  true_name: null
+  descriptor: ton drone
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Vigie
+    kind: label
+    known: true
+  - text: ton drone
+    kind: descriptor
+    known: true
+- id: organization_vigie
+  type: organization
+  label: Vigie
+  true_name: null
+  descriptor: la milice du port
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Vigie
+    kind: label
+    known: true
+  - text: la milice du port
+    kind: descriptor
+    known: true
+- id: location_port_sec
+  type: location
+  label: Port-Sec
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Port-Sec
+    kind: label
+    known: true
+- id: character_talia_benhamou
+  type: character
+  label: Talia Benhamou
+  true_name: Talia Benhamou
+  descriptor: l'officière aux tresses grises
+  known: true
+  occupation: officière de la Capitainerie du Port-Sec
+  location: location_capitainerie_du_port_sec
+  last_seen_turn: 5
+  aliases:
+  - text: Talia Benhamou
+    kind: true_name
+    known: true
+  - text: Talia
+    kind: short
+    known: true
+  - text: Benhamou
+    kind: short
+    known: true
+  - text: l'officière aux tresses grises
+    kind: descriptor
+    known: true
+history: []
+scene:
+  location: location_capitainerie_du_port_sec
+  present:
+  - protagonist_naoki
+  - companion_sillage
+  - character_talia_benhamou
+  - object_vigie
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - location_capitainerie_du_port_sec
+  - organization_vigie
+  open_disclosures: []
+narration: |-
+  Tu pousses la porte de la Capitainerie du Port-Sec un peu avant l'ouverture. Le hall sent le métal chaud et le café brûlé. Vigie bourdonne au-dessus de ton épaule et projette le plan des docks du Port-Sec sur le mur.
+
+  Talia Benhamou t'attend derrière le guichet, un tampon à la main.
+
+  — La Capitainerie a refusé ton permis, dit-elle. Pas moi : la Capitainerie du Port-Sec, en tant qu'autorité portuaire. Moi, je tamponne.
+
+  — Et la Vigie ?
+
+  — La milice du port a demandé ton dossier hier soir, soupire l'officière. Elle veut savoir pourquoi ton drone survole les docks la nuit.
+
+  Tu ressors dans la rue. Vue d'en face, la Capitainerie ressemble à un bunker posé sur des pilotis.
+
+  *Vigie a filmé son badge*, note la voix dans ton oreillette. *Si Talia ment, on le saura.*
+gold:
+- surface: la Capitainerie du Port-Sec
+  start: 23
+  category: XTYPE
+  expected: MATCH location_capitainerie_du_port_sec
+- surface: Vigie
+  start: 123
+  category: XTYPE
+  expected: MATCH object_vigie
+- surface: ton épaule
+  start: 152
+  category: SKIP
+  expected: SKIP
+- surface: Port-Sec
+  start: 196
+  category: EASY
+  expected: MATCH location_port_sec
+- surface: Talia Benhamou
+  start: 218
+  category: EASY
+  expected: MATCH character_talia_benhamou
+- surface: La Capitainerie
+  start: 287
+  category: XTYPE
+  expected: MATCH organization_capitainerie_du_port_sec
+- surface: la Capitainerie du Port-Sec
+  start: 344
+  category: XTYPE
+  expected: MATCH organization_capitainerie_du_port_sec
+- surface: la Vigie
+  start: 428
+  category: XTYPE
+  expected: MATCH organization_vigie
+- surface: La milice du port
+  start: 442
+  category: DESC
+  expected: MATCH organization_vigie
+- surface: l'officière
+  start: 501
+  category: DESC
+  expected: MATCH character_talia_benhamou
+- surface: ton drone
+  start: 540
+  category: DESC
+  expected: MATCH object_vigie
+- surface: la Capitainerie
+  start: 617
+  category: XTYPE
+  expected: MATCH location_capitainerie_du_port_sec
+- surface: Vigie
+  start: 679
+  category: XTYPE
+  expected: MATCH object_vigie
+- surface: son badge
+  start: 693
+  category: SKIP
+  expected: SKIP
+- surface: la voix dans ton oreillette
+  start: 710
+  category: PC
+  expected: MATCH companion_sillage
+- surface: ton oreillette
+  start: 723
+  category: SKIP
+  expected: SKIP
+- surface: Talia
+  start: 743
+  category: PART
+  expected: MATCH character_talia_benhamou
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges:
+  - a: location_capitainerie_du_port_sec
+    b: organization_capitainerie_du_port_sec
+  - a: object_vigie
+    b: organization_vigie
+gold_knowledge:
+- ref: location_capitainerie_du_port_sec
+  kind: fact
+  state: secret
+  text: La Capitainerie du Port-Sec cache une salle d'archives murée sous le hall.
+- ref: organization_capitainerie_du_port_sec
+  kind: fact
+  state: unknown
+  text: La Capitainerie du Port-Sec refuse tous les permis demandés par des pilotes sans parrain.
+- ref: organization_vigie
+  kind: fact
+  state: secret
+  text: La Vigie revend à la Capitainerie les images des drones qu'elle intercepte.
+- ref: object_vigie
+  kind: fact
+  state: unknown
+  text: Le drone Vigie garde trente jours d'enregistrements dans sa mémoire interne.

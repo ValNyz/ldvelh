@@ -1,0 +1,508 @@
+# Synthetic dark fantasy scene (annotator C). Focus: REVEAL of an object (engraving), of a secret
+# character name and of a secret organization, both with an open disclosure.
+id: syn-df-reveal-04
+genre: dark_fantasy
+source: synthetic
+turn: 28
+world:
+- id: protagonist_maelis
+  type: protagonist
+  label: Maëlis
+  true_name: Maëlis
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Maëlis
+    kind: true_name
+    known: true
+- id: companion_brume
+  type: companion
+  label: Brume
+  true_name: Brume
+  descriptor: la chouette sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 27
+  aliases:
+  - text: Brume
+    kind: true_name
+    known: true
+  - text: la chouette sur ton épaule
+    kind: descriptor
+    known: true
+  - text: ta chouette
+    kind: descriptor
+    known: true
+- id: organization_maison_vauclair
+  type: organization
+  label: Maison Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Maison Vauclair
+    kind: label
+    known: true
+  - text: Vauclair
+    kind: short
+    known: true
+- id: location_chateau_vauclair
+  type: location
+  label: Château Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Château Vauclair
+    kind: label
+    known: true
+  - text: Vauclair
+    kind: short
+    known: true
+- id: character_ysolde_vauclair
+  type: character
+  label: Ysolde Vauclair
+  true_name: Ysolde Vauclair
+  descriptor: la femme au voile d'argent
+  known: true
+  occupation: comtesse de Vauclair
+  location: location_chateau_vauclair
+  last_seen_turn: null
+  aliases:
+  - text: Ysolde Vauclair
+    kind: true_name
+    known: true
+  - text: Ysolde
+    kind: short
+    known: true
+  - text: Vauclair
+    kind: short
+    known: true
+  - text: la Comtesse
+    kind: title
+    known: true
+  - text: la femme au voile d'argent
+    kind: descriptor
+    known: true
+- id: organization_maison_d_orgemont
+  type: organization
+  label: Maison d'Orgemont
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Maison d'Orgemont
+    kind: label
+    known: true
+  - text: Orgemont
+    kind: short
+    known: true
+- id: character_gaspard_d_orgemont
+  type: character
+  label: Gaspard d'Orgemont
+  true_name: Gaspard d'Orgemont
+  descriptor: le vieil homme à la canne d'ivoire
+  known: true
+  occupation: chef de la Maison d'Orgemont
+  location: location_tour_d_ombre
+  last_seen_turn: 25
+  aliases:
+  - text: Gaspard d'Orgemont
+    kind: true_name
+    known: true
+  - text: Gaspard
+    kind: short
+    known: true
+  - text: le Baron
+    kind: title
+    known: true
+  - text: le vieil homme à la canne d'ivoire
+    kind: descriptor
+    known: true
+- id: location_tour_d_ombre
+  type: location
+  label: Tour d'Ombre
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Tour d'Ombre
+    kind: label
+    known: true
+- id: location_coeur_de_morne
+  type: location
+  label: Cœur de Morne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cœur de Morne
+    kind: label
+    known: true
+- id: object_coeur_de_morne
+  type: object
+  label: Cœur de Morne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cœur de Morne
+    kind: label
+    known: true
+- id: location_morne
+  type: location
+  label: Morne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Morne
+    kind: label
+    known: true
+- id: character_thibault_vasseur
+  type: character
+  label: Thibault Vasseur
+  true_name: Thibault Vasseur
+  descriptor: l'intendant au crâne rasé
+  known: true
+  occupation: intendant du Château Vauclair
+  location: location_chateau_vauclair
+  last_seen_turn: null
+  aliases:
+  - text: Thibault Vasseur
+    kind: true_name
+    known: true
+  - text: Thibault
+    kind: short
+    known: true
+  - text: Vasseur
+    kind: short
+    known: true
+  - text: l'intendant au crâne rasé
+    kind: descriptor
+    known: true
+- id: character_clemence_d_orgemont
+  type: character
+  label: Clémence d'Orgemont
+  true_name: Clémence d'Orgemont
+  descriptor: la servante aux yeux vairons
+  known: false
+  occupation: espionne de la Maison d'Orgemont
+  location: location_chateau_vauclair
+  last_seen_turn: 27
+  aliases:
+  - text: Clémence d'Orgemont
+    kind: true_name
+    known: false
+    secret: true
+  - text: Clémence
+    kind: short
+    known: false
+    secret: true
+  - text: la servante aux yeux vairons
+    kind: descriptor
+    known: true
+- id: location_passage_des_veuves
+  type: location
+  label: Passage des Veuves
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Passage des Veuves
+    kind: label
+    known: false
+    secret: true
+- id: location_chapelle_effondree
+  type: location
+  label: Oratoire Saint-Aubin
+  true_name: Oratoire Saint-Aubin
+  descriptor: la chapelle effondrée
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 27
+  aliases:
+  - text: Oratoire Saint-Aubin
+    kind: true_name
+    known: true
+  - text: la chapelle effondrée
+    kind: descriptor
+    known: true
+- id: organization_cercle_de_cendre
+  type: organization
+  label: Cercle de Cendre
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cercle de Cendre
+    kind: label
+    known: false
+    secret: true
+- id: organization_lames_grises
+  type: organization
+  label: Lames Grises
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Lames Grises
+    kind: label
+    known: true
+- id: object_sceau_de_vauclair
+  type: object
+  label: Sceau de Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Sceau de Vauclair
+    kind: label
+    known: true
+- id: object_epee_d_haldric
+  type: object
+  label: Épée d'Haldric
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 26
+  aliases:
+  - text: Épée d'Haldric
+    kind: label
+    known: true
+- id: object_coffret_de_plomb
+  type: object
+  label: le coffret de plomb
+  true_name: Reliquaire d'Aubin
+  descriptor: le coffret de plomb
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 27
+  aliases:
+  - text: Reliquaire d'Aubin
+    kind: true_name
+    known: false
+  - text: le coffret de plomb
+    kind: descriptor
+    known: true
+- id: arc_succession_de_vauclair
+  type: arc
+  label: La succession de Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La succession de Vauclair
+    kind: label
+    known: true
+history:
+- text: |-
+    Tu as suivi la servante aux yeux vairons jusqu'aux ruines de l'Oratoire Saint-Aubin. Elle s'agenouille sous l'autel brisé, déplace deux dalles et en tire le coffret de plomb.
+
+    *Elle sait exactement où creuser*, murmure Brume.
+  mentions:
+  - surface: la servante aux yeux vairons
+    start: 12
+    category: DESC
+    expected: MATCH character_clemence_d_orgemont
+  - surface: l'Oratoire Saint-Aubin
+    start: 61
+    category: EASY
+    expected: MATCH location_chapelle_effondree
+  - surface: le coffret de plomb
+    start: 154
+    category: DESC
+    expected: MATCH object_coffret_de_plomb
+  - surface: Brume
+    start: 219
+    category: PC
+    expected: MATCH companion_brume
+scene:
+  location: location_chapelle_effondree
+  present:
+  - protagonist_maelis
+  - companion_brume
+  - character_clemence_d_orgemont
+  reveals:
+  - ref: le coffret de plomb
+    real_name: Reliquaire d'Aubin
+  - ref: Clémence d'Orgemont
+    real_name: Clémence d'Orgemont
+  - ref: Cercle de Cendre
+    real_name: Cercle de Cendre
+  planned_npcs: []
+  secrets:
+  - character_clemence_d_orgemont
+  - location_passage_des_veuves
+  - organization_cercle_de_cendre
+  open_disclosures:
+  - handle: character_clemence_d_orgemont
+    kind: name
+    condition: la servante est prise sur le fait et menacée
+  - handle: organization_cercle_de_cendre
+    kind: name
+    condition: Clémence avoue pour qui elle travaille
+narration: |-
+  Quand ta lame touche sa nuque, la servante lâche le coffret. Le couvercle s'ouvre sur un os jauni, couché sur du velours. Gravé à l'intérieur du couvercle : « Reliquaire d'Aubin ».
+
+  — Ne me tuez pas, souffle-t-elle. Je m'appelle Clémence. Clémence d'Orgemont. Le Baron est mon oncle, mais ce n'est pas ma famille qui m'envoie.
+
+  — Qui, alors ?
+
+  — Le Cercle de Cendre. Ils veulent le reliquaire avant la nouvelle lune.
+
+  *Le Cercle*, répète Brume. *Je croyais que ce n'était qu'une histoire pour effrayer les novices.*
+gold:
+- surface: ta lame
+  start: 6
+  category: DESC
+  expected: MATCH object_epee_d_haldric
+- surface: sa nuque
+  start: 21
+  category: SKIP
+  expected: SKIP
+- surface: la servante
+  start: 31
+  category: DESC
+  expected: MATCH character_clemence_d_orgemont
+- surface: le coffret
+  start: 49
+  category: DESC
+  expected: MATCH object_coffret_de_plomb
+- surface: Reliquaire d'Aubin
+  start: 159
+  category: REVEAL
+  expected: ALIAS object_coffret_de_plomb true_name
+- surface: Clémence
+  start: 229
+  category: REVEAL
+  expected: ALIAS character_clemence_d_orgemont true_name
+- surface: Clémence d'Orgemont
+  start: 239
+  category: EASY
+  expected: ALIAS character_clemence_d_orgemont true_name
+- surface: Le Baron
+  start: 260
+  category: PART
+  expected: MATCH character_gaspard_d_orgemont
+- surface: mon oncle
+  start: 273
+  category: DESC
+  expected: MATCH character_gaspard_d_orgemont
+  accept_also:
+  - ALIAS character_gaspard_d_orgemont descriptor
+- surface: ma famille
+  start: 302
+  category: DESC
+  expected: MATCH organization_maison_d_orgemont
+  accept_also:
+  - ALIAS organization_maison_d_orgemont descriptor
+- surface: Le Cercle de Cendre
+  start: 346
+  category: REVEAL
+  expected: ALIAS organization_cercle_de_cendre true_name
+- surface: le reliquaire
+  start: 379
+  category: PART
+  expected: ALIAS object_coffret_de_plomb short
+  accept_also:
+  - MATCH object_coffret_de_plomb
+- surface: Le Cercle
+  start: 419
+  category: PART
+  expected: ALIAS organization_cercle_de_cendre short
+  accept_also:
+  - MATCH organization_cercle_de_cendre
+- surface: Brume
+  start: 438
+  category: PC
+  expected: MATCH companion_brume
+gold_effects:
+  reveals:
+  - ref: object_coffret_de_plomb
+    real_name: Reliquaire d'Aubin
+  - ref: character_clemence_d_orgemont
+    real_name: Clémence d'Orgemont
+  - ref: organization_cercle_de_cendre
+    real_name: Cercle de Cendre
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_clemence_d_orgemont
+  kind: name
+  state: secret
+  text: Clémence d'Orgemont
+- ref: location_passage_des_veuves
+  kind: name
+  state: secret
+  text: Passage des Veuves
+- ref: organization_cercle_de_cendre
+  kind: name
+  state: secret
+  text: Cercle de Cendre
+- ref: object_coffret_de_plomb
+  kind: name
+  state: unknown
+  text: Reliquaire d'Aubin
+- ref: arc_succession_de_vauclair
+  kind: fact
+  state: secret
+  text: La Comtesse a empoisonné son frère aîné pour hériter de Vauclair.
+- ref: arc_succession_de_vauclair
+  kind: fact
+  state: unknown
+  text: Le Baron d'Orgemont est endetté auprès des Lames Grises.
+- ref: character_clemence_d_orgemont
+  kind: fact
+  state: secret
+  text: La servante aux yeux vairons est la nièce du Baron d'Orgemont.
+- ref: organization_cercle_de_cendre
+  kind: fact
+  state: secret
+  text: Le Cercle de Cendre veut rallumer le Cœur de Morne.

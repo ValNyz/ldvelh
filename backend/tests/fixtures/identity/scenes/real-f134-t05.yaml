@@ -1,0 +1,829 @@
+# Real turn of game f134 « Relais Ombelle » (dev database), exported by
+# scripts/identity_corpus_export.py, world corrected and gold annotated by hand
+# (ANNOTATION.md § 3.2): « Cheffe de serre » merged into Oriane Mbeki-Larsson,
+# « Coopérative » merged into the Coopérative Agronomique d'Ombelle, « Le Kethari de la
+# cantine » (invented canonical) dropped for Tesk Vahrun-Oo, companion Pervenche added;
+# entities first named in play (Kethari âgée, Anneau Résidentiel, Bureau des Résidences
+# as a place, Coursive du Hall, type en bleu de travail, lot 2851-09) enter the world
+# the turn after their first mention (NEW).
+id: real-f134-t05
+genre: sf
+source: real
+turn: 5
+world:
+- id: protagonist_valentin
+  type: protagonist
+  label: Valentin
+  true_name: Valentin
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_hall_d_arrivee_quai_sud
+  last_seen_turn: 4
+  aliases:
+  - text: Valentin
+    kind: true_name
+    known: true
+- id: companion_pervenche
+  type: companion
+  label: Pervenche
+  true_name: Pervenche
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Pervenche
+    kind: true_name
+    known: true
+  - text: la voix de la borne
+    kind: descriptor
+    known: true
+- id: character_tesk_vahrun_oo
+  type: character
+  label: Tesk Vahrun-Oo
+  true_name: Tesk Vahrun-Oo
+  descriptor: Le Kethari au tablier
+  known: false
+  occupation: gérant de la Cantine du Puits
+  location: location_cantine_du_puits
+  last_seen_turn: null
+  aliases:
+  - text: Tesk Vahrun-Oo
+    kind: true_name
+    known: false
+  - text: Tesk
+    kind: short
+    known: false
+  - text: Vahrun-Oo
+    kind: short
+    known: false
+  - text: Le Kethari au tablier
+    kind: descriptor
+    known: true
+- id: character_ilyes_brandt
+  type: character
+  label: Ilyès Brandt
+  true_name: Ilyès Brandt
+  descriptor: Le jeune type aux cernes
+  known: false
+  occupation: technicien de nuit en serre
+  location: location_serre_numero_quatre
+  last_seen_turn: null
+  aliases:
+  - text: Ilyès Brandt
+    kind: true_name
+    known: false
+  - text: Ilyès
+    kind: short
+    known: false
+  - text: Brandt
+    kind: short
+    known: false
+  - text: Le jeune type aux cernes
+    kind: descriptor
+    known: true
+- id: character_marguerite_doan
+  type: character
+  label: Marguerite Doan
+  true_name: Marguerite Doan
+  descriptor: La vieille dame au gilet vert
+  known: false
+  occupation: agente du Bureau des Résidences
+  location: location_residence_les_fougeres
+  last_seen_turn: null
+  aliases:
+  - text: Marguerite Doan
+    kind: true_name
+    known: false
+  - text: Marguerite
+    kind: short
+    known: false
+  - text: Doan
+    kind: short
+    known: false
+  - text: La vieille dame au gilet vert
+    kind: descriptor
+    known: true
+- id: character_oriane_mbeki_larsson
+  type: character
+  label: Oriane Mbeki-Larsson
+  true_name: Oriane Mbeki-Larsson
+  descriptor: La femme grise à la tablette
+  known: false
+  occupation: cheffe de la Serre Numéro Quatre
+  location: location_serre_numero_quatre
+  last_seen_turn: 4
+  aliases:
+  - text: Oriane Mbeki-Larsson
+    kind: true_name
+    known: false
+  - text: Oriane
+    kind: short
+    known: false
+  - text: Mbeki-Larsson
+    kind: short
+    known: false
+  - text: La femme grise à la tablette
+    kind: descriptor
+    known: true
+  - text: la cheffe de serre
+    kind: descriptor
+    known: true
+- id: character_kethari_agee
+  type: character
+  label: La Kethari âgée
+  true_name: null
+  descriptor: La Kethari âgée
+  known: false
+  occupation: null
+  location: location_hall_d_arrivee_quai_sud
+  last_seen_turn: 4
+  aliases:
+  - text: La Kethari âgée
+    kind: descriptor
+    known: true
+- id: location_chambre_3_17
+  type: location
+  label: Chambre 3-17
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Chambre 3-17
+    kind: label
+    known: true
+- id: location_hall_d_arrivee_quai_sud
+  type: location
+  label: Hall d'Arrivée Quai Sud
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Hall d'Arrivée Quai Sud
+    kind: label
+    known: true
+- id: location_relais_ombelle
+  type: location
+  label: Relais Ombelle
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Relais Ombelle
+    kind: label
+    known: true
+- id: location_residence_les_fougeres
+  type: location
+  label: Résidence Les Fougères
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Résidence Les Fougères
+    kind: label
+    known: true
+- id: location_serre_numero_quatre
+  type: location
+  label: Serre Numéro Quatre
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 3
+  aliases:
+  - text: Serre Numéro Quatre
+    kind: label
+    known: true
+- id: location_cantine_du_puits
+  type: location
+  label: Cantine du Puits
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 3
+  aliases:
+  - text: Cantine du Puits
+    kind: label
+    known: true
+- id: location_anneau_residentiel
+  type: location
+  label: Anneau Résidentiel
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Anneau Résidentiel
+    kind: label
+    known: true
+- id: location_bureau_des_residences
+  type: location
+  label: Bureau des Résidences
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Bureau des Résidences
+    kind: label
+    known: true
+- id: location_coursive_du_hall
+  type: location
+  label: Coursive du Hall
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Coursive du Hall
+    kind: label
+    known: true
+- id: organization_cooperative_agronomique_d_ombelle
+  type: organization
+  label: Coopérative Agronomique d'Ombelle
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Coopérative Agronomique d'Ombelle
+    kind: label
+    known: true
+  - text: Coopérative
+    kind: short
+    known: true
+- id: organization_bureau_des_residences
+  type: organization
+  label: Bureau des Résidences
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Bureau des Résidences
+    kind: label
+    known: true
+- id: object_terminal_personnel
+  type: object
+  label: Terminal personnel
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Terminal personnel
+    kind: label
+    known: true
+- id: object_valise_souple
+  type: object
+  label: Valise souple
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Valise souple
+    kind: label
+    known: true
+- id: object_trousse_d_outils_de_precision
+  type: object
+  label: Trousse d'outils de précision
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Trousse d'outils de précision
+    kind: label
+    known: true
+- id: object_vetements_de_rechange
+  type: object
+  label: Vêtements de rechange
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Vêtements de rechange
+    kind: label
+    known: true
+- id: object_tasse_ebrechee
+  type: object
+  label: Tasse ébréchée
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Tasse ébréchée
+    kind: label
+    known: true
+- id: object_couverture_lestee
+  type: object
+  label: Couverture lestée
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Couverture lestée
+    kind: label
+    known: true
+- id: arc_audit_de_la_serre_quatre
+  type: arc
+  label: L'audit de la Serre Quatre
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases: []
+- id: arc_candidature_d_ilyes
+  type: arc
+  label: La candidature d'Ilyès
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+- id: arc_cargaison_manquante
+  type: arc
+  label: Cargaison manquante
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+- id: arc_migration_du_registre
+  type: arc
+  label: Migration du registre
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases: []
+- id: arc_contrat_non_lu
+  type: arc
+  label: Le contrat non lu
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+history:
+- text: |-
+    Le sas se referme derrière toi avec un chuintement las. Le Hall d'Arrivée Quai Sud est une longue boîte de métal gris. La moitié des plafonniers sont éteints, les autres grésillent. Une condensation fine perle sur les rambardes. L'air sent le terreau mouillé, l'huile de joint et quelque chose de vaguement sucré, comme des légumes laissés trop longtemps dans un bac.
+
+    Les autres passagers de la navette se dispersent sans un regard. Un homme en combinaison de cargo s'éloigne déjà vers une coursive latérale. Deux adolescentes se disputent à voix basse au-dessus d'un sac éventré. Une Kethari âgée attend, immobile, que quelqu'un vienne la chercher. Personne ne vient.
+
+    Contre le mur, une borne d'accueil affiche en lettres orange : *SERVICE INDISPONIBLE — MIGRATION EN COURS. Merci de vous adresser au Bureau des Résidences (ouverture 08h00).* À côté, une affichette plastifiée se décolle par un coin : *AUDIT SANITAIRE INTERSYSTÈME — J-20. Toutes les unités de production doivent tenir leurs relevés à jour.* Quelqu'un a griffonné dessous au marqueur : « *lesquels ?* »
+
+    Ton terminal personnel vibre contre ta hanche. Deux notifications de la Coopérative Agronomique d'Ombelle, arrivées pendant le transit. La première t'indique ton logement : *Chambre 3-17, Anneau Résidentiel — validation requise au Bureau des Résidences*. La seconde t'attend pour ta prise de poste : *Serre Numéro Quatre, 08h00, demander la cheffe de serre*. Aucune des deux ne précise comment s'y rendre.
+
+    Un panneau de direction à moitié rouillé pointe trois flèches : *Résidences*, *Serres 1-6*, *Cantine du Puits*. Sous la troisième, un pictogramme de bol fumant, et l'horaire : *ouvert dès 05h30*.
+
+    *Il est cinq heures quarante-sept*, dit Pervenche, après une pause un peu trop longue. *Tu as deux heures et treize minutes avant ta prise de poste.*
+
+    La Kethari âgée s'est assise sur sa valise. Au-dessus de toi, un plafonnier clignote encore, puis s'éteint.
+  mentions:
+  - surface: Le Hall d'Arrivée Quai Sud
+    start: 56
+    category: EASY
+    expected: MATCH location_hall_d_arrivee_quai_sud
+  - surface: une longue boîte de métal gris
+    start: 87
+    category: DESC
+    expected: MATCH location_hall_d_arrivee_quai_sud
+  - surface: Les autres passagers de la navette
+    start: 369
+    category: SKIP
+    expected: SKIP
+  - surface: Un homme en combinaison de cargo
+    start: 434
+    category: SKIP
+    expected: SKIP
+  - surface: Deux adolescentes
+    start: 510
+    category: SKIP
+    expected: SKIP
+  - surface: Une Kethari âgée
+    start: 582
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: quelqu'un
+    start: 621
+    category: SKIP
+    expected: SKIP
+  - surface: Personne
+    start: 651
+    category: SKIP
+    expected: SKIP
+  - surface: une borne d'accueil
+    start: 686
+    category: SKIP
+    expected: SKIP
+  - surface: MIGRATION
+    start: 758
+    category: PART
+    expected: MATCH arc_migration_du_registre
+  - surface: Bureau des Résidences
+    start: 804
+    category: XTYPE
+    expected: MATCH location_bureau_des_residences
+  - surface: AUDIT SANITAIRE INTERSYSTÈME
+    start: 906
+    category: PART
+    expected: MATCH arc_audit_de_la_serre_quatre
+  - surface: Quelqu'un
+    start: 1012
+    category: SKIP
+    expected: SKIP
+  - surface: Ton terminal personnel
+    start: 1074
+    category: PART
+    expected: MATCH object_terminal_personnel
+  - surface: ta hanche
+    start: 1110
+    category: SKIP
+    expected: SKIP
+  - surface: la Coopérative Agronomique d'Ombelle
+    start: 1143
+    category: EASY
+    expected: MATCH organization_cooperative_agronomique_d_ombelle
+  - surface: ton logement
+    start: 1232
+    category: DESC
+    expected: MATCH location_chambre_3_17
+  - surface: Chambre 3-17
+    start: 1248
+    category: EASY
+    expected: MATCH location_chambre_3_17
+  - surface: Anneau Résidentiel
+    start: 1262
+    category: EASY
+    expected: MATCH location_anneau_residentiel
+  - surface: Bureau des Résidences
+    start: 1305
+    category: XTYPE
+    expected: MATCH organization_bureau_des_residences
+  - surface: Serre Numéro Quatre
+    start: 1375
+    category: EASY
+    expected: MATCH location_serre_numero_quatre
+  - surface: la cheffe de serre
+    start: 1412
+    category: DESC
+    expected: MATCH character_oriane_mbeki_larsson
+  - surface: Résidences
+    start: 1546
+    category: SKIP
+    expected: SKIP
+  - surface: Serres 1-6
+    start: 1560
+    category: SKIP
+    expected: SKIP
+  - surface: Cantine du Puits
+    start: 1574
+    category: EASY
+    expected: MATCH location_cantine_du_puits
+  - surface: Pervenche
+    start: 1718
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: La Kethari âgée
+    start: 1829
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: sa valise
+    start: 1862
+    category: SKIP
+    expected: SKIP
+- text: |-
+    Le silence dure. Assez longtemps pour que la Kethari âgée change de position sur sa valise.
+
+    *C'est possible*, dit enfin Pervenche. *Il faut modifier le champ d'identification dans mes paramètres. Je répondrai au nouveau nom. Il me faudra peut-être quelques jours pour ne plus répondre à l'ancien.*
+
+    Une autre pause.
+
+    *Tu as un nom en tête, ou c'est une idée de cinq heures quarante-neuf ?*
+
+    Sur ton terminal, l'écran de configuration s'est ouvert de lui-même. Le champ *Nom d'appel* clignote, vide, à côté de « Pervenche » grisé.
+
+    Au bout du hall, quelqu'un a déjà poussé la porte de la coursive vers la Cantine du Puits. Une odeur de bouillon chaud arrive jusqu'à toi, puis se dissipe.
+  mentions:
+  - surface: la Kethari âgée
+    start: 42
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: sa valise
+    start: 81
+    category: SKIP
+    expected: SKIP
+  - surface: Pervenche
+    start: 121
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: mes paramètres
+    start: 181
+    category: SKIP
+    expected: SKIP
+  - surface: ton terminal
+    start: 396
+    category: PART
+    expected: MATCH object_terminal_personnel
+  - surface: Pervenche
+    start: 512
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: hall
+    start: 543
+    category: PART
+    expected: MATCH location_hall_d_arrivee_quai_sud
+  - surface: quelqu'un
+    start: 549
+    category: SKIP
+    expected: SKIP
+  - surface: la coursive vers la Cantine du Puits
+    start: 585
+    category: PART
+    expected: MATCH location_coursive_du_hall
+  - surface: la Cantine du Puits
+    start: 602
+    category: EASY
+    expected: MATCH location_cantine_du_puits
+- text: |-
+    Le champ *Nom d'appel* accepte les neuf lettres sans broncher. Une fenêtre de confirmation apparaît par-dessus : *Valider le nouveau nom ? Ce nom sera affiché sur les journaux d'accès partagés avec votre employeur.*
+
+    La pause est plus longue que d'habitude.
+
+    *Je répondrai à ce nom*, dit enfin Pervenche, de la même voix basse et neutre. *Je signale seulement qu'il apparaîtra dans les logs de la Coopérative à chaque fois que je me connecterai à un capteur de la Serre Numéro Quatre. Tu confirmes, ou tu veux y réfléchir après un café ?*
+
+    La Kethari âgée lève les yeux vers toi, puis les rabaisse sur ses mains. Au fond du hall, la porte de la coursive vers la Cantine du Puits se rouvre. L'odeur de bouillon revient, plus franche cette fois.
+
+    Le bouton *Confirmer* clignote sous ton pouce.
+  mentions:
+  - surface: votre employeur
+    start: 198
+    category: DESC
+    expected: MATCH organization_cooperative_agronomique_d_ombelle
+  - surface: Pervenche
+    start: 294
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: la même voix basse et neutre
+    start: 308
+    category: SKIP
+    expected: SKIP
+  - surface: la Coopérative
+    start: 394
+    category: PART
+    expected: MATCH organization_cooperative_agronomique_d_ombelle
+  - surface: la Serre Numéro Quatre
+    start: 461
+    category: EASY
+    expected: MATCH location_serre_numero_quatre
+  - surface: La Kethari âgée
+    start: 540
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: les yeux
+    start: 561
+    category: SKIP
+    expected: SKIP
+  - surface: ses mains
+    start: 602
+    category: SKIP
+    expected: SKIP
+  - surface: hall
+    start: 624
+    category: PART
+    expected: MATCH location_hall_d_arrivee_quai_sud
+  - surface: la coursive vers la Cantine du Puits
+    start: 642
+    category: PART
+    expected: MATCH location_coursive_du_hall
+  - surface: la Cantine du Puits
+    start: 659
+    category: EASY
+    expected: MATCH location_cantine_du_puits
+  - surface: ton pouce
+    start: 781
+    category: SKIP
+    expected: SKIP
+- text: |-
+    Le bouton *Confirmer* cesse de clignoter. Le champ revient à vide, le curseur attend.
+
+    *Cinq lettres. C'est plus rapide à prononcer*, dit Pervenche, après une pause qui s'étire. *Les logs de la Coopérative n'en tiendront pas compte. La cheffe de serre, peut-être.*
+
+    Un silence, puis :
+
+    *Pervenche est toujours disponible. Elle ne demande rien.*
+
+    La Kethari âgée a sorti une boîte de sa poche et grignote quelque chose de sec, méthodiquement, sans te regarder. Au fond du hall, la porte de la coursive se referme sur un rire étouffé et un tintement de vaisselle. Le panneau rouillé affiche toujours ses trois flèches.
+  mentions:
+  - surface: Pervenche
+    start: 138
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: la Coopérative
+    start: 191
+    category: PART
+    expected: MATCH organization_cooperative_agronomique_d_ombelle
+  - surface: La cheffe de serre
+    start: 233
+    category: DESC
+    expected: MATCH character_oriane_mbeki_larsson
+  - surface: Pervenche
+    start: 287
+    category: PC
+    expected: MATCH companion_pervenche
+  - surface: La Kethari âgée
+    start: 346
+    category: DESC
+    expected: MATCH character_kethari_agee
+  - surface: une boîte
+    start: 370
+    category: SKIP
+    expected: SKIP
+  - surface: sa poche
+    start: 383
+    category: SKIP
+    expected: SKIP
+  - surface: hall
+    start: 471
+    category: PART
+    expected: MATCH location_hall_d_arrivee_quai_sud
+  - surface: la coursive
+    start: 489
+    category: PART
+    expected: MATCH location_coursive_du_hall
+scene:
+  location: location_hall_d_arrivee_quai_sud
+  present:
+  - protagonist_valentin
+  - companion_pervenche
+  - character_kethari_agee
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  La pause s'allonge. Le curseur clignote dans le champ vide.
+
+  *Je n'ai pas de préférence. On ne m'a jamais demandé.* Encore un silence. *Si tu veux du taquin : Ortie. C'est une plante. Ça pique quand on la touche sans faire attention. Ça pousse partout où personne ne l'a invitée. Et ça passera dans les logs de la Coopérative sans que la cheffe de serre lève un sourcil.*
+
+  Une dernière pause, plus courte.
+
+  *Et tu pourras dire que tu as été piqué par une ortie dès ton premier jour dans une station agricole. Ça fera rire quelqu'un. Peut-être.*
+
+  Le mot n'est pas saisi. Le champ attend toujours ton pouce. La Kethari âgée referme sa boîte avec un petit claquement sec, se lève et tire sa valise vers la porte de la coursive, d'où s'échappe toujours cette odeur de bouillon.
+gold:
+- surface: personne
+  start: 255
+  category: SKIP
+  expected: SKIP
+- surface: la Coopérative
+  start: 311
+  category: PART
+  expected: MATCH organization_cooperative_agronomique_d_ombelle
+- surface: la cheffe de serre
+  start: 335
+  category: DESC
+  expected: MATCH character_oriane_mbeki_larsson
+- surface: un sourcil
+  start: 359
+  category: SKIP
+  expected: SKIP
+- surface: une station agricole
+  start: 487
+  category: DESC
+  expected: MATCH location_relais_ombelle
+- surface: quelqu'un
+  start: 522
+  category: SKIP
+  expected: SKIP
+- surface: ton pouce
+  start: 595
+  category: SKIP
+  expected: SKIP
+- surface: La Kethari âgée
+  start: 606
+  category: DESC
+  expected: MATCH character_kethari_agee
+- surface: sa boîte
+  start: 630
+  category: SKIP
+  expected: SKIP
+- surface: sa valise
+  start: 685
+  category: SKIP
+  expected: SKIP
+- surface: la coursive
+  start: 712
+  category: PART
+  expected: MATCH location_coursive_du_hall
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_tesk_vahrun_oo
+  kind: name
+  state: unknown
+  text: Tesk Vahrun-Oo
+- ref: character_ilyes_brandt
+  kind: name
+  state: unknown
+  text: Ilyès Brandt
+- ref: character_marguerite_doan
+  kind: name
+  state: unknown
+  text: Marguerite Doan
+- ref: character_oriane_mbeki_larsson
+  kind: name
+  state: unknown
+  text: Oriane Mbeki-Larsson
+- ref: character_oriane_mbeki_larsson
+  kind: fact
+  state: unknown
+  text: Oriane Mbeki-Larsson est la cheffe de la Serre Numéro Quatre.
+- ref: character_ilyes_brandt
+  kind: fact
+  state: unknown
+  text: Ilyès Brandt est technicien de nuit à la Serre Numéro Quatre.
+- ref: character_marguerite_doan
+  kind: fact
+  state: unknown
+  text: Marguerite Doan est agente du Bureau des Résidences.
+- ref: character_tesk_vahrun_oo
+  kind: fact
+  state: unknown
+  text: Tesk Vahrun-Oo est le gérant de la Cantine du Puits.
+- ref: arc_audit_de_la_serre_quatre
+  kind: fact
+  state: unknown
+  text: Oriane doit prouver que la Serre Numéro Quatre est conforme avant l'audit sanitaire, alors que ses capteurs mentent et que son équipe est réduite ; son plan de repli est de déclasser la serre.
+- ref: arc_candidature_d_ilyes
+  kind: fact
+  state: unknown
+  text: Ilyès attend la réponse d'une station de recherche et partira sans préavis s'il est pris ; il n'en a parlé à personne.
+- ref: arc_cargaison_manquante
+  kind: fact
+  state: unknown
+  text: Le fournisseur de protéines de Tesk a deux livraisons de retard et ne répond plus, et son frère est hospitalisé sur un habitat voisin.
+- ref: arc_migration_du_registre
+  kind: fact
+  state: unknown
+  text: 'La migration du registre perd des attributions au hasard : le logement de Valentin est introuvable ou en doublon.'
+- ref: arc_contrat_non_lu
+  kind: fact
+  state: unknown
+  text: Le contrat de Valentin, qu'il n'a pas lu, contient une clause sur l'affectation, la durée minimale ou le logement lié au poste.

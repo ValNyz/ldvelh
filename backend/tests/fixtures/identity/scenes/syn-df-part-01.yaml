@@ -1,0 +1,474 @@
+# Synthetic dark fantasy scene (annotator C). Focus: PART (nickname, surname alone, short label,
+# head word of a label) on every type; « ta bague » for the Onyx Signet is a DESC.
+id: syn-df-part-01
+genre: dark_fantasy
+source: synthetic
+turn: 22
+world:
+- id: protagonist_evrard
+  type: protagonist
+  label: Évrard
+  true_name: Évrard
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Évrard
+    kind: true_name
+    known: true
+- id: companion_vesperine
+  type: companion
+  label: Vespérine
+  true_name: Vespérine
+  descriptor: la voix froide à ton oreille
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 21
+  aliases:
+  - text: Vespérine
+    kind: true_name
+    known: true
+  - text: la voix froide à ton oreille
+    kind: descriptor
+    known: true
+  - text: l'esprit de ta chevalière
+    kind: descriptor
+    known: true
+- id: location_vargne
+  type: location
+  label: Vargne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Vargne
+    kind: label
+    known: true
+- id: location_halle_des_equarrisseurs
+  type: location
+  label: Halle des Équarrisseurs
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Halle des Équarrisseurs
+    kind: label
+    known: true
+  - text: Halle
+    kind: short
+    known: true
+- id: organization_guilde_des_equarrisseurs
+  type: organization
+  label: Guilde des Équarrisseurs
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Guilde des Équarrisseurs
+    kind: label
+    known: true
+  - text: Halle
+    kind: short
+    known: true
+  - text: Équarrisseurs
+    kind: short
+    known: true
+- id: character_aubert_grisel
+  type: character
+  label: Aubert Grisel
+  true_name: Aubert Grisel
+  descriptor: l'homme au tablier de cuir
+  known: true
+  occupation: maître saigneur de la Guilde des Équarrisseurs
+  location: location_halle_des_equarrisseurs
+  last_seen_turn: 20
+  aliases:
+  - text: Aubert Grisel
+    kind: true_name
+    known: false
+    secret: true
+  - text: Aubert
+    kind: short
+    known: false
+    secret: true
+  - text: Grisel
+    kind: short
+    known: false
+    secret: true
+  - text: le Boucher de Vargne
+    kind: nickname
+    known: true
+  - text: le Boucher
+    kind: nickname
+    known: true
+  - text: l'homme au tablier de cuir
+    kind: descriptor
+    known: true
+- id: character_ancelise_morvan
+  type: character
+  label: Ancelise Morvan
+  true_name: Ancelise Morvan
+  descriptor: la vieille femme aux bagues de fer
+  known: true
+  occupation: doyenne de la Guilde des Équarrisseurs
+  location: location_halle_des_equarrisseurs
+  last_seen_turn: 18
+  aliases:
+  - text: Ancelise Morvan
+    kind: true_name
+    known: true
+  - text: Ancelise
+    kind: short
+    known: true
+  - text: Morvan
+    kind: short
+    known: true
+  - text: la Doyenne
+    kind: title
+    known: true
+  - text: la vieille femme aux bagues de fer
+    kind: descriptor
+    known: true
+- id: character_jorin_saulce
+  type: character
+  label: Jorin Saulce
+  true_name: Jorin Saulce
+  descriptor: le gamin aux mains brûlées
+  known: true
+  occupation: apprenti fondeur de suif
+  location: location_halle_des_equarrisseurs
+  last_seen_turn: 21
+  aliases:
+  - text: Jorin Saulce
+    kind: true_name
+    known: true
+  - text: Jorin
+    kind: short
+    known: true
+  - text: Saulce
+    kind: short
+    known: true
+  - text: le gamin aux mains brûlées
+    kind: descriptor
+    known: true
+- id: character_hugues_de_brasquet
+  type: character
+  label: Hugues de Brasquet
+  true_name: Hugues de Brasquet
+  descriptor: l'homme au manteau gris
+  known: true
+  occupation: prévôt de Vargne
+  location: location_vargne
+  last_seen_turn: 20
+  aliases:
+  - text: Hugues de Brasquet
+    kind: true_name
+    known: true
+  - text: Hugues
+    kind: short
+    known: true
+  - text: Brasquet
+    kind: short
+    known: true
+  - text: le Prévôt
+    kind: title
+    known: true
+  - text: l'homme au manteau gris
+    kind: descriptor
+    known: true
+- id: organization_garde_prevotale
+  type: organization
+  label: Garde prévôtale
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Garde prévôtale
+    kind: label
+    known: true
+- id: location_taverne_du_croc
+  type: location
+  label: Taverne du Croc
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Taverne du Croc
+    kind: label
+    known: true
+  - text: Croc
+    kind: short
+    known: true
+- id: location_ruelle_derriere_les_abattoirs
+  type: location
+  label: Venelle des Saigneurs
+  true_name: Venelle des Saigneurs
+  descriptor: la ruelle derrière les abattoirs
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 21
+  aliases:
+  - text: Venelle des Saigneurs
+    kind: true_name
+    known: true
+  - text: la ruelle derrière les abattoirs
+    kind: descriptor
+    known: true
+- id: location_cave_aux_crochets
+  type: location
+  label: Cave aux Crochets
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cave aux Crochets
+    kind: label
+    known: false
+    secret: true
+- id: organization_bande_aux_masques_de_cuir
+  type: organization
+  label: la bande aux masques de cuir
+  true_name: Confrérie du Crochet
+  descriptor: la bande aux masques de cuir
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Confrérie du Crochet
+    kind: true_name
+    known: false
+  - text: la bande aux masques de cuir
+    kind: descriptor
+    known: true
+- id: object_chevaliere_d_onyx
+  type: object
+  label: Chevalière d'onyx
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Chevalière d'onyx
+    kind: label
+    known: true
+- id: object_couperet_de_saint_varon
+  type: object
+  label: Couperet de Saint Varon
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Couperet de Saint Varon
+    kind: label
+    known: true
+- id: object_doyenne
+  type: object
+  label: Doyenne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_halle_des_equarrisseurs
+  last_seen_turn: null
+  aliases:
+  - text: Doyenne
+    kind: label
+    known: true
+- id: object_tranchoir_a_manche_d_os
+  type: object
+  label: le tranchoir à manche d'os
+  true_name: Mâchefer
+  descriptor: le tranchoir à manche d'os
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Mâchefer
+    kind: true_name
+    known: false
+    secret: true
+  - text: le tranchoir à manche d'os
+    kind: descriptor
+    known: true
+- id: arc_traque_du_boucher
+  type: arc
+  label: La traque du Boucher
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La traque du Boucher
+    kind: label
+    known: true
+history:
+- text: |-
+    La nuit est tombée sur la Venelle des Saigneurs. Jorin Saulce porte une lanterne sourde qu'il masque de sa main à chaque bruit.
+
+    — Si le Boucher de Vargne passe par ici, on le verra avant qu'il nous voie.
+
+    *Ou l'inverse*, souffle Vespérine.
+  mentions:
+  - surface: la Venelle des Saigneurs
+    start: 23
+    category: EASY
+    expected: MATCH location_ruelle_derriere_les_abattoirs
+  - surface: Jorin Saulce
+    start: 49
+    category: EASY
+    expected: MATCH character_jorin_saulce
+  - surface: le Boucher de Vargne
+    start: 134
+    category: PART
+    expected: MATCH character_aubert_grisel
+  - surface: Vespérine
+    start: 230
+    category: PC
+    expected: MATCH companion_vesperine
+scene:
+  location: location_ruelle_derriere_les_abattoirs
+  present:
+  - protagonist_evrard
+  - companion_vesperine
+  - character_jorin_saulce
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - character_aubert_grisel
+  - location_cave_aux_crochets
+  - object_tranchoir_a_manche_d_os
+  open_disclosures: []
+narration: |-
+  Un chat file entre tes jambes. Jorin sursaute si fort que la lanterne cogne le mur.
+
+  — Pardon, chuchote-t-il. Depuis que le Boucher a frappé chez nous, je dors plus. Brasquet peut bien promettre ce qu'il veut au Croc, la Garde ne descend jamais jusqu'ici.
+
+  Au fond de la venelle, quelque chose remue près d'un baquet. Un chien, peut-être.
+
+  — Si c'est lui, souffle-t-il, il a peut-être le couperet du saint. Ancelise dit que sans la relique, la Guilde n'a plus le droit d'abattre.
+
+  Tu fermes la main sur ta chevalière. L'onyx est glacé.
+
+  *Ce n'est pas lui*, dit l'esprit de ta bague. *Lui, il ne fait jamais de bruit.*
+gold:
+- surface: tes jambes
+  start: 19
+  category: SKIP
+  expected: SKIP
+- surface: Jorin
+  start: 31
+  category: PART
+  expected: MATCH character_jorin_saulce
+- surface: le Boucher
+  start: 121
+  category: PART
+  expected: MATCH character_aubert_grisel
+- surface: Brasquet
+  start: 166
+  category: PART
+  expected: MATCH character_hugues_de_brasquet
+- surface: Croc
+  start: 212
+  category: PART
+  expected: MATCH location_taverne_du_croc
+- surface: la Garde
+  start: 218
+  category: PART
+  expected: MATCH organization_garde_prevotale
+- surface: la venelle
+  start: 268
+  category: PART
+  expected: MATCH location_ruelle_derriere_les_abattoirs
+- surface: le couperet du saint
+  start: 385
+  category: PART
+  expected: MATCH object_couperet_de_saint_varon
+- surface: Ancelise
+  start: 407
+  category: PART
+  expected: MATCH character_ancelise_morvan
+- surface: la relique
+  start: 429
+  category: DESC
+  expected: MATCH object_couperet_de_saint_varon
+- surface: la Guilde
+  start: 441
+  category: PART
+  expected: MATCH organization_guilde_des_equarrisseurs
+- surface: ta chevalière
+  start: 503
+  category: PART
+  expected: MATCH object_chevaliere_d_onyx
+- surface: l'esprit de ta bague
+  start: 561
+  category: PC
+  expected: MATCH companion_vesperine
+- surface: ta bague
+  start: 573
+  category: DESC
+  expected: MATCH object_chevaliere_d_onyx
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_aubert_grisel
+  kind: name
+  state: secret
+  text: Aubert Grisel
+- ref: location_cave_aux_crochets
+  kind: name
+  state: secret
+  text: Cave aux Crochets
+- ref: organization_bande_aux_masques_de_cuir
+  kind: name
+  state: unknown
+  text: Confrérie du Crochet
+- ref: object_tranchoir_a_manche_d_os
+  kind: name
+  state: secret
+  text: Mâchefer
+- ref: arc_traque_du_boucher
+  kind: fact
+  state: secret
+  text: Le Prévôt couvre le Boucher en échange des dîmes de la Guilde des Équarrisseurs.
+- ref: arc_traque_du_boucher
+  kind: fact
+  state: unknown
+  text: Les meurtres du Boucher suivent les nuits de marché.
+- ref: character_aubert_grisel
+  kind: fact
+  state: secret
+  text: L'homme au tablier de cuir est le Boucher de Vargne.

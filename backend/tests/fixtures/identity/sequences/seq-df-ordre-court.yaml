@@ -1,0 +1,1469 @@
+# Sequence: an organization with short forms (« l'Ordre », « la Lame Cendrée », nickname « les Cendrés »);
+# a second order arrives (NEW trap) and « l'Ordre » becomes XTYPE. Arc knowledge: unknown and secret facts.
+id: seq-df-ordre-court
+turns:
+- id: seq-df-ordre-court-t1
+  genre: dark_fantasy
+  source: synthetic
+  turn: 30
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_commanderie_de_velines
+    last_seen_turn: 29
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_ordre_de_la_lame_cendree
+    type: organization
+    label: Ordre de la Lame Cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: Ordre de la Lame Cendrée
+      kind: label
+      known: true
+    - text: Ordre
+      kind: short
+      known: true
+  - id: character_ysambert_de_vaux
+    type: character
+    label: Ysambert de Vaux
+    true_name: Ysambert de Vaux
+    descriptor: le vieux chevalier au manteau de cendre
+    known: true
+    occupation: commandeur de l'Ordre de la Lame Cendrée
+    location: location_commanderie_de_velines
+    last_seen_turn: 29
+    aliases:
+    - text: Ysambert de Vaux
+      kind: true_name
+      known: true
+    - text: Ysambert
+      kind: short
+      known: true
+    - text: le Commandeur
+      kind: title
+      known: true
+    - text: le vieux chevalier au manteau de cendre
+      kind: descriptor
+      known: true
+  - id: character_tenanciere_borgne
+    type: character
+    label: la tenancière borgne
+    true_name: null
+    descriptor: la tenancière borgne
+    known: false
+    occupation: tenancière de la Taverne des Trois Cloches
+    location: location_taverne_des_trois_cloches
+    last_seen_turn: 28
+    aliases:
+    - text: la tenancière borgne
+      kind: descriptor
+      known: true
+  - id: location_commanderie_de_velines
+    type: location
+    label: Commanderie de Vélines
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: Commanderie de Vélines
+      kind: label
+      known: true
+  - id: location_taverne_des_trois_cloches
+    type: location
+    label: Taverne des Trois Cloches
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 28
+    aliases:
+    - text: Taverne des Trois Cloches
+      kind: label
+      known: true
+  - id: object_banniere_cendree
+    type: object
+    label: Bannière cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: Bannière cendrée
+      kind: label
+      known: true
+  - id: arc_la_banniere_volee
+    type: arc
+    label: La bannière volée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: La bannière volée
+      kind: label
+      known: true
+  history: []
+  scene:
+    location: location_commanderie_de_velines
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_ysambert_de_vaux
+    reveals: []
+    planned_npcs: []
+    secrets:
+    - arc_la_banniere_volee
+    open_disclosures: []
+  narration: |-
+    Dans la salle du chapitre de la Commanderie de Vélines, le Commandeur montre le mât vide au-dessus de l'autel.
+
+    — La Bannière cendrée flottait là depuis la fondation de l'Ordre de la Lame Cendrée. Volée cette nuit, sous le nez de douze frères.
+
+    Il serre le pommeau de son épée.
+
+    — L'Ordre ne peut pas se montrer sans elle au tournoi. Retrouve la bannière avant trois jours, et la Lame Cendrée te comptera parmi ses amis.
+
+    *Le vieux chevalier au manteau de cendre n'a pas l'air surpris*, glisse Noctule. *Juste fatigué.*
+  gold:
+  - surface: la Commanderie de Vélines
+    start: 29
+    category: EASY
+    expected: MATCH location_commanderie_de_velines
+  - surface: le Commandeur
+    start: 56
+    category: PART
+    expected: MATCH character_ysambert_de_vaux
+  - surface: La Bannière cendrée
+    start: 114
+    category: EASY
+    expected: MATCH object_banniere_cendree
+  - surface: l'Ordre de la Lame Cendrée
+    start: 169
+    category: EASY
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: douze frères
+    start: 230
+    category: SKIP
+    expected: SKIP
+  - surface: le pommeau de son épée
+    start: 254
+    category: SKIP
+    expected: SKIP
+  - surface: L'Ordre
+    start: 281
+    category: PART
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: la bannière
+    start: 343
+    category: PART
+    expected: MATCH object_banniere_cendree
+  - surface: la Lame Cendrée
+    start: 377
+    category: PART
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: Le vieux chevalier au manteau de cendre
+    start: 423
+    category: DESC
+    expected: MATCH character_ysambert_de_vaux
+  - surface: Noctule
+    start: 494
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge:
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: unknown
+    text: La Bannière cendrée a été volée dans la Commanderie de Vélines la nuit du dernier conseil.
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: secret
+    text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
+- id: seq-df-ordre-court-t2
+  genre: dark_fantasy
+  source: synthetic
+  turn: 31
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_commanderie_de_velines
+    last_seen_turn: 29
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 30
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_ordre_de_la_lame_cendree
+    type: organization
+    label: Ordre de la Lame Cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 30
+    aliases:
+    - text: Ordre de la Lame Cendrée
+      kind: label
+      known: true
+    - text: Ordre
+      kind: short
+      known: true
+  - id: character_ysambert_de_vaux
+    type: character
+    label: Ysambert de Vaux
+    true_name: Ysambert de Vaux
+    descriptor: le vieux chevalier au manteau de cendre
+    known: true
+    occupation: commandeur de l'Ordre de la Lame Cendrée
+    location: location_commanderie_de_velines
+    last_seen_turn: 30
+    aliases:
+    - text: Ysambert de Vaux
+      kind: true_name
+      known: true
+    - text: Ysambert
+      kind: short
+      known: true
+    - text: le Commandeur
+      kind: title
+      known: true
+    - text: le vieux chevalier au manteau de cendre
+      kind: descriptor
+      known: true
+  - id: character_tenanciere_borgne
+    type: character
+    label: la tenancière borgne
+    true_name: null
+    descriptor: la tenancière borgne
+    known: false
+    occupation: tenancière de la Taverne des Trois Cloches
+    location: location_taverne_des_trois_cloches
+    last_seen_turn: 28
+    aliases:
+    - text: la tenancière borgne
+      kind: descriptor
+      known: true
+  - id: location_commanderie_de_velines
+    type: location
+    label: Commanderie de Vélines
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 30
+    aliases:
+    - text: Commanderie de Vélines
+      kind: label
+      known: true
+  - id: location_taverne_des_trois_cloches
+    type: location
+    label: Taverne des Trois Cloches
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 28
+    aliases:
+    - text: Taverne des Trois Cloches
+      kind: label
+      known: true
+  - id: object_banniere_cendree
+    type: object
+    label: Bannière cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 30
+    aliases:
+    - text: Bannière cendrée
+      kind: label
+      known: true
+  - id: arc_la_banniere_volee
+    type: arc
+    label: La bannière volée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: La bannière volée
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Dans la salle du chapitre de la Commanderie de Vélines, le Commandeur montre le mât vide au-dessus de l'autel.
+
+      — La Bannière cendrée flottait là depuis la fondation de l'Ordre de la Lame Cendrée. Volée cette nuit, sous le nez de douze frères.
+
+      Il serre le pommeau de son épée.
+
+      — L'Ordre ne peut pas se montrer sans elle au tournoi. Retrouve la bannière avant trois jours, et la Lame Cendrée te comptera parmi ses amis.
+
+      *Le vieux chevalier au manteau de cendre n'a pas l'air surpris*, glisse Noctule. *Juste fatigué.*
+    mentions:
+    - surface: la Commanderie de Vélines
+      start: 29
+      category: EASY
+      expected: MATCH location_commanderie_de_velines
+    - surface: le Commandeur
+      start: 56
+      category: PART
+      expected: MATCH character_ysambert_de_vaux
+    - surface: La Bannière cendrée
+      start: 114
+      category: EASY
+      expected: MATCH object_banniere_cendree
+    - surface: l'Ordre de la Lame Cendrée
+      start: 169
+      category: EASY
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: douze frères
+      start: 230
+      category: SKIP
+      expected: SKIP
+    - surface: le pommeau de son épée
+      start: 254
+      category: SKIP
+      expected: SKIP
+    - surface: L'Ordre
+      start: 281
+      category: PART
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: la bannière
+      start: 343
+      category: PART
+      expected: MATCH object_banniere_cendree
+    - surface: la Lame Cendrée
+      start: 377
+      category: PART
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: Le vieux chevalier au manteau de cendre
+      start: 423
+      category: DESC
+      expected: MATCH character_ysambert_de_vaux
+    - surface: Noctule
+      start: 494
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_taverne_des_trois_cloches
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_tenanciere_borgne
+    reveals: []
+    planned_npcs: []
+    secrets:
+    - arc_la_banniere_volee
+    open_disclosures: []
+  narration: |-
+    À la Taverne des Trois Cloches, la tenancière borgne essuie un gobelet en t'écoutant.
+
+    — Les Cendrés ? C'est comme ça qu'on les appelle, ici, rapport à leurs manteaux. Ils ont perdu leur chiffon ? Tant mieux.
+
+    Elle crache par terre.
+
+    — Les chevaliers de la commanderie prennent notre grain pour leurs chevaux et ne paient jamais. Si quelqu'un leur a volé leur bannière, il mérite une tournée.
+
+    *Elle ne t'aidera pas*, conclut Noctule. *Mais elle sait quelque chose.*
+  gold:
+  - surface: la Taverne des Trois Cloches
+    start: 2
+    category: EASY
+    expected: MATCH location_taverne_des_trois_cloches
+  - surface: la tenancière borgne
+    start: 32
+    category: DESC
+    expected: MATCH character_tenanciere_borgne
+  - surface: Les Cendrés
+    start: 89
+    category: DESC
+    expected: ALIAS organization_ordre_de_la_lame_cendree nickname
+  - surface: leurs manteaux
+    start: 152
+    category: SKIP
+    expected: SKIP
+  - surface: leur chiffon
+    start: 182
+    category: DESC
+    expected: MATCH object_banniere_cendree
+  - surface: Les chevaliers de la commanderie
+    start: 236
+    category: DESC
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: notre grain
+    start: 278
+    category: SKIP
+    expected: SKIP
+  - surface: leurs chevaux
+    start: 295
+    category: SKIP
+    expected: SKIP
+  - surface: quelqu'un
+    start: 333
+    category: SKIP
+    expected: SKIP
+  - surface: leur bannière
+    start: 355
+    category: PART
+    expected: MATCH object_banniere_cendree
+  - surface: Noctule
+    start: 426
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge:
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: unknown
+    text: La Bannière cendrée a été volée dans la Commanderie de Vélines la nuit du dernier conseil.
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: secret
+    text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
+- id: seq-df-ordre-court-t3
+  genre: dark_fantasy
+  source: synthetic
+  turn: 32
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_commanderie_de_velines
+    last_seen_turn: 29
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 31
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_ordre_de_la_lame_cendree
+    type: organization
+    label: Ordre de la Lame Cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 31
+    aliases:
+    - text: Ordre de la Lame Cendrée
+      kind: label
+      known: true
+    - text: Ordre
+      kind: short
+      known: true
+    - text: Les Cendrés
+      kind: nickname
+      known: true
+  - id: character_ysambert_de_vaux
+    type: character
+    label: Ysambert de Vaux
+    true_name: Ysambert de Vaux
+    descriptor: le vieux chevalier au manteau de cendre
+    known: true
+    occupation: commandeur de l'Ordre de la Lame Cendrée
+    location: location_commanderie_de_velines
+    last_seen_turn: 30
+    aliases:
+    - text: Ysambert de Vaux
+      kind: true_name
+      known: true
+    - text: Ysambert
+      kind: short
+      known: true
+    - text: le Commandeur
+      kind: title
+      known: true
+    - text: le vieux chevalier au manteau de cendre
+      kind: descriptor
+      known: true
+  - id: character_tenanciere_borgne
+    type: character
+    label: la tenancière borgne
+    true_name: null
+    descriptor: la tenancière borgne
+    known: false
+    occupation: tenancière de la Taverne des Trois Cloches
+    location: location_taverne_des_trois_cloches
+    last_seen_turn: 31
+    aliases:
+    - text: la tenancière borgne
+      kind: descriptor
+      known: true
+  - id: location_commanderie_de_velines
+    type: location
+    label: Commanderie de Vélines
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 30
+    aliases:
+    - text: Commanderie de Vélines
+      kind: label
+      known: true
+  - id: location_taverne_des_trois_cloches
+    type: location
+    label: Taverne des Trois Cloches
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 31
+    aliases:
+    - text: Taverne des Trois Cloches
+      kind: label
+      known: true
+  - id: object_banniere_cendree
+    type: object
+    label: Bannière cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 31
+    aliases:
+    - text: Bannière cendrée
+      kind: label
+      known: true
+  - id: arc_la_banniere_volee
+    type: arc
+    label: La bannière volée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: La bannière volée
+      kind: label
+      known: true
+  history:
+  - text: |-
+      À la Taverne des Trois Cloches, la tenancière borgne essuie un gobelet en t'écoutant.
+
+      — Les Cendrés ? C'est comme ça qu'on les appelle, ici, rapport à leurs manteaux. Ils ont perdu leur chiffon ? Tant mieux.
+
+      Elle crache par terre.
+
+      — Les chevaliers de la commanderie prennent notre grain pour leurs chevaux et ne paient jamais. Si quelqu'un leur a volé leur bannière, il mérite une tournée.
+
+      *Elle ne t'aidera pas*, conclut Noctule. *Mais elle sait quelque chose.*
+    mentions:
+    - surface: la Taverne des Trois Cloches
+      start: 2
+      category: EASY
+      expected: MATCH location_taverne_des_trois_cloches
+    - surface: la tenancière borgne
+      start: 32
+      category: DESC
+      expected: MATCH character_tenanciere_borgne
+    - surface: Les Cendrés
+      start: 89
+      category: DESC
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: leurs manteaux
+      start: 152
+      category: SKIP
+      expected: SKIP
+    - surface: leur chiffon
+      start: 182
+      category: DESC
+      expected: MATCH object_banniere_cendree
+    - surface: Les chevaliers de la commanderie
+      start: 236
+      category: DESC
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: notre grain
+      start: 278
+      category: SKIP
+      expected: SKIP
+    - surface: leurs chevaux
+      start: 295
+      category: SKIP
+      expected: SKIP
+    - surface: quelqu'un
+      start: 333
+      category: SKIP
+      expected: SKIP
+    - surface: leur bannière
+      start: 355
+      category: PART
+      expected: MATCH object_banniere_cendree
+    - surface: Noctule
+      start: 426
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_taverne_des_trois_cloches
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_tenanciere_borgne
+    reveals: []
+    planned_npcs: []
+    secrets:
+    - arc_la_banniere_volee
+    open_disclosures: []
+  narration: |-
+    La porte de la gargote s'ouvre sur quatre chevaliers en surcot blanc. Une chevalière au lys brodé s'avance jusqu'au comptoir.
+
+    — Au nom de l'Ordre du Lys, nous cherchons les voleurs de la Bannière cendrée. Récompense pour toute information.
+
+    La tenancière hausse un sourcil.
+
+    — Vous aussi ? Les Cendrés sont passés ce matin avec la même question.
+
+    — L'Ordre de la Lame Cendrée cherche de son côté, nous du nôtre, répond la chevalière. Le premier qui la trouve la garde.
+
+    *Deux ordres, une bannière*, note Noctule. *Ça va mal finir.*
+  gold:
+  - surface: la gargote
+    start: 12
+    category: DESC
+    expected: MATCH location_taverne_des_trois_cloches
+  - surface: quatre chevaliers en surcot blanc
+    start: 35
+    category: SKIP
+    expected: SKIP
+  - surface: Une chevalière au lys brodé
+    start: 70
+    category: NEW
+    expected: NEW character
+  - surface: l'Ordre du Lys
+    start: 139
+    category: NEW
+    expected: NEW organization
+    trap: true
+  - surface: les voleurs de la Bannière cendrée
+    start: 170
+    category: SKIP
+    expected: SKIP
+  - surface: la Bannière cendrée
+    start: 185
+    category: EASY
+    expected: MATCH object_banniere_cendree
+  - surface: La tenancière
+    start: 242
+    category: DESC
+    expected: MATCH character_tenanciere_borgne
+  - surface: Les Cendrés
+    start: 291
+    category: PART
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: L'Ordre de la Lame Cendrée
+    start: 350
+    category: EASY
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: la chevalière
+    start: 420
+    category: DESC
+    expected: SAME 70
+  - surface: Noctule
+    start: 505
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge:
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: unknown
+    text: La Bannière cendrée a été volée dans la Commanderie de Vélines la nuit du dernier conseil.
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: secret
+    text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
+- id: seq-df-ordre-court-t4
+  genre: dark_fantasy
+  source: synthetic
+  turn: 33
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_commanderie_de_velines
+    last_seen_turn: 29
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 32
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_ordre_de_la_lame_cendree
+    type: organization
+    label: Ordre de la Lame Cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 32
+    aliases:
+    - text: Ordre de la Lame Cendrée
+      kind: label
+      known: true
+    - text: Ordre
+      kind: short
+      known: true
+    - text: Les Cendrés
+      kind: nickname
+      known: true
+  - id: character_ysambert_de_vaux
+    type: character
+    label: Ysambert de Vaux
+    true_name: Ysambert de Vaux
+    descriptor: le vieux chevalier au manteau de cendre
+    known: true
+    occupation: commandeur de l'Ordre de la Lame Cendrée
+    location: location_commanderie_de_velines
+    last_seen_turn: 30
+    aliases:
+    - text: Ysambert de Vaux
+      kind: true_name
+      known: true
+    - text: Ysambert
+      kind: short
+      known: true
+    - text: le Commandeur
+      kind: title
+      known: true
+    - text: le vieux chevalier au manteau de cendre
+      kind: descriptor
+      known: true
+  - id: character_tenanciere_borgne
+    type: character
+    label: la tenancière borgne
+    true_name: null
+    descriptor: la tenancière borgne
+    known: false
+    occupation: tenancière de la Taverne des Trois Cloches
+    location: location_taverne_des_trois_cloches
+    last_seen_turn: 32
+    aliases:
+    - text: la tenancière borgne
+      kind: descriptor
+      known: true
+  - id: location_commanderie_de_velines
+    type: location
+    label: Commanderie de Vélines
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 30
+    aliases:
+    - text: Commanderie de Vélines
+      kind: label
+      known: true
+  - id: location_taverne_des_trois_cloches
+    type: location
+    label: Taverne des Trois Cloches
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 32
+    aliases:
+    - text: Taverne des Trois Cloches
+      kind: label
+      known: true
+  - id: object_banniere_cendree
+    type: object
+    label: Bannière cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 32
+    aliases:
+    - text: Bannière cendrée
+      kind: label
+      known: true
+  - id: arc_la_banniere_volee
+    type: arc
+    label: La bannière volée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: La bannière volée
+      kind: label
+      known: true
+  - id: character_chevaliere_au_lys_brode
+    type: character
+    label: la chevalière au lys brodé
+    true_name: null
+    descriptor: la chevalière au lys brodé
+    known: false
+    occupation: null
+    location: location_taverne_des_trois_cloches
+    last_seen_turn: 32
+    aliases:
+    - text: la chevalière au lys brodé
+      kind: descriptor
+      known: true
+  - id: organization_ordre_du_lys
+    type: organization
+    label: Ordre du Lys
+    true_name: null
+    descriptor: les chevaliers en blanc
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 32
+    aliases:
+    - text: Ordre du Lys
+      kind: label
+      known: true
+    - text: Ordre
+      kind: short
+      known: true
+    - text: les chevaliers en blanc
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      La porte de la gargote s'ouvre sur quatre chevaliers en surcot blanc. Une chevalière au lys brodé s'avance jusqu'au comptoir.
+
+      — Au nom de l'Ordre du Lys, nous cherchons les voleurs de la Bannière cendrée. Récompense pour toute information.
+
+      La tenancière hausse un sourcil.
+
+      — Vous aussi ? Les Cendrés sont passés ce matin avec la même question.
+
+      — L'Ordre de la Lame Cendrée cherche de son côté, nous du nôtre, répond la chevalière. Le premier qui la trouve la garde.
+
+      *Deux ordres, une bannière*, note Noctule. *Ça va mal finir.*
+    mentions:
+    - surface: la gargote
+      start: 12
+      category: DESC
+      expected: MATCH location_taverne_des_trois_cloches
+    - surface: quatre chevaliers en surcot blanc
+      start: 35
+      category: SKIP
+      expected: SKIP
+    - surface: Une chevalière au lys brodé
+      start: 70
+      category: DESC
+      expected: MATCH character_chevaliere_au_lys_brode
+    - surface: l'Ordre du Lys
+      start: 139
+      category: EASY
+      expected: MATCH organization_ordre_du_lys
+    - surface: les voleurs de la Bannière cendrée
+      start: 170
+      category: SKIP
+      expected: SKIP
+    - surface: la Bannière cendrée
+      start: 185
+      category: EASY
+      expected: MATCH object_banniere_cendree
+    - surface: La tenancière
+      start: 242
+      category: DESC
+      expected: MATCH character_tenanciere_borgne
+    - surface: Les Cendrés
+      start: 291
+      category: PART
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: L'Ordre de la Lame Cendrée
+      start: 350
+      category: EASY
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: la chevalière
+      start: 420
+      category: DESC
+      expected: MATCH character_chevaliere_au_lys_brode
+    - surface: Noctule
+      start: 505
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_commanderie_de_velines
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_ysambert_de_vaux
+    reveals: []
+    planned_npcs: []
+    secrets:
+    - arc_la_banniere_volee
+    open_disclosures: []
+  narration: |-
+    De retour dans la forteresse de l'Ordre, Ysambert écoute ton récit sans t'interrompre, puis frappe la table du plat de la main.
+
+    — L'Ordre ose chercher notre bannière ? Les chevaliers en blanc rêvent de nous voir humiliés depuis vingt ans.
+
+    Il se reprend, baisse la voix.
+
+    — Si le Lys la trouve avant nous, l'Ordre sera la risée du tournoi. Mes frères me demanderont des comptes, et les Cendrés, comme dit le peuple, n'auront plus qu'à rendre leurs manteaux.
+
+    Le Commandeur se tourne vers la fenêtre. Il ne te regarde plus.
+
+    *Il a dit « la trouve », pas « la vole »*, relève Noctule. *Il sait où elle est.*
+  gold:
+  - surface: la forteresse de l'Ordre
+    start: 15
+    category: DESC
+    expected: MATCH location_commanderie_de_velines
+  - surface: l'Ordre
+    start: 32
+    category: XTYPE
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: Ysambert
+    start: 41
+    category: PART
+    expected: MATCH character_ysambert_de_vaux
+  - surface: la main
+    start: 119
+    category: SKIP
+    expected: SKIP
+  - surface: L'Ordre
+    start: 131
+    category: XTYPE
+    expected: MATCH organization_ordre_du_lys
+  - surface: notre bannière
+    start: 152
+    category: PART
+    expected: MATCH object_banniere_cendree
+  - surface: Les chevaliers en blanc
+    start: 169
+    category: DESC
+    expected: MATCH organization_ordre_du_lys
+  - surface: le Lys
+    start: 278
+    category: PART
+    expected: MATCH organization_ordre_du_lys
+  - surface: l'Ordre
+    start: 307
+    category: XTYPE
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: Mes frères
+    start: 341
+    category: SKIP
+    expected: SKIP
+  - surface: les Cendrés
+    start: 383
+    category: PART
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: le peuple
+    start: 406
+    category: SKIP
+    expected: SKIP
+  - surface: leurs manteaux
+    start: 443
+    category: SKIP
+    expected: SKIP
+  - surface: Le Commandeur
+    start: 460
+    category: PART
+    expected: MATCH character_ysambert_de_vaux
+  - surface: Noctule
+    start: 575
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges:
+    - a: organization_ordre_de_la_lame_cendree
+      b: organization_ordre_du_lys
+  gold_knowledge:
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: unknown
+    text: La Bannière cendrée a été volée dans la Commanderie de Vélines la nuit du dernier conseil.
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: secret
+    text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
+- id: seq-df-ordre-court-t5
+  genre: dark_fantasy
+  source: synthetic
+  turn: 34
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_commanderie_de_velines
+    last_seen_turn: 29
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 33
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_ordre_de_la_lame_cendree
+    type: organization
+    label: Ordre de la Lame Cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 33
+    aliases:
+    - text: Ordre de la Lame Cendrée
+      kind: label
+      known: true
+    - text: Ordre
+      kind: short
+      known: true
+    - text: Les Cendrés
+      kind: nickname
+      known: true
+  - id: character_ysambert_de_vaux
+    type: character
+    label: Ysambert de Vaux
+    true_name: Ysambert de Vaux
+    descriptor: le vieux chevalier au manteau de cendre
+    known: true
+    occupation: commandeur de l'Ordre de la Lame Cendrée
+    location: location_commanderie_de_velines
+    last_seen_turn: 33
+    aliases:
+    - text: Ysambert de Vaux
+      kind: true_name
+      known: true
+    - text: Ysambert
+      kind: short
+      known: true
+    - text: le Commandeur
+      kind: title
+      known: true
+    - text: le vieux chevalier au manteau de cendre
+      kind: descriptor
+      known: true
+  - id: character_tenanciere_borgne
+    type: character
+    label: la tenancière borgne
+    true_name: null
+    descriptor: la tenancière borgne
+    known: false
+    occupation: tenancière de la Taverne des Trois Cloches
+    location: location_taverne_des_trois_cloches
+    last_seen_turn: 32
+    aliases:
+    - text: la tenancière borgne
+      kind: descriptor
+      known: true
+  - id: location_commanderie_de_velines
+    type: location
+    label: Commanderie de Vélines
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 33
+    aliases:
+    - text: Commanderie de Vélines
+      kind: label
+      known: true
+  - id: location_taverne_des_trois_cloches
+    type: location
+    label: Taverne des Trois Cloches
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 32
+    aliases:
+    - text: Taverne des Trois Cloches
+      kind: label
+      known: true
+  - id: object_banniere_cendree
+    type: object
+    label: Bannière cendrée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 33
+    aliases:
+    - text: Bannière cendrée
+      kind: label
+      known: true
+  - id: arc_la_banniere_volee
+    type: arc
+    label: La bannière volée
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 29
+    aliases:
+    - text: La bannière volée
+      kind: label
+      known: true
+  - id: character_chevaliere_au_lys_brode
+    type: character
+    label: la chevalière au lys brodé
+    true_name: null
+    descriptor: la chevalière au lys brodé
+    known: false
+    occupation: null
+    location: location_taverne_des_trois_cloches
+    last_seen_turn: 32
+    aliases:
+    - text: la chevalière au lys brodé
+      kind: descriptor
+      known: true
+  - id: organization_ordre_du_lys
+    type: organization
+    label: Ordre du Lys
+    true_name: null
+    descriptor: les chevaliers en blanc
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 33
+    aliases:
+    - text: Ordre du Lys
+      kind: label
+      known: true
+    - text: Ordre
+      kind: short
+      known: true
+    - text: les chevaliers en blanc
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      De retour dans la forteresse de l'Ordre, Ysambert écoute ton récit sans t'interrompre, puis frappe la table du plat de la main.
+
+      — L'Ordre ose chercher notre bannière ? Les chevaliers en blanc rêvent de nous voir humiliés depuis vingt ans.
+
+      Il se reprend, baisse la voix.
+
+      — Si le Lys la trouve avant nous, l'Ordre sera la risée du tournoi. Mes frères me demanderont des comptes, et les Cendrés, comme dit le peuple, n'auront plus qu'à rendre leurs manteaux.
+
+      Le Commandeur se tourne vers la fenêtre. Il ne te regarde plus.
+
+      *Il a dit « la trouve », pas « la vole »*, relève Noctule. *Il sait où elle est.*
+    mentions:
+    - surface: la forteresse de l'Ordre
+      start: 15
+      category: DESC
+      expected: MATCH location_commanderie_de_velines
+    - surface: l'Ordre
+      start: 32
+      category: XTYPE
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: Ysambert
+      start: 41
+      category: PART
+      expected: MATCH character_ysambert_de_vaux
+    - surface: la main
+      start: 119
+      category: SKIP
+      expected: SKIP
+    - surface: L'Ordre
+      start: 131
+      category: XTYPE
+      expected: MATCH organization_ordre_du_lys
+    - surface: notre bannière
+      start: 152
+      category: PART
+      expected: MATCH object_banniere_cendree
+    - surface: Les chevaliers en blanc
+      start: 169
+      category: DESC
+      expected: MATCH organization_ordre_du_lys
+    - surface: le Lys
+      start: 278
+      category: PART
+      expected: MATCH organization_ordre_du_lys
+    - surface: l'Ordre
+      start: 307
+      category: XTYPE
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: Mes frères
+      start: 341
+      category: SKIP
+      expected: SKIP
+    - surface: les Cendrés
+      start: 383
+      category: PART
+      expected: MATCH organization_ordre_de_la_lame_cendree
+    - surface: le peuple
+      start: 406
+      category: SKIP
+      expected: SKIP
+    - surface: leurs manteaux
+      start: 443
+      category: SKIP
+      expected: SKIP
+    - surface: Le Commandeur
+      start: 460
+      category: PART
+      expected: MATCH character_ysambert_de_vaux
+    - surface: Noctule
+      start: 575
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_commanderie_de_velines
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_ysambert_de_vaux
+    reveals: []
+    planned_npcs: []
+    secrets:
+    - arc_la_banniere_volee
+    open_disclosures: []
+  narration: |-
+    Dans la crypte de la commanderie, sous une dalle descellée, tu trouves un étui de cuir vide et un ruban blanc brodé d'un lys.
+
+    — Les gens du Lys sont passés par ici, murmure Noctule. Ou on voudrait te le faire croire.
+
+    Des pas descendent l'escalier. Ysambert de Vaux s'arrête sur la dernière marche, une lanterne à la main.
+
+    — Tu as trouvé la cachette, dit-il. Et pas la bannière, je suppose. L'Ordre du Lys l'a prise : voilà ce que nous dirons au tournoi, et l'Ordre de la Lame Cendrée aura sa guerre.
+
+    *Le vol, c'était lui*, souffle Noctule.
+  gold:
+  - surface: la commanderie
+    start: 18
+    category: PART
+    expected: MATCH location_commanderie_de_velines
+  - surface: Les gens du Lys
+    start: 129
+    category: PART
+    expected: MATCH organization_ordre_du_lys
+  - surface: Noctule
+    start: 174
+    category: PC
+    expected: MATCH companion_noctule
+  - surface: Ysambert de Vaux
+    start: 250
+    category: EASY
+    expected: MATCH character_ysambert_de_vaux
+  - surface: la bannière
+    start: 368
+    category: PART
+    expected: MATCH object_banniere_cendree
+  - surface: L'Ordre du Lys
+    start: 393
+    category: EASY
+    expected: MATCH organization_ordre_du_lys
+  - surface: l'Ordre de la Lame Cendrée
+    start: 460
+    category: EASY
+    expected: MATCH organization_ordre_de_la_lame_cendree
+  - surface: Noctule
+    start: 535
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges:
+    - a: organization_ordre_de_la_lame_cendree
+      b: organization_ordre_du_lys
+  gold_knowledge:
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: unknown
+    text: La Bannière cendrée a été volée dans la Commanderie de Vélines la nuit du dernier conseil.
+  - ref: arc_la_banniere_volee
+    kind: fact
+    state: secret
+    text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
+gold_clusters:
+  location_commanderie_de_velines:
+  - seq-df-ordre-court-t1:29
+  - seq-df-ordre-court-t4:15
+  - seq-df-ordre-court-t5:18
+  character_ysambert_de_vaux:
+  - seq-df-ordre-court-t1:56
+  - seq-df-ordre-court-t1:423
+  - seq-df-ordre-court-t4:41
+  - seq-df-ordre-court-t4:460
+  - seq-df-ordre-court-t5:250
+  object_banniere_cendree:
+  - seq-df-ordre-court-t1:114
+  - seq-df-ordre-court-t1:343
+  - seq-df-ordre-court-t2:182
+  - seq-df-ordre-court-t2:355
+  - seq-df-ordre-court-t3:185
+  - seq-df-ordre-court-t4:152
+  - seq-df-ordre-court-t5:368
+  organization_ordre_de_la_lame_cendree:
+  - seq-df-ordre-court-t1:169
+  - seq-df-ordre-court-t1:281
+  - seq-df-ordre-court-t1:377
+  - seq-df-ordre-court-t2:89
+  - seq-df-ordre-court-t2:236
+  - seq-df-ordre-court-t3:291
+  - seq-df-ordre-court-t3:350
+  - seq-df-ordre-court-t4:32
+  - seq-df-ordre-court-t4:307
+  - seq-df-ordre-court-t4:383
+  - seq-df-ordre-court-t5:460
+  companion_noctule:
+  - seq-df-ordre-court-t1:494
+  - seq-df-ordre-court-t2:426
+  - seq-df-ordre-court-t3:505
+  - seq-df-ordre-court-t4:575
+  - seq-df-ordre-court-t5:174
+  - seq-df-ordre-court-t5:535
+  location_taverne_des_trois_cloches:
+  - seq-df-ordre-court-t2:2
+  - seq-df-ordre-court-t3:12
+  character_tenanciere_borgne:
+  - seq-df-ordre-court-t2:32
+  - seq-df-ordre-court-t3:242
+  character_chevaliere_au_lys_brode:
+  - seq-df-ordre-court-t3:70
+  - seq-df-ordre-court-t3:420
+  organization_ordre_du_lys:
+  - seq-df-ordre-court-t3:139
+  - seq-df-ordre-court-t4:131
+  - seq-df-ordre-court-t4:169
+  - seq-df-ordre-court-t4:278
+  - seq-df-ordre-court-t5:129
+  - seq-df-ordre-court-t5:393

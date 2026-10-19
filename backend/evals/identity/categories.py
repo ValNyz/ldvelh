@@ -11,51 +11,33 @@ import re
 import unicodedata
 from typing import TYPE_CHECKING
 
+from evals.identity.lexicon import Lexicon, load_lexicon
+
 if TYPE_CHECKING:
     from evals.identity.corpus import GoldMention, Scene, WorldEntity
 
 PC_TYPES = frozenset({"protagonist", "companion"})
 PERSON_TYPES = PC_TYPES | {"character"}
+THING_TYPES = frozenset({"location", "organization", "object"})
+NAMEABLE_TYPES = THING_TYPES | {"character"}  # not arcs: their label is a title
 GAP_DISTANCE = 5
 # Alias kinds that are names (shared names make XTYPE); descriptors are not names.
 NAME_KINDS = frozenset(
     {"true_name", "label", "short", "title", "nickname", "former_name"}
 )
-_DETERMINERS = {
-    "le", "la", "les", "un", "une", "des", "du", "ce", "cet", "cette", "ces",
-    "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses",
-    "notre", "nos", "votre", "vos", "leur", "leurs",
-}  # fmt: skip
+# What the surface of a repeat of an entity born in the turn can be (ANNOTATION § 5.1).
+SAME_CATEGORIES = ("EASY", "PART", "DESC")
 
 
-# Personal pronouns are never mentions (documented departure from spec § 3.2, ANNOTATION § 4.1).
-PERSONAL_PRONOUNS = frozenset({
-    "je", "j'", "tu", "il", "elle", "on", "nous", "vous", "ils", "elles",
-    "me", "m'", "te", "t'", "se", "s'", "le", "la", "les", "lui", "leur", "eux",
-    "moi", "toi", "soi",
-})  # fmt: skip
-# Indefinite and demonstrative pronouns a resolver could link or create from: always SKIP.
-INDEFINITE_PRONOUNS = frozenset({
-    "quelqu'un", "quiconque", "personne", "l'un", "l'une", "l'autre", "les autres",
-    "chacun", "chacune", "celui-ci", "celle-ci", "ceux-ci", "celles-ci",
-    "celui-là", "celle-là", "ceux-là", "celles-là",
-})  # fmt: skip
-# The unambiguous ones (never a determiner or a noun): every occurrence must be annotated.
-_UNAMBIGUOUS_PRONOUN_RE = re.compile(
-    r"(?<![\w'’-])(quelqu['’]un|quiconque|ce(?:lui|lle|ux|lles)-(?:ci|là))(?![\w-])",
-    re.IGNORECASE,
-)
+def lexicon_of(scene: Scene) -> Lexicon:
+    return load_lexicon(scene.language)
 
 
-def _pronoun_key(surface: str) -> str:
-    return surface.strip().replace("’", "'").casefold()
-
-
-def pronoun_error(m: GoldMention) -> str | None:
-    key = _pronoun_key(m.surface)
-    if key in PERSONAL_PRONOUNS:
+def pronoun_error(m: GoldMention, lexicon: Lexicon) -> str | None:
+    key = lexicon.key(m.surface)
+    if key in lexicon.personal_pronouns:
         return "a personal pronoun is never a mention (ANNOTATION § 4.1)"
-    if key in INDEFINITE_PRONOUNS and (
+    if key in lexicon.indefinite_pronouns and (
         m.category != "SKIP" or m.parsed.decision != "SKIP"
     ):
         return (
@@ -64,28 +46,24 @@ def pronoun_error(m: GoldMention) -> str | None:
     return None
 
 
-def missing_pronoun_mentions(text: str, mentions: list[GoldMention]) -> list[str]:
+def missing_pronoun_mentions(
+    text: str, mentions: list[GoldMention], lexicon: Lexicon
+) -> list[str]:
     """Unambiguous indefinite/demonstrative pronouns of `text` that no mention covers."""
+    pattern = lexicon.unambiguous_pronoun_re
+    if pattern is None:
+        return []
     starts = {m.start for m in mentions}
     return [
         f"pronoun {found.group(0)!r} at {found.start()} must be annotated SKIP"
-        for found in _UNAMBIGUOUS_PRONOUN_RE.finditer(text)
+        for found in pattern.finditer(text)
         if found.start() not in starts
     ]
 
 
-def strip_determiner(text: str) -> str:
-    """Drop one leading determiner (« la », « l' », « ce »…), keep case and accents."""
-    text = text.strip().replace("’", "'")
-    if text[:2].lower() == "l'":
-        return text[2:].lstrip()
-    head, _, rest = text.partition(" ")
-    return rest.lstrip() if head.lower() in _DETERMINERS and rest else text
-
-
-def norm(text: str) -> str:
+def norm(text: str, lexicon: Lexicon) -> str:
     """Comparison key: no leading determiner, lower case, no accents, single spaces."""
-    decomposed = unicodedata.normalize("NFD", strip_determiner(text).casefold())
+    decomposed = unicodedata.normalize("NFD", lexicon.strip_determiner(text).casefold())
     plain = "".join(c for c in decomposed if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", plain).strip()
 
@@ -104,23 +82,33 @@ def knows_no_name(entity: WorldEntity) -> bool:
     )
 
 
-def entity_names(entity: WorldEntity) -> set[str]:
+def entity_names(entity: WorldEntity, lexicon: Lexicon) -> set[str]:
     """Normalized names of an entity (true name, name-like aliases, label if a name; no descriptor)."""
     names = {a.text for a in entity.aliases if a.kind in NAME_KINDS}
     names |= {n for n in (entity.true_name,) if n}
     if label_is_a_name(entity):
         names.add(entity.label)
-    return {norm(n) for n in names}
+    return {norm(n, lexicon) for n in names}
 
 
-def exact_names(entity: WorldEntity) -> set[str]:
+def known_names(entity: WorldEntity, lexicon: Lexicon) -> set[str]:
+    """Normalized names the PC already knows (known name-like aliases, a named label)."""
+    names = {a.text for a in entity.aliases if a.known and a.kind in NAME_KINDS}
+    if entity.known and entity.true_name:
+        names.add(entity.true_name)
+    if entity.known and label_is_a_name(entity):
+        names.add(entity.label)
+    return {norm(n, lexicon) for n in names}
+
+
+def exact_names(entity: WorldEntity, lexicon: Lexicon) -> set[str]:
     """Full names an EASY surface must equal (determiner aside): true name, or label for things."""
     kinds = {"true_name"} if entity.type in PERSON_TYPES else {"true_name", "label"}
     names = {a.text for a in entity.aliases if a.kind in kinds}
     names |= {n for n in (entity.true_name,) if n}
     if entity.type not in PERSON_TYPES and label_is_a_name(entity):
         names.add(entity.label)
-    return {strip_determiner(n) for n in names}
+    return {lexicon.strip_determiner(n) for n in names}
 
 
 def revealed_before(scene: Scene, m: GoldMention, entity_id: str) -> bool:
@@ -132,8 +120,9 @@ def revealed_before(scene: Scene, m: GoldMention, entity_id: str) -> bool:
 
 
 def is_shared_name(scene: Scene, surface: str) -> bool:
-    key = norm(surface)
-    return sum(key in entity_names(e) for e in scene.world) >= 2
+    lexicon = lexicon_of(scene)
+    key = norm(surface, lexicon)
+    return sum(key in entity_names(e, lexicon) for e in scene.world) >= 2
 
 
 def gap_blocker(scene: Scene, entity: WorldEntity) -> str | None:
@@ -155,16 +144,54 @@ def gap_blocker(scene: Scene, entity: WorldEntity) -> str | None:
 
 
 def _easy_error(scene: Scene, m: GoldMention, entity: WorldEntity) -> str | None:
-    names = exact_names(entity)
+    lexicon = lexicon_of(scene)
+    names = exact_names(entity, lexicon)
     if m.parsed.alias_kind == "true_name":
         names |= {
-            r.real_name
+            lexicon.strip_determiner(r.real_name)
             for r in scene.gold_effects.reveals
             if r.ref == entity.id and r.real_name
         }
-    if strip_determiner(m.surface) in names:
+    if lexicon.strip_determiner(m.surface) in names:
         return None
     return f"EASY needs the exact name or label of {entity.id!r}, determiner aside (PART otherwise)"
+
+
+def _form_error(
+    scene: Scene, m: GoldMention, entity: WorldEntity, *, reintroduced: bool
+) -> str | None:
+    """Rulings on name forms (ANNOTATION § 13): nameless targets, revealed and new names."""
+    expected = m.parsed
+    lexicon = lexicon_of(scene)
+    if (
+        m.category == "PART"
+        and entity.type in NAMEABLE_TYPES
+        and not entity.known
+        and not reintroduced
+    ):
+        return (
+            f"PART on {entity.id!r}, whose name the PC does not know: "
+            "a designation of a nameless entity is DESC"
+        )
+    if (
+        m.category == "PART"
+        and reintroduced
+        and norm(m.surface, lexicon) not in known_names(entity, lexicon)
+        and (
+            expected.decision != "ALIAS"
+            or expected.alias_kind != "short"
+            or f"MATCH {entity.id}" not in m.accept_also
+        )
+    ):
+        return (
+            "a form of a name revealed earlier in the turn is "
+            f"ALIAS {entity.id} short with accept_also MATCH {entity.id}"
+        )
+    if expected.alias_kind == "label" and m.category == "DESC":
+        return "a new label (renamed entity) is PART, not DESC"
+    if expected.alias_kind == "nickname" and m.category == "PART":
+        return "a fresh nickname is DESC, not PART (it uses no part of a name)"
+    return None
 
 
 def _linked_category_error(
@@ -193,14 +220,37 @@ def _linked_category_error(
         return gap_blocker(scene, entity)
     if not history and not reintroduced and gap_blocker(scene, entity) is None:
         return f"category {m.category} but the GAP conditions hold (GAP)"
+    form = _form_error(scene, m, entity, reintroduced=reintroduced)
+    if form:
+        return form
     return _easy_error(scene, m, entity) if m.category == "EASY" else None
+
+
+def _same_error(scene: Scene, m: GoldMention) -> str | None:
+    """`SAME <start>`: a repeat of the NEW entity born at an earlier mention of the turn."""
+    start = m.parsed.same_start
+    target = next((g for g in scene.gold if g.start == start), None)
+    if target is None:
+        return f"{m.expected!r}: no narration gold mention starts at {start}"
+    if target.start >= m.start:
+        return f"{m.expected!r} must point at an earlier mention of the narration"
+    if target.parsed.decision != "NEW":
+        return (
+            f"{m.expected!r} points at {target.surface!r}, which is not a NEW mention"
+        )
+    if m.category not in SAME_CATEGORIES:
+        return (
+            f"category {m.category} on a SAME gold "
+            f"({', '.join(SAME_CATEGORIES)} by the nature of its surface)"
+        )
+    return None
 
 
 def category_error(
     scene: Scene, m: GoldMention, *, history: bool = False
 ) -> str | None:
     """The first mechanical rule `m.category` breaks, or None (history: MATCH/SKIP golds only)."""
-    pronoun = pronoun_error(m)
+    pronoun = pronoun_error(m, lexicon_of(scene))
     if pronoun:
         return pronoun
     expected = m.parsed
@@ -216,6 +266,8 @@ def category_error(
         return f"category {m.category} and expected {m.expected!r} disagree (NEW <=> NEW <type>)"
     if expected.decision == "NEW":
         return None
+    if expected.decision == "SAME":
+        return _same_error(scene, m)
     entity = next((e for e in scene.world if e.id == expected.entity_id), None)
     if entity is None:
         return None  # reported as an unknown id

@@ -1,0 +1,522 @@
+id: syn-sf-desc-03
+genre: sf
+source: synthetic
+turn: 20
+world:
+- id: protagonist_noor
+  type: protagonist
+  label: Noor
+  true_name: Noor
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Noor
+    kind: true_name
+    known: true
+- id: companion_sel
+  type: companion
+  label: Sel
+  true_name: Sel
+  descriptor: la voix des haut-parleurs
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Sel
+    kind: true_name
+    known: true
+  - text: la voix des haut-parleurs
+    kind: descriptor
+    known: true
+  - text: l'IA de la base
+    kind: descriptor
+    known: true
+- id: character_ariane_sauvage
+  type: character
+  label: Ariane Sauvage
+  true_name: Ariane Sauvage
+  descriptor: la glaciologue aux mains bandées
+  known: true
+  occupation: glaciologue
+  location: location_observatoire
+  last_seen_turn: 19
+  aliases:
+  - text: Ariane Sauvage
+    kind: true_name
+    known: true
+  - text: Ariane
+    kind: short
+    known: true
+  - text: Sauvage
+    kind: short
+    known: true
+  - text: la glaciologue aux mains bandées
+    kind: descriptor
+    known: true
+- id: character_lionel_sarrazin
+  type: character
+  label: Lionel Sarrazin
+  true_name: Lionel Sarrazin
+  descriptor: le directeur adjoint au sourire figé
+  known: true
+  occupation: directeur adjoint de Thulé-3
+  location: location_observatoire
+  last_seen_turn: 19
+  aliases:
+  - text: Lionel Sarrazin
+    kind: true_name
+    known: true
+  - text: Lionel
+    kind: short
+    known: true
+  - text: Sarrazin
+    kind: short
+    known: true
+  - text: le directeur adjoint au sourire figé
+    kind: descriptor
+    known: true
+- id: character_kaito_brenner
+  type: character
+  label: Kaito Brenner
+  true_name: Kaito Brenner
+  descriptor: le plongeur au scaphandre jaune
+  known: true
+  occupation: plongeur de la Compagnie Borée
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Kaito Brenner
+    kind: true_name
+    known: true
+  - text: Kaito
+    kind: short
+    known: true
+  - text: Brenner
+    kind: short
+    known: true
+  - text: le plongeur au scaphandre jaune
+    kind: descriptor
+    known: true
+- id: character_femme_qui_tousse
+  type: character
+  label: Maud Tessier
+  true_name: Maud Tessier
+  descriptor: la femme qui tousse
+  known: true
+  occupation: ancienne technicienne de Thulé-3
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Maud Tessier
+    kind: true_name
+    known: true
+  - text: Maud
+    kind: short
+    known: true
+  - text: Tessier
+    kind: short
+    known: true
+  - text: la femme qui tousse
+    kind: descriptor
+    known: true
+- id: location_observatoire
+  type: location
+  label: L'Observatoire
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: L'Observatoire
+    kind: label
+    known: true
+- id: location_sas_nord
+  type: location
+  label: Sas Nord
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Sas Nord
+    kind: label
+    known: true
+- id: location_lac_noir
+  type: location
+  label: Lac Noir
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Lac Noir
+    kind: label
+    known: true
+- id: location_couloir_condamne
+  type: location
+  label: Galerie Flamel
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Galerie Flamel
+    kind: label
+    known: true
+  - text: le couloir condamné
+    kind: descriptor
+    known: true
+- id: location_laboratoire_zero
+  type: location
+  label: Laboratoire Zéro
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Laboratoire Zéro
+    kind: label
+    known: false
+    secret: true
+- id: organization_observatoire
+  type: organization
+  label: L'Observatoire
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 16
+  aliases:
+  - text: L'Observatoire
+    kind: label
+    known: true
+- id: organization_narval
+  type: organization
+  label: Narval
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 16
+  aliases:
+  - text: Narval
+    kind: label
+    known: true
+- id: organization_gens_du_ravitailleur
+  type: organization
+  label: Compagnie Borée
+  true_name: Compagnie Borée
+  descriptor: les gens du ravitailleur
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Compagnie Borée
+    kind: label
+    known: true
+  - text: les gens du ravitailleur
+    kind: descriptor
+    known: true
+  - text: Compagnie Borée
+    kind: true_name
+    known: true
+- id: organization_programme_lethe
+  type: organization
+  label: Programme Léthé
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Programme Léthé
+    kind: label
+    known: false
+    secret: true
+- id: object_narval
+  type: object
+  label: Narval
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 16
+  aliases:
+  - text: Narval
+    kind: label
+    known: true
+- id: object_ariane
+  type: object
+  label: Ariane
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Ariane
+    kind: label
+    known: true
+- id: object_combinaison_thermique
+  type: object
+  label: Combinaison thermique
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Combinaison thermique
+    kind: label
+    known: true
+- id: object_carnet_de_releves
+  type: object
+  label: Carnet de relevés
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Carnet de relevés
+    kind: label
+    known: true
+- id: object_cylindre_gele
+  type: object
+  label: Échantillon K-7
+  true_name: Échantillon K-7
+  descriptor: le cylindre gelé
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Échantillon K-7
+    kind: label
+    known: true
+  - text: le cylindre gelé
+    kind: descriptor
+    known: true
+  - text: Échantillon K-7
+    kind: true_name
+    known: true
+- id: object_cle_de_purge
+  type: object
+  label: Clé de purge
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Clé de purge
+    kind: label
+    known: false
+    secret: true
+- id: arc_silence_du_lac_noir
+  type: arc
+  label: Le silence du Lac Noir
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le silence du Lac Noir
+    kind: label
+    known: true
+history:
+- text: Lionel Sarrazin a convoqué tout le monde pour huit heures. Sel précise que c'est la première réunion plénière depuis la panne de la sonde.
+  mentions:
+  - surface: Lionel Sarrazin
+    start: 0
+    category: EASY
+    expected: MATCH character_lionel_sarrazin
+  - surface: Sel
+    start: 59
+    category: PC
+    expected: MATCH companion_sel
+  - surface: la sonde
+    start: 129
+    category: DESC
+    expected: MATCH object_ariane
+scene:
+  location: location_observatoire
+  present:
+  - protagonist_noor
+  - companion_sel
+  - character_lionel_sarrazin
+  - character_ariane_sauvage
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - arc_silence_du_lac_noir
+  - character_lionel_sarrazin
+  - location_laboratoire_zero
+  - object_cle_de_purge
+  - object_cylindre_gele
+  - organization_programme_lethe
+  open_disclosures: []
+narration: |-
+  Le conseil s'est réuni sous le grand dôme vitré. Lionel Sarrazin préside, les mains à plat sur la table.
+
+  — Nos fournisseurs réclament le prélèvement, dit-il. Ils ont payé la moitié de la mission.
+
+  — Pas avant qu'on sache ce qu'il y a dedans, répond la glaciologue. Et pas avant d'avoir sondé l'eau sombre sous la glace.
+
+  — Avec quoi ? La vieille coque jaune est à sec, et les constructeurs refusent de la réviser à crédit.
+
+  *On pourrait passer par le passage muré*, suggère l'IA de la base dans ton oreillette. *Avec ton gilet chauffant, tu tiendrais deux heures.*
+gold:
+- surface: Le conseil
+  start: 0
+  category: DESC
+  expected: MATCH organization_observatoire
+  accept_also:
+  - ALIAS organization_observatoire descriptor
+- surface: le grand dôme vitré
+  start: 28
+  category: DESC
+  expected: MATCH location_observatoire
+  accept_also:
+  - ALIAS location_observatoire descriptor
+- surface: Lionel Sarrazin
+  start: 49
+  category: EASY
+  expected: MATCH character_lionel_sarrazin
+- surface: les mains
+  start: 74
+  category: SKIP
+  expected: SKIP
+- surface: Nos fournisseurs
+  start: 108
+  category: DESC
+  expected: MATCH organization_gens_du_ravitailleur
+  accept_also:
+  - ALIAS organization_gens_du_ravitailleur descriptor
+- surface: le prélèvement
+  start: 135
+  category: DESC
+  expected: MATCH object_cylindre_gele
+  accept_also:
+  - ALIAS object_cylindre_gele descriptor
+- surface: la glaciologue
+  start: 250
+  category: DESC
+  expected: MATCH character_ariane_sauvage
+  accept_also:
+  - ALIAS character_ariane_sauvage descriptor
+- surface: l'eau sombre sous la glace
+  start: 293
+  category: DESC
+  expected: MATCH location_lac_noir
+  accept_also:
+  - ALIAS location_lac_noir descriptor
+- surface: La vieille coque jaune
+  start: 336
+  category: DESC
+  expected: MATCH object_narval
+  accept_also:
+  - ALIAS object_narval descriptor
+- surface: les constructeurs
+  start: 373
+  category: DESC
+  expected: MATCH organization_narval
+  accept_also:
+  - ALIAS organization_narval descriptor
+- surface: le passage muré
+  start: 449
+  category: DESC
+  expected: MATCH location_couloir_condamne
+  accept_also:
+  - ALIAS location_couloir_condamne descriptor
+- surface: l'IA de la base
+  start: 475
+  category: PC
+  expected: MATCH companion_sel
+- surface: ton oreillette
+  start: 496
+  category: SKIP
+  expected: SKIP
+- surface: ton gilet chauffant
+  start: 518
+  category: DESC
+  expected: MATCH object_combinaison_thermique
+  accept_also:
+  - ALIAS object_combinaison_thermique descriptor
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: location_laboratoire_zero
+  kind: name
+  state: secret
+  text: Laboratoire Zéro
+- ref: organization_programme_lethe
+  kind: name
+  state: secret
+  text: Programme Léthé
+- ref: object_cle_de_purge
+  kind: name
+  state: secret
+  text: Clé de purge
+- ref: character_lionel_sarrazin
+  kind: fact
+  state: secret
+  text: Lionel Sarrazin a saboté la sonde Ariane pour le Programme Léthé.
+- ref: character_kaito_brenner
+  kind: fact
+  state: unknown
+  text: Kaito Brenner a plongé dans le Lac Noir avant l'arrivée de Noor.
+- ref: organization_programme_lethe
+  kind: fact
+  state: secret
+  text: Le Programme Léthé finance en secret le Laboratoire Zéro.
+- ref: arc_silence_du_lac_noir
+  kind: fact
+  state: unknown
+  text: Le silence du Lac Noir a commencé quand la sonde Ariane s'est bloquée.
+- ref: arc_silence_du_lac_noir
+  kind: fact
+  state: secret
+  text: Le Programme Léthé cache une forme de vie dans le Lac Noir.
+- ref: object_cylindre_gele
+  kind: fact
+  state: secret
+  text: Le cylindre gelé contient une culture vivante prélevée dans le Lac Noir.
+- ref: organization_gens_du_ravitailleur
+  kind: fact
+  state: unknown
+  text: Les gens du ravitailleur ont payé la moitié de la mission de forage.
+- ref: location_lac_noir
+  kind: fact
+  state: unknown
+  text: Le Lac Noir se réchauffe d'un degré par semaine.

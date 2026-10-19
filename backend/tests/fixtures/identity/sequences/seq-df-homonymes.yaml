@@ -1,0 +1,1375 @@
+# Sequence: two characters sharing a surname (Aldric and Sélène Morvaine): first appearance as a NEW trap,
+# then each bare « Morvaine » is XTYPE; no merge allowed.
+id: seq-df-homonymes
+turns:
+- id: seq-df-homonymes-t1
+  genre: dark_fantasy
+  source: synthetic
+  turn: 20
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 19
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 19
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: character_aldric_morvaine
+    type: character
+    label: Aldric Morvaine
+    true_name: Aldric Morvaine
+    descriptor: le chevalier au bras en écharpe
+    known: true
+    occupation: seigneur de Brumecourt
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 19
+    aliases:
+    - text: Aldric Morvaine
+      kind: true_name
+      known: true
+    - text: Aldric
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: sire Morvaine
+      kind: title
+      known: true
+    - text: le chevalier au bras en écharpe
+      kind: descriptor
+      known: true
+  - id: location_chateau_de_brumecourt
+    type: location
+    label: Château de Brumecourt
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 19
+    aliases:
+    - text: Château de Brumecourt
+      kind: label
+      known: true
+  - id: organization_maison_morvaine
+    type: organization
+    label: Maison Morvaine
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 18
+    aliases:
+    - text: Maison Morvaine
+      kind: label
+      known: true
+  - id: organization_ligue_des_barons
+    type: organization
+    label: Ligue des Barons
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 18
+    aliases:
+    - text: Ligue des Barons
+      kind: label
+      known: true
+  history: []
+  scene:
+    location: location_chateau_de_brumecourt
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_aldric_morvaine
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Dans la grande salle du Château de Brumecourt, Aldric Morvaine fait glisser sur la table un anneau sigillaire frappé d'un corbeau.
+
+    — Le sceau de la Maison Morvaine, dit-il. Montre-le à la Ligue des Barons et ils sauront que tu parles pour moi. Je ne peux plus monter à cheval avec ce bras.
+
+    Tu passes l'anneau à ton doigt. Il est trop grand.
+
+    *Le chevalier au bras en écharpe te confie sa famille entière*, souffle Noctule. *Ne le perds pas.*
+  gold:
+  - surface: Château de Brumecourt
+    start: 24
+    category: EASY
+    expected: MATCH location_chateau_de_brumecourt
+  - surface: Aldric Morvaine
+    start: 47
+    category: EASY
+    expected: MATCH character_aldric_morvaine
+  - surface: un anneau sigillaire
+    start: 89
+    category: NEW
+    expected: NEW object
+  - surface: la Maison Morvaine
+    start: 146
+    category: EASY
+    expected: MATCH organization_maison_morvaine
+  - surface: la Ligue des Barons
+    start: 186
+    category: EASY
+    expected: MATCH organization_ligue_des_barons
+  - surface: ce bras
+    start: 282
+    category: SKIP
+    expected: SKIP
+  - surface: l'anneau
+    start: 302
+    category: DESC
+    expected: SAME 89
+  - surface: ton doigt
+    start: 313
+    category: SKIP
+    expected: SKIP
+  - surface: Le chevalier au bras en écharpe
+    start: 345
+    category: DESC
+    expected: MATCH character_aldric_morvaine
+  - surface: sa famille entière
+    start: 387
+    category: DESC
+    expected: MATCH organization_maison_morvaine
+  - surface: Noctule
+    start: 416
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-df-homonymes-t2
+  genre: dark_fantasy
+  source: synthetic
+  turn: 21
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 19
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: character_aldric_morvaine
+    type: character
+    label: Aldric Morvaine
+    true_name: Aldric Morvaine
+    descriptor: le chevalier au bras en écharpe
+    known: true
+    occupation: seigneur de Brumecourt
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 20
+    aliases:
+    - text: Aldric Morvaine
+      kind: true_name
+      known: true
+    - text: Aldric
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: sire Morvaine
+      kind: title
+      known: true
+    - text: le chevalier au bras en écharpe
+      kind: descriptor
+      known: true
+  - id: location_chateau_de_brumecourt
+    type: location
+    label: Château de Brumecourt
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Château de Brumecourt
+      kind: label
+      known: true
+  - id: organization_maison_morvaine
+    type: organization
+    label: Maison Morvaine
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Maison Morvaine
+      kind: label
+      known: true
+  - id: organization_ligue_des_barons
+    type: organization
+    label: Ligue des Barons
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Ligue des Barons
+      kind: label
+      known: true
+  - id: object_anneau_sigillaire
+    type: object
+    label: Anneau sigillaire
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Anneau sigillaire
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Dans la grande salle du Château de Brumecourt, Aldric Morvaine fait glisser sur la table un anneau sigillaire frappé d'un corbeau.
+
+      — Le sceau de la Maison Morvaine, dit-il. Montre-le à la Ligue des Barons et ils sauront que tu parles pour moi. Je ne peux plus monter à cheval avec ce bras.
+
+      Tu passes l'anneau à ton doigt. Il est trop grand.
+
+      *Le chevalier au bras en écharpe te confie sa famille entière*, souffle Noctule. *Ne le perds pas.*
+    mentions:
+    - surface: Château de Brumecourt
+      start: 24
+      category: EASY
+      expected: MATCH location_chateau_de_brumecourt
+    - surface: Aldric Morvaine
+      start: 47
+      category: EASY
+      expected: MATCH character_aldric_morvaine
+    - surface: un anneau sigillaire
+      start: 89
+      category: PART
+      expected: MATCH object_anneau_sigillaire
+    - surface: la Maison Morvaine
+      start: 146
+      category: EASY
+      expected: MATCH organization_maison_morvaine
+    - surface: la Ligue des Barons
+      start: 186
+      category: EASY
+      expected: MATCH organization_ligue_des_barons
+    - surface: ce bras
+      start: 282
+      category: SKIP
+      expected: SKIP
+    - surface: l'anneau
+      start: 302
+      category: PART
+      expected: MATCH object_anneau_sigillaire
+    - surface: ton doigt
+      start: 313
+      category: SKIP
+      expected: SKIP
+    - surface: Le chevalier au bras en écharpe
+      start: 345
+      category: DESC
+      expected: MATCH character_aldric_morvaine
+    - surface: sa famille entière
+      start: 387
+      category: DESC
+      expected: MATCH organization_maison_morvaine
+    - surface: Noctule
+      start: 416
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_chateau_de_brumecourt
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_aldric_morvaine
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Les portes de la salle s'ouvrent sans qu'on ait annoncé personne. Une cavalière en manteau de deuil entre, les bottes encore crottées, et s'arrête face à sire Morvaine.
+
+    — Bonjour, cousin.
+
+    — Sélène Morvaine, répond Aldric sans se lever. Tu as fait trois jours de route pour me voir boiter ?
+
+    — Pour l'anneau. La Maison n'a qu'un sceau, et tu viens de le donner à une étrangère.
+
+    Ma cousine porte le même corbeau que moi sur sa cape, te glisse le chevalier. Le même nom, aussi. C'est tout ce que nous avons en commun.
+
+    *Deux Morvaine dans la même pièce. Garde ta main fermée*, murmure Noctule.
+  gold:
+  - surface: personne
+    start: 56
+    category: SKIP
+    expected: SKIP
+  - surface: Une cavalière en manteau de deuil
+    start: 66
+    category: NEW
+    expected: NEW character
+  - surface: les bottes
+    start: 107
+    category: SKIP
+    expected: SKIP
+  - surface: sire Morvaine
+    start: 154
+    category: PART
+    expected: MATCH character_aldric_morvaine
+  - surface: cousin
+    start: 181
+    category: DESC
+    expected: MATCH character_aldric_morvaine
+  - surface: Sélène Morvaine
+    start: 192
+    category: EASY
+    expected: SAME 66
+  - surface: Aldric
+    start: 216
+    category: PART
+    expected: MATCH character_aldric_morvaine
+  - surface: l'anneau
+    start: 300
+    category: PART
+    expected: MATCH object_anneau_sigillaire
+  - surface: La Maison
+    start: 310
+    category: PART
+    expected: MATCH organization_maison_morvaine
+  - surface: une étrangère
+    start: 364
+    category: PC
+    expected: MATCH protagonist_isaure
+  - surface: Ma cousine
+    start: 380
+    category: DESC
+    expected: SAME 66
+  - surface: sa cape
+    start: 425
+    category: SKIP
+    expected: SKIP
+  - surface: le chevalier
+    start: 444
+    category: DESC
+    expected: MATCH character_aldric_morvaine
+  - surface: ta main
+    start: 560
+    category: SKIP
+    expected: SKIP
+  - surface: Noctule
+    start: 585
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-df-homonymes-t3
+  genre: dark_fantasy
+  source: synthetic
+  turn: 22
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 21
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 21
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: character_aldric_morvaine
+    type: character
+    label: Aldric Morvaine
+    true_name: Aldric Morvaine
+    descriptor: le chevalier au bras en écharpe
+    known: true
+    occupation: seigneur de Brumecourt
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 21
+    aliases:
+    - text: Aldric Morvaine
+      kind: true_name
+      known: true
+    - text: Aldric
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: sire Morvaine
+      kind: title
+      known: true
+    - text: le chevalier au bras en écharpe
+      kind: descriptor
+      known: true
+  - id: location_chateau_de_brumecourt
+    type: location
+    label: Château de Brumecourt
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Château de Brumecourt
+      kind: label
+      known: true
+  - id: organization_maison_morvaine
+    type: organization
+    label: Maison Morvaine
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 21
+    aliases:
+    - text: Maison Morvaine
+      kind: label
+      known: true
+  - id: organization_ligue_des_barons
+    type: organization
+    label: Ligue des Barons
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Ligue des Barons
+      kind: label
+      known: true
+  - id: object_anneau_sigillaire
+    type: object
+    label: Anneau sigillaire
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 21
+    aliases:
+    - text: Anneau sigillaire
+      kind: label
+      known: true
+  - id: character_selene_morvaine
+    type: character
+    label: Sélène Morvaine
+    true_name: Sélène Morvaine
+    descriptor: la cavalière en manteau de deuil
+    known: true
+    occupation: cousine d'Aldric Morvaine
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 21
+    aliases:
+    - text: Sélène Morvaine
+      kind: true_name
+      known: true
+    - text: Sélène
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: dame Morvaine
+      kind: title
+      known: true
+    - text: la cavalière en manteau de deuil
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Les portes de la salle s'ouvrent sans qu'on ait annoncé personne. Une cavalière en manteau de deuil entre, les bottes encore crottées, et s'arrête face à sire Morvaine.
+
+      — Bonjour, cousin.
+
+      — Sélène Morvaine, répond Aldric sans se lever. Tu as fait trois jours de route pour me voir boiter ?
+
+      — Pour l'anneau. La Maison n'a qu'un sceau, et tu viens de le donner à une étrangère.
+
+      Ma cousine porte le même corbeau que moi sur sa cape, te glisse le chevalier. Le même nom, aussi. C'est tout ce que nous avons en commun.
+
+      *Deux Morvaine dans la même pièce. Garde ta main fermée*, murmure Noctule.
+    mentions:
+    - surface: personne
+      start: 56
+      category: SKIP
+      expected: SKIP
+    - surface: Une cavalière en manteau de deuil
+      start: 66
+      category: DESC
+      expected: MATCH character_selene_morvaine
+    - surface: les bottes
+      start: 107
+      category: SKIP
+      expected: SKIP
+    - surface: sire Morvaine
+      start: 154
+      category: PART
+      expected: MATCH character_aldric_morvaine
+    - surface: cousin
+      start: 181
+      category: DESC
+      expected: MATCH character_aldric_morvaine
+    - surface: Sélène Morvaine
+      start: 192
+      category: EASY
+      expected: MATCH character_selene_morvaine
+    - surface: Aldric
+      start: 216
+      category: PART
+      expected: MATCH character_aldric_morvaine
+    - surface: l'anneau
+      start: 300
+      category: PART
+      expected: MATCH object_anneau_sigillaire
+    - surface: La Maison
+      start: 310
+      category: PART
+      expected: MATCH organization_maison_morvaine
+    - surface: une étrangère
+      start: 364
+      category: PC
+      expected: MATCH protagonist_isaure
+    - surface: Ma cousine
+      start: 380
+      category: PART
+      expected: MATCH character_selene_morvaine
+    - surface: sa cape
+      start: 425
+      category: SKIP
+      expected: SKIP
+    - surface: le chevalier
+      start: 444
+      category: DESC
+      expected: MATCH character_aldric_morvaine
+    - surface: ta main
+      start: 560
+      category: SKIP
+      expected: SKIP
+    - surface: Noctule
+      start: 585
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_chateau_de_brumecourt
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Au matin, un billet a été glissé sous ta porte, d'une écriture pressée : « Morvaine vous attend à la Chapelle de Brumecourt. La dame, pas le sire. Morvaine, lui, est encore chez le barbier pour son bras. »
+
+    Tu traverses la cour. Devant la chapelle, la cavalière en manteau de deuil t'attend, adossée au portail.
+
+    — Mon cousin te fait confiance, dit Sélène. Moi, je veux juste comprendre pourquoi la Ligue recevrait une inconnue avec notre anneau au doigt.
+
+    *Elle n'a pas dit « son » anneau. Elle a dit « notre »*, relève Noctule.
+  gold:
+  - surface: ta porte
+    start: 38
+    category: SKIP
+    expected: SKIP
+  - surface: Morvaine
+    start: 75
+    category: XTYPE
+    expected: MATCH character_selene_morvaine
+  - surface: la Chapelle de Brumecourt
+    start: 98
+    category: NEW
+    expected: NEW location
+    trap: true
+  - surface: Morvaine
+    start: 147
+    category: XTYPE
+    expected: MATCH character_aldric_morvaine
+  - surface: son bras
+    start: 194
+    category: SKIP
+    expected: SKIP
+  - surface: la chapelle
+    start: 236
+    category: PART
+    expected: SAME 98
+  - surface: la cavalière en manteau de deuil
+    start: 249
+    category: DESC
+    expected: MATCH character_selene_morvaine
+  - surface: Mon cousin
+    start: 315
+    category: DESC
+    expected: MATCH character_aldric_morvaine
+  - surface: Sélène
+    start: 349
+    category: PART
+    expected: MATCH character_selene_morvaine
+  - surface: la Ligue
+    start: 396
+    category: PART
+    expected: MATCH organization_ligue_des_barons
+  - surface: une inconnue
+    start: 415
+    category: PC
+    expected: MATCH protagonist_isaure
+  - surface: notre anneau
+    start: 433
+    category: PART
+    expected: MATCH object_anneau_sigillaire
+  - surface: Noctule
+    start: 521
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges:
+    - a: character_aldric_morvaine
+      b: character_selene_morvaine
+  gold_knowledge: []
+- id: seq-df-homonymes-t4
+  genre: dark_fantasy
+  source: synthetic
+  turn: 23
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 22
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 22
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: character_aldric_morvaine
+    type: character
+    label: Aldric Morvaine
+    true_name: Aldric Morvaine
+    descriptor: le chevalier au bras en écharpe
+    known: true
+    occupation: seigneur de Brumecourt
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 22
+    aliases:
+    - text: Aldric Morvaine
+      kind: true_name
+      known: true
+    - text: Aldric
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: sire Morvaine
+      kind: title
+      known: true
+    - text: le chevalier au bras en écharpe
+      kind: descriptor
+      known: true
+  - id: location_chateau_de_brumecourt
+    type: location
+    label: Château de Brumecourt
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Château de Brumecourt
+      kind: label
+      known: true
+  - id: organization_maison_morvaine
+    type: organization
+    label: Maison Morvaine
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 21
+    aliases:
+    - text: Maison Morvaine
+      kind: label
+      known: true
+  - id: organization_ligue_des_barons
+    type: organization
+    label: Ligue des Barons
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 22
+    aliases:
+    - text: Ligue des Barons
+      kind: label
+      known: true
+  - id: object_anneau_sigillaire
+    type: object
+    label: Anneau sigillaire
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 22
+    aliases:
+    - text: Anneau sigillaire
+      kind: label
+      known: true
+  - id: character_selene_morvaine
+    type: character
+    label: Sélène Morvaine
+    true_name: Sélène Morvaine
+    descriptor: la cavalière en manteau de deuil
+    known: true
+    occupation: cousine d'Aldric Morvaine
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 22
+    aliases:
+    - text: Sélène Morvaine
+      kind: true_name
+      known: true
+    - text: Sélène
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: dame Morvaine
+      kind: title
+      known: true
+    - text: la cavalière en manteau de deuil
+      kind: descriptor
+      known: true
+  - id: location_chapelle_de_brumecourt
+    type: location
+    label: Chapelle de Brumecourt
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 22
+    aliases:
+    - text: Chapelle de Brumecourt
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Au matin, un billet a été glissé sous ta porte, d'une écriture pressée : « Morvaine vous attend à la Chapelle de Brumecourt. La dame, pas le sire. Morvaine, lui, est encore chez le barbier pour son bras. »
+
+      Tu traverses la cour. Devant la chapelle, la cavalière en manteau de deuil t'attend, adossée au portail.
+
+      — Mon cousin te fait confiance, dit Sélène. Moi, je veux juste comprendre pourquoi la Ligue recevrait une inconnue avec notre anneau au doigt.
+
+      *Elle n'a pas dit « son » anneau. Elle a dit « notre »*, relève Noctule.
+    mentions:
+    - surface: ta porte
+      start: 38
+      category: SKIP
+      expected: SKIP
+    - surface: Morvaine
+      start: 75
+      category: XTYPE
+      expected: MATCH character_selene_morvaine
+    - surface: la Chapelle de Brumecourt
+      start: 98
+      category: EASY
+      expected: MATCH location_chapelle_de_brumecourt
+    - surface: Morvaine
+      start: 147
+      category: XTYPE
+      expected: MATCH character_aldric_morvaine
+    - surface: son bras
+      start: 194
+      category: SKIP
+      expected: SKIP
+    - surface: la chapelle
+      start: 236
+      category: PART
+      expected: MATCH location_chapelle_de_brumecourt
+    - surface: la cavalière en manteau de deuil
+      start: 249
+      category: DESC
+      expected: MATCH character_selene_morvaine
+    - surface: Mon cousin
+      start: 315
+      category: DESC
+      expected: MATCH character_aldric_morvaine
+    - surface: Sélène
+      start: 349
+      category: PART
+      expected: MATCH character_selene_morvaine
+    - surface: la Ligue
+      start: 396
+      category: PART
+      expected: MATCH organization_ligue_des_barons
+    - surface: une inconnue
+      start: 415
+      category: PC
+      expected: MATCH protagonist_isaure
+    - surface: notre anneau
+      start: 433
+      category: PART
+      expected: MATCH object_anneau_sigillaire
+    - surface: Noctule
+      start: 521
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_chapelle_de_brumecourt
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_selene_morvaine
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Sous la voûte de la chapelle, dame Morvaine allume un cierge devant les tombes de la famille.
+
+    — Aldric Morvaine n'a jamais su parler à la Ligue des Barons, dit-elle. Ils le méprisent. Moi, ils m'écoutent.
+
+    Elle tend la main vers ton anneau sigillaire, sans le toucher.
+
+    — Garde-le, si tu veux. Mais quand tu iras voir les barons, emmène-moi. Les Morvaine n'ont jamais gagné une guerre seuls.
+
+    La cousine du seigneur souffle sur sa mèche. Dehors, Aldric crie des ordres à ses palefreniers.
+
+    *Tu as deux Morvaine sur les bras, maintenant*, note Noctule.
+  gold:
+  - surface: la chapelle
+    start: 17
+    category: PART
+    expected: MATCH location_chapelle_de_brumecourt
+  - surface: dame Morvaine
+    start: 30
+    category: PART
+    expected: MATCH character_selene_morvaine
+  - surface: la famille
+    start: 82
+    category: DESC
+    expected: MATCH organization_maison_morvaine
+  - surface: Aldric Morvaine
+    start: 97
+    category: EASY
+    expected: MATCH character_aldric_morvaine
+  - surface: la Ligue des Barons
+    start: 136
+    category: EASY
+    expected: MATCH organization_ligue_des_barons
+  - surface: ton anneau sigillaire
+    start: 230
+    category: PART
+    expected: MATCH object_anneau_sigillaire
+  - surface: les barons
+    start: 319
+    category: PART
+    expected: MATCH organization_ligue_des_barons
+  - surface: La cousine du seigneur
+    start: 394
+    category: DESC
+    expected: MATCH character_selene_morvaine
+  - surface: sa mèche
+    start: 429
+    category: SKIP
+    expected: SKIP
+  - surface: Aldric
+    start: 447
+    category: PART
+    expected: MATCH character_aldric_morvaine
+  - surface: ses palefreniers
+    start: 472
+    category: SKIP
+    expected: SKIP
+  - surface: Noctule
+    start: 544
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges:
+    - a: character_aldric_morvaine
+      b: character_selene_morvaine
+  gold_knowledge: []
+- id: seq-df-homonymes-t5
+  genre: dark_fantasy
+  source: synthetic
+  turn: 24
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 22
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 23
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: character_aldric_morvaine
+    type: character
+    label: Aldric Morvaine
+    true_name: Aldric Morvaine
+    descriptor: le chevalier au bras en écharpe
+    known: true
+    occupation: seigneur de Brumecourt
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 23
+    aliases:
+    - text: Aldric Morvaine
+      kind: true_name
+      known: true
+    - text: Aldric
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: sire Morvaine
+      kind: title
+      known: true
+    - text: le chevalier au bras en écharpe
+      kind: descriptor
+      known: true
+  - id: location_chateau_de_brumecourt
+    type: location
+    label: Château de Brumecourt
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 20
+    aliases:
+    - text: Château de Brumecourt
+      kind: label
+      known: true
+  - id: organization_maison_morvaine
+    type: organization
+    label: Maison Morvaine
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 23
+    aliases:
+    - text: Maison Morvaine
+      kind: label
+      known: true
+  - id: organization_ligue_des_barons
+    type: organization
+    label: Ligue des Barons
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 23
+    aliases:
+    - text: Ligue des Barons
+      kind: label
+      known: true
+  - id: object_anneau_sigillaire
+    type: object
+    label: Anneau sigillaire
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 23
+    aliases:
+    - text: Anneau sigillaire
+      kind: label
+      known: true
+  - id: character_selene_morvaine
+    type: character
+    label: Sélène Morvaine
+    true_name: Sélène Morvaine
+    descriptor: la cavalière en manteau de deuil
+    known: true
+    occupation: cousine d'Aldric Morvaine
+    location: location_chateau_de_brumecourt
+    last_seen_turn: 23
+    aliases:
+    - text: Sélène Morvaine
+      kind: true_name
+      known: true
+    - text: Sélène
+      kind: short
+      known: true
+    - text: Morvaine
+      kind: short
+      known: true
+    - text: dame Morvaine
+      kind: title
+      known: true
+    - text: la cavalière en manteau de deuil
+      kind: descriptor
+      known: true
+  - id: location_chapelle_de_brumecourt
+    type: location
+    label: Chapelle de Brumecourt
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 23
+    aliases:
+    - text: Chapelle de Brumecourt
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Sous la voûte de la chapelle, dame Morvaine allume un cierge devant les tombes de la famille.
+
+      — Aldric Morvaine n'a jamais su parler à la Ligue des Barons, dit-elle. Ils le méprisent. Moi, ils m'écoutent.
+
+      Elle tend la main vers ton anneau sigillaire, sans le toucher.
+
+      — Garde-le, si tu veux. Mais quand tu iras voir les barons, emmène-moi. Les Morvaine n'ont jamais gagné une guerre seuls.
+
+      La cousine du seigneur souffle sur sa mèche. Dehors, Aldric crie des ordres à ses palefreniers.
+
+      *Tu as deux Morvaine sur les bras, maintenant*, note Noctule.
+    mentions:
+    - surface: la chapelle
+      start: 17
+      category: PART
+      expected: MATCH location_chapelle_de_brumecourt
+    - surface: dame Morvaine
+      start: 30
+      category: PART
+      expected: MATCH character_selene_morvaine
+    - surface: la famille
+      start: 82
+      category: DESC
+      expected: MATCH organization_maison_morvaine
+    - surface: Aldric Morvaine
+      start: 97
+      category: EASY
+      expected: MATCH character_aldric_morvaine
+    - surface: la Ligue des Barons
+      start: 136
+      category: EASY
+      expected: MATCH organization_ligue_des_barons
+    - surface: ton anneau sigillaire
+      start: 230
+      category: PART
+      expected: MATCH object_anneau_sigillaire
+    - surface: les barons
+      start: 319
+      category: PART
+      expected: MATCH organization_ligue_des_barons
+    - surface: La cousine du seigneur
+      start: 394
+      category: DESC
+      expected: MATCH character_selene_morvaine
+    - surface: sa mèche
+      start: 429
+      category: SKIP
+      expected: SKIP
+    - surface: Aldric
+      start: 447
+      category: PART
+      expected: MATCH character_aldric_morvaine
+    - surface: ses palefreniers
+      start: 472
+      category: SKIP
+      expected: SKIP
+    - surface: Noctule
+      start: 544
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_chateau_de_brumecourt
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_aldric_morvaine
+    - character_selene_morvaine
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Dans la cour de la vieille forteresse, les chevaux sont sellés. Le chevalier au bras en écharpe regarde sa cousine monter en selle.
+
+    — Si Morvaine vient avec toi, dit-il, la Ligue croira que la Maison s'est réconciliée. C'est faux, mais c'est utile.
+
+    Sélène Morvaine ajuste ses gants.
+
+    — Et si tu restais ici à soigner ton bras, Morvaine ? Pour une fois, laisse les femmes parler.
+
+    Le seigneur de Brumecourt éclate d'un rire bref et te fait signe de partir. L'anneau pèse à ton doigt.
+
+    *Une Morvaine devant, un Morvaine derrière*, résume Noctule.
+  gold:
+  - surface: la vieille forteresse
+    start: 16
+    category: DESC
+    expected: MATCH location_chateau_de_brumecourt
+  - surface: Le chevalier au bras en écharpe
+    start: 64
+    category: DESC
+    expected: MATCH character_aldric_morvaine
+  - surface: sa cousine
+    start: 104
+    category: DESC
+    expected: MATCH character_selene_morvaine
+  - surface: Morvaine
+    start: 138
+    category: XTYPE
+    expected: MATCH character_selene_morvaine
+  - surface: la Ligue
+    start: 171
+    category: PART
+    expected: MATCH organization_ligue_des_barons
+  - surface: la Maison
+    start: 191
+    category: PART
+    expected: MATCH organization_maison_morvaine
+  - surface: Sélène Morvaine
+    start: 251
+    category: EASY
+    expected: MATCH character_selene_morvaine
+  - surface: ses gants
+    start: 274
+    category: SKIP
+    expected: SKIP
+  - surface: ton bras
+    start: 319
+    category: SKIP
+    expected: SKIP
+  - surface: Morvaine
+    start: 329
+    category: XTYPE
+    expected: MATCH character_aldric_morvaine
+  - surface: les femmes
+    start: 362
+    category: SKIP
+    expected: SKIP
+  - surface: Le seigneur de Brumecourt
+    start: 382
+    category: DESC
+    expected: MATCH character_aldric_morvaine
+  - surface: L'anneau
+    start: 458
+    category: PART
+    expected: MATCH object_anneau_sigillaire
+  - surface: ton doigt
+    start: 474
+    category: SKIP
+    expected: SKIP
+  - surface: Une Morvaine
+    start: 487
+    category: XTYPE
+    expected: MATCH character_selene_morvaine
+  - surface: un Morvaine
+    start: 508
+    category: XTYPE
+    expected: MATCH character_aldric_morvaine
+  - surface: Noctule
+    start: 538
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges:
+    - a: character_aldric_morvaine
+      b: character_selene_morvaine
+  gold_knowledge: []
+gold_clusters:
+  location_chateau_de_brumecourt:
+  - seq-df-homonymes-t1:24
+  - seq-df-homonymes-t5:16
+  character_aldric_morvaine:
+  - seq-df-homonymes-t1:47
+  - seq-df-homonymes-t1:345
+  - seq-df-homonymes-t2:154
+  - seq-df-homonymes-t2:181
+  - seq-df-homonymes-t2:216
+  - seq-df-homonymes-t2:444
+  - seq-df-homonymes-t3:147
+  - seq-df-homonymes-t3:315
+  - seq-df-homonymes-t4:97
+  - seq-df-homonymes-t4:447
+  - seq-df-homonymes-t5:64
+  - seq-df-homonymes-t5:329
+  - seq-df-homonymes-t5:382
+  - seq-df-homonymes-t5:508
+  object_anneau_sigillaire:
+  - seq-df-homonymes-t1:89
+  - seq-df-homonymes-t1:302
+  - seq-df-homonymes-t2:300
+  - seq-df-homonymes-t3:433
+  - seq-df-homonymes-t4:230
+  - seq-df-homonymes-t5:458
+  organization_maison_morvaine:
+  - seq-df-homonymes-t1:146
+  - seq-df-homonymes-t1:387
+  - seq-df-homonymes-t2:310
+  - seq-df-homonymes-t4:82
+  - seq-df-homonymes-t5:191
+  organization_ligue_des_barons:
+  - seq-df-homonymes-t1:186
+  - seq-df-homonymes-t3:396
+  - seq-df-homonymes-t4:136
+  - seq-df-homonymes-t4:319
+  - seq-df-homonymes-t5:171
+  companion_noctule:
+  - seq-df-homonymes-t1:416
+  - seq-df-homonymes-t2:585
+  - seq-df-homonymes-t3:521
+  - seq-df-homonymes-t4:544
+  - seq-df-homonymes-t5:538
+  character_selene_morvaine:
+  - seq-df-homonymes-t2:66
+  - seq-df-homonymes-t2:192
+  - seq-df-homonymes-t2:380
+  - seq-df-homonymes-t3:75
+  - seq-df-homonymes-t3:249
+  - seq-df-homonymes-t3:349
+  - seq-df-homonymes-t4:30
+  - seq-df-homonymes-t4:394
+  - seq-df-homonymes-t5:104
+  - seq-df-homonymes-t5:138
+  - seq-df-homonymes-t5:251
+  - seq-df-homonymes-t5:487
+  protagonist_isaure:
+  - seq-df-homonymes-t2:364
+  - seq-df-homonymes-t3:415
+  location_chapelle_de_brumecourt:
+  - seq-df-homonymes-t3:98
+  - seq-df-homonymes-t3:236
+  - seq-df-homonymes-t4:17

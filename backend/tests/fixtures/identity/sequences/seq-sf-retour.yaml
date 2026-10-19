@@ -1,0 +1,1428 @@
+# Sequence: entities absent then back (GAP): the captain, his hangar, his company and the beacon after
+# six turns of silence, then the doctor and her infirmary.
+id: seq-sf-retour
+turns:
+- id: seq-sf-retour-t1
+  genre: sf
+  source: synthetic
+  turn: 2
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_hangar_9
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_jorund_abasi
+    type: character
+    label: Jorund Abasi
+    true_name: Jorund Abasi
+    descriptor: le capitaine à la jambe mécanique
+    known: true
+    occupation: capitaine de cargo de la Compagnie Lysandre
+    location: location_hangar_9
+    last_seen_turn: 1
+    aliases:
+    - text: Jorund Abasi
+      kind: true_name
+      known: true
+    - text: Jorund
+      kind: short
+      known: true
+    - text: Abasi
+      kind: short
+      known: true
+    - text: le capitaine Abasi
+      kind: title
+      known: true
+    - text: le capitaine à la jambe mécanique
+      kind: descriptor
+      known: true
+  - id: location_hangar_9
+    type: location
+    label: Hangar 9
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Hangar 9
+      kind: label
+      known: true
+  - id: location_station_meridienne
+    type: location
+    label: Station Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Station Méridienne
+      kind: label
+      known: true
+  - id: organization_compagnie_lysandre
+    type: organization
+    label: Compagnie Lysandre
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Compagnie Lysandre
+      kind: label
+      known: true
+  history: []
+  scene:
+    location: location_hangar_9
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_jorund_abasi
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Le capitaine Abasi t'attend sous l'aile de son cargo, au fond du Hangar 9. Il s'appuie sur sa jambe mécanique comme sur une canne.
+
+    — La Compagnie Lysandre me renvoie dans la ceinture demain, dit-il. Six semaines sans contact.
+
+    Il te tend une balise de détresse à peine plus grosse qu'un œuf.
+
+    — Si elle sonne, c'est que j'ai besoin de toi. Tu viens ici, au hangar, et tu attends.
+
+    *Il te fait confiance. C'est rare, chez un capitaine de la Compagnie*, note Sillage.
+  gold:
+  - surface: Le capitaine Abasi
+    start: 0
+    category: PART
+    expected: MATCH character_jorund_abasi
+  - surface: son cargo
+    start: 43
+    category: SKIP
+    expected: SKIP
+  - surface: Hangar 9
+    start: 65
+    category: EASY
+    expected: MATCH location_hangar_9
+  - surface: sa jambe mécanique
+    start: 91
+    category: SKIP
+    expected: SKIP
+  - surface: La Compagnie Lysandre
+    start: 134
+    category: EASY
+    expected: MATCH organization_compagnie_lysandre
+  - surface: une balise de détresse
+    start: 239
+    category: NEW
+    expected: NEW object
+  - surface: hangar
+    start: 358
+    category: PART
+    expected: MATCH location_hangar_9
+  - surface: la Compagnie
+    start: 438
+    category: PART
+    expected: MATCH organization_compagnie_lysandre
+  - surface: Sillage
+    start: 458
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-retour-t2
+  genre: sf
+  source: synthetic
+  turn: 3
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_hangar_9
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_jorund_abasi
+    type: character
+    label: Jorund Abasi
+    true_name: Jorund Abasi
+    descriptor: le capitaine à la jambe mécanique
+    known: true
+    occupation: capitaine de cargo de la Compagnie Lysandre
+    location: location_hangar_9
+    last_seen_turn: 2
+    aliases:
+    - text: Jorund Abasi
+      kind: true_name
+      known: true
+    - text: Jorund
+      kind: short
+      known: true
+    - text: Abasi
+      kind: short
+      known: true
+    - text: le capitaine Abasi
+      kind: title
+      known: true
+    - text: le capitaine à la jambe mécanique
+      kind: descriptor
+      known: true
+  - id: location_hangar_9
+    type: location
+    label: Hangar 9
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: Hangar 9
+      kind: label
+      known: true
+  - id: location_station_meridienne
+    type: location
+    label: Station Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Station Méridienne
+      kind: label
+      known: true
+  - id: organization_compagnie_lysandre
+    type: organization
+    label: Compagnie Lysandre
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: Compagnie Lysandre
+      kind: label
+      known: true
+  - id: object_balise_de_detresse
+    type: object
+    label: Balise de détresse
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: Balise de détresse
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Le capitaine Abasi t'attend sous l'aile de son cargo, au fond du Hangar 9. Il s'appuie sur sa jambe mécanique comme sur une canne.
+
+      — La Compagnie Lysandre me renvoie dans la ceinture demain, dit-il. Six semaines sans contact.
+
+      Il te tend une balise de détresse à peine plus grosse qu'un œuf.
+
+      — Si elle sonne, c'est que j'ai besoin de toi. Tu viens ici, au hangar, et tu attends.
+
+      *Il te fait confiance. C'est rare, chez un capitaine de la Compagnie*, note Sillage.
+    mentions:
+    - surface: Le capitaine Abasi
+      start: 0
+      category: PART
+      expected: MATCH character_jorund_abasi
+    - surface: son cargo
+      start: 43
+      category: SKIP
+      expected: SKIP
+    - surface: Hangar 9
+      start: 65
+      category: EASY
+      expected: MATCH location_hangar_9
+    - surface: sa jambe mécanique
+      start: 91
+      category: SKIP
+      expected: SKIP
+    - surface: La Compagnie Lysandre
+      start: 134
+      category: EASY
+      expected: MATCH organization_compagnie_lysandre
+    - surface: une balise de détresse
+      start: 239
+      category: PART
+      expected: MATCH object_balise_de_detresse
+    - surface: hangar
+      start: 358
+      category: PART
+      expected: MATCH location_hangar_9
+    - surface: la Compagnie
+      start: 438
+      category: PART
+      expected: MATCH organization_compagnie_lysandre
+    - surface: Sillage
+      start: 458
+      category: PC
+      expected: MATCH companion_sillage
+  scene:
+    location: location_hangar_9
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_jorund_abasi
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Jorund referme la soute dans un sifflement hydraulique. Le capitaine à la jambe mécanique te serre la main une dernière fois.
+
+    — Garde la balise sur toi, même pour dormir. Et ne parle de moi à personne de la Compagnie.
+
+    Le cargo décolle dans un nuage de poussière grise. Le Hangar 9 redevient silencieux.
+
+    *Abasi est parti. On retourne à la Station Méridienne*, propose Sillage.
+  gold:
+  - surface: Jorund
+    start: 0
+    category: PART
+    expected: MATCH character_jorund_abasi
+  - surface: Le capitaine à la jambe mécanique
+    start: 56
+    category: DESC
+    expected: MATCH character_jorund_abasi
+  - surface: la balise
+    start: 135
+    category: PART
+    expected: MATCH object_balise_de_detresse
+  - surface: personne
+    start: 193
+    category: SKIP
+    expected: SKIP
+  - surface: la Compagnie
+    start: 205
+    category: PART
+    expected: MATCH organization_compagnie_lysandre
+  - surface: Le Hangar 9
+    start: 271
+    category: EASY
+    expected: MATCH location_hangar_9
+  - surface: Abasi
+    start: 307
+    category: PART
+    expected: MATCH character_jorund_abasi
+  - surface: la Station Méridienne
+    start: 338
+    category: EASY
+    expected: MATCH location_station_meridienne
+  - surface: Sillage
+    start: 370
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-retour-t3
+  genre: sf
+  source: synthetic
+  turn: 4
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_hangar_9
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_jorund_abasi
+    type: character
+    label: Jorund Abasi
+    true_name: Jorund Abasi
+    descriptor: le capitaine à la jambe mécanique
+    known: true
+    occupation: capitaine de cargo de la Compagnie Lysandre
+    location: location_hangar_9
+    last_seen_turn: 3
+    aliases:
+    - text: Jorund Abasi
+      kind: true_name
+      known: true
+    - text: Jorund
+      kind: short
+      known: true
+    - text: Abasi
+      kind: short
+      known: true
+    - text: le capitaine Abasi
+      kind: title
+      known: true
+    - text: le capitaine à la jambe mécanique
+      kind: descriptor
+      known: true
+  - id: location_hangar_9
+    type: location
+    label: Hangar 9
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Hangar 9
+      kind: label
+      known: true
+  - id: location_station_meridienne
+    type: location
+    label: Station Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Station Méridienne
+      kind: label
+      known: true
+  - id: organization_compagnie_lysandre
+    type: organization
+    label: Compagnie Lysandre
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Compagnie Lysandre
+      kind: label
+      known: true
+  - id: object_balise_de_detresse
+    type: object
+    label: Balise de détresse
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Balise de détresse
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Jorund referme la soute dans un sifflement hydraulique. Le capitaine à la jambe mécanique te serre la main une dernière fois.
+
+      — Garde la balise sur toi, même pour dormir. Et ne parle de moi à personne de la Compagnie.
+
+      Le cargo décolle dans un nuage de poussière grise. Le Hangar 9 redevient silencieux.
+
+      *Abasi est parti. On retourne à la Station Méridienne*, propose Sillage.
+    mentions:
+    - surface: Jorund
+      start: 0
+      category: PART
+      expected: MATCH character_jorund_abasi
+    - surface: Le capitaine à la jambe mécanique
+      start: 56
+      category: DESC
+      expected: MATCH character_jorund_abasi
+    - surface: la balise
+      start: 135
+      category: PART
+      expected: MATCH object_balise_de_detresse
+    - surface: personne
+      start: 193
+      category: SKIP
+      expected: SKIP
+    - surface: la Compagnie
+      start: 205
+      category: PART
+      expected: MATCH organization_compagnie_lysandre
+    - surface: Le Hangar 9
+      start: 271
+      category: EASY
+      expected: MATCH location_hangar_9
+    - surface: Abasi
+      start: 307
+      category: PART
+      expected: MATCH character_jorund_abasi
+    - surface: la Station Méridienne
+      start: 338
+      category: EASY
+      expected: MATCH location_station_meridienne
+    - surface: Sillage
+      start: 370
+      category: PC
+      expected: MATCH companion_sillage
+  scene:
+    location: location_station_meridienne
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Ta main entaillée saigne encore quand tu pousses la porte de l'Infirmerie de la Méridienne. Une médecin aux cheveux ras t'assoit d'autorité sur un tabouret.
+
+    — Mirelle Faucon, dit-elle en désinfectant la plaie. Je suis seule de garde sur toute la station, alors ne bouge pas.
+
+    Elle recoud en silence, puis range ses instruments.
+
+    — Si ça s'infecte, tu reviens me voir. Personne d'autre ne sait recoudre correctement, ici.
+
+    *Une alliée utile*, commente Sillage.
+  gold:
+  - surface: Ta main entaillée
+    start: 0
+    category: SKIP
+    expected: SKIP
+  - surface: l'Infirmerie de la Méridienne
+    start: 61
+    category: NEW
+    expected: NEW location
+    trap: true
+  - surface: Une médecin aux cheveux ras
+    start: 92
+    category: NEW
+    expected: NEW character
+  - surface: Mirelle Faucon
+    start: 160
+    category: EASY
+    expected: SAME 92
+  - surface: la station
+    start: 244
+    category: PART
+    expected: MATCH location_station_meridienne
+  - surface: ses instruments
+    start: 312
+    category: SKIP
+    expected: SKIP
+  - surface: Personne
+    start: 369
+    category: SKIP
+    expected: SKIP
+  - surface: Sillage
+    start: 452
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-retour-t4
+  genre: sf
+  source: synthetic
+  turn: 10
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_hangar_9
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_jorund_abasi
+    type: character
+    label: Jorund Abasi
+    true_name: Jorund Abasi
+    descriptor: le capitaine à la jambe mécanique
+    known: true
+    occupation: capitaine de cargo de la Compagnie Lysandre
+    location: location_hangar_9
+    last_seen_turn: 3
+    aliases:
+    - text: Jorund Abasi
+      kind: true_name
+      known: true
+    - text: Jorund
+      kind: short
+      known: true
+    - text: Abasi
+      kind: short
+      known: true
+    - text: le capitaine Abasi
+      kind: title
+      known: true
+    - text: le capitaine à la jambe mécanique
+      kind: descriptor
+      known: true
+  - id: location_hangar_9
+    type: location
+    label: Hangar 9
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Hangar 9
+      kind: label
+      known: true
+  - id: location_station_meridienne
+    type: location
+    label: Station Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Station Méridienne
+      kind: label
+      known: true
+  - id: organization_compagnie_lysandre
+    type: organization
+    label: Compagnie Lysandre
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Compagnie Lysandre
+      kind: label
+      known: true
+  - id: object_balise_de_detresse
+    type: object
+    label: Balise de détresse
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Balise de détresse
+      kind: label
+      known: true
+  - id: location_infirmerie_de_la_meridienne
+    type: location
+    label: Infirmerie de la Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Infirmerie de la Méridienne
+      kind: label
+      known: true
+  - id: character_mirelle_faucon
+    type: character
+    label: Mirelle Faucon
+    true_name: Mirelle Faucon
+    descriptor: la médecin aux cheveux ras
+    known: true
+    occupation: médecin de l'Infirmerie de la Méridienne
+    location: location_infirmerie_de_la_meridienne
+    last_seen_turn: 4
+    aliases:
+    - text: Mirelle Faucon
+      kind: true_name
+      known: true
+    - text: Mirelle
+      kind: short
+      known: true
+    - text: Faucon
+      kind: short
+      known: true
+    - text: la médecin aux cheveux ras
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Tu as passé la semaine à décharger des conteneurs sur les quais de la Station Méridienne. Le soir, tu dors dans une capsule de location qui sent le plastique chaud.
+
+      *Rien à signaler*, répète Sillage chaque matin.
+    mentions:
+    - surface: la Station Méridienne
+      start: 67
+      category: EASY
+      expected: MATCH location_station_meridienne
+    - surface: Sillage
+      start: 192
+      category: PC
+      expected: MATCH companion_sillage
+  scene:
+    location: location_station_meridienne
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Au milieu de la nuit, ta balise de détresse se met à sonner sous ton oreiller, un bip aigu et régulier.
+
+    *Signal du capitaine Abasi*, annonce Sillage. *Six semaines, presque jour pour jour. Il appelle depuis la ceinture, mais le point de rendez-vous, c'est le Hangar 9.*
+
+    Tu te redresses, la balise dans le poing. Tu revois le vieux capitaine, sa jambe de métal, sa poignée de main sèche. Il avait dit de venir au hangar et d'attendre.
+
+    *La Compagnie Lysandre n'a émis aucune alerte*, ajoute Sillage. *Soit la Compagnie ne sait rien, soit elle se tait.*
+  gold:
+  - surface: ta balise de détresse
+    start: 22
+    category: GAP
+    expected: MATCH object_balise_de_detresse
+  - surface: ton oreiller
+    start: 65
+    category: SKIP
+    expected: SKIP
+  - surface: capitaine Abasi
+    start: 116
+    category: GAP
+    expected: MATCH character_jorund_abasi
+  - surface: Sillage
+    start: 142
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: le Hangar 9
+    start: 257
+    category: GAP
+    expected: MATCH location_hangar_9
+  - surface: la balise
+    start: 289
+    category: GAP
+    expected: MATCH object_balise_de_detresse
+  - surface: le vieux capitaine
+    start: 324
+    category: GAP
+    expected: MATCH character_jorund_abasi
+  - surface: sa jambe de métal
+    start: 344
+    category: SKIP
+    expected: SKIP
+  - surface: sa poignée de main sèche
+    start: 363
+    category: SKIP
+    expected: SKIP
+  - surface: hangar
+    start: 414
+    category: GAP
+    expected: MATCH location_hangar_9
+  - surface: La Compagnie Lysandre
+    start: 438
+    category: GAP
+    expected: MATCH organization_compagnie_lysandre
+  - surface: Sillage
+    start: 492
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: la Compagnie
+    start: 507
+    category: GAP
+    expected: MATCH organization_compagnie_lysandre
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-retour-t5
+  genre: sf
+  source: synthetic
+  turn: 11
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_hangar_9
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_jorund_abasi
+    type: character
+    label: Jorund Abasi
+    true_name: Jorund Abasi
+    descriptor: le capitaine à la jambe mécanique
+    known: true
+    occupation: capitaine de cargo de la Compagnie Lysandre
+    location: location_hangar_9
+    last_seen_turn: 10
+    aliases:
+    - text: Jorund Abasi
+      kind: true_name
+      known: true
+    - text: Jorund
+      kind: short
+      known: true
+    - text: Abasi
+      kind: short
+      known: true
+    - text: le capitaine Abasi
+      kind: title
+      known: true
+    - text: le capitaine à la jambe mécanique
+      kind: descriptor
+      known: true
+  - id: location_hangar_9
+    type: location
+    label: Hangar 9
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Hangar 9
+      kind: label
+      known: true
+  - id: location_station_meridienne
+    type: location
+    label: Station Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Station Méridienne
+      kind: label
+      known: true
+  - id: organization_compagnie_lysandre
+    type: organization
+    label: Compagnie Lysandre
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Compagnie Lysandre
+      kind: label
+      known: true
+  - id: object_balise_de_detresse
+    type: object
+    label: Balise de détresse
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Balise de détresse
+      kind: label
+      known: true
+  - id: location_infirmerie_de_la_meridienne
+    type: location
+    label: Infirmerie de la Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Infirmerie de la Méridienne
+      kind: label
+      known: true
+  - id: character_mirelle_faucon
+    type: character
+    label: Mirelle Faucon
+    true_name: Mirelle Faucon
+    descriptor: la médecin aux cheveux ras
+    known: true
+    occupation: médecin de l'Infirmerie de la Méridienne
+    location: location_infirmerie_de_la_meridienne
+    last_seen_turn: 4
+    aliases:
+    - text: Mirelle Faucon
+      kind: true_name
+      known: true
+    - text: Mirelle
+      kind: short
+      known: true
+    - text: Faucon
+      kind: short
+      known: true
+    - text: la médecin aux cheveux ras
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Au milieu de la nuit, ta balise de détresse se met à sonner sous ton oreiller, un bip aigu et régulier.
+
+      *Signal du capitaine Abasi*, annonce Sillage. *Six semaines, presque jour pour jour. Il appelle depuis la ceinture, mais le point de rendez-vous, c'est le Hangar 9.*
+
+      Tu te redresses, la balise dans le poing. Tu revois le vieux capitaine, sa jambe de métal, sa poignée de main sèche. Il avait dit de venir au hangar et d'attendre.
+
+      *La Compagnie Lysandre n'a émis aucune alerte*, ajoute Sillage. *Soit la Compagnie ne sait rien, soit elle se tait.*
+    mentions:
+    - surface: ta balise de détresse
+      start: 22
+      category: PART
+      expected: MATCH object_balise_de_detresse
+    - surface: ton oreiller
+      start: 65
+      category: SKIP
+      expected: SKIP
+    - surface: capitaine Abasi
+      start: 116
+      category: PART
+      expected: MATCH character_jorund_abasi
+    - surface: Sillage
+      start: 142
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: le Hangar 9
+      start: 257
+      category: EASY
+      expected: MATCH location_hangar_9
+    - surface: la balise
+      start: 289
+      category: PART
+      expected: MATCH object_balise_de_detresse
+    - surface: le vieux capitaine
+      start: 324
+      category: DESC
+      expected: MATCH character_jorund_abasi
+    - surface: sa jambe de métal
+      start: 344
+      category: SKIP
+      expected: SKIP
+    - surface: sa poignée de main sèche
+      start: 363
+      category: SKIP
+      expected: SKIP
+    - surface: hangar
+      start: 414
+      category: PART
+      expected: MATCH location_hangar_9
+    - surface: La Compagnie Lysandre
+      start: 438
+      category: EASY
+      expected: MATCH organization_compagnie_lysandre
+    - surface: Sillage
+      start: 492
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: la Compagnie
+      start: 507
+      category: PART
+      expected: MATCH organization_compagnie_lysandre
+  scene:
+    location: location_hangar_9
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Le Hangar 9 est vide, éclairé par une seule rampe de secours. La balise sonne toujours, plus vite.
+
+    Une piste d'atterrissage, et un blessé à l'arrivée : il te faut un médecin. Tu penses aussitôt à la médecin aux cheveux ras, celle qui t'avait recousu la main.
+
+    *Mirelle Faucon est de garde cette nuit*, confirme Sillage. *Je l'appelle à l'infirmerie ?*
+
+    Tu acquiesces. Au-dessus de l'entrepôt désert, les feux d'approche du cargo de Jorund percent les nuages.
+
+    *Mirelle arrive dans dix minutes. Elle demande qui est le blessé.*
+  gold:
+  - surface: Le Hangar 9
+    start: 0
+    category: EASY
+    expected: MATCH location_hangar_9
+  - surface: La balise
+    start: 62
+    category: PART
+    expected: MATCH object_balise_de_detresse
+  - surface: la médecin aux cheveux ras
+    start: 197
+    category: GAP
+    expected: MATCH character_mirelle_faucon
+  - surface: la main
+    start: 251
+    category: SKIP
+    expected: SKIP
+  - surface: Mirelle Faucon
+    start: 262
+    category: GAP
+    expected: MATCH character_mirelle_faucon
+  - surface: Sillage
+    start: 312
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: l'infirmerie
+    start: 337
+    category: GAP
+    expected: MATCH location_infirmerie_de_la_meridienne
+  - surface: l'entrepôt désert
+    start: 382
+    category: DESC
+    expected: MATCH location_hangar_9
+  - surface: Jorund
+    start: 433
+    category: PART
+    expected: MATCH character_jorund_abasi
+  - surface: Mirelle
+    start: 462
+    category: GAP
+    expected: MATCH character_mirelle_faucon
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-retour-t6
+  genre: sf
+  source: synthetic
+  turn: 12
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_hangar_9
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_jorund_abasi
+    type: character
+    label: Jorund Abasi
+    true_name: Jorund Abasi
+    descriptor: le capitaine à la jambe mécanique
+    known: true
+    occupation: capitaine de cargo de la Compagnie Lysandre
+    location: location_hangar_9
+    last_seen_turn: 11
+    aliases:
+    - text: Jorund Abasi
+      kind: true_name
+      known: true
+    - text: Jorund
+      kind: short
+      known: true
+    - text: Abasi
+      kind: short
+      known: true
+    - text: le capitaine Abasi
+      kind: title
+      known: true
+    - text: le capitaine à la jambe mécanique
+      kind: descriptor
+      known: true
+  - id: location_hangar_9
+    type: location
+    label: Hangar 9
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Hangar 9
+      kind: label
+      known: true
+  - id: location_station_meridienne
+    type: location
+    label: Station Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Station Méridienne
+      kind: label
+      known: true
+  - id: organization_compagnie_lysandre
+    type: organization
+    label: Compagnie Lysandre
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Compagnie Lysandre
+      kind: label
+      known: true
+  - id: object_balise_de_detresse
+    type: object
+    label: Balise de détresse
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Balise de détresse
+      kind: label
+      known: true
+  - id: location_infirmerie_de_la_meridienne
+    type: location
+    label: Infirmerie de la Méridienne
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Infirmerie de la Méridienne
+      kind: label
+      known: true
+  - id: character_mirelle_faucon
+    type: character
+    label: Mirelle Faucon
+    true_name: Mirelle Faucon
+    descriptor: la médecin aux cheveux ras
+    known: true
+    occupation: médecin de l'Infirmerie de la Méridienne
+    location: location_infirmerie_de_la_meridienne
+    last_seen_turn: 11
+    aliases:
+    - text: Mirelle Faucon
+      kind: true_name
+      known: true
+    - text: Mirelle
+      kind: short
+      known: true
+    - text: Faucon
+      kind: short
+      known: true
+    - text: la médecin aux cheveux ras
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Le Hangar 9 est vide, éclairé par une seule rampe de secours. La balise sonne toujours, plus vite.
+
+      Une piste d'atterrissage, et un blessé à l'arrivée : il te faut un médecin. Tu penses aussitôt à la médecin aux cheveux ras, celle qui t'avait recousu la main.
+
+      *Mirelle Faucon est de garde cette nuit*, confirme Sillage. *Je l'appelle à l'infirmerie ?*
+
+      Tu acquiesces. Au-dessus de l'entrepôt désert, les feux d'approche du cargo de Jorund percent les nuages.
+
+      *Mirelle arrive dans dix minutes. Elle demande qui est le blessé.*
+    mentions:
+    - surface: Le Hangar 9
+      start: 0
+      category: EASY
+      expected: MATCH location_hangar_9
+    - surface: La balise
+      start: 62
+      category: PART
+      expected: MATCH object_balise_de_detresse
+    - surface: la médecin aux cheveux ras
+      start: 197
+      category: PART
+      expected: MATCH character_mirelle_faucon
+    - surface: la main
+      start: 251
+      category: SKIP
+      expected: SKIP
+    - surface: Mirelle Faucon
+      start: 262
+      category: EASY
+      expected: MATCH character_mirelle_faucon
+    - surface: Sillage
+      start: 312
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: l'infirmerie
+      start: 337
+      category: PART
+      expected: MATCH location_infirmerie_de_la_meridienne
+    - surface: l'entrepôt désert
+      start: 382
+      category: DESC
+      expected: MATCH location_hangar_9
+    - surface: Jorund
+      start: 433
+      category: PART
+      expected: MATCH character_jorund_abasi
+    - surface: Mirelle
+      start: 462
+      category: PART
+      expected: MATCH character_mirelle_faucon
+  scene:
+    location: location_hangar_9
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_jorund_abasi
+    - character_mirelle_faucon
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Le cargo se pose de travers. Jorund Abasi descend la rampe en boitant plus que jamais, sa jambe mécanique traînant des étincelles.
+
+    — Tu es venu, dit-il. La balise, tu peux l'éteindre.
+
+    Mirelle est déjà à genoux devant lui, sa trousse ouverte. La médecin découpe le tissu du pantalon sans demander la permission.
+
+    — La Compagnie m'a laissé tomber dans la ceinture, grogne le capitaine. Sans toi, je serais encore là-haut.
+
+    *Bienvenue au Hangar 9, capitaine*, dit Sillage.
+  gold:
+  - surface: Jorund Abasi
+    start: 29
+    category: EASY
+    expected: MATCH character_jorund_abasi
+  - surface: sa jambe mécanique
+    start: 87
+    category: SKIP
+    expected: SKIP
+  - surface: La balise
+    start: 154
+    category: PART
+    expected: MATCH object_balise_de_detresse
+  - surface: Mirelle
+    start: 186
+    category: PART
+    expected: MATCH character_mirelle_faucon
+  - surface: sa trousse
+    start: 224
+    category: SKIP
+    expected: SKIP
+  - surface: La médecin
+    start: 244
+    category: DESC
+    expected: MATCH character_mirelle_faucon
+  - surface: La Compagnie
+    start: 316
+    category: PART
+    expected: MATCH organization_compagnie_lysandre
+  - surface: le capitaine
+    start: 372
+    category: DESC
+    expected: MATCH character_jorund_abasi
+  - surface: Hangar 9
+    start: 437
+    category: EASY
+    expected: MATCH location_hangar_9
+  - surface: Sillage
+    start: 463
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+gold_clusters:
+  character_jorund_abasi:
+  - seq-sf-retour-t1:0
+  - seq-sf-retour-t2:0
+  - seq-sf-retour-t2:56
+  - seq-sf-retour-t2:307
+  - seq-sf-retour-t4:116
+  - seq-sf-retour-t4:324
+  - seq-sf-retour-t5:433
+  - seq-sf-retour-t6:29
+  - seq-sf-retour-t6:372
+  location_hangar_9:
+  - seq-sf-retour-t1:65
+  - seq-sf-retour-t1:358
+  - seq-sf-retour-t2:271
+  - seq-sf-retour-t4:257
+  - seq-sf-retour-t4:414
+  - seq-sf-retour-t5:0
+  - seq-sf-retour-t5:382
+  - seq-sf-retour-t6:437
+  organization_compagnie_lysandre:
+  - seq-sf-retour-t1:134
+  - seq-sf-retour-t1:438
+  - seq-sf-retour-t2:205
+  - seq-sf-retour-t4:438
+  - seq-sf-retour-t4:507
+  - seq-sf-retour-t6:316
+  object_balise_de_detresse:
+  - seq-sf-retour-t1:239
+  - seq-sf-retour-t2:135
+  - seq-sf-retour-t4:22
+  - seq-sf-retour-t4:289
+  - seq-sf-retour-t5:62
+  - seq-sf-retour-t6:154
+  companion_sillage:
+  - seq-sf-retour-t1:458
+  - seq-sf-retour-t2:370
+  - seq-sf-retour-t3:452
+  - seq-sf-retour-t4:142
+  - seq-sf-retour-t4:492
+  - seq-sf-retour-t5:312
+  - seq-sf-retour-t6:463
+  location_station_meridienne:
+  - seq-sf-retour-t2:338
+  - seq-sf-retour-t3:244
+  location_infirmerie_de_la_meridienne:
+  - seq-sf-retour-t3:61
+  - seq-sf-retour-t5:337
+  character_mirelle_faucon:
+  - seq-sf-retour-t3:92
+  - seq-sf-retour-t3:160
+  - seq-sf-retour-t5:197
+  - seq-sf-retour-t5:262
+  - seq-sf-retour-t5:462
+  - seq-sf-retour-t6:186
+  - seq-sf-retour-t6:244

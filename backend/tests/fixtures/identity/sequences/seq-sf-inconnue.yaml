@@ -1,0 +1,1567 @@
+# Sequence: an unknown NPC described several ways (woman in a rain coat, smuggler, stranger) then named;
+# the object she leaves is nameless until she names it.
+id: seq-sf-inconnue
+turns:
+- id: seq-sf-inconnue-t1
+  genre: sf
+  source: synthetic
+  turn: 2
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: location_marche_de_l_anneau
+    type: location
+    label: Marché de l'Anneau
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Marché de l'Anneau
+      kind: label
+      known: true
+  - id: location_coursive_c
+    type: location
+    label: Coursive C
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Coursive C
+      kind: label
+      known: true
+  - id: organization_douane_orbitale
+    type: organization
+    label: Douane orbitale
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Douane orbitale
+      kind: label
+      known: true
+  - id: object_carte_d_acces
+    type: object
+    label: Carte d'accès
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Carte d'accès
+      kind: label
+      known: true
+  history: []
+  scene:
+    location: location_marche_de_l_anneau
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Les étals du Marché de l'Anneau débordent sur l'allée centrale. Une femme au manteau de pluie te bouscule, s'excuse à peine, et tu sens un poids nouveau dans ta poche.
+
+    — Garde-le au chaud, souffle-t-elle sans s'arrêter. Je reviendrai le chercher.
+
+    Elle disparaît derrière un étal de fruits secs. Dans ta poche, tes doigts trouvent un cylindre métallique, tiède, pas plus long qu'un doigt. Au bout de l'allée, deux agents de la Douane orbitale remontent le marché à contre-courant.
+
+    *Elle t'a choisi au hasard, ou pas*, note Sillage. *Je n'ai pas eu le temps de voir son visage.*
+  gold:
+  - surface: Marché de l'Anneau
+    start: 13
+    category: EASY
+    expected: MATCH location_marche_de_l_anneau
+  - surface: Une femme au manteau de pluie
+    start: 64
+    category: NEW
+    expected: NEW character
+  - surface: ta poche
+    start: 158
+    category: SKIP
+    expected: SKIP
+  - surface: ta poche
+    start: 302
+    category: SKIP
+    expected: SKIP
+  - surface: tes doigts
+    start: 312
+    category: SKIP
+    expected: SKIP
+  - surface: un cylindre métallique
+    start: 332
+    category: NEW
+    expected: NEW object
+  - surface: deux agents de la Douane orbitale
+    start: 410
+    category: SKIP
+    expected: SKIP
+  - surface: la Douane orbitale
+    start: 425
+    category: EASY
+    expected: MATCH organization_douane_orbitale
+  - surface: Sillage
+    start: 525
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: son visage
+    start: 567
+    category: SKIP
+    expected: SKIP
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-inconnue-t2
+  genre: sf
+  source: synthetic
+  turn: 3
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: location_marche_de_l_anneau
+    type: location
+    label: Marché de l'Anneau
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: Marché de l'Anneau
+      kind: label
+      known: true
+  - id: location_coursive_c
+    type: location
+    label: Coursive C
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Coursive C
+      kind: label
+      known: true
+  - id: organization_douane_orbitale
+    type: organization
+    label: Douane orbitale
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: Douane orbitale
+      kind: label
+      known: true
+  - id: object_carte_d_acces
+    type: object
+    label: Carte d'accès
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Carte d'accès
+      kind: label
+      known: true
+  - id: character_femme_au_manteau_de_pluie
+    type: character
+    label: la femme au manteau de pluie
+    true_name: null
+    descriptor: la femme au manteau de pluie
+    known: false
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 2
+    aliases:
+    - text: la femme au manteau de pluie
+      kind: descriptor
+      known: true
+  - id: object_cylindre_metallique
+    type: object
+    label: le cylindre métallique
+    true_name: null
+    descriptor: le cylindre métallique
+    known: false
+    occupation: null
+    location: null
+    last_seen_turn: 2
+    aliases:
+    - text: le cylindre métallique
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Les étals du Marché de l'Anneau débordent sur l'allée centrale. Une femme au manteau de pluie te bouscule, s'excuse à peine, et tu sens un poids nouveau dans ta poche.
+
+      — Garde-le au chaud, souffle-t-elle sans s'arrêter. Je reviendrai le chercher.
+
+      Elle disparaît derrière un étal de fruits secs. Dans ta poche, tes doigts trouvent un cylindre métallique, tiède, pas plus long qu'un doigt. Au bout de l'allée, deux agents de la Douane orbitale remontent le marché à contre-courant.
+
+      *Elle t'a choisi au hasard, ou pas*, note Sillage. *Je n'ai pas eu le temps de voir son visage.*
+    mentions:
+    - surface: Marché de l'Anneau
+      start: 13
+      category: EASY
+      expected: MATCH location_marche_de_l_anneau
+    - surface: Une femme au manteau de pluie
+      start: 64
+      category: DESC
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: ta poche
+      start: 158
+      category: SKIP
+      expected: SKIP
+    - surface: ta poche
+      start: 302
+      category: SKIP
+      expected: SKIP
+    - surface: tes doigts
+      start: 312
+      category: SKIP
+      expected: SKIP
+    - surface: un cylindre métallique
+      start: 332
+      category: DESC
+      expected: MATCH object_cylindre_metallique
+    - surface: deux agents de la Douane orbitale
+      start: 410
+      category: SKIP
+      expected: SKIP
+    - surface: la Douane orbitale
+      start: 425
+      category: EASY
+      expected: MATCH organization_douane_orbitale
+    - surface: Sillage
+      start: 525
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: son visage
+      start: 567
+      category: SKIP
+      expected: SKIP
+  scene:
+    location: location_coursive_c
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_femme_au_manteau_de_pluie
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    La Coursive C sent l'ozone et la soupe froide. Adossée à un panneau de maintenance, la femme au manteau t'attendait.
+
+    — Tu l'as toujours ? demande-t-elle en regardant ta main. Le cylindre, je veux dire.
+
+    Tu hoches la tête. L'inconnue relève son col trempé.
+
+    — Alors garde-le encore un jour. Le Syndicat des Fileurs me cherche, et ils fouillent tout le monde sur le marché. La Douane ferme les yeux, comme d'habitude.
+
+    *Une contrebandière*, conclut la voix dans ton oreillette. *Et toi, tu portes sa marchandise dans ce boyau puant.*
+  gold:
+  - surface: La Coursive C
+    start: 0
+    category: EASY
+    expected: MATCH location_coursive_c
+  - surface: la femme au manteau
+    start: 84
+    category: DESC
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: ta main
+    start: 167
+    category: SKIP
+    expected: SKIP
+  - surface: Le cylindre
+    start: 176
+    category: DESC
+    expected: MATCH object_cylindre_metallique
+  - surface: L'inconnue
+    start: 223
+    category: DESC
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: son col trempé
+    start: 241
+    category: SKIP
+    expected: SKIP
+  - surface: Le Syndicat des Fileurs
+    start: 291
+    category: NEW
+    expected: NEW organization
+  - surface: le marché
+    start: 362
+    category: PART
+    expected: MATCH location_marche_de_l_anneau
+  - surface: La Douane
+    start: 373
+    category: PART
+    expected: MATCH organization_douane_orbitale
+  - surface: la voix dans ton oreillette
+    start: 448
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: ton oreillette
+    start: 461
+    category: SKIP
+    expected: SKIP
+  - surface: ce boyau puant
+    start: 516
+    category: DESC
+    expected: MATCH location_coursive_c
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-inconnue-t3
+  genre: sf
+  source: synthetic
+  turn: 4
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: location_marche_de_l_anneau
+    type: location
+    label: Marché de l'Anneau
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Marché de l'Anneau
+      kind: label
+      known: true
+  - id: location_coursive_c
+    type: location
+    label: Coursive C
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Coursive C
+      kind: label
+      known: true
+  - id: organization_douane_orbitale
+    type: organization
+    label: Douane orbitale
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Douane orbitale
+      kind: label
+      known: true
+  - id: object_carte_d_acces
+    type: object
+    label: Carte d'accès
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 1
+    aliases:
+    - text: Carte d'accès
+      kind: label
+      known: true
+  - id: character_femme_au_manteau_de_pluie
+    type: character
+    label: la femme au manteau de pluie
+    true_name: null
+    descriptor: la femme au manteau de pluie
+    known: false
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 3
+    aliases:
+    - text: la femme au manteau de pluie
+      kind: descriptor
+      known: true
+  - id: object_cylindre_metallique
+    type: object
+    label: le cylindre métallique
+    true_name: null
+    descriptor: le cylindre métallique
+    known: false
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: le cylindre métallique
+      kind: descriptor
+      known: true
+  - id: organization_syndicat_des_fileurs
+    type: organization
+    label: Syndicat des Fileurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Syndicat des Fileurs
+      kind: label
+      known: true
+  history:
+  - text: |-
+      La Coursive C sent l'ozone et la soupe froide. Adossée à un panneau de maintenance, la femme au manteau t'attendait.
+
+      — Tu l'as toujours ? demande-t-elle en regardant ta main. Le cylindre, je veux dire.
+
+      Tu hoches la tête. L'inconnue relève son col trempé.
+
+      — Alors garde-le encore un jour. Le Syndicat des Fileurs me cherche, et ils fouillent tout le monde sur le marché. La Douane ferme les yeux, comme d'habitude.
+
+      *Une contrebandière*, conclut la voix dans ton oreillette. *Et toi, tu portes sa marchandise dans ce boyau puant.*
+    mentions:
+    - surface: La Coursive C
+      start: 0
+      category: EASY
+      expected: MATCH location_coursive_c
+    - surface: la femme au manteau
+      start: 84
+      category: DESC
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: ta main
+      start: 167
+      category: SKIP
+      expected: SKIP
+    - surface: Le cylindre
+      start: 176
+      category: DESC
+      expected: MATCH object_cylindre_metallique
+    - surface: L'inconnue
+      start: 223
+      category: DESC
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: son col trempé
+      start: 241
+      category: SKIP
+      expected: SKIP
+    - surface: Le Syndicat des Fileurs
+      start: 291
+      category: EASY
+      expected: MATCH organization_syndicat_des_fileurs
+    - surface: le marché
+      start: 362
+      category: PART
+      expected: MATCH location_marche_de_l_anneau
+    - surface: La Douane
+      start: 373
+      category: PART
+      expected: MATCH organization_douane_orbitale
+    - surface: la voix dans ton oreillette
+      start: 448
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: ton oreillette
+      start: 461
+      category: SKIP
+      expected: SKIP
+    - surface: ce boyau puant
+      start: 516
+      category: DESC
+      expected: MATCH location_coursive_c
+  scene:
+    location: location_marche_de_l_anneau
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Un douanier au crâne rasé te barre le passage à l'entrée du marché et tend la main vers ta carte d'accès.
+
+    — Contrôle de la Douane orbitale. On recherche une femme en imperméable gris, la quarantaine, accent des stations basses. Les Fileurs disent qu'elle leur a volé un objet de valeur.
+
+    Il te rend ta carte sans te quitter des yeux. Le cylindre pèse au fond de ta poche.
+
+    — Si tu la croises, le Syndicat paie bien. Mieux que nous.
+
+    *Il ment sur le prix, pas sur la femme*, murmure Sillage.
+  gold:
+  - surface: Un douanier au crâne rasé
+    start: 0
+    category: NEW
+    expected: NEW character
+  - surface: marché
+    start: 60
+    category: PART
+    expected: MATCH location_marche_de_l_anneau
+  - surface: ta carte d'accès
+    start: 88
+    category: PART
+    expected: MATCH object_carte_d_acces
+  - surface: la Douane orbitale
+    start: 121
+    category: EASY
+    expected: MATCH organization_douane_orbitale
+  - surface: une femme en imperméable gris
+    start: 154
+    category: DESC
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: Les Fileurs
+    start: 229
+    category: PART
+    expected: MATCH organization_syndicat_des_fileurs
+  - surface: un objet de valeur
+    start: 268
+    category: DESC
+    expected: MATCH object_cylindre_metallique
+  - surface: ta carte
+    start: 300
+    category: PART
+    expected: MATCH object_carte_d_acces
+  - surface: Le cylindre
+    start: 335
+    category: DESC
+    expected: MATCH object_cylindre_metallique
+  - surface: ta poche
+    start: 363
+    category: SKIP
+    expected: SKIP
+  - surface: le Syndicat
+    start: 394
+    category: PART
+    expected: MATCH organization_syndicat_des_fileurs
+  - surface: Sillage
+    start: 483
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-inconnue-t4
+  genre: sf
+  source: synthetic
+  turn: 5
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: location_marche_de_l_anneau
+    type: location
+    label: Marché de l'Anneau
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Marché de l'Anneau
+      kind: label
+      known: true
+  - id: location_coursive_c
+    type: location
+    label: Coursive C
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: Coursive C
+      kind: label
+      known: true
+  - id: organization_douane_orbitale
+    type: organization
+    label: Douane orbitale
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Douane orbitale
+      kind: label
+      known: true
+  - id: object_carte_d_acces
+    type: object
+    label: Carte d'accès
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Carte d'accès
+      kind: label
+      known: true
+  - id: character_femme_au_manteau_de_pluie
+    type: character
+    label: la femme au manteau de pluie
+    true_name: null
+    descriptor: la femme au manteau de pluie
+    known: false
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 4
+    aliases:
+    - text: la femme au manteau de pluie
+      kind: descriptor
+      known: true
+  - id: object_cylindre_metallique
+    type: object
+    label: le cylindre métallique
+    true_name: null
+    descriptor: le cylindre métallique
+    known: false
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: le cylindre métallique
+      kind: descriptor
+      known: true
+  - id: organization_syndicat_des_fileurs
+    type: organization
+    label: Syndicat des Fileurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Syndicat des Fileurs
+      kind: label
+      known: true
+  - id: character_douanier_au_crane_rase
+    type: character
+    label: un douanier au crâne rasé
+    true_name: null
+    descriptor: un douanier au crâne rasé
+    known: false
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 4
+    aliases:
+    - text: un douanier au crâne rasé
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Un douanier au crâne rasé te barre le passage à l'entrée du marché et tend la main vers ta carte d'accès.
+
+      — Contrôle de la Douane orbitale. On recherche une femme en imperméable gris, la quarantaine, accent des stations basses. Les Fileurs disent qu'elle leur a volé un objet de valeur.
+
+      Il te rend ta carte sans te quitter des yeux. Le cylindre pèse au fond de ta poche.
+
+      — Si tu la croises, le Syndicat paie bien. Mieux que nous.
+
+      *Il ment sur le prix, pas sur la femme*, murmure Sillage.
+    mentions:
+    - surface: Un douanier au crâne rasé
+      start: 0
+      category: DESC
+      expected: MATCH character_douanier_au_crane_rase
+    - surface: marché
+      start: 60
+      category: PART
+      expected: MATCH location_marche_de_l_anneau
+    - surface: ta carte d'accès
+      start: 88
+      category: PART
+      expected: MATCH object_carte_d_acces
+    - surface: la Douane orbitale
+      start: 121
+      category: EASY
+      expected: MATCH organization_douane_orbitale
+    - surface: une femme en imperméable gris
+      start: 154
+      category: DESC
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: Les Fileurs
+      start: 229
+      category: PART
+      expected: MATCH organization_syndicat_des_fileurs
+    - surface: un objet de valeur
+      start: 268
+      category: DESC
+      expected: MATCH object_cylindre_metallique
+    - surface: ta carte
+      start: 300
+      category: PART
+      expected: MATCH object_carte_d_acces
+    - surface: Le cylindre
+      start: 335
+      category: DESC
+      expected: MATCH object_cylindre_metallique
+    - surface: ta poche
+      start: 363
+      category: SKIP
+      expected: SKIP
+    - surface: le Syndicat
+      start: 394
+      category: PART
+      expected: MATCH organization_syndicat_des_fileurs
+    - surface: Sillage
+      start: 483
+      category: PC
+      expected: MATCH companion_sillage
+  scene:
+    location: location_coursive_c
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_femme_au_manteau_de_pluie
+    reveals:
+    - ref: la femme au manteau de pluie
+      real_name: Sabeth Ondraï
+    - ref: le cylindre métallique
+      real_name: Orphée
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Elle est revenue dans la coursive, trempée, essoufflée. La contrebandière tend la main.
+
+    — Merci. Tu mérites au moins un nom. Sabeth Ondraï. Sabeth, ça ira.
+
+    Tu lui rends le cylindre métallique. Elle le fait tourner entre deux doigts.
+
+    — Et lui, il s'appelle Orphée. Une clé-mémoire. Le Syndicat tuerait pour ce qu'il y a dedans.
+
+    *Sabeth Ondraï. Aucun dossier à ce nom à la Douane*, précise Sillage.
+  gold:
+  - surface: la coursive
+    start: 22
+    category: PART
+    expected: MATCH location_coursive_c
+  - surface: La contrebandière
+    start: 56
+    category: DESC
+    expected: MATCH character_femme_au_manteau_de_pluie
+    accept_also:
+    - ALIAS character_femme_au_manteau_de_pluie descriptor
+  - surface: Sabeth Ondraï
+    start: 126
+    category: REVEAL
+    expected: ALIAS character_femme_au_manteau_de_pluie true_name
+  - surface: Sabeth
+    start: 141
+    category: PART
+    expected: ALIAS character_femme_au_manteau_de_pluie short
+    accept_also:
+    - MATCH character_femme_au_manteau_de_pluie
+  - surface: le cylindre métallique
+    start: 171
+    category: DESC
+    expected: MATCH object_cylindre_metallique
+  - surface: Orphée
+    start: 259
+    category: REVEAL
+    expected: ALIAS object_cylindre_metallique true_name
+  - surface: Le Syndicat
+    start: 284
+    category: PART
+    expected: MATCH organization_syndicat_des_fileurs
+  - surface: Sabeth Ondraï
+    start: 332
+    category: EASY
+    expected: ALIAS character_femme_au_manteau_de_pluie true_name
+  - surface: la Douane
+    start: 372
+    category: PART
+    expected: MATCH organization_douane_orbitale
+  - surface: Sillage
+    start: 392
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals:
+    - ref: character_femme_au_manteau_de_pluie
+      real_name: Sabeth Ondraï
+    - ref: object_cylindre_metallique
+      real_name: Orphée
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-inconnue-t5
+  genre: sf
+  source: synthetic
+  turn: 6
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: location_marche_de_l_anneau
+    type: location
+    label: Marché de l'Anneau
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Marché de l'Anneau
+      kind: label
+      known: true
+  - id: location_coursive_c
+    type: location
+    label: Coursive C
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Coursive C
+      kind: label
+      known: true
+  - id: organization_douane_orbitale
+    type: organization
+    label: Douane orbitale
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Douane orbitale
+      kind: label
+      known: true
+  - id: object_carte_d_acces
+    type: object
+    label: Carte d'accès
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Carte d'accès
+      kind: label
+      known: true
+  - id: character_femme_au_manteau_de_pluie
+    type: character
+    label: Sabeth Ondraï
+    true_name: Sabeth Ondraï
+    descriptor: la femme au manteau de pluie
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 5
+    aliases:
+    - text: la femme au manteau de pluie
+      kind: descriptor
+      known: true
+    - text: Sabeth Ondraï
+      kind: true_name
+      known: true
+    - text: Sabeth
+      kind: short
+      known: true
+    - text: Ondraï
+      kind: short
+      known: true
+  - id: object_cylindre_metallique
+    type: object
+    label: Orphée
+    true_name: null
+    descriptor: le cylindre métallique
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: le cylindre métallique
+      kind: descriptor
+      known: true
+    - text: Orphée
+      kind: label
+      known: true
+  - id: organization_syndicat_des_fileurs
+    type: organization
+    label: Syndicat des Fileurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Syndicat des Fileurs
+      kind: label
+      known: true
+  - id: character_douanier_au_crane_rase
+    type: character
+    label: un douanier au crâne rasé
+    true_name: null
+    descriptor: un douanier au crâne rasé
+    known: false
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 4
+    aliases:
+    - text: un douanier au crâne rasé
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Elle est revenue dans la coursive, trempée, essoufflée. La contrebandière tend la main.
+
+      — Merci. Tu mérites au moins un nom. Sabeth Ondraï. Sabeth, ça ira.
+
+      Tu lui rends le cylindre métallique. Elle le fait tourner entre deux doigts.
+
+      — Et lui, il s'appelle Orphée. Une clé-mémoire. Le Syndicat tuerait pour ce qu'il y a dedans.
+
+      *Sabeth Ondraï. Aucun dossier à ce nom à la Douane*, précise Sillage.
+    mentions:
+    - surface: la coursive
+      start: 22
+      category: PART
+      expected: MATCH location_coursive_c
+    - surface: La contrebandière
+      start: 56
+      category: DESC
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: Sabeth Ondraï
+      start: 126
+      category: EASY
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: Sabeth
+      start: 141
+      category: PART
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: le cylindre métallique
+      start: 171
+      category: DESC
+      expected: MATCH object_cylindre_metallique
+    - surface: Orphée
+      start: 259
+      category: EASY
+      expected: MATCH object_cylindre_metallique
+    - surface: Le Syndicat
+      start: 284
+      category: PART
+      expected: MATCH organization_syndicat_des_fileurs
+    - surface: Sabeth Ondraï
+      start: 332
+      category: EASY
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: la Douane
+      start: 372
+      category: PART
+      expected: MATCH organization_douane_orbitale
+    - surface: Sillage
+      start: 392
+      category: PC
+      expected: MATCH companion_sillage
+  scene:
+    location: location_coursive_c
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_femme_au_manteau_de_pluie
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Sabeth glisse Orphée dans la doublure de son manteau.
+
+    — Il faut le sortir de l'anneau ce soir. On passe par l'Entrepôt frigorifique 4, côté quai. C'est la Mutuelle du Froid qui le loue, et les Fileurs n'y mettent jamais les pieds, ils ont peur du froid.
+
+    Ondraï, c'est un nom des stations basses : tu comprends maintenant l'accent dont parlait le douanier. Sabeth Ondraï sourit pour la première fois.
+
+    — Tu viens ? La clé ne s'ouvrira pas sans un deuxième pouce.
+
+    *Je déconseille*, dit Sillage. *Mais je te connais.*
+  gold:
+  - surface: Sabeth
+    start: 0
+    category: PART
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: Orphée
+    start: 14
+    category: EASY
+    expected: MATCH object_cylindre_metallique
+  - surface: son manteau
+    start: 41
+    category: SKIP
+    expected: SKIP
+  - surface: l'Entrepôt frigorifique 4
+    start: 109
+    category: NEW
+    expected: NEW location
+  - surface: la Mutuelle du Froid
+    start: 153
+    category: NEW
+    expected: NEW organization
+  - surface: les Fileurs
+    start: 190
+    category: PART
+    expected: MATCH organization_syndicat_des_fileurs
+  - surface: Ondraï
+    start: 256
+    category: PART
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: le douanier
+    start: 345
+    category: DESC
+    expected: MATCH character_douanier_au_crane_rase
+  - surface: Sabeth Ondraï
+    start: 358
+    category: EASY
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: La clé
+    start: 416
+    category: DESC
+    expected: MATCH object_cylindre_metallique
+  - surface: Sillage
+    start: 487
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-inconnue-t6
+  genre: sf
+  source: synthetic
+  turn: 7
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 1
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: location_marche_de_l_anneau
+    type: location
+    label: Marché de l'Anneau
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Marché de l'Anneau
+      kind: label
+      known: true
+  - id: location_coursive_c
+    type: location
+    label: Coursive C
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Coursive C
+      kind: label
+      known: true
+  - id: organization_douane_orbitale
+    type: organization
+    label: Douane orbitale
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Douane orbitale
+      kind: label
+      known: true
+  - id: object_carte_d_acces
+    type: object
+    label: Carte d'accès
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Carte d'accès
+      kind: label
+      known: true
+  - id: character_femme_au_manteau_de_pluie
+    type: character
+    label: Sabeth Ondraï
+    true_name: Sabeth Ondraï
+    descriptor: la femme au manteau de pluie
+    known: true
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 6
+    aliases:
+    - text: la femme au manteau de pluie
+      kind: descriptor
+      known: true
+    - text: Sabeth Ondraï
+      kind: true_name
+      known: true
+    - text: Sabeth
+      kind: short
+      known: true
+    - text: Ondraï
+      kind: short
+      known: true
+  - id: object_cylindre_metallique
+    type: object
+    label: Orphée
+    true_name: null
+    descriptor: le cylindre métallique
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: le cylindre métallique
+      kind: descriptor
+      known: true
+    - text: Orphée
+      kind: label
+      known: true
+  - id: organization_syndicat_des_fileurs
+    type: organization
+    label: Syndicat des Fileurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: Syndicat des Fileurs
+      kind: label
+      known: true
+  - id: character_douanier_au_crane_rase
+    type: character
+    label: un douanier au crâne rasé
+    true_name: null
+    descriptor: un douanier au crâne rasé
+    known: false
+    occupation: null
+    location: location_marche_de_l_anneau
+    last_seen_turn: 6
+    aliases:
+    - text: un douanier au crâne rasé
+      kind: descriptor
+      known: true
+  - id: location_entrepot_frigorifique_4
+    type: location
+    label: Entrepôt frigorifique 4
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: Entrepôt frigorifique 4
+      kind: label
+      known: true
+  - id: organization_mutuelle_du_froid
+    type: organization
+    label: Mutuelle du Froid
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: Mutuelle du Froid
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Sabeth glisse Orphée dans la doublure de son manteau.
+
+      — Il faut le sortir de l'anneau ce soir. On passe par l'Entrepôt frigorifique 4, côté quai. C'est la Mutuelle du Froid qui le loue, et les Fileurs n'y mettent jamais les pieds, ils ont peur du froid.
+
+      Ondraï, c'est un nom des stations basses : tu comprends maintenant l'accent dont parlait le douanier. Sabeth Ondraï sourit pour la première fois.
+
+      — Tu viens ? La clé ne s'ouvrira pas sans un deuxième pouce.
+
+      *Je déconseille*, dit Sillage. *Mais je te connais.*
+    mentions:
+    - surface: Sabeth
+      start: 0
+      category: PART
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: Orphée
+      start: 14
+      category: EASY
+      expected: MATCH object_cylindre_metallique
+    - surface: son manteau
+      start: 41
+      category: SKIP
+      expected: SKIP
+    - surface: l'Entrepôt frigorifique 4
+      start: 109
+      category: EASY
+      expected: MATCH location_entrepot_frigorifique_4
+    - surface: la Mutuelle du Froid
+      start: 153
+      category: EASY
+      expected: MATCH organization_mutuelle_du_froid
+    - surface: les Fileurs
+      start: 190
+      category: PART
+      expected: MATCH organization_syndicat_des_fileurs
+    - surface: Ondraï
+      start: 256
+      category: PART
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: le douanier
+      start: 345
+      category: DESC
+      expected: MATCH character_douanier_au_crane_rase
+    - surface: Sabeth Ondraï
+      start: 358
+      category: EASY
+      expected: MATCH character_femme_au_manteau_de_pluie
+    - surface: La clé
+      start: 416
+      category: DESC
+      expected: MATCH object_cylindre_metallique
+    - surface: Sillage
+      start: 487
+      category: PC
+      expected: MATCH companion_sillage
+  scene:
+    location: location_entrepot_frigorifique_4
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_femme_au_manteau_de_pluie
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Le givre craque sous tes semelles. L'entrepôt est désert, à part les carcasses suspendues et la contrebandière qui souffle sur ses doigts.
+
+    — Pose ton pouce là, à côté du mien.
+
+    La clé-mémoire s'allume d'un bleu pâle. Des lignes de texte défilent sur sa surface : des noms, des sommes, des dates, et le sigle du Syndicat des Fileurs en tête de chaque page.
+
+    — Voilà ce qu'Orphée garde, dit Sabeth. Leurs comptes. Et ceux de la Douane orbitale, juste en dessous.
+
+    *Elle avait raison de se méfier des douaniers*, dit Sillage.
+  gold:
+  - surface: tes semelles
+    start: 21
+    category: SKIP
+    expected: SKIP
+  - surface: L'entrepôt
+    start: 35
+    category: PART
+    expected: MATCH location_entrepot_frigorifique_4
+  - surface: la contrebandière
+    start: 93
+    category: DESC
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: ses doigts
+    start: 127
+    category: SKIP
+    expected: SKIP
+  - surface: ton pouce
+    start: 147
+    category: SKIP
+    expected: SKIP
+  - surface: La clé-mémoire
+    start: 178
+    category: DESC
+    expected: MATCH object_cylindre_metallique
+  - surface: sa surface
+    start: 251
+    category: SKIP
+    expected: SKIP
+  - surface: Syndicat des Fileurs
+    start: 312
+    category: EASY
+    expected: MATCH organization_syndicat_des_fileurs
+  - surface: Orphée
+    start: 372
+    category: EASY
+    expected: MATCH object_cylindre_metallique
+  - surface: Sabeth
+    start: 390
+    category: PART
+    expected: MATCH character_femme_au_manteau_de_pluie
+  - surface: la Douane orbitale
+    start: 424
+    category: EASY
+    expected: MATCH organization_douane_orbitale
+  - surface: Sillage
+    start: 515
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+gold_clusters:
+  location_marche_de_l_anneau:
+  - seq-sf-inconnue-t1:13
+  - seq-sf-inconnue-t2:362
+  - seq-sf-inconnue-t3:60
+  character_femme_au_manteau_de_pluie:
+  - seq-sf-inconnue-t1:64
+  - seq-sf-inconnue-t2:84
+  - seq-sf-inconnue-t2:223
+  - seq-sf-inconnue-t3:154
+  - seq-sf-inconnue-t4:56
+  - seq-sf-inconnue-t4:126
+  - seq-sf-inconnue-t4:141
+  - seq-sf-inconnue-t4:332
+  - seq-sf-inconnue-t5:0
+  - seq-sf-inconnue-t5:256
+  - seq-sf-inconnue-t5:358
+  - seq-sf-inconnue-t6:93
+  - seq-sf-inconnue-t6:390
+  object_cylindre_metallique:
+  - seq-sf-inconnue-t1:332
+  - seq-sf-inconnue-t2:176
+  - seq-sf-inconnue-t3:268
+  - seq-sf-inconnue-t3:335
+  - seq-sf-inconnue-t4:171
+  - seq-sf-inconnue-t4:259
+  - seq-sf-inconnue-t5:14
+  - seq-sf-inconnue-t5:416
+  - seq-sf-inconnue-t6:178
+  - seq-sf-inconnue-t6:372
+  organization_douane_orbitale:
+  - seq-sf-inconnue-t1:425
+  - seq-sf-inconnue-t2:373
+  - seq-sf-inconnue-t3:121
+  - seq-sf-inconnue-t4:372
+  - seq-sf-inconnue-t6:424
+  companion_sillage:
+  - seq-sf-inconnue-t1:525
+  - seq-sf-inconnue-t2:448
+  - seq-sf-inconnue-t3:483
+  - seq-sf-inconnue-t4:392
+  - seq-sf-inconnue-t5:487
+  - seq-sf-inconnue-t6:515
+  location_coursive_c:
+  - seq-sf-inconnue-t2:0
+  - seq-sf-inconnue-t2:516
+  - seq-sf-inconnue-t4:22
+  organization_syndicat_des_fileurs:
+  - seq-sf-inconnue-t2:291
+  - seq-sf-inconnue-t3:229
+  - seq-sf-inconnue-t3:394
+  - seq-sf-inconnue-t4:284
+  - seq-sf-inconnue-t5:190
+  - seq-sf-inconnue-t6:312
+  character_douanier_au_crane_rase:
+  - seq-sf-inconnue-t3:0
+  - seq-sf-inconnue-t5:345
+  object_carte_d_acces:
+  - seq-sf-inconnue-t3:88
+  - seq-sf-inconnue-t3:300
+  location_entrepot_frigorifique_4:
+  - seq-sf-inconnue-t5:109
+  - seq-sf-inconnue-t6:35
+  organization_mutuelle_du_froid:
+  - seq-sf-inconnue-t5:153

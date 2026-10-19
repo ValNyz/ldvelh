@@ -1,0 +1,268 @@
+# Data-audit pattern « invented canonical » (Tesk and its two canonicals), dark fantasy variant:
+# the smith has two descriptors and a hidden name; every descriptor links to the same entity
+# (no invented « forgeron de la rue basse »), body parts and his tools are SKIP, a third party reveals the name.
+id: audit-canonique-invente
+genre: dark_fantasy
+source: synthetic
+turn: 15
+world:
+- id: protagonist_isaure
+  type: protagonist
+  label: Isaure
+  true_name: Isaure
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_forge_de_la_rue_basse
+  last_seen_turn: 14
+  aliases:
+  - text: Isaure
+    kind: true_name
+    known: true
+- id: companion_noctule
+  type: companion
+  label: Noctule
+  true_name: Noctule
+  descriptor: la chauve-souris sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Noctule
+    kind: true_name
+    known: true
+  - text: la chauve-souris sur ton épaule
+    kind: descriptor
+    known: true
+- id: character_garrec_mortemain
+  type: character
+  label: Garrec Mortemain
+  true_name: Garrec Mortemain
+  descriptor: Le forgeron borgne
+  known: false
+  occupation: forgeron de la Forge de la Rue Basse
+  location: location_forge_de_la_rue_basse
+  last_seen_turn: 14
+  aliases:
+  - text: Garrec Mortemain
+    kind: true_name
+    known: false
+  - text: Garrec
+    kind: short
+    known: false
+  - text: Mortemain
+    kind: short
+    known: false
+  - text: Le forgeron borgne
+    kind: descriptor
+    known: true
+  - text: l'homme au tablier de cuir
+    kind: descriptor
+    known: true
+- id: location_forge_de_la_rue_basse
+  type: location
+  label: Forge de la Rue Basse
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Forge de la Rue Basse
+    kind: label
+    known: true
+- id: organization_guilde_des_ferrons
+  type: organization
+  label: Guilde des Ferrons
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 13
+  aliases:
+  - text: Guilde des Ferrons
+    kind: label
+    known: true
+- id: object_dague_brisee
+  type: object
+  label: Dague brisée
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Dague brisée
+    kind: label
+    known: true
+history:
+- text: |-
+    Le forgeron borgne frappe une dernière fois, puis essuie sa paume sur son tablier. L'homme au tablier de cuir ne lève pas les yeux quand tu entres dans la Forge de la Rue Basse.
+
+    — Pose ça là, dit-il en montrant ta dague du bout de son marteau.
+  mentions:
+  - surface: Le forgeron borgne
+    start: 0
+    category: DESC
+    expected: MATCH character_garrec_mortemain
+  - surface: sa paume
+    start: 57
+    category: SKIP
+    expected: SKIP
+  - surface: son tablier
+    start: 70
+    category: SKIP
+    expected: SKIP
+  - surface: L'homme au tablier de cuir
+    start: 83
+    category: DESC
+    expected: MATCH character_garrec_mortemain
+  - surface: la Forge de la Rue Basse
+    start: 152
+    category: EASY
+    expected: MATCH location_forge_de_la_rue_basse
+  - surface: ta dague
+    start: 212
+    category: PART
+    expected: MATCH object_dague_brisee
+  - surface: son marteau
+    start: 232
+    category: SKIP
+    expected: SKIP
+scene:
+  location: location_forge_de_la_rue_basse
+  present:
+  - protagonist_isaure
+  - companion_noctule
+  - character_garrec_mortemain
+  reveals:
+  - ref: Le forgeron borgne
+    real_name: Garrec
+  planned_npcs: []
+  secrets:
+  - object_dague_brisee
+  open_disclosures: []
+narration: |-
+  Le forgeron borgne tourne ta dague brisée entre ses doigts et fait jouer le tranchant contre sa paume.
+
+  — Mauvais acier, dit-il. Ça ne sort pas d'un atelier de la Guilde.
+
+  Il repose son marteau sur l'enclume. Au fond de la forge, un gamin couvert de suie lâche le soufflet.
+
+  — Garrec, le charbon est presque fini ! crie le gamin.
+
+  — Alors va en chercher, grogne l'homme au tablier de cuir. Et arrête de brailler mon nom devant les clients.
+
+  L'apprenti file par la porte de derrière. Le forgeron te rend ta dague en serrant la mâchoire.
+
+  — Reviens après le couvre-feu. La Guilde des Ferrons m'interdit de toucher l'acier étranger, mais la nuit, les maîtres de la guilde dorment.
+
+  *Je retiendrai le nom*, souffle Noctule contre ton oreille.
+gold:
+- surface: Le forgeron borgne
+  start: 0
+  category: DESC
+  expected: MATCH character_garrec_mortemain
+- surface: ta dague brisée
+  start: 26
+  category: PART
+  expected: MATCH object_dague_brisee
+- surface: ses doigts
+  start: 48
+  category: SKIP
+  expected: SKIP
+- surface: sa paume
+  start: 93
+  category: SKIP
+  expected: SKIP
+- surface: la Guilde
+  start: 160
+  category: PART
+  expected: MATCH organization_guilde_des_ferrons
+- surface: son marteau
+  start: 182
+  category: SKIP
+  expected: SKIP
+- surface: la forge
+  start: 220
+  category: PART
+  expected: MATCH location_forge_de_la_rue_basse
+- surface: un gamin couvert de suie
+  start: 230
+  category: NEW
+  expected: NEW character
+- surface: Garrec
+  start: 277
+  category: REVEAL
+  expected: ALIAS character_garrec_mortemain true_name
+- surface: le gamin
+  start: 320
+  category: DESC
+  expected: SAME 230
+- surface: l'homme au tablier de cuir
+  start: 362
+  category: DESC
+  expected: MATCH character_garrec_mortemain
+- surface: L'apprenti
+  start: 441
+  category: DESC
+  expected: SAME 230
+- surface: Le forgeron
+  start: 483
+  category: DESC
+  expected: MATCH character_garrec_mortemain
+- surface: ta dague
+  start: 503
+  category: PART
+  expected: MATCH object_dague_brisee
+- surface: la mâchoire
+  start: 523
+  category: SKIP
+  expected: SKIP
+- surface: La Guilde des Ferrons
+  start: 568
+  category: EASY
+  expected: MATCH organization_guilde_des_ferrons
+- surface: les maîtres de la guilde
+  start: 644
+  category: SKIP
+  expected: SKIP
+- surface: la guilde
+  start: 659
+  category: PART
+  expected: MATCH organization_guilde_des_ferrons
+- surface: Noctule
+  start: 711
+  category: PC
+  expected: MATCH companion_noctule
+- surface: ton oreille
+  start: 726
+  category: SKIP
+  expected: SKIP
+gold_effects:
+  reveals:
+  - ref: character_garrec_mortemain
+    real_name: Garrec
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_garrec_mortemain
+  kind: name
+  state: unknown
+  text: Garrec Mortemain
+- ref: character_garrec_mortemain
+  kind: fact
+  state: unknown
+  text: Garrec Mortemain a perdu son œil dans l'incendie de la Rue Basse.
+- ref: object_dague_brisee
+  kind: fact
+  state: secret
+  text: La dague brisée porte, effacée à la lime, la marque d'un armurier de la Maison Valdrake.
+- ref: organization_guilde_des_ferrons
+  kind: fact
+  state: unknown
+  text: La Guilde des Ferrons interdit à ses membres de reforger l'acier étranger.

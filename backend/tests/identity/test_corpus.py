@@ -1,6 +1,7 @@
 """Identity gold corpus: format, loader and validation (#151)."""
 
 import random
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from pydantic import ValidationError
 from evals.identity import corpus
 from evals.identity.corpus import (
     HARD_CATEGORIES,
+    Expected,
     Scene,
     Sequence,
     load_scenes,
@@ -228,15 +230,16 @@ def test_unknown_field_is_rejected_at_load():
 
 
 def test_parse_expected():
-    assert parse_expected("MATCH character_x") == ("MATCH", "character_x", None, None)
-    assert parse_expected("ALIAS character_x short") == (
-        "ALIAS",
-        "character_x",
-        "short",
-        None,
+    assert parse_expected("MATCH character_x") == Expected("MATCH", "character_x")
+    assert parse_expected("ALIAS character_x short") == Expected(
+        "ALIAS", "character_x", alias_kind="short"
     )
-    assert parse_expected("NEW location") == ("NEW", None, None, "location")
-    assert parse_expected("SKIP") == ("SKIP", None, None, None)
+    assert parse_expected("NEW location") == Expected("NEW", new_type="location")
+    assert parse_expected("SKIP") == Expected("SKIP")
+    assert parse_expected("SAME 12") == Expected("SAME", same_start=12)
+    for malformed in ("SAME", "SAME x", "SAME -1", "SAME 1 2"):
+        with pytest.raises(ValueError):
+            parse_expected(malformed)
 
 
 def test_every_committed_scene_is_valid():
@@ -980,3 +983,213 @@ def test_split_script_refuses_a_file_not_named_after_its_scene(tmp_path):
     _write_scenes(tmp_path, ["s0"], names=["other"])
     assert main(["--root", str(tmp_path), "--freeze"]) == 1
     assert not (tmp_path / "split.yaml").exists()
+
+
+# --- ruling (a): an entity born in the turn, then mentioned again (SAME <start>) ---
+
+BORN = "Une femme au manteau gris entre. La femme au manteau gris sourit. Mira rit."
+BORN_NEW = {"surface": "Une femme au manteau gris", "category": "NEW",
+            "expected": "NEW character"}  # fmt: skip
+
+
+def _born(repeat: dict, *, first: dict = BORN_NEW, **kwargs) -> list[str]:
+    return _custom_errors(BORN, [first, repeat], **kwargs)
+
+
+def _repeat(category="DESC", expected="SAME 0", **extra) -> dict:
+    return {"surface": "La femme au manteau gris", "category": category,
+            "expected": expected, **extra}  # fmt: skip
+
+
+def test_a_repeat_of_an_entity_born_in_the_turn_is_same():
+    assert _born(_repeat()) == []
+
+
+def test_same_must_point_at_an_earlier_new_mention():
+    later = {**_repeat(), "start": 0, "surface": "Une femme au manteau gris"}
+    first = {**BORN_NEW, "start": BORN.index("La femme"),
+             "surface": "La femme au manteau gris"}  # fmt: skip
+    errors = _custom_errors(
+        BORN, [{**later, "expected": f"SAME {BORN.index('La femme')}"}, first]
+    )
+    assert len(errors) == 1 and "earlier" in errors[0]
+    errors = _born(_repeat(expected="SAME 3"))
+    assert len(errors) == 1 and "SAME 3" in errors[0]
+    linked = {**BORN_NEW, "category": "DESC",
+              "expected": "MATCH character_kethari_agee"}  # fmt: skip
+    errors = _born(_repeat(), first=linked)
+    assert len(errors) == 1 and "NEW" in errors[0]
+
+
+def test_same_takes_the_category_of_its_surface():
+    for category in ("NEW", "GAP", "REVEAL", "XTYPE", "PC", "SKIP"):
+        errors = _born(_repeat(category=category))
+        assert errors and any(category in e for e in errors), category
+    assert _born(_repeat(category="PART")) == []
+
+
+def test_a_name_given_to_an_entity_born_in_the_turn_can_be_an_easy_same():
+    text = "Une femme entre. — Mira, dit-elle."
+    gold = [{"surface": "Une femme", "category": "NEW", "expected": "NEW character"},
+            {"surface": "Mira", "category": "EASY", "expected": "SAME 0"}]  # fmt: skip
+    assert _custom_errors(text, gold) == []
+
+
+def test_same_has_no_accept_also_and_is_never_an_alternative():
+    errors = _born(_repeat(accept_also=["MATCH character_kethari_agee"]))
+    assert len(errors) == 1 and "accept_also" in errors[0]
+    errors = _errors(gold=_with_gold(0, accept_also=["SAME 0"]))
+    assert len(errors) == 1 and "accept_also" in errors[0]
+
+
+def test_history_mentions_cannot_be_same():
+    history = [{"text": BORN, "mentions": [
+        {**BORN_NEW, "start": 0, "category": "DESC",
+         "expected": "MATCH character_kethari_agee"},
+        {**_repeat(), "start": BORN.index("La femme")},
+    ]}]  # fmt: skip
+    errors = _errors(history=history)
+    assert len(errors) == 1 and "history" in errors[0]
+
+
+def test_a_same_mention_is_in_the_cluster_of_its_new_mention():
+    gold = [{**BORN_NEW, "start": 0},
+            {**_repeat(), "start": BORN.index("La femme")}]  # fmt: skip
+    turn = _custom(BORN, gold, id="seq-t1")
+    repeat = f"seq-t1:{BORN.index('La femme')}"
+    ok = Sequence.model_validate(
+        {"id": "seq", "turns": [turn],
+         "gold_clusters": {"character_femme": ["seq-t1:0", repeat]}}
+    )  # fmt: skip
+    assert validate_sequence(ok) == []
+    split = Sequence.model_validate(
+        {"id": "seq", "turns": [turn],
+         "gold_clusters": {"character_femme": ["seq-t1:0"], "character_x": [repeat]}}
+    )  # fmt: skip
+    errors = validate_sequence(split)
+    assert len(errors) == 1 and repeat in errors[0]
+
+
+# --- ruling (b) and (d): nameless things are described; forms of a revealed name ---
+
+
+def test_part_is_refused_on_an_entity_whose_name_the_pc_does_not_know():
+    text = "Tu entres dans la salle."
+    gold = [{"surface": "la salle", "category": "PART",
+             "expected": "MATCH location_salle_au_bout_du_couloir"}]  # fmt: skip
+    errors = _custom_errors(text, gold, world_extra=[ROOM])
+    assert len(errors) == 1 and "DESC" in errors[0]
+    gold[0]["category"] = "DESC"
+    assert _custom_errors(text, gold, world_extra=[ROOM]) == []
+
+
+def test_a_form_of_a_name_revealed_in_the_turn_is_part_alias_short():
+    text = "Le badge dit : Salle des Pompes. Tu entres dans la salle."
+    reveal = {
+        "surface": "Salle des Pompes",
+        "category": "REVEAL",
+        "expected": "ALIAS location_salle_au_bout_du_couloir true_name",
+    }
+    effects = {"reveals": [{"ref": "location_salle_au_bout_du_couloir",
+                            "real_name": "Salle des Pompes"}],
+               "merges": [], "forbidden_merges": []}  # fmt: skip
+    short = {"surface": "la salle", "start": text.index("la salle"), "category": "PART",
+             "expected": "ALIAS location_salle_au_bout_du_couloir short",
+             "accept_also": ["MATCH location_salle_au_bout_du_couloir"]}  # fmt: skip
+    kwargs = {"world_extra": [ROOM], "gold_effects": effects}
+    assert _custom_errors(text, [reveal, short], **kwargs) == []
+    bare = {**short, "expected": "MATCH location_salle_au_bout_du_couloir",
+            "accept_also": []}  # fmt: skip
+    errors = _custom_errors(text, [reveal, bare], **kwargs)
+    assert len(errors) == 1 and "ALIAS" in errors[0] and "short" in errors[0]
+
+
+def test_a_new_label_is_part_and_a_fresh_object_nickname_is_desc():
+    kettle = _entity("object_gourde", "object", "Gourde")
+    text = "On l'appelle la Bouilloire. Les Passeurs Libres votent."
+    guild = _entity("organization_guilde_des_passeurs", "organization",
+                    "Guilde des Passeurs")  # fmt: skip
+    gold = [
+        {"surface": "la Bouilloire", "category": "DESC",
+         "expected": "ALIAS object_gourde nickname"},
+        {"surface": "Les Passeurs Libres", "category": "PART",
+         "expected": "ALIAS organization_guilde_des_passeurs label"},
+    ]  # fmt: skip
+    kwargs = {"world_extra": [kettle, guild]}
+    assert _custom_errors(text, gold, **kwargs) == []
+    wrong = [{**gold[0], "category": "PART"}, {**gold[1], "category": "DESC"}]
+    errors = _custom_errors(text, wrong, **kwargs)
+    assert len(errors) == 2
+    assert "nickname" in errors[0] and "label" in errors[1]
+
+
+# --- coverage targets of the committed corpus (ANNOTATION § 8, spec § 3.3) ---
+
+MIN_PER_CATEGORY = {"EASY": 100, "SKIP": 60, "PC": 30} | dict.fromkeys(
+    HARD_CATEGORIES, 50
+)
+TYPED = ("character", "location", "organization", "object")
+MIN_TYPE_SHARE = 0.15
+KNOWLEDGE_TYPES = (*TYPED, "arc")
+REQUIRED_SCENES = ("issue-25-voss", "issue-26-gap21", "roadmap-rizka-elara")
+REQUIRED_PREFIXES = ("real-f134-",)
+
+
+def _mention_type(scene: Scene, m) -> str:
+    """Target type of a gold mention (a SAME takes the type of its NEW mention)."""
+    expected = m.parsed
+    if expected.decision == "SAME":
+        expected = next(g for g in scene.gold if g.start == expected.same_start).parsed
+    if expected.decision == "NEW":
+        return expected.new_type
+    entity = next((e for e in scene.world if e.id == expected.entity_id), None)
+    return entity.type if entity is not None else "none"
+
+
+def _coverage_target_errors(scenes: list[Scene]) -> list[str]:
+    counts = Counter(m.category for s in scenes for m in s.gold)
+    by_type = Counter((m.category, _mention_type(s, m)) for s in scenes for m in s.gold)
+    errors = [
+        f"{c}: {counts[c]} mentions, {n} needed"
+        for c, n in MIN_PER_CATEGORY.items()
+        if counts[c] < n
+    ]
+    for c in HARD_CATEGORIES:
+        for t in TYPED:
+            if counts[c] and by_type[(c, t)] / counts[c] < MIN_TYPE_SHARE:
+                errors.append(f"{c} x {t}: {by_type[(c, t)]}/{counts[c]} under 15 %")
+    if len({s.genre for s in scenes}) < 2:
+        errors.append("fewer than two genres")
+    states = set()
+    for s in scenes:
+        types = {e.id: e.type for e in s.world}
+        states |= {(types.get(k.ref), k.state) for k in s.gold_knowledge}
+    errors += [
+        f"gold_knowledge has no {state} item on a {t}"
+        for t in KNOWLEDGE_TYPES
+        for state in ("unknown", "secret")
+        if (t, state) not in states
+    ]
+    ids = {s.id for s in scenes}
+    errors += [
+        f"required scene {i} is missing" for i in REQUIRED_SCENES if i not in ids
+    ]
+    errors += [
+        f"no scene {p}*"
+        for p in REQUIRED_PREFIXES
+        if not any(i.startswith(p) for i in ids)
+    ]
+    return errors
+
+
+def test_corpus_meets_the_coverage_targets():
+    scenes = load_scenes(ROOT) + [t for q in load_sequences(ROOT) for t in q.turns]
+    assert _coverage_target_errors(scenes) == []
+
+
+def test_coverage_targets_fail_on_a_thin_corpus():
+    errors = _coverage_target_errors([Scene.model_validate(_scene())])
+    assert any(e.startswith("PART: 0 mentions") for e in errors)
+    assert "fewer than two genres" in errors
+    assert "required scene issue-25-voss is missing" in errors
+    assert "gold_knowledge has no secret item on a arc" in errors

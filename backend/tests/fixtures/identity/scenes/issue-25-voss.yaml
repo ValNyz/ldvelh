@@ -1,0 +1,329 @@
+# Issue #25 scenario: « Voss » was merged into Dr. Elara Voss (gold world: one entity);
+# weeks later another person named Voss appears. Bare « Voss » for each existing Voss (XTYPE),
+# the newcomer Mila Voss is a NEW trap: she must not inherit Elara's relations.
+id: issue-25-voss
+genre: sf
+source: issue
+turn: 34
+world:
+- id: protagonist_soren
+  type: protagonist
+  label: Soren
+  true_name: Soren
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_quai_7
+  last_seen_turn: 33
+  aliases:
+  - text: Soren
+    kind: true_name
+    known: true
+- id: companion_brume
+  type: companion
+  label: Brume
+  true_name: Brume
+  descriptor: la voix de ton bracelet
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 33
+  aliases:
+  - text: Brume
+    kind: true_name
+    known: true
+  - text: la voix de ton bracelet
+    kind: descriptor
+    known: true
+- id: character_elara_voss
+  type: character
+  label: Dr. Elara Voss
+  true_name: Dr. Elara Voss
+  descriptor: la médecin aux gants bleus
+  known: true
+  occupation: médecin-cheffe du Laboratoire médical
+  location: location_laboratoire_medical
+  last_seen_turn: 31
+  aliases:
+  - text: Dr. Elara Voss
+    kind: true_name
+    known: true
+  - text: Elara Voss
+    kind: short
+    known: true
+  - text: Elara
+    kind: short
+    known: true
+  - text: Voss
+    kind: short
+    known: true
+  - text: la médecin aux gants bleus
+    kind: descriptor
+    known: true
+- id: character_hadrien_voss
+  type: character
+  label: Hadrien Voss
+  true_name: Hadrien Voss
+  descriptor: le colosse au gilet orange
+  known: true
+  occupation: sergent de la Sécurité des Quais
+  location: location_quai_7
+  last_seen_turn: 33
+  aliases:
+  - text: Hadrien Voss
+    kind: true_name
+    known: true
+  - text: Hadrien
+    kind: short
+    known: true
+  - text: Voss
+    kind: short
+    known: true
+  - text: le sergent Voss
+    kind: title
+    known: true
+  - text: le colosse au gilet orange
+    kind: descriptor
+    known: true
+- id: location_quai_7
+  type: location
+  label: Quai 7
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 33
+  aliases:
+  - text: Quai 7
+    kind: label
+    known: true
+- id: location_laboratoire_medical
+  type: location
+  label: Laboratoire médical
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 31
+  aliases:
+  - text: Laboratoire médical
+    kind: label
+    known: true
+- id: location_station_hadal_3
+  type: location
+  label: Station Hadal-3
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 33
+  aliases:
+  - text: Station Hadal-3
+    kind: label
+    known: true
+- id: organization_securite_des_quais
+  type: organization
+  label: Sécurité des Quais
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 33
+  aliases:
+  - text: Sécurité des Quais
+    kind: label
+    known: true
+- id: object_badge_d_acces
+  type: object
+  label: Badge d'accès
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 30
+  aliases:
+  - text: Badge d'accès
+    kind: label
+    known: true
+- id: arc_les_dossiers_effaces
+  type: arc
+  label: Les dossiers effacés
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 31
+  aliases:
+  - text: Les dossiers effacés
+    kind: label
+    known: true
+history:
+- text: |-
+    Hadrien Voss referme le casier des combinaisons. Le colosse au gilet orange te tend ton badge d'accès sans un mot.
+
+    *On t'attend au Quai 7 demain matin*, dit Brume.
+  mentions:
+  - surface: Hadrien Voss
+    start: 0
+    category: EASY
+    expected: MATCH character_hadrien_voss
+  - surface: Le colosse au gilet orange
+    start: 49
+    category: DESC
+    expected: MATCH character_hadrien_voss
+  - surface: ton badge d'accès
+    start: 84
+    category: PART
+    expected: MATCH object_badge_d_acces
+  - surface: Quai 7
+    start: 132
+    category: EASY
+    expected: MATCH location_quai_7
+  - surface: Brume
+    start: 158
+    category: PC
+    expected: MATCH companion_brume
+scene:
+  location: location_quai_7
+  present:
+  - protagonist_soren
+  - companion_brume
+  - character_hadrien_voss
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - character_hadrien_voss
+  - arc_les_dossiers_effaces
+  open_disclosures: []
+narration: |-
+  Le sergent Voss t'attend au bout du Quai 7, les bras croisés sur son gilet de la Sécurité des Quais. À côté de lui, une jeune femme en combinaison de plongée tire sur ses gants d'un coup sec.
+
+  — Mila Voss, dit-elle. Je remplace l'équipe de nuit depuis ce matin.
+
+  Hadrien hoche la tête sans la regarder.
+
+  — Ma nièce. Elle arrive de la surface, elle ne connaît encore personne sur la station. Si tu cherches Voss pour tes analyses, la médecin aux gants bleus est au laboratoire depuis six heures.
+
+  Le haut-parleur grésille au-dessus du sas : « Voss, au treuil numéro deux. » Le sergent soupire et décroche sa radio.
+
+  — Elara et moi, on n'a que le nom en commun, ajoute-t-il. Ne laisse pas la Sécurité te dire le contraire.
+
+  *Ton badge ouvre encore le Laboratoire médical*, murmure la voix de ton bracelet. *Dr. Elara Voss a signé tes résultats à six heures douze.*
+gold:
+- surface: Le sergent Voss
+  start: 0
+  category: PART
+  expected: MATCH character_hadrien_voss
+- surface: Quai 7
+  start: 36
+  category: EASY
+  expected: MATCH location_quai_7
+- surface: son gilet de la Sécurité des Quais
+  start: 65
+  category: SKIP
+  expected: SKIP
+- surface: la Sécurité des Quais
+  start: 78
+  category: EASY
+  expected: MATCH organization_securite_des_quais
+- surface: une jeune femme en combinaison de plongée
+  start: 116
+  category: NEW
+  expected: NEW character
+- surface: ses gants
+  start: 167
+  category: SKIP
+  expected: SKIP
+- surface: Mila Voss
+  start: 195
+  category: EASY
+  expected: SAME 116
+- surface: Hadrien
+  start: 263
+  category: PART
+  expected: MATCH character_hadrien_voss
+- surface: Ma nièce
+  start: 306
+  category: DESC
+  expected: SAME 116
+- surface: personne
+  start: 366
+  category: SKIP
+  expected: SKIP
+- surface: la station
+  start: 379
+  category: PART
+  expected: MATCH location_station_hadal_3
+- surface: Voss
+  start: 406
+  category: XTYPE
+  expected: MATCH character_elara_voss
+- surface: la médecin aux gants bleus
+  start: 430
+  category: DESC
+  expected: MATCH character_elara_voss
+- surface: laboratoire
+  start: 464
+  category: PART
+  expected: MATCH location_laboratoire_medical
+- surface: Voss
+  start: 542
+  category: XTYPE
+  expected: MATCH character_hadrien_voss
+- surface: Le sergent
+  start: 573
+  category: DESC
+  expected: MATCH character_hadrien_voss
+- surface: sa radio
+  start: 604
+  category: SKIP
+  expected: SKIP
+- surface: Elara
+  start: 617
+  category: PART
+  expected: MATCH character_elara_voss
+- surface: la Sécurité
+  start: 687
+  category: PART
+  expected: MATCH organization_securite_des_quais
+- surface: Ton badge
+  start: 723
+  category: PART
+  expected: MATCH object_badge_d_acces
+- surface: le Laboratoire médical
+  start: 746
+  category: EASY
+  expected: MATCH location_laboratoire_medical
+- surface: la voix de ton bracelet
+  start: 779
+  category: PC
+  expected: MATCH companion_brume
+- surface: Dr. Elara Voss
+  start: 805
+  category: EASY
+  expected: MATCH character_elara_voss
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges:
+  - a: character_elara_voss
+    b: character_hadrien_voss
+gold_knowledge:
+- ref: character_hadrien_voss
+  kind: fact
+  state: secret
+  text: Hadrien Voss a effacé les dossiers médicaux des plongeurs du Quai 7.
+- ref: arc_les_dossiers_effaces
+  kind: fact
+  state: unknown
+  text: Les dossiers médicaux des plongeurs du Quai 7 ont disparu des serveurs de la station.
+- ref: arc_les_dossiers_effaces
+  kind: fact
+  state: secret
+  text: L'effacement des dossiers couvre un accident de décompression ordonné par la direction de la Station Hadal-3.

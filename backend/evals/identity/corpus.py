@@ -16,8 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from evals.identity.categories import (
     category_error,
     knows_no_name,
+    lexicon_of,
     missing_pronoun_mentions,
 )
+from evals.identity.lexicon import DEFAULT_LANGUAGE, has_lexicon
 
 EntityType = Literal[
     "character", "location", "organization", "object", "protagonist", "companion", "arc"
@@ -39,26 +41,35 @@ KNOWLEDGE_NAME_KINDS = frozenset({"true_name", "label"})
 
 
 class Expected(NamedTuple):
-    decision: Literal["MATCH", "ALIAS", "NEW", "SKIP"]
-    entity_id: str | None
-    alias_kind: str | None
-    new_type: str | None
+    decision: Literal["MATCH", "ALIAS", "NEW", "SKIP", "SAME"]
+    entity_id: str | None = None
+    alias_kind: str | None = None
+    new_type: str | None = None
+    same_start: int | None = None  # SAME: start of the NEW mention of the entity
 
 
 def parse_expected(text: str) -> Expected:
-    """`MATCH <id>` | `ALIAS <id> <kind>` | `NEW <type>` | `SKIP`; raises ValueError otherwise."""
+    """`MATCH <id>` | `ALIAS <id> <kind>` | `NEW <type>` | `SKIP` | `SAME <start>`.
+
+    `SAME <start>` links a mention to the entity born at the NEW mention that starts at
+    `<start>` earlier in the same narration (ANNOTATION § 4.3). Raises ValueError on
+    anything else.
+    """
     parts = text.split()
     match parts:
         case ["MATCH", entity_id]:
-            return Expected("MATCH", entity_id, None, None)
+            return Expected("MATCH", entity_id)
         case ["ALIAS", entity_id, kind] if kind in ALIAS_KINDS:
-            return Expected("ALIAS", entity_id, kind, None)
+            return Expected("ALIAS", entity_id, alias_kind=kind)
         case ["NEW", new_type] if new_type in NEW_TYPES:
-            return Expected("NEW", None, None, new_type)
+            return Expected("NEW", new_type=new_type)
         case ["SKIP"]:
-            return Expected("SKIP", None, None, None)
+            return Expected("SKIP")
+        case ["SAME", start] if start.isdigit():
+            return Expected("SAME", same_start=int(start))
     raise ValueError(
-        f"malformed expected {text!r} (MATCH <id> | ALIAS <id> <kind> | NEW <type> | SKIP)"
+        f"malformed expected {text!r} "
+        "(MATCH <id> | ALIAS <id> <kind> | NEW <type> | SKIP | SAME <start>)"
     )
 
 
@@ -175,7 +186,8 @@ class KnowledgeItem(_Strict):
 
 class Scene(_Strict):
     id: str
-    genre: str
+    genre: str  # free label; the corpus needs at least two (ANNOTATION § 8)
+    language: str = DEFAULT_LANGUAGE  # selects evals/identity/lexicon/<language>.yaml
     source: Literal["real", "synthetic", "issue"]
     turn: int | None = None
     world: list[WorldEntity]
@@ -185,6 +197,13 @@ class Scene(_Strict):
     gold: list[GoldMention]
     gold_effects: GoldEffects
     gold_knowledge: list[KnowledgeItem]
+
+    @field_validator("language")
+    @classmethod
+    def _language_has_a_lexicon(cls, value: str) -> str:
+        if not has_lexicon(value):
+            raise ValueError(f"no lexicon for language {value!r}")
+        return value
 
 
 class Sequence(_Strict):
@@ -259,7 +278,9 @@ def fingerprint_test_split(root: Path) -> str:
 # --- validation ------------------------------------------------------------
 
 
-def _offset_errors(where: str, text: str, mentions: list[GoldMention]) -> list[str]:
+def _offset_errors(
+    scene: Scene, where: str, text: str, mentions: list[GoldMention]
+) -> list[str]:
     errors = []
     for m in mentions:
         if text[m.start : m.start + len(m.surface)] != m.surface:
@@ -274,7 +295,8 @@ def _offset_errors(where: str, text: str, mentions: list[GoldMention]) -> list[s
     for start in sorted({s for s in starts if starts.count(s) > 1}):
         errors.append(f"{where}: several mentions at the same start {start}")
     errors += _nesting_errors(where, mentions)
-    errors += [f"{where}: {e}" for e in missing_pronoun_mentions(text, mentions)]
+    missing = missing_pronoun_mentions(text, mentions, lexicon_of(scene))
+    errors += [f"{where}: {e}" for e in missing]
     return errors
 
 
@@ -298,10 +320,14 @@ def _nesting_errors(where: str, mentions: list[GoldMention]) -> list[str]:
 
 def _accept_also_errors(label: str, m: GoldMention, ids: set[str]) -> list[str]:
     """`accept_also` only widens the form on the gold entity (ANNOTATION § 4.3)."""
+    if m.parsed.decision == "SAME" and m.accept_also:
+        return [f"{label}: a SAME gold has no accept_also"]
     errors = []
     for text in m.accept_also:
         alternative = parse_expected(text)
-        if alternative.decision in ("NEW", "SKIP"):
+        if alternative.decision == "SAME":
+            errors.append(f"{label}: accept_also {text!r} cannot be SAME")
+        elif alternative.decision in ("NEW", "SKIP"):
             errors.append(f"{label}: accept_also {text!r} must link the gold entity")
         elif (
             alternative.entity_id in ids and alternative.entity_id != m.parsed.entity_id
@@ -472,12 +498,12 @@ def validate_scene(scene: Scene) -> list[str]:
     world = {e.id: e for e in scene.world}
     ids = set(world)
     errors = _world_errors(scene)
-    errors += _offset_errors("gold", scene.narration, scene.gold)
+    errors += _offset_errors(scene, "gold", scene.narration, scene.gold)
     for m in scene.gold:
         errors += _mention_errors(scene, "gold", m, ids, history=False)
     for i, message in enumerate(scene.history):
         where = f"history[{i}]"
-        errors += _offset_errors(where, message.text, message.mentions)
+        errors += _offset_errors(scene, where, message.text, message.mentions)
         for m in message.mentions:
             errors += _mention_errors(scene, where, m, ids, history=True)
     errors += _reveal_errors(scene, world)
@@ -489,7 +515,7 @@ def validate_scene(scene: Scene) -> list[str]:
 
 def _cluster_errors(sequence: Sequence) -> list[str]:
     mentions = {
-        f"{t.id}:{m.start}": m
+        f"{t.id}:{m.start}": (t.id, m)
         for t in sequence.turns
         for m in t.gold
         if m.parsed.decision != "SKIP"
@@ -497,10 +523,11 @@ def _cluster_errors(sequence: Sequence) -> list[str]:
     clustered = [
         (entity, key) for entity, keys in sequence.gold_clusters.items() for key in keys
     ]
+    owner = {key: entity for entity, key in clustered}
     keys = [key for _, key in clustered]
     errors = []
     for entity, key in clustered:
-        m = mentions.get(key)
+        turn_id, m = mentions.get(key, (None, None))
         if m is None:
             errors.append(
                 f"gold_clusters: {key!r} is not a linked gold mention of the sequence"
@@ -509,6 +536,12 @@ def _cluster_errors(sequence: Sequence) -> list[str]:
             errors.append(
                 f"gold_clusters: {key!r} is in cluster {entity!r} but its gold is {m.expected!r}"
             )
+        elif m.parsed.decision == "SAME":
+            born = f"{turn_id}:{m.parsed.same_start}"
+            if owner.get(born) != entity:
+                errors.append(
+                    f"gold_clusters: {key!r} ({m.expected}) is not in the cluster of {born!r}"
+                )
     for key in sorted({k for k in keys if keys.count(k) > 1}):
         errors.append(f"gold_clusters: {key!r} is in more than one cluster")
     for key in sorted(set(mentions) - set(keys)):

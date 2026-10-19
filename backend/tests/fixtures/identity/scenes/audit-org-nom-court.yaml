@@ -1,0 +1,263 @@
+# Data-audit pattern « short org name vs full name » (Coopérative), dark fantasy variant:
+# « la Compagnie » is the Compagnie Marchande (alias short), never a second org; the Compagnie du Guet
+# acts in the scene as another org (NEW trap); the black-seal backers are revealed by their seal.
+id: audit-org-nom-court
+genre: dark_fantasy
+source: synthetic
+turn: 12
+world:
+- id: protagonist_isaure
+  type: protagonist
+  label: Isaure
+  true_name: Isaure
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_comptoir_des_hautes_brumes
+  last_seen_turn: 11
+  aliases:
+  - text: Isaure
+    kind: true_name
+    known: true
+- id: companion_noctule
+  type: companion
+  label: Noctule
+  true_name: Noctule
+  descriptor: la chauve-souris sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Noctule
+    kind: true_name
+    known: true
+  - text: la chauve-souris sur ton épaule
+    kind: descriptor
+    known: true
+- id: organization_compagnie_marchande_des_hautes_brumes
+  type: organization
+  label: Compagnie Marchande des Hautes-Brumes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Compagnie Marchande des Hautes-Brumes
+    kind: label
+    known: true
+  - text: Compagnie
+    kind: short
+    known: true
+- id: organization_maison_valdrake
+  type: organization
+  label: Maison Valdrake
+  true_name: Maison Valdrake
+  descriptor: les commanditaires au sceau noir
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 10
+  aliases:
+  - text: Maison Valdrake
+    kind: true_name
+    known: false
+  - text: les commanditaires au sceau noir
+    kind: descriptor
+    known: true
+- id: character_aurele_mastin
+  type: character
+  label: Aurèle Mastin
+  true_name: Aurèle Mastin
+  descriptor: null
+  known: true
+  occupation: intendant de la Compagnie Marchande des Hautes-Brumes
+  location: location_comptoir_des_hautes_brumes
+  last_seen_turn: 11
+  aliases:
+  - text: Aurèle Mastin
+    kind: true_name
+    known: true
+  - text: Aurèle
+    kind: short
+    known: true
+  - text: Mastin
+    kind: short
+    known: true
+  - text: l'intendant Mastin
+    kind: title
+    known: true
+- id: location_comptoir_des_hautes_brumes
+  type: location
+  label: Comptoir des Hautes-Brumes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Comptoir des Hautes-Brumes
+    kind: label
+    known: true
+- id: location_hautes_brumes
+  type: location
+  label: Hautes-Brumes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Hautes-Brumes
+    kind: label
+    known: true
+- id: object_lettre_de_change
+  type: object
+  label: Lettre de change
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 10
+  aliases:
+  - text: Lettre de change
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_comptoir_des_hautes_brumes
+  present:
+  - protagonist_isaure
+  - companion_noctule
+  - character_aurele_mastin
+  reveals:
+  - ref: les commanditaires au sceau noir
+    real_name: Maison Valdrake
+  planned_npcs: []
+  secrets:
+  - organization_maison_valdrake
+  open_disclosures: []
+narration: |-
+  L'intendant Mastin étale les registres de la Compagnie sur le comptoir et chausse ses lunettes.
+
+  — Tout ce qui entre aux Hautes-Brumes passe par la Compagnie Marchande, dit-il. Ça vaut pour ta lettre de change comme pour le sel.
+
+  Il retourne la lettre et fronce les sourcils devant le cachet de cire noire.
+
+  — Elle n'est pas de chez nous. Ce sceau-là, c'est celui de la Maison Valdrake. Avec Valdrake, la Compagnie ne traite plus depuis trois saisons.
+
+  Les commanditaires au sceau noir dont parlaient les rumeurs ont donc un nom. Aurèle Mastin referme le grand livre de la maison de commerce.
+
+  — Et ne compte pas sur la Compagnie du Guet : elle escorte nos convois, mais elle ne signe rien en notre nom. Demande plutôt à la Compagnie Marchande des Hautes-Brumes de racheter ta créance, si elle en veut encore.
+
+  *Ton papier ne vaut rien ici*, siffle Noctule. *Je te l'avais dit au comptoir d'en bas.*
+gold:
+- surface: L'intendant Mastin
+  start: 0
+  category: PART
+  expected: MATCH character_aurele_mastin
+- surface: les registres de la Compagnie
+  start: 25
+  category: SKIP
+  expected: SKIP
+- surface: la Compagnie
+  start: 42
+  category: PART
+  expected: MATCH organization_compagnie_marchande_des_hautes_brumes
+- surface: ses lunettes
+  start: 82
+  category: SKIP
+  expected: SKIP
+- surface: Hautes-Brumes
+  start: 121
+  category: EASY
+  expected: MATCH location_hautes_brumes
+- surface: la Compagnie Marchande
+  start: 145
+  category: PART
+  expected: MATCH organization_compagnie_marchande_des_hautes_brumes
+- surface: ta lettre de change
+  start: 190
+  category: PART
+  expected: MATCH object_lettre_de_change
+- surface: la lettre
+  start: 242
+  category: PART
+  expected: MATCH object_lettre_de_change
+- surface: la Maison Valdrake
+  start: 367
+  category: REVEAL
+  expected: ALIAS organization_maison_valdrake true_name
+- surface: Valdrake
+  start: 392
+  category: PART
+  expected: ALIAS organization_maison_valdrake short
+  accept_also:
+  - MATCH organization_maison_valdrake
+- surface: la Compagnie
+  start: 402
+  category: PART
+  expected: MATCH organization_compagnie_marchande_des_hautes_brumes
+- surface: Les commanditaires au sceau noir
+  start: 453
+  category: DESC
+  expected: MATCH organization_maison_valdrake
+- surface: Aurèle Mastin
+  start: 530
+  category: EASY
+  expected: MATCH character_aurele_mastin
+- surface: le grand livre de la maison de commerce
+  start: 552
+  category: SKIP
+  expected: SKIP
+- surface: la maison de commerce
+  start: 570
+  category: DESC
+  expected: MATCH organization_compagnie_marchande_des_hautes_brumes
+- surface: la Compagnie du Guet
+  start: 617
+  category: NEW
+  expected: NEW organization
+  trap: true
+- surface: la Compagnie Marchande des Hautes-Brumes
+  start: 721
+  category: EASY
+  expected: MATCH organization_compagnie_marchande_des_hautes_brumes
+- surface: Ton papier
+  start: 812
+  category: SKIP
+  expected: SKIP
+- surface: Noctule
+  start: 849
+  category: PC
+  expected: MATCH companion_noctule
+- surface: comptoir
+  start: 880
+  category: PART
+  expected: MATCH location_comptoir_des_hautes_brumes
+gold_effects:
+  reveals:
+  - ref: organization_maison_valdrake
+    real_name: Maison Valdrake
+  merges: []
+  forbidden_merges:
+  - a: organization_compagnie_marchande_des_hautes_brumes
+    b: organization_maison_valdrake
+gold_knowledge:
+- ref: organization_maison_valdrake
+  kind: name
+  state: unknown
+  text: Maison Valdrake
+- ref: organization_maison_valdrake
+  kind: fact
+  state: secret
+  text: La Maison Valdrake finance en secret la Compagnie du Guet pour détourner les convois.
+- ref: organization_compagnie_marchande_des_hautes_brumes
+  kind: fact
+  state: unknown
+  text: La Compagnie Marchande des Hautes-Brumes a perdu trois convois cet hiver.

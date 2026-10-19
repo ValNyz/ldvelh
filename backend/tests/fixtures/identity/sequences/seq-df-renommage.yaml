@@ -1,0 +1,1586 @@
+# Sequence: an organization renames itself (Guilde des Passeurs -> Passeurs Libres de Vharn); loyalists
+# then refound a guild under the old name (NEW trap, then XTYPE on the shared name).
+id: seq-df-renommage
+turns:
+- id: seq-df-renommage-t1
+  genre: dark_fantasy
+  source: synthetic
+  turn: 10
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_salle_des_cordes
+    last_seen_turn: 9
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 9
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_guilde_des_passeurs
+    type: organization
+    label: Guilde des Passeurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 9
+    aliases:
+    - text: Guilde des Passeurs
+      kind: label
+      known: true
+  - id: character_ilse_varga
+    type: character
+    label: Ilse Varga
+    true_name: Ilse Varga
+    descriptor: la vieille femme aux mains goudronnées
+    known: true
+    occupation: doyenne de la Guilde des Passeurs
+    location: location_salle_des_cordes
+    last_seen_turn: 9
+    aliases:
+    - text: Ilse Varga
+      kind: true_name
+      known: true
+    - text: Ilse
+      kind: short
+      known: true
+    - text: Varga
+      kind: short
+      known: true
+    - text: la doyenne Varga
+      kind: title
+      known: true
+    - text: la vieille femme aux mains goudronnées
+      kind: descriptor
+      known: true
+  - id: character_margrave_ottokar
+    type: character
+    label: Margrave Ottokar
+    true_name: Margrave Ottokar
+    descriptor: null
+    known: true
+    occupation: seigneur de Vharn
+    location: location_port_de_vharn
+    last_seen_turn: 8
+    aliases:
+    - text: Margrave Ottokar
+      kind: true_name
+      known: true
+    - text: Ottokar
+      kind: short
+      known: true
+    - text: le Margrave
+      kind: title
+      known: true
+  - id: organization_garde_du_margrave
+    type: organization
+    label: Garde du Margrave
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Garde du Margrave
+      kind: label
+      known: true
+  - id: location_salle_des_cordes
+    type: location
+    label: Salle des Cordes
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 9
+    aliases:
+    - text: Salle des Cordes
+      kind: label
+      known: true
+  - id: location_port_de_vharn
+    type: location
+    label: Port de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Port de Vharn
+      kind: label
+      known: true
+  - id: object_jeton_de_passage
+    type: object
+    label: Jeton de passage
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 9
+    aliases:
+    - text: Jeton de passage
+      kind: label
+      known: true
+  history: []
+  scene:
+    location: location_salle_des_cordes
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_ilse_varga
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Les lanternes de la Salle des Cordes fument au-dessus des bancs pleins. Ilse Varga frappe trois fois le sol de sa canne, et le silence se fait.
+
+    — Le Margrave a doublé la taxe des passages pour la troisième fois. La Guilde des Passeurs ne paiera plus. À partir de ce soir, nous ne sommes plus sa guilde : nous sommes les Passeurs Libres de Vharn.
+
+    Les passeurs se lèvent en grondant. La doyenne Varga lève sa canne pour les calmer.
+
+    — La Garde du Margrave viendra, c'est sûr. Que chacun garde son jeton sur lui.
+
+    Tu sens sous tes doigts ton jeton de passage, encore frappé du sceau de la Guilde.
+
+    *Elle vient de déclarer une guerre avec un vote à main levée*, souffle Noctule.
+  gold:
+  - surface: la Salle des Cordes
+    start: 17
+    category: EASY
+    expected: MATCH location_salle_des_cordes
+  - surface: Ilse Varga
+    start: 72
+    category: EASY
+    expected: MATCH character_ilse_varga
+  - surface: sa canne
+    start: 111
+    category: SKIP
+    expected: SKIP
+  - surface: Le Margrave
+    start: 147
+    category: PART
+    expected: MATCH character_margrave_ottokar
+  - surface: La Guilde des Passeurs
+    start: 213
+    category: EASY
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: les Passeurs Libres de Vharn
+    start: 317
+    category: PART
+    expected: ALIAS organization_guilde_des_passeurs label
+  - surface: Les passeurs
+    start: 348
+    category: SKIP
+    expected: SKIP
+  - surface: La doyenne Varga
+    start: 384
+    category: PART
+    expected: MATCH character_ilse_varga
+  - surface: sa canne
+    start: 406
+    category: SKIP
+    expected: SKIP
+  - surface: La Garde du Margrave
+    start: 435
+    category: EASY
+    expected: MATCH organization_garde_du_margrave
+  - surface: chacun
+    start: 480
+    category: SKIP
+    expected: SKIP
+  - surface: son jeton
+    start: 493
+    category: SKIP
+    expected: SKIP
+  - surface: tes doigts
+    start: 526
+    category: SKIP
+    expected: SKIP
+  - surface: ton jeton de passage
+    start: 537
+    category: PART
+    expected: MATCH object_jeton_de_passage
+  - surface: la Guilde
+    start: 585
+    category: PART
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: Noctule
+    start: 668
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-df-renommage-t2
+  genre: dark_fantasy
+  source: synthetic
+  turn: 11
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_salle_des_cordes
+    last_seen_turn: 9
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_guilde_des_passeurs
+    type: organization
+    label: les Passeurs Libres de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Guilde des Passeurs
+      kind: former_name
+      known: true
+    - text: les Passeurs Libres de Vharn
+      kind: label
+      known: true
+  - id: character_ilse_varga
+    type: character
+    label: Ilse Varga
+    true_name: Ilse Varga
+    descriptor: la vieille femme aux mains goudronnées
+    known: true
+    occupation: doyenne de la Guilde des Passeurs
+    location: location_salle_des_cordes
+    last_seen_turn: 10
+    aliases:
+    - text: Ilse Varga
+      kind: true_name
+      known: true
+    - text: Ilse
+      kind: short
+      known: true
+    - text: Varga
+      kind: short
+      known: true
+    - text: la doyenne Varga
+      kind: title
+      known: true
+    - text: la vieille femme aux mains goudronnées
+      kind: descriptor
+      known: true
+  - id: character_margrave_ottokar
+    type: character
+    label: Margrave Ottokar
+    true_name: Margrave Ottokar
+    descriptor: null
+    known: true
+    occupation: seigneur de Vharn
+    location: location_port_de_vharn
+    last_seen_turn: 10
+    aliases:
+    - text: Margrave Ottokar
+      kind: true_name
+      known: true
+    - text: Ottokar
+      kind: short
+      known: true
+    - text: le Margrave
+      kind: title
+      known: true
+  - id: organization_garde_du_margrave
+    type: organization
+    label: Garde du Margrave
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Garde du Margrave
+      kind: label
+      known: true
+  - id: location_salle_des_cordes
+    type: location
+    label: Salle des Cordes
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Salle des Cordes
+      kind: label
+      known: true
+  - id: location_port_de_vharn
+    type: location
+    label: Port de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Port de Vharn
+      kind: label
+      known: true
+  - id: object_jeton_de_passage
+    type: object
+    label: Jeton de passage
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Jeton de passage
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Les lanternes de la Salle des Cordes fument au-dessus des bancs pleins. Ilse Varga frappe trois fois le sol de sa canne, et le silence se fait.
+
+      — Le Margrave a doublé la taxe des passages pour la troisième fois. La Guilde des Passeurs ne paiera plus. À partir de ce soir, nous ne sommes plus sa guilde : nous sommes les Passeurs Libres de Vharn.
+
+      Les passeurs se lèvent en grondant. La doyenne Varga lève sa canne pour les calmer.
+
+      — La Garde du Margrave viendra, c'est sûr. Que chacun garde son jeton sur lui.
+
+      Tu sens sous tes doigts ton jeton de passage, encore frappé du sceau de la Guilde.
+
+      *Elle vient de déclarer une guerre avec un vote à main levée*, souffle Noctule.
+    mentions:
+    - surface: la Salle des Cordes
+      start: 17
+      category: EASY
+      expected: MATCH location_salle_des_cordes
+    - surface: Ilse Varga
+      start: 72
+      category: EASY
+      expected: MATCH character_ilse_varga
+    - surface: sa canne
+      start: 111
+      category: SKIP
+      expected: SKIP
+    - surface: Le Margrave
+      start: 147
+      category: PART
+      expected: MATCH character_margrave_ottokar
+    - surface: La Guilde des Passeurs
+      start: 213
+      category: PART
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: les Passeurs Libres de Vharn
+      start: 317
+      category: EASY
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: Les passeurs
+      start: 348
+      category: SKIP
+      expected: SKIP
+    - surface: La doyenne Varga
+      start: 384
+      category: PART
+      expected: MATCH character_ilse_varga
+    - surface: sa canne
+      start: 406
+      category: SKIP
+      expected: SKIP
+    - surface: La Garde du Margrave
+      start: 435
+      category: EASY
+      expected: MATCH organization_garde_du_margrave
+    - surface: chacun
+      start: 480
+      category: SKIP
+      expected: SKIP
+    - surface: son jeton
+      start: 493
+      category: SKIP
+      expected: SKIP
+    - surface: tes doigts
+      start: 526
+      category: SKIP
+      expected: SKIP
+    - surface: ton jeton de passage
+      start: 537
+      category: PART
+      expected: MATCH object_jeton_de_passage
+    - surface: la Guilde
+      start: 585
+      category: PART
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: Noctule
+      start: 668
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_port_de_vharn
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Au Port de Vharn, un sergent à la cape pourpre arrache les avis placardés sur les pontons.
+
+    — Les Passeurs Libres de Vharn, ricane-t-il en lisant. Hier encore, c'était la Guilde des Passeurs, et elle mangeait dans la main du Margrave.
+
+    Il se tourne vers toi et tend la main.
+
+    — Ton jeton. Ces rebelles du port n'ont plus le droit d'en délivrer, et la Garde confisque tout ce qui porte leur ancien sceau.
+
+    Tu gardes la main dans ta poche. Derrière lui, deux gardes observent la scène sans bouger.
+
+    *Les Passeurs Libres n'avaient pas prévu ça*, note Noctule.
+  gold:
+  - surface: Port de Vharn
+    start: 3
+    category: EASY
+    expected: MATCH location_port_de_vharn
+  - surface: un sergent à la cape pourpre
+    start: 18
+    category: NEW
+    expected: NEW character
+  - surface: Les Passeurs Libres de Vharn
+    start: 94
+    category: EASY
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: la Guilde des Passeurs
+    start: 168
+    category: PART
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: Margrave
+    start: 225
+    category: PART
+    expected: MATCH character_margrave_ottokar
+  - surface: Ton jeton
+    start: 278
+    category: PART
+    expected: MATCH object_jeton_de_passage
+  - surface: Ces rebelles du port
+    start: 289
+    category: DESC
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: port
+    start: 305
+    category: PART
+    expected: MATCH location_port_de_vharn
+  - surface: la Garde
+    start: 348
+    category: PART
+    expected: MATCH organization_garde_du_margrave
+  - surface: ta poche
+    start: 428
+    category: SKIP
+    expected: SKIP
+  - surface: deux gardes
+    start: 452
+    category: SKIP
+    expected: SKIP
+  - surface: Les Passeurs Libres
+    start: 498
+    category: PART
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: Noctule
+    start: 548
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-df-renommage-t3
+  genre: dark_fantasy
+  source: synthetic
+  turn: 12
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_salle_des_cordes
+    last_seen_turn: 9
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_guilde_des_passeurs
+    type: organization
+    label: les Passeurs Libres de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Guilde des Passeurs
+      kind: former_name
+      known: true
+    - text: les Passeurs Libres de Vharn
+      kind: label
+      known: true
+  - id: character_ilse_varga
+    type: character
+    label: Ilse Varga
+    true_name: Ilse Varga
+    descriptor: la vieille femme aux mains goudronnées
+    known: true
+    occupation: doyenne de la Guilde des Passeurs
+    location: location_salle_des_cordes
+    last_seen_turn: 10
+    aliases:
+    - text: Ilse Varga
+      kind: true_name
+      known: true
+    - text: Ilse
+      kind: short
+      known: true
+    - text: Varga
+      kind: short
+      known: true
+    - text: la doyenne Varga
+      kind: title
+      known: true
+    - text: la vieille femme aux mains goudronnées
+      kind: descriptor
+      known: true
+  - id: character_margrave_ottokar
+    type: character
+    label: Margrave Ottokar
+    true_name: Margrave Ottokar
+    descriptor: null
+    known: true
+    occupation: seigneur de Vharn
+    location: location_port_de_vharn
+    last_seen_turn: 11
+    aliases:
+    - text: Margrave Ottokar
+      kind: true_name
+      known: true
+    - text: Ottokar
+      kind: short
+      known: true
+    - text: le Margrave
+      kind: title
+      known: true
+  - id: organization_garde_du_margrave
+    type: organization
+    label: Garde du Margrave
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Garde du Margrave
+      kind: label
+      known: true
+  - id: location_salle_des_cordes
+    type: location
+    label: Salle des Cordes
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Salle des Cordes
+      kind: label
+      known: true
+  - id: location_port_de_vharn
+    type: location
+    label: Port de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Port de Vharn
+      kind: label
+      known: true
+  - id: object_jeton_de_passage
+    type: object
+    label: Jeton de passage
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Jeton de passage
+      kind: label
+      known: true
+  - id: character_sergent_a_la_cape_pourpre
+    type: character
+    label: le sergent à la cape pourpre
+    true_name: null
+    descriptor: le sergent à la cape pourpre
+    known: false
+    occupation: null
+    location: location_port_de_vharn
+    last_seen_turn: 11
+    aliases:
+    - text: le sergent à la cape pourpre
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Au Port de Vharn, un sergent à la cape pourpre arrache les avis placardés sur les pontons.
+
+      — Les Passeurs Libres de Vharn, ricane-t-il en lisant. Hier encore, c'était la Guilde des Passeurs, et elle mangeait dans la main du Margrave.
+
+      Il se tourne vers toi et tend la main.
+
+      — Ton jeton. Ces rebelles du port n'ont plus le droit d'en délivrer, et la Garde confisque tout ce qui porte leur ancien sceau.
+
+      Tu gardes la main dans ta poche. Derrière lui, deux gardes observent la scène sans bouger.
+
+      *Les Passeurs Libres n'avaient pas prévu ça*, note Noctule.
+    mentions:
+    - surface: Port de Vharn
+      start: 3
+      category: EASY
+      expected: MATCH location_port_de_vharn
+    - surface: un sergent à la cape pourpre
+      start: 18
+      category: DESC
+      expected: MATCH character_sergent_a_la_cape_pourpre
+    - surface: Les Passeurs Libres de Vharn
+      start: 94
+      category: EASY
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: la Guilde des Passeurs
+      start: 168
+      category: PART
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: Margrave
+      start: 225
+      category: PART
+      expected: MATCH character_margrave_ottokar
+    - surface: Ton jeton
+      start: 278
+      category: PART
+      expected: MATCH object_jeton_de_passage
+    - surface: Ces rebelles du port
+      start: 289
+      category: DESC
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: port
+      start: 305
+      category: PART
+      expected: MATCH location_port_de_vharn
+    - surface: la Garde
+      start: 348
+      category: PART
+      expected: MATCH organization_garde_du_margrave
+    - surface: ta poche
+      start: 428
+      category: SKIP
+      expected: SKIP
+    - surface: deux gardes
+      start: 452
+      category: SKIP
+      expected: SKIP
+    - surface: Les Passeurs Libres
+      start: 498
+      category: PART
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: Noctule
+      start: 548
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_port_de_vharn
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_ilse_varga
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Le lendemain, une nouvelle affiche couvre les anciennes, au même endroit : la refondation de la Guilde des Passeurs, « fidèle au Margrave », signée par une poignée de passeurs restés loyaux. Elle délivre déjà des jetons au sceau de la Garde du Margrave.
+
+    Ilse lit l'affiche par-dessus ton épaule et crache dans l'eau.
+
+    — Ils nous volent même notre vieux nom. Tiens, prends ça.
+
+    Elle te glisse dans la main un jeton gravé d'une chaîne brisée.
+
+    — Les Passeurs Libres ne reconnaissent plus que celui-là. Ton vieux jeton de passage, jette-le, ou garde-le pour les loyalistes.
+
+    *Deux guildes et deux jetons. Ne te trompe pas de poche*, dit Noctule.
+  gold:
+  - surface: la Guilde des Passeurs
+    start: 93
+    category: NEW
+    expected: NEW organization
+    trap: true
+  - surface: Margrave
+    start: 129
+    category: PART
+    expected: MATCH character_margrave_ottokar
+  - surface: une poignée de passeurs restés loyaux
+    start: 152
+    category: SKIP
+    expected: SKIP
+  - surface: la Garde du Margrave
+    start: 232
+    category: EASY
+    expected: MATCH organization_garde_du_margrave
+  - surface: Ilse
+    start: 255
+    category: PART
+    expected: MATCH character_ilse_varga
+  - surface: ton épaule
+    start: 285
+    category: SKIP
+    expected: SKIP
+  - surface: un jeton gravé d'une chaîne brisée
+    start: 406
+    category: NEW
+    expected: NEW object
+    trap: true
+  - surface: Les Passeurs Libres
+    start: 445
+    category: PART
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: celui-là
+    start: 491
+    category: SKIP
+    expected: SKIP
+  - surface: Ton vieux jeton de passage
+    start: 501
+    category: PART
+    expected: MATCH object_jeton_de_passage
+  - surface: Noctule
+    start: 635
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-df-renommage-t4
+  genre: dark_fantasy
+  source: synthetic
+  turn: 13
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_salle_des_cordes
+    last_seen_turn: 9
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 12
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_guilde_des_passeurs
+    type: organization
+    label: les Passeurs Libres de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 12
+    aliases:
+    - text: Guilde des Passeurs
+      kind: former_name
+      known: true
+    - text: les Passeurs Libres de Vharn
+      kind: label
+      known: true
+  - id: character_ilse_varga
+    type: character
+    label: Ilse Varga
+    true_name: Ilse Varga
+    descriptor: la vieille femme aux mains goudronnées
+    known: true
+    occupation: doyenne de la Guilde des Passeurs
+    location: location_salle_des_cordes
+    last_seen_turn: 12
+    aliases:
+    - text: Ilse Varga
+      kind: true_name
+      known: true
+    - text: Ilse
+      kind: short
+      known: true
+    - text: Varga
+      kind: short
+      known: true
+    - text: la doyenne Varga
+      kind: title
+      known: true
+    - text: la vieille femme aux mains goudronnées
+      kind: descriptor
+      known: true
+  - id: character_margrave_ottokar
+    type: character
+    label: Margrave Ottokar
+    true_name: Margrave Ottokar
+    descriptor: null
+    known: true
+    occupation: seigneur de Vharn
+    location: location_port_de_vharn
+    last_seen_turn: 12
+    aliases:
+    - text: Margrave Ottokar
+      kind: true_name
+      known: true
+    - text: Ottokar
+      kind: short
+      known: true
+    - text: le Margrave
+      kind: title
+      known: true
+  - id: organization_garde_du_margrave
+    type: organization
+    label: Garde du Margrave
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 12
+    aliases:
+    - text: Garde du Margrave
+      kind: label
+      known: true
+  - id: location_salle_des_cordes
+    type: location
+    label: Salle des Cordes
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 10
+    aliases:
+    - text: Salle des Cordes
+      kind: label
+      known: true
+  - id: location_port_de_vharn
+    type: location
+    label: Port de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 11
+    aliases:
+    - text: Port de Vharn
+      kind: label
+      known: true
+  - id: object_jeton_de_passage
+    type: object
+    label: Jeton de passage
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 12
+    aliases:
+    - text: Jeton de passage
+      kind: label
+      known: true
+  - id: character_sergent_a_la_cape_pourpre
+    type: character
+    label: le sergent à la cape pourpre
+    true_name: null
+    descriptor: le sergent à la cape pourpre
+    known: false
+    occupation: null
+    location: location_port_de_vharn
+    last_seen_turn: 11
+    aliases:
+    - text: le sergent à la cape pourpre
+      kind: descriptor
+      known: true
+  - id: organization_guilde_des_passeurs_loyaliste
+    type: organization
+    label: Guilde des Passeurs
+    true_name: null
+    descriptor: la guilde loyaliste
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 12
+    aliases:
+    - text: Guilde des Passeurs
+      kind: label
+      known: true
+    - text: la guilde loyaliste
+      kind: descriptor
+      known: true
+  - id: object_jeton_a_la_chaine_brisee
+    type: object
+    label: le jeton à la chaîne brisée
+    true_name: null
+    descriptor: le jeton à la chaîne brisée
+    known: false
+    occupation: null
+    location: null
+    last_seen_turn: 12
+    aliases:
+    - text: le jeton à la chaîne brisée
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Le lendemain, une nouvelle affiche couvre les anciennes, au même endroit : la refondation de la Guilde des Passeurs, « fidèle au Margrave », signée par une poignée de passeurs restés loyaux. Elle délivre déjà des jetons au sceau de la Garde du Margrave.
+
+      Ilse lit l'affiche par-dessus ton épaule et crache dans l'eau.
+
+      — Ils nous volent même notre vieux nom. Tiens, prends ça.
+
+      Elle te glisse dans la main un jeton gravé d'une chaîne brisée.
+
+      — Les Passeurs Libres ne reconnaissent plus que celui-là. Ton vieux jeton de passage, jette-le, ou garde-le pour les loyalistes.
+
+      *Deux guildes et deux jetons. Ne te trompe pas de poche*, dit Noctule.
+    mentions:
+    - surface: la Guilde des Passeurs
+      start: 93
+      category: XTYPE
+      expected: MATCH organization_guilde_des_passeurs_loyaliste
+    - surface: Margrave
+      start: 129
+      category: PART
+      expected: MATCH character_margrave_ottokar
+    - surface: une poignée de passeurs restés loyaux
+      start: 152
+      category: SKIP
+      expected: SKIP
+    - surface: la Garde du Margrave
+      start: 232
+      category: EASY
+      expected: MATCH organization_garde_du_margrave
+    - surface: Ilse
+      start: 255
+      category: PART
+      expected: MATCH character_ilse_varga
+    - surface: ton épaule
+      start: 285
+      category: SKIP
+      expected: SKIP
+    - surface: un jeton gravé d'une chaîne brisée
+      start: 406
+      category: DESC
+      expected: MATCH object_jeton_a_la_chaine_brisee
+    - surface: Les Passeurs Libres
+      start: 445
+      category: PART
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: celui-là
+      start: 491
+      category: SKIP
+      expected: SKIP
+    - surface: Ton vieux jeton de passage
+      start: 501
+      category: PART
+      expected: MATCH object_jeton_de_passage
+    - surface: Noctule
+      start: 635
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_salle_des_cordes
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_ilse_varga
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Dans la Salle des Cordes, la vieille femme aux mains goudronnées étale une carte du port sur la table.
+
+    — La Guilde des Passeurs tient les pontons du nord, dit-elle. Ce sont les loyalistes. Nous, les Passeurs Libres de Vharn, on garde le sud et notre vieille halle. La guilde loyaliste n'a que douze barques, mais la Garde les protège.
+
+    Elle pose le doigt sur le ponton sud.
+
+    — Montre ton jeton à la chaîne sur le ponton sud, on te fera traverser. Et si un loyaliste te demande ton vieux jeton, donne-le-lui : il ne vaut plus rien chez nous.
+
+    Varga replie la carte.
+
+    *Les loyalistes ont un nom tout neuf qui est très vieux*, remarque Noctule.
+  gold:
+  - surface: la Salle des Cordes
+    start: 5
+    category: EASY
+    expected: MATCH location_salle_des_cordes
+  - surface: la vieille femme aux mains goudronnées
+    start: 26
+    category: DESC
+    expected: MATCH character_ilse_varga
+  - surface: port
+    start: 84
+    category: PART
+    expected: MATCH location_port_de_vharn
+  - surface: La Guilde des Passeurs
+    start: 106
+    category: XTYPE
+    expected: MATCH organization_guilde_des_passeurs_loyaliste
+  - surface: les loyalistes
+    start: 174
+    category: DESC
+    expected: MATCH organization_guilde_des_passeurs_loyaliste
+  - surface: les Passeurs Libres de Vharn
+    start: 196
+    category: EASY
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: notre vieille halle
+    start: 245
+    category: DESC
+    expected: MATCH location_salle_des_cordes
+  - surface: La guilde loyaliste
+    start: 266
+    category: PART
+    expected: MATCH organization_guilde_des_passeurs_loyaliste
+  - surface: la Garde
+    start: 314
+    category: PART
+    expected: MATCH organization_garde_du_margrave
+  - surface: le doigt
+    start: 347
+    category: SKIP
+    expected: SKIP
+  - surface: ton jeton à la chaîne
+    start: 385
+    category: DESC
+    expected: MATCH object_jeton_a_la_chaine_brisee
+  - surface: un loyaliste
+    start: 454
+    category: SKIP
+    expected: SKIP
+  - surface: ton vieux jeton
+    start: 478
+    category: PART
+    expected: MATCH object_jeton_de_passage
+  - surface: Varga
+    start: 543
+    category: PART
+    expected: MATCH character_ilse_varga
+  - surface: Les loyalistes
+    start: 568
+    category: DESC
+    expected: MATCH organization_guilde_des_passeurs_loyaliste
+  - surface: Noctule
+    start: 634
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-df-renommage-t5
+  genre: dark_fantasy
+  source: synthetic
+  turn: 14
+  world:
+  - id: protagonist_isaure
+    type: protagonist
+    label: Isaure
+    true_name: Isaure
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_salle_des_cordes
+    last_seen_turn: 9
+    aliases:
+    - text: Isaure
+      kind: true_name
+      known: true
+  - id: companion_noctule
+    type: companion
+    label: Noctule
+    true_name: Noctule
+    descriptor: la chauve-souris sur ton épaule
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: Noctule
+      kind: true_name
+      known: true
+    - text: la chauve-souris sur ton épaule
+      kind: descriptor
+      known: true
+  - id: organization_guilde_des_passeurs
+    type: organization
+    label: les Passeurs Libres de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: Guilde des Passeurs
+      kind: former_name
+      known: true
+    - text: les Passeurs Libres de Vharn
+      kind: label
+      known: true
+  - id: character_ilse_varga
+    type: character
+    label: Ilse Varga
+    true_name: Ilse Varga
+    descriptor: la vieille femme aux mains goudronnées
+    known: true
+    occupation: doyenne de la Guilde des Passeurs
+    location: location_salle_des_cordes
+    last_seen_turn: 13
+    aliases:
+    - text: Ilse Varga
+      kind: true_name
+      known: true
+    - text: Ilse
+      kind: short
+      known: true
+    - text: Varga
+      kind: short
+      known: true
+    - text: la doyenne Varga
+      kind: title
+      known: true
+    - text: la vieille femme aux mains goudronnées
+      kind: descriptor
+      known: true
+  - id: character_margrave_ottokar
+    type: character
+    label: Margrave Ottokar
+    true_name: Margrave Ottokar
+    descriptor: null
+    known: true
+    occupation: seigneur de Vharn
+    location: location_port_de_vharn
+    last_seen_turn: 12
+    aliases:
+    - text: Margrave Ottokar
+      kind: true_name
+      known: true
+    - text: Ottokar
+      kind: short
+      known: true
+    - text: le Margrave
+      kind: title
+      known: true
+  - id: organization_garde_du_margrave
+    type: organization
+    label: Garde du Margrave
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: Garde du Margrave
+      kind: label
+      known: true
+  - id: location_salle_des_cordes
+    type: location
+    label: Salle des Cordes
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: Salle des Cordes
+      kind: label
+      known: true
+  - id: location_port_de_vharn
+    type: location
+    label: Port de Vharn
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: Port de Vharn
+      kind: label
+      known: true
+  - id: object_jeton_de_passage
+    type: object
+    label: Jeton de passage
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: Jeton de passage
+      kind: label
+      known: true
+  - id: character_sergent_a_la_cape_pourpre
+    type: character
+    label: le sergent à la cape pourpre
+    true_name: null
+    descriptor: le sergent à la cape pourpre
+    known: false
+    occupation: null
+    location: location_port_de_vharn
+    last_seen_turn: 11
+    aliases:
+    - text: le sergent à la cape pourpre
+      kind: descriptor
+      known: true
+  - id: organization_guilde_des_passeurs_loyaliste
+    type: organization
+    label: Guilde des Passeurs
+    true_name: null
+    descriptor: la guilde loyaliste
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: Guilde des Passeurs
+      kind: label
+      known: true
+    - text: la guilde loyaliste
+      kind: descriptor
+      known: true
+  - id: object_jeton_a_la_chaine_brisee
+    type: object
+    label: le jeton à la chaîne brisée
+    true_name: null
+    descriptor: le jeton à la chaîne brisée
+    known: false
+    occupation: null
+    location: null
+    last_seen_turn: 13
+    aliases:
+    - text: le jeton à la chaîne brisée
+      kind: descriptor
+      known: true
+  history:
+  - text: |-
+      Dans la Salle des Cordes, la vieille femme aux mains goudronnées étale une carte du port sur la table.
+
+      — La Guilde des Passeurs tient les pontons du nord, dit-elle. Ce sont les loyalistes. Nous, les Passeurs Libres de Vharn, on garde le sud et notre vieille halle. La guilde loyaliste n'a que douze barques, mais la Garde les protège.
+
+      Elle pose le doigt sur le ponton sud.
+
+      — Montre ton jeton à la chaîne sur le ponton sud, on te fera traverser. Et si un loyaliste te demande ton vieux jeton, donne-le-lui : il ne vaut plus rien chez nous.
+
+      Varga replie la carte.
+
+      *Les loyalistes ont un nom tout neuf qui est très vieux*, remarque Noctule.
+    mentions:
+    - surface: la Salle des Cordes
+      start: 5
+      category: EASY
+      expected: MATCH location_salle_des_cordes
+    - surface: la vieille femme aux mains goudronnées
+      start: 26
+      category: DESC
+      expected: MATCH character_ilse_varga
+    - surface: port
+      start: 84
+      category: PART
+      expected: MATCH location_port_de_vharn
+    - surface: La Guilde des Passeurs
+      start: 106
+      category: XTYPE
+      expected: MATCH organization_guilde_des_passeurs_loyaliste
+    - surface: les loyalistes
+      start: 174
+      category: DESC
+      expected: MATCH organization_guilde_des_passeurs_loyaliste
+    - surface: les Passeurs Libres de Vharn
+      start: 196
+      category: EASY
+      expected: MATCH organization_guilde_des_passeurs
+    - surface: notre vieille halle
+      start: 245
+      category: DESC
+      expected: MATCH location_salle_des_cordes
+    - surface: La guilde loyaliste
+      start: 266
+      category: PART
+      expected: MATCH organization_guilde_des_passeurs_loyaliste
+    - surface: la Garde
+      start: 314
+      category: PART
+      expected: MATCH organization_garde_du_margrave
+    - surface: le doigt
+      start: 347
+      category: SKIP
+      expected: SKIP
+    - surface: ton jeton à la chaîne
+      start: 385
+      category: DESC
+      expected: MATCH object_jeton_a_la_chaine_brisee
+    - surface: un loyaliste
+      start: 454
+      category: SKIP
+      expected: SKIP
+    - surface: ton vieux jeton
+      start: 478
+      category: PART
+      expected: MATCH object_jeton_de_passage
+    - surface: Varga
+      start: 543
+      category: PART
+      expected: MATCH character_ilse_varga
+    - surface: Les loyalistes
+      start: 568
+      category: DESC
+      expected: MATCH organization_guilde_des_passeurs_loyaliste
+    - surface: Noctule
+      start: 634
+      category: PC
+      expected: MATCH companion_noctule
+  scene:
+    location: location_port_de_vharn
+    present:
+    - protagonist_isaure
+    - companion_noctule
+    - character_sergent_a_la_cape_pourpre
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Sur le ponton nord, le sergent à la cape pourpre discute avec deux loyalistes. Il te reconnaît.
+
+    — Encore toi. Tu passes pour qui, aujourd'hui ? Pour la Guilde des Passeurs, la vraie, celle du Margrave Ottokar ? Ou pour la bande de la vieille Varga ?
+
+    Tu montres le jeton gravé. Il le reconnaît aussitôt.
+
+    — Les Passeurs Libres, crache-t-il. Le ponton sud est à eux. Ici, c'est la guilde loyaliste et la Garde du Margrave.
+
+    *Retourne au port du sud avant qu'il change d'avis*, presse Noctule.
+  gold:
+  - surface: le sergent à la cape pourpre
+    start: 20
+    category: DESC
+    expected: MATCH character_sergent_a_la_cape_pourpre
+  - surface: deux loyalistes
+    start: 62
+    category: SKIP
+    expected: SKIP
+  - surface: la Guilde des Passeurs
+    start: 150
+    category: XTYPE
+    expected: MATCH organization_guilde_des_passeurs_loyaliste
+  - surface: Margrave Ottokar
+    start: 193
+    category: EASY
+    expected: MATCH character_margrave_ottokar
+  - surface: la bande de la vieille Varga
+    start: 220
+    category: DESC
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: la vieille Varga
+    start: 232
+    category: PART
+    expected: MATCH character_ilse_varga
+  - surface: le jeton gravé
+    start: 263
+    category: DESC
+    expected: MATCH object_jeton_a_la_chaine_brisee
+  - surface: Les Passeurs Libres
+    start: 308
+    category: PART
+    expected: MATCH organization_guilde_des_passeurs
+  - surface: la guilde loyaliste
+    start: 378
+    category: PART
+    expected: MATCH organization_guilde_des_passeurs_loyaliste
+  - surface: la Garde du Margrave
+    start: 401
+    category: EASY
+    expected: MATCH organization_garde_du_margrave
+  - surface: port
+    start: 437
+    category: PART
+    expected: MATCH location_port_de_vharn
+  - surface: Noctule
+    start: 484
+    category: PC
+    expected: MATCH companion_noctule
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+gold_clusters:
+  location_salle_des_cordes:
+  - seq-df-renommage-t1:17
+  - seq-df-renommage-t4:5
+  - seq-df-renommage-t4:245
+  character_ilse_varga:
+  - seq-df-renommage-t1:72
+  - seq-df-renommage-t1:384
+  - seq-df-renommage-t3:255
+  - seq-df-renommage-t4:26
+  - seq-df-renommage-t4:543
+  - seq-df-renommage-t5:232
+  character_margrave_ottokar:
+  - seq-df-renommage-t1:147
+  - seq-df-renommage-t2:225
+  - seq-df-renommage-t3:129
+  - seq-df-renommage-t5:193
+  organization_guilde_des_passeurs:
+  - seq-df-renommage-t1:213
+  - seq-df-renommage-t1:317
+  - seq-df-renommage-t1:585
+  - seq-df-renommage-t2:94
+  - seq-df-renommage-t2:168
+  - seq-df-renommage-t2:289
+  - seq-df-renommage-t2:498
+  - seq-df-renommage-t3:445
+  - seq-df-renommage-t4:196
+  - seq-df-renommage-t5:220
+  - seq-df-renommage-t5:308
+  organization_garde_du_margrave:
+  - seq-df-renommage-t1:435
+  - seq-df-renommage-t2:348
+  - seq-df-renommage-t3:232
+  - seq-df-renommage-t4:314
+  - seq-df-renommage-t5:401
+  object_jeton_de_passage:
+  - seq-df-renommage-t1:537
+  - seq-df-renommage-t2:278
+  - seq-df-renommage-t3:501
+  - seq-df-renommage-t4:478
+  companion_noctule:
+  - seq-df-renommage-t1:668
+  - seq-df-renommage-t2:548
+  - seq-df-renommage-t3:635
+  - seq-df-renommage-t4:634
+  - seq-df-renommage-t5:484
+  location_port_de_vharn:
+  - seq-df-renommage-t2:3
+  - seq-df-renommage-t2:305
+  - seq-df-renommage-t4:84
+  - seq-df-renommage-t5:437
+  character_sergent_a_la_cape_pourpre:
+  - seq-df-renommage-t2:18
+  - seq-df-renommage-t5:20
+  organization_guilde_des_passeurs_loyaliste:
+  - seq-df-renommage-t3:93
+  - seq-df-renommage-t4:106
+  - seq-df-renommage-t4:266
+  - seq-df-renommage-t4:568
+  - seq-df-renommage-t5:150
+  - seq-df-renommage-t5:378
+  - seq-df-renommage-t4:174
+  object_jeton_a_la_chaine_brisee:
+  - seq-df-renommage-t3:406
+  - seq-df-renommage-t4:385
+  - seq-df-renommage-t5:263

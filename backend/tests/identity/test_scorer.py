@@ -545,3 +545,50 @@ def test_kuhn_munkres_matches_brute_force():
         pairs = coref.max_weight_assignment(weights)
         assert sum(weights[i][j] for i, j in pairs) == pytest.approx(best)
         assert len({i for i, _ in pairs}) == len({j for _, j in pairs}) == len(pairs)
+
+
+# --- ruling (a): SAME <start>, a repeat of an entity born in the turn ---
+
+BORN_GOLD = [
+    _mention(0, "NEW", "NEW character"),
+    _mention(20, "DESC", "SAME 0"),
+]
+
+
+def test_same_is_right_when_it_links_the_id_the_system_gave_at_the_new():
+    born = _d(0, "NEW", "sys_1", new_type="character")
+    for repeat in (_d(20, "MATCH", "sys_1"), _d(20, "ALIAS", "sys_1", "descriptor")):
+        m = _metrics(BORN_GOLD, [born, repeat])
+        assert m.by_category["DESC"].value == 1.0
+        assert m.W == 0.0 and m.D == 0.0
+    assert m.by_category_type[("DESC", "character")].total == 1
+
+
+def test_same_linked_elsewhere_is_a_wrong_merge_and_a_second_new_a_duplicate():
+    born = _d(0, "NEW", "sys_1", new_type="character")
+    m = _metrics(BORN_GOLD, [born, _d(20, "MATCH", "character_tesk")])
+    assert m.by_category["DESC"].value == 0.0 and m.W == pytest.approx(1 / 2)
+    m = _metrics(BORN_GOLD, [born, _d(20, "NEW", "sys_2", new_type="character")])
+    assert m.by_category["DESC"].value == 0.0 and m.D == 1.0
+    assert m.new_precision == pytest.approx(1 / 2)
+    m = _metrics(BORN_GOLD, [born, _d(20, "UNSURE")])
+    assert m.by_category["DESC"].value == 0.0
+
+
+def test_same_after_a_missed_new_is_scored_as_the_new_it_became():
+    for first in (_d(0, "MATCH", "character_tesk"), _d(0, "SKIP"), None):
+        decisions = [d for d in (first,) if d] + [
+            _d(20, "NEW", "sys_1", new_type="character")
+        ]
+        m = _metrics(BORN_GOLD, decisions)
+        assert m.by_category["DESC"].value == 1.0
+        assert m.new_recall == pytest.approx(1 / 2)
+    m = _metrics(BORN_GOLD, [_d(0, "SKIP"), _d(20, "MATCH", "character_tesk")])
+    assert m.by_category["DESC"].value == 0.0 and m.W == pytest.approx(1 / 2)
+
+
+def test_same_after_a_new_without_id_cannot_be_right():
+    born = _d(0, "NEW", None, new_type="character")
+    for repeat in (_d(20, "MATCH", "character_tesk"),
+                   _d(20, "NEW", None, new_type="character")):  # fmt: skip
+        assert _metrics(BORN_GOLD, [born, repeat]).by_category["DESC"].value == 0.0

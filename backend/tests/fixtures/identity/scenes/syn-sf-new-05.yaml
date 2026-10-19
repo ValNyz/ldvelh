@@ -1,0 +1,453 @@
+id: syn-sf-new-05
+genre: sf
+source: synthetic
+turn: 12
+world:
+- id: protagonist_yanis
+  type: protagonist
+  label: Yanis
+  true_name: Yanis
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Yanis
+    kind: true_name
+    known: true
+- id: companion_nox
+  type: companion
+  label: Nox
+  true_name: Nox
+  descriptor: la voix grésillante de ton casque
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Nox
+    kind: true_name
+    known: true
+  - text: la voix grésillante de ton casque
+    kind: descriptor
+    known: true
+- id: character_capucine_ortega
+  type: character
+  label: Capucine Ortega
+  true_name: Capucine Ortega
+  descriptor: la capitaine aux tresses grises
+  known: true
+  occupation: capitaine du Grappin
+  location: location_grappin
+  last_seen_turn: 11
+  aliases:
+  - text: Capucine Ortega
+    kind: true_name
+    known: true
+  - text: Capucine
+    kind: short
+    known: true
+  - text: Ortega
+    kind: short
+    known: true
+  - text: la Capitaine
+    kind: title
+    known: true
+  - text: la capitaine aux tresses grises
+    kind: descriptor
+    known: true
+- id: character_bastien_roulier
+  type: character
+  label: Bastien Roulier
+  true_name: Bastien Roulier
+  descriptor: le mécano bavard
+  known: true
+  occupation: mécanicien du Grappin
+  location: location_grappin
+  last_seen_turn: null
+  aliases:
+  - text: Bastien Roulier
+    kind: true_name
+    known: true
+  - text: Bastien
+    kind: short
+    known: true
+  - text: Roulier
+    kind: short
+    known: true
+  - text: Clou
+    kind: nickname
+    known: true
+  - text: le mécano bavard
+    kind: descriptor
+    known: true
+- id: character_ezra_hollis
+  type: character
+  label: Ezra Hollis
+  true_name: Ezra Hollis
+  descriptor: le survivant au bras mécanique
+  known: false
+  occupation: second mécanicien de l'Albatros-9
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Ezra Hollis
+    kind: true_name
+    known: false
+  - text: Ezra
+    kind: short
+    known: false
+  - text: Hollis
+    kind: short
+    known: false
+  - text: le survivant au bras mécanique
+    kind: descriptor
+    known: true
+- id: location_grappin
+  type: location
+  label: Le Grappin
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le Grappin
+    kind: label
+    known: true
+- id: location_albatros_9
+  type: location
+  label: Albatros-9
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Albatros-9
+    kind: label
+    known: true
+- id: location_soute_avant
+  type: location
+  label: Soute Avant
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Soute Avant
+    kind: label
+    known: true
+- id: location_salle_aux_hublots_mures
+  type: location
+  label: la salle aux hublots murés
+  true_name: Nurserie
+  descriptor: la salle aux hublots murés
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: la salle aux hublots murés
+    kind: descriptor
+    known: true
+  - text: Nurserie
+    kind: true_name
+    known: false
+- id: organization_assurances_lloyd_kessel
+  type: organization
+  label: Assurances Lloyd-Kessel
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Assurances Lloyd-Kessel
+    kind: label
+    known: true
+  - text: Kessel
+    kind: short
+    known: true
+  - text: Lloyd-Kessel
+    kind: short
+    known: true
+- id: organization_union_des_ferrailleurs
+  type: organization
+  label: Union des Ferrailleurs
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Union des Ferrailleurs
+    kind: label
+    known: true
+  - text: Union
+    kind: short
+    known: true
+- id: organization_proprietaires_de_l_epave
+  type: organization
+  label: les propriétaires de l'épave
+  true_name: Armement Valtera
+  descriptor: les propriétaires de l'épave
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: les propriétaires de l'épave
+    kind: descriptor
+    known: true
+  - text: Armement Valtera
+    kind: true_name
+    known: false
+- id: object_decoupeuse_plasma
+  type: object
+  label: Découpeuse plasma
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Découpeuse plasma
+    kind: label
+    known: true
+- id: object_scanner_de_coque
+  type: object
+  label: Scanner de coque
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Scanner de coque
+    kind: label
+    known: true
+- id: object_balise_de_recuperation
+  type: object
+  label: Balise de récupération
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Balise de récupération
+    kind: label
+    known: true
+- id: object_contrat_de_sauvetage
+  type: object
+  label: Contrat de sauvetage
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Contrat de sauvetage
+    kind: label
+    known: true
+- id: object_boite_noire
+  type: object
+  label: la boîte noire
+  true_name: Enregistreur AL9-B
+  descriptor: la boîte noire
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: la boîte noire
+    kind: descriptor
+    known: true
+  - text: Enregistreur AL9-B
+    kind: true_name
+    known: false
+- id: arc_naufrage_de_l_albatros_9
+  type: arc
+  label: Le naufrage de l'Albatros-9
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le naufrage de l'Albatros-9
+    kind: label
+    known: true
+history:
+- text: Tu as trouvé le survivant au bras mécanique dans un caisson d'hibernation, à moitié conscient. Capucine a ordonné qu'on le monte sur la passerelle, là où l'air est meilleur.
+  mentions:
+  - surface: le survivant au bras mécanique
+    start: 13
+    category: DESC
+    expected: MATCH character_ezra_hollis
+  - surface: Capucine
+    start: 95
+    category: PART
+    expected: MATCH character_capucine_ortega
+scene:
+  location: location_albatros_9
+  present:
+  - protagonist_yanis
+  - companion_nox
+  - character_capucine_ortega
+  - character_ezra_hollis
+  - object_boite_noire
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - arc_naufrage_de_l_albatros_9
+  - object_boite_noire
+  - organization_proprietaires_de_l_epave
+  open_disclosures: []
+narration: |-
+  Sur la passerelle de l'Albatros-9, le survivant au bras mécanique n'est pas seul. Une femme au bras mécanique se tient près de lui et lui parle à voix basse.
+
+  — Je suis Sigrun, dit-elle en se tournant vers toi. On vient de l'Albatros-7, le vaisseau jumeau. Il a sombré deux jours avant celui-ci.
+
+  Elle te tend une boîte noire cabossée, identique à la boîte noire sanglée sur ton dos.
+
+  — L'enregistreur de l'Albatros-7. L'Union des Récupérateurs l'a refusé. Ils disent que l'Union des Ferrailleurs le paierait mieux.
+
+  Capucine Ortega fronce les sourcils.
+
+  — Et la Garde côtière de Vesta ? Elle a envoyé un cotre ?
+
+  — Pour nous ? Jamais.
+
+  *Deux bras mécaniques, deux Albatros, deux boîtes noires*, énumère Nox. *Je vais finir par confondre.*
+gold:
+- surface: l'Albatros-9
+  start: 21
+  category: EASY
+  expected: MATCH location_albatros_9
+- surface: le survivant au bras mécanique
+  start: 35
+  category: DESC
+  expected: MATCH character_ezra_hollis
+- surface: Une femme au bras mécanique
+  start: 82
+  category: NEW
+  expected: NEW character
+  trap: true
+- surface: Sigrun
+  start: 169
+  category: EASY
+  expected: SAME 82
+- surface: l'Albatros-7
+  start: 223
+  category: NEW
+  expected: NEW location
+  trap: true
+- surface: le vaisseau jumeau
+  start: 237
+  category: DESC
+  expected: SAME 223
+- surface: celui-ci
+  start: 286
+  category: SKIP
+  expected: SKIP
+- surface: une boîte noire cabossée
+  start: 310
+  category: NEW
+  expected: NEW object
+  trap: true
+- surface: la boîte noire
+  start: 348
+  category: DESC
+  expected: MATCH object_boite_noire
+- surface: ton dos
+  start: 375
+  category: SKIP
+  expected: SKIP
+- surface: L'enregistreur de l'Albatros-7
+  start: 387
+  category: DESC
+  expected: SAME 310
+- surface: l'Albatros-7
+  start: 405
+  category: EASY
+  expected: SAME 223
+- surface: L'Union des Récupérateurs
+  start: 419
+  category: NEW
+  expected: NEW organization
+  trap: true
+- surface: l'Union des Ferrailleurs
+  start: 472
+  category: EASY
+  expected: MATCH organization_union_des_ferrailleurs
+- surface: Capucine Ortega
+  start: 517
+  category: EASY
+  expected: MATCH character_capucine_ortega
+- surface: la Garde côtière de Vesta
+  start: 560
+  category: NEW
+  expected: NEW organization
+- surface: Nox
+  start: 704
+  category: PC
+  expected: MATCH companion_nox
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_ezra_hollis
+  kind: name
+  state: unknown
+  text: Ezra Hollis
+- ref: location_salle_aux_hublots_mures
+  kind: name
+  state: unknown
+  text: Nurserie
+- ref: organization_proprietaires_de_l_epave
+  kind: name
+  state: unknown
+  text: Armement Valtera
+- ref: object_boite_noire
+  kind: name
+  state: unknown
+  text: Enregistreur AL9-B
+- ref: arc_naufrage_de_l_albatros_9
+  kind: fact
+  state: unknown
+  text: L'Albatros-9 a perdu son réacteur en traversant une tempête solaire.
+- ref: arc_naufrage_de_l_albatros_9
+  kind: fact
+  state: secret
+  text: Armement Valtera a coupé les boucliers de l'Albatros-9 pour toucher l'assurance.
+- ref: object_boite_noire
+  kind: fact
+  state: secret
+  text: La boîte noire enregistre l'ordre de couper les boucliers.
+- ref: character_ezra_hollis
+  kind: fact
+  state: unknown
+  text: Ezra Hollis a survécu vingt ans en hibernation dans la Nurserie.
+- ref: organization_proprietaires_de_l_epave
+  kind: fact
+  state: secret
+  text: Les propriétaires de l'épave contrôlent en sous-main Assurances Lloyd-Kessel.
+- ref: organization_assurances_lloyd_kessel
+  kind: fact
+  state: unknown
+  text: Assurances Lloyd-Kessel prend quarante pour cent de chaque sauvetage.

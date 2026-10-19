@@ -1,0 +1,219 @@
+# Data-audit pattern « entity never created », on locations, organizations and objects: a second guild
+# that acts, a second quay elsewhere, a second key handed over; each is new (NEW trap when it shares
+# a name part with a world entity), never a match on the existing one.
+id: audit-creations-manquees
+genre: sf
+source: synthetic
+turn: 7
+world:
+- id: protagonist_naoki
+  type: protagonist
+  label: Naoki
+  true_name: Naoki
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_quai_6
+  last_seen_turn: 6
+  aliases:
+  - text: Naoki
+    kind: true_name
+    known: true
+- id: companion_sillage
+  type: companion
+  label: Sillage
+  true_name: Sillage
+  descriptor: la voix dans ton oreillette
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Sillage
+    kind: true_name
+    known: true
+  - text: la voix dans ton oreillette
+    kind: descriptor
+    known: true
+- id: character_orso_delmas
+  type: character
+  label: Orso Delmas
+  true_name: Orso Delmas
+  descriptor: le capitaine à la veste élimée
+  known: true
+  occupation: capitaine du cargo Albatros
+  location: location_quai_6
+  last_seen_turn: 6
+  aliases:
+  - text: Orso Delmas
+    kind: true_name
+    known: true
+  - text: Orso
+    kind: short
+    known: true
+  - text: Delmas
+    kind: short
+    known: true
+  - text: le capitaine Delmas
+    kind: title
+    known: true
+  - text: le capitaine à la veste élimée
+    kind: descriptor
+    known: true
+- id: organization_guilde_des_pilotes
+  type: organization
+  label: Guilde des Pilotes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Guilde des Pilotes
+    kind: label
+    known: true
+- id: location_quai_6
+  type: location
+  label: Quai 6
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Quai 6
+    kind: label
+    known: true
+- id: object_cle_de_la_soute_a
+  type: object
+  label: Clé de la soute A
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Clé de la soute A
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_quai_6
+  present:
+  - protagonist_naoki
+  - companion_sillage
+  - character_orso_delmas
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  Le capitaine Delmas s'adosse à la rambarde du Quai 6 et allume une cigarette.
+
+  — La Guilde des Pilotes ne paiera pas, dit-il. Mais la Guilde des Convoyeurs, elle, vient d'envoyer une offre. Ils recrutent au Quai 9, pas ici.
+
+  Il sort de sa poche une seconde clé et te la tend.
+
+  — La clé de la soute B. Garde-la avec ta clé de la soute A, et ne les mélange pas. Rendez-vous ce soir au Bar de l'Hélice, sur le Quai 9. Demande Basile Krantz, le recruteur des Convoyeurs.
+
+  Orso écrase sa cigarette.
+
+  — Et ne dis rien à la Guilde. Ils me retireraient ma licence pour moins que ça.
+
+  *Deux guildes, deux quais, deux clés*, résume Sillage. *Le capitaine aime compliquer les choses.*
+gold:
+- surface: Le capitaine Delmas
+  start: 0
+  category: PART
+  expected: MATCH character_orso_delmas
+- surface: Quai 6
+  start: 46
+  category: EASY
+  expected: MATCH location_quai_6
+- surface: La Guilde des Pilotes
+  start: 81
+  category: EASY
+  expected: MATCH organization_guilde_des_pilotes
+- surface: la Guilde des Convoyeurs
+  start: 131
+  category: NEW
+  expected: NEW organization
+  trap: true
+- surface: Quai 9
+  start: 207
+  category: NEW
+  expected: NEW location
+  trap: true
+- surface: sa poche
+  start: 236
+  category: SKIP
+  expected: SKIP
+- surface: une seconde clé
+  start: 245
+  category: NEW
+  expected: NEW object
+  trap: true
+- surface: La clé de la soute B
+  start: 279
+  category: EASY
+  expected: SAME 245
+- surface: ta clé de la soute A
+  start: 315
+  category: PART
+  expected: MATCH object_cle_de_la_soute_a
+- surface: Bar de l'Hélice
+  start: 383
+  category: NEW
+  expected: NEW location
+- surface: le Quai 9
+  start: 404
+  category: EASY
+  expected: SAME 207
+- surface: Basile Krantz
+  start: 423
+  category: NEW
+  expected: NEW character
+- surface: le recruteur des Convoyeurs
+  start: 438
+  category: DESC
+  expected: SAME 423
+- surface: Convoyeurs
+  start: 455
+  category: PART
+  expected: SAME 131
+- surface: Orso
+  start: 468
+  category: PART
+  expected: MATCH character_orso_delmas
+- surface: sa cigarette
+  start: 480
+  category: SKIP
+  expected: SKIP
+- surface: la Guilde
+  start: 514
+  category: PART
+  expected: MATCH organization_guilde_des_pilotes
+- surface: ma licence
+  start: 545
+  category: SKIP
+  expected: SKIP
+- surface: Sillage
+  start: 622
+  category: PC
+  expected: MATCH companion_sillage
+- surface: Le capitaine
+  start: 632
+  category: DESC
+  expected: MATCH character_orso_delmas
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: organization_guilde_des_pilotes
+  kind: fact
+  state: unknown
+  text: La Guilde des Pilotes a gelé les paiements de tous les cargos du Quai 6.

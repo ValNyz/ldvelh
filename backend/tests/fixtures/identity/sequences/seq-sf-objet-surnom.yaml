@@ -1,0 +1,1176 @@
+# Sequence: an object acquired then referred to by a nickname (« la Bouilloire ») that is also the name of
+# a canteen (XTYPE object/location); a second identical tool is a NEW trap.
+id: seq-sf-objet-surnom
+turns:
+- id: seq-sf-objet-surnom-t1
+  genre: sf
+  source: synthetic
+  turn: 5
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chantier_vesta
+    last_seen_turn: 4
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_okwu_tamsin
+    type: character
+    label: Okwu Tamsin
+    true_name: Okwu Tamsin
+    descriptor: le contremaître à la barbe grise
+    known: true
+    occupation: contremaître du Chantier Vesta
+    location: location_chantier_vesta
+    last_seen_turn: 4
+    aliases:
+    - text: Okwu Tamsin
+      kind: true_name
+      known: true
+    - text: Okwu
+      kind: short
+      known: true
+    - text: Tamsin
+      kind: short
+      known: true
+    - text: le contremaître Tamsin
+      kind: title
+      known: true
+    - text: le contremaître à la barbe grise
+      kind: descriptor
+      known: true
+  - id: location_chantier_vesta
+    type: location
+    label: Chantier Vesta
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Chantier Vesta
+      kind: label
+      known: true
+  - id: location_la_bouilloire
+    type: location
+    label: La Bouilloire
+    true_name: null
+    descriptor: la cantine du pont 2
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: La Bouilloire
+      kind: label
+      known: true
+    - text: la cantine du pont 2
+      kind: descriptor
+      known: true
+  - id: organization_federation_des_soudeurs
+    type: organization
+    label: Fédération des Soudeurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 4
+    aliases:
+    - text: Fédération des Soudeurs
+      kind: label
+      known: true
+  history: []
+  scene:
+    location: location_chantier_vesta
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_okwu_tamsin
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Le contremaître Tamsin pose sur l'établi un pistolet-scellant cabossé, le réservoir à moitié plein.
+
+    — Le tien est mort, prends celui-là. Il chauffe trop et il siffle, mais il colmate une coque en dix secondes. La Fédération des Soudeurs ne t'en donnera pas d'autre avant la fin du mois.
+
+    Tu soupèses l'outil. Il est lourd et tiède.
+
+    — Ne le laisse traîner nulle part sur le Chantier Vesta, ajoute Tamsin. Ici, ce qui traîne disparaît.
+
+    *Il a raison*, confirme Sillage.
+  gold:
+  - surface: Le contremaître Tamsin
+    start: 0
+    category: PART
+    expected: MATCH character_okwu_tamsin
+  - surface: un pistolet-scellant
+    start: 41
+    category: NEW
+    expected: NEW object
+  - surface: celui-là
+    start: 128
+    category: SKIP
+    expected: SKIP
+  - surface: La Fédération des Soudeurs
+    start: 211
+    category: EASY
+    expected: MATCH organization_federation_des_soudeurs
+  - surface: l'outil
+    start: 301
+    category: DESC
+    expected: SAME 41
+  - surface: le Chantier Vesta
+    start: 372
+    category: EASY
+    expected: MATCH location_chantier_vesta
+  - surface: Tamsin
+    start: 398
+    category: PART
+    expected: MATCH character_okwu_tamsin
+  - surface: Sillage
+    start: 461
+    category: PC
+    expected: MATCH companion_sillage
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-objet-surnom-t2
+  genre: sf
+  source: synthetic
+  turn: 6
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chantier_vesta
+    last_seen_turn: 4
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_okwu_tamsin
+    type: character
+    label: Okwu Tamsin
+    true_name: Okwu Tamsin
+    descriptor: le contremaître à la barbe grise
+    known: true
+    occupation: contremaître du Chantier Vesta
+    location: location_chantier_vesta
+    last_seen_turn: 5
+    aliases:
+    - text: Okwu Tamsin
+      kind: true_name
+      known: true
+    - text: Okwu
+      kind: short
+      known: true
+    - text: Tamsin
+      kind: short
+      known: true
+    - text: le contremaître Tamsin
+      kind: title
+      known: true
+    - text: le contremaître à la barbe grise
+      kind: descriptor
+      known: true
+  - id: location_chantier_vesta
+    type: location
+    label: Chantier Vesta
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Chantier Vesta
+      kind: label
+      known: true
+  - id: location_la_bouilloire
+    type: location
+    label: La Bouilloire
+    true_name: null
+    descriptor: la cantine du pont 2
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 3
+    aliases:
+    - text: La Bouilloire
+      kind: label
+      known: true
+    - text: la cantine du pont 2
+      kind: descriptor
+      known: true
+  - id: organization_federation_des_soudeurs
+    type: organization
+    label: Fédération des Soudeurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Fédération des Soudeurs
+      kind: label
+      known: true
+  - id: object_pistolet_scellant
+    type: object
+    label: Pistolet-scellant
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Pistolet-scellant
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Le contremaître Tamsin pose sur l'établi un pistolet-scellant cabossé, le réservoir à moitié plein.
+
+      — Le tien est mort, prends celui-là. Il chauffe trop et il siffle, mais il colmate une coque en dix secondes. La Fédération des Soudeurs ne t'en donnera pas d'autre avant la fin du mois.
+
+      Tu soupèses l'outil. Il est lourd et tiède.
+
+      — Ne le laisse traîner nulle part sur le Chantier Vesta, ajoute Tamsin. Ici, ce qui traîne disparaît.
+
+      *Il a raison*, confirme Sillage.
+    mentions:
+    - surface: Le contremaître Tamsin
+      start: 0
+      category: PART
+      expected: MATCH character_okwu_tamsin
+    - surface: un pistolet-scellant
+      start: 41
+      category: PART
+      expected: MATCH object_pistolet_scellant
+    - surface: celui-là
+      start: 128
+      category: SKIP
+      expected: SKIP
+    - surface: La Fédération des Soudeurs
+      start: 211
+      category: EASY
+      expected: MATCH organization_federation_des_soudeurs
+    - surface: l'outil
+      start: 301
+      category: DESC
+      expected: MATCH object_pistolet_scellant
+    - surface: le Chantier Vesta
+      start: 372
+      category: EASY
+      expected: MATCH location_chantier_vesta
+    - surface: Tamsin
+      start: 398
+      category: PART
+      expected: MATCH character_okwu_tamsin
+    - surface: Sillage
+      start: 461
+      category: PC
+      expected: MATCH companion_sillage
+  scene:
+    location: location_chantier_vesta
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Tu colmates ta première brèche du quart. Le pistolet-scellant crache sa mousse grise avec un sifflement aigu, et la poignée devient brûlante.
+
+    *Il siffle comme une vieille théière*, commente Sillage. *Je vais l'appeler la Bouilloire. Ça lui va mieux que son numéro de série.*
+
+    — Comme la cantine ? demandes-tu.
+
+    *Comme la cantine du pont 2, oui. Ils ont le même caractère.*
+
+    Tu ranges ton scellant dans le sac. Au loin, le contremaître à la barbe grise te fait signe que la pause commence.
+  gold:
+  - surface: Le pistolet-scellant
+    start: 41
+    category: PART
+    expected: MATCH object_pistolet_scellant
+  - surface: la poignée
+    start: 113
+    category: SKIP
+    expected: SKIP
+  - surface: Sillage
+    start: 191
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: la Bouilloire
+    start: 219
+    category: DESC
+    expected: ALIAS object_pistolet_scellant nickname
+  - surface: son numéro de série
+    start: 254
+    category: SKIP
+    expected: SKIP
+  - surface: la cantine du pont 2
+    start: 319
+    category: DESC
+    expected: MATCH location_la_bouilloire
+  - surface: ton scellant
+    start: 385
+    category: PART
+    expected: MATCH object_pistolet_scellant
+  - surface: le sac
+    start: 403
+    category: SKIP
+    expected: SKIP
+  - surface: le contremaître à la barbe grise
+    start: 420
+    category: DESC
+    expected: MATCH character_okwu_tamsin
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-objet-surnom-t3
+  genre: sf
+  source: synthetic
+  turn: 7
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chantier_vesta
+    last_seen_turn: 4
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_okwu_tamsin
+    type: character
+    label: Okwu Tamsin
+    true_name: Okwu Tamsin
+    descriptor: le contremaître à la barbe grise
+    known: true
+    occupation: contremaître du Chantier Vesta
+    location: location_chantier_vesta
+    last_seen_turn: 6
+    aliases:
+    - text: Okwu Tamsin
+      kind: true_name
+      known: true
+    - text: Okwu
+      kind: short
+      known: true
+    - text: Tamsin
+      kind: short
+      known: true
+    - text: le contremaître Tamsin
+      kind: title
+      known: true
+    - text: le contremaître à la barbe grise
+      kind: descriptor
+      known: true
+  - id: location_chantier_vesta
+    type: location
+    label: Chantier Vesta
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Chantier Vesta
+      kind: label
+      known: true
+  - id: location_la_bouilloire
+    type: location
+    label: La Bouilloire
+    true_name: null
+    descriptor: la cantine du pont 2
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: La Bouilloire
+      kind: label
+      known: true
+    - text: la cantine du pont 2
+      kind: descriptor
+      known: true
+  - id: organization_federation_des_soudeurs
+    type: organization
+    label: Fédération des Soudeurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Fédération des Soudeurs
+      kind: label
+      known: true
+  - id: object_pistolet_scellant
+    type: object
+    label: Pistolet-scellant
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 6
+    aliases:
+    - text: Pistolet-scellant
+      kind: label
+      known: true
+    - text: la Bouilloire
+      kind: nickname
+      known: true
+  history:
+  - text: |-
+      Tu colmates ta première brèche du quart. Le pistolet-scellant crache sa mousse grise avec un sifflement aigu, et la poignée devient brûlante.
+
+      *Il siffle comme une vieille théière*, commente Sillage. *Je vais l'appeler la Bouilloire. Ça lui va mieux que son numéro de série.*
+
+      — Comme la cantine ? demandes-tu.
+
+      *Comme la cantine du pont 2, oui. Ils ont le même caractère.*
+
+      Tu ranges ton scellant dans le sac. Au loin, le contremaître à la barbe grise te fait signe que la pause commence.
+    mentions:
+    - surface: Le pistolet-scellant
+      start: 41
+      category: PART
+      expected: MATCH object_pistolet_scellant
+    - surface: la poignée
+      start: 113
+      category: SKIP
+      expected: SKIP
+    - surface: Sillage
+      start: 191
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: la Bouilloire
+      start: 219
+      category: XTYPE
+      expected: MATCH object_pistolet_scellant
+    - surface: son numéro de série
+      start: 254
+      category: SKIP
+      expected: SKIP
+    - surface: la cantine du pont 2
+      start: 319
+      category: DESC
+      expected: MATCH location_la_bouilloire
+    - surface: ton scellant
+      start: 385
+      category: PART
+      expected: MATCH object_pistolet_scellant
+    - surface: le sac
+      start: 403
+      category: SKIP
+      expected: SKIP
+    - surface: le contremaître à la barbe grise
+      start: 420
+      category: DESC
+      expected: MATCH character_okwu_tamsin
+  scene:
+    location: location_la_bouilloire
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_okwu_tamsin
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    La Bouilloire est pleine à craquer à l'heure de la pause. Tu poses ton sac sous la table, la Bouilloire encore tiède à l'intérieur.
+
+    Okwu Tamsin s'assoit en face de toi avec deux bols de nouilles.
+
+    — Alors, il tient le coup, mon vieux scellant ?
+
+    *Dis-lui que la Bouilloire a colmaté six brèches ce matin*, suggère Sillage.
+
+    Tu répètes. Le contremaître éclate de rire si fort que la moitié de la cantine se retourne.
+
+    — Ton IA a de l'humour. Le syndicat, lui, n'en a aucun.
+  gold:
+  - surface: La Bouilloire
+    start: 0
+    category: XTYPE
+    expected: MATCH location_la_bouilloire
+  - surface: ton sac
+    start: 67
+    category: SKIP
+    expected: SKIP
+  - surface: la Bouilloire
+    start: 90
+    category: XTYPE
+    expected: MATCH object_pistolet_scellant
+  - surface: Okwu Tamsin
+    start: 133
+    category: EASY
+    expected: MATCH character_okwu_tamsin
+  - surface: mon vieux scellant
+    start: 225
+    category: PART
+    expected: MATCH object_pistolet_scellant
+  - surface: la Bouilloire
+    start: 260
+    category: XTYPE
+    expected: MATCH object_pistolet_scellant
+  - surface: Sillage
+    start: 315
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: Le contremaître
+    start: 337
+    category: DESC
+    expected: MATCH character_okwu_tamsin
+  - surface: la cantine
+    start: 393
+    category: DESC
+    expected: MATCH location_la_bouilloire
+  - surface: Ton IA
+    start: 420
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: Le syndicat
+    start: 442
+    category: DESC
+    expected: MATCH organization_federation_des_soudeurs
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-objet-surnom-t4
+  genre: sf
+  source: synthetic
+  turn: 8
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chantier_vesta
+    last_seen_turn: 4
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 7
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_okwu_tamsin
+    type: character
+    label: Okwu Tamsin
+    true_name: Okwu Tamsin
+    descriptor: le contremaître à la barbe grise
+    known: true
+    occupation: contremaître du Chantier Vesta
+    location: location_chantier_vesta
+    last_seen_turn: 7
+    aliases:
+    - text: Okwu Tamsin
+      kind: true_name
+      known: true
+    - text: Okwu
+      kind: short
+      known: true
+    - text: Tamsin
+      kind: short
+      known: true
+    - text: le contremaître Tamsin
+      kind: title
+      known: true
+    - text: le contremaître à la barbe grise
+      kind: descriptor
+      known: true
+  - id: location_chantier_vesta
+    type: location
+    label: Chantier Vesta
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 5
+    aliases:
+    - text: Chantier Vesta
+      kind: label
+      known: true
+  - id: location_la_bouilloire
+    type: location
+    label: La Bouilloire
+    true_name: null
+    descriptor: la cantine du pont 2
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 7
+    aliases:
+    - text: La Bouilloire
+      kind: label
+      known: true
+    - text: la cantine du pont 2
+      kind: descriptor
+      known: true
+  - id: organization_federation_des_soudeurs
+    type: organization
+    label: Fédération des Soudeurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 7
+    aliases:
+    - text: Fédération des Soudeurs
+      kind: label
+      known: true
+  - id: object_pistolet_scellant
+    type: object
+    label: Pistolet-scellant
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 7
+    aliases:
+    - text: Pistolet-scellant
+      kind: label
+      known: true
+    - text: la Bouilloire
+      kind: nickname
+      known: true
+  history:
+  - text: |-
+      La Bouilloire est pleine à craquer à l'heure de la pause. Tu poses ton sac sous la table, la Bouilloire encore tiède à l'intérieur.
+
+      Okwu Tamsin s'assoit en face de toi avec deux bols de nouilles.
+
+      — Alors, il tient le coup, mon vieux scellant ?
+
+      *Dis-lui que la Bouilloire a colmaté six brèches ce matin*, suggère Sillage.
+
+      Tu répètes. Le contremaître éclate de rire si fort que la moitié de la cantine se retourne.
+
+      — Ton IA a de l'humour. Le syndicat, lui, n'en a aucun.
+    mentions:
+    - surface: La Bouilloire
+      start: 0
+      category: XTYPE
+      expected: MATCH location_la_bouilloire
+    - surface: ton sac
+      start: 67
+      category: SKIP
+      expected: SKIP
+    - surface: la Bouilloire
+      start: 90
+      category: XTYPE
+      expected: MATCH object_pistolet_scellant
+    - surface: Okwu Tamsin
+      start: 133
+      category: EASY
+      expected: MATCH character_okwu_tamsin
+    - surface: mon vieux scellant
+      start: 225
+      category: PART
+      expected: MATCH object_pistolet_scellant
+    - surface: la Bouilloire
+      start: 260
+      category: XTYPE
+      expected: MATCH object_pistolet_scellant
+    - surface: Sillage
+      start: 315
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: Le contremaître
+      start: 337
+      category: DESC
+      expected: MATCH character_okwu_tamsin
+    - surface: la cantine
+      start: 393
+      category: DESC
+      expected: MATCH location_la_bouilloire
+    - surface: Ton IA
+      start: 420
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: Le syndicat
+      start: 442
+      category: DESC
+      expected: MATCH organization_federation_des_soudeurs
+  scene:
+    location: location_chantier_vesta
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    - character_okwu_tamsin
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Retour au chantier. Sur le râtelier, un scellant pend à son crochet, étiqueté au nom d'un autre soudeur. Tamsin t'attend avec une caisse ouverte.
+
+    — La Fédération a fini par livrer, par Kessel Logistique. Tiens, un pistolet-scellant neuf. Tu gardes l'ancien en secours.
+
+    Tu tiens maintenant deux outils presque identiques, un dans chaque main. Le neuf ne siffle pas, ne chauffe pas.
+
+    *Je ne lui trouve aucun surnom*, regrette Sillage. *La Bouilloire reste ma préférée.*
+  gold:
+  - surface: chantier
+    start: 10
+    category: PART
+    expected: MATCH location_chantier_vesta
+  - surface: un scellant
+    start: 37
+    category: SKIP
+    expected: SKIP
+  - surface: un autre soudeur
+    start: 87
+    category: SKIP
+    expected: SKIP
+  - surface: Tamsin
+    start: 105
+    category: PART
+    expected: MATCH character_okwu_tamsin
+  - surface: La Fédération
+    start: 149
+    category: PART
+    expected: MATCH organization_federation_des_soudeurs
+  - surface: Kessel Logistique
+    start: 186
+    category: NEW
+    expected: NEW organization
+  - surface: un pistolet-scellant neuf
+    start: 212
+    category: NEW
+    expected: NEW object
+    trap: true
+  - surface: l'ancien
+    start: 249
+    category: DESC
+    expected: MATCH object_pistolet_scellant
+  - surface: Le neuf
+    start: 344
+    category: DESC
+    expected: SAME 212
+  - surface: Sillage
+    start: 426
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: La Bouilloire
+    start: 436
+    category: XTYPE
+    expected: MATCH object_pistolet_scellant
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+- id: seq-sf-objet-surnom-t5
+  genre: sf
+  source: synthetic
+  turn: 9
+  world:
+  - id: protagonist_naoki
+    type: protagonist
+    label: Naoki
+    true_name: Naoki
+    descriptor: null
+    known: true
+    occupation: null
+    location: location_chantier_vesta
+    last_seen_turn: 4
+    aliases:
+    - text: Naoki
+      kind: true_name
+      known: true
+  - id: companion_sillage
+    type: companion
+    label: Sillage
+    true_name: Sillage
+    descriptor: la voix dans ton oreillette
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Sillage
+      kind: true_name
+      known: true
+    - text: la voix dans ton oreillette
+      kind: descriptor
+      known: true
+  - id: character_okwu_tamsin
+    type: character
+    label: Okwu Tamsin
+    true_name: Okwu Tamsin
+    descriptor: le contremaître à la barbe grise
+    known: true
+    occupation: contremaître du Chantier Vesta
+    location: location_chantier_vesta
+    last_seen_turn: 8
+    aliases:
+    - text: Okwu Tamsin
+      kind: true_name
+      known: true
+    - text: Okwu
+      kind: short
+      known: true
+    - text: Tamsin
+      kind: short
+      known: true
+    - text: le contremaître Tamsin
+      kind: title
+      known: true
+    - text: le contremaître à la barbe grise
+      kind: descriptor
+      known: true
+  - id: location_chantier_vesta
+    type: location
+    label: Chantier Vesta
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Chantier Vesta
+      kind: label
+      known: true
+  - id: location_la_bouilloire
+    type: location
+    label: La Bouilloire
+    true_name: null
+    descriptor: la cantine du pont 2
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 7
+    aliases:
+    - text: La Bouilloire
+      kind: label
+      known: true
+    - text: la cantine du pont 2
+      kind: descriptor
+      known: true
+  - id: organization_federation_des_soudeurs
+    type: organization
+    label: Fédération des Soudeurs
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Fédération des Soudeurs
+      kind: label
+      known: true
+  - id: object_pistolet_scellant
+    type: object
+    label: Pistolet-scellant
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Pistolet-scellant
+      kind: label
+      known: true
+    - text: la Bouilloire
+      kind: nickname
+      known: true
+  - id: organization_kessel_logistique
+    type: organization
+    label: Kessel Logistique
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Kessel Logistique
+      kind: label
+      known: true
+  - id: object_pistolet_scellant_neuf
+    type: object
+    label: Pistolet-scellant neuf
+    true_name: null
+    descriptor: null
+    known: true
+    occupation: null
+    location: null
+    last_seen_turn: 8
+    aliases:
+    - text: Pistolet-scellant neuf
+      kind: label
+      known: true
+  history:
+  - text: |-
+      Retour au chantier. Sur le râtelier, un scellant pend à son crochet, étiqueté au nom d'un autre soudeur. Tamsin t'attend avec une caisse ouverte.
+
+      — La Fédération a fini par livrer, par Kessel Logistique. Tiens, un pistolet-scellant neuf. Tu gardes l'ancien en secours.
+
+      Tu tiens maintenant deux outils presque identiques, un dans chaque main. Le neuf ne siffle pas, ne chauffe pas.
+
+      *Je ne lui trouve aucun surnom*, regrette Sillage. *La Bouilloire reste ma préférée.*
+    mentions:
+    - surface: chantier
+      start: 10
+      category: PART
+      expected: MATCH location_chantier_vesta
+    - surface: un scellant
+      start: 37
+      category: SKIP
+      expected: SKIP
+    - surface: un autre soudeur
+      start: 87
+      category: SKIP
+      expected: SKIP
+    - surface: Tamsin
+      start: 105
+      category: PART
+      expected: MATCH character_okwu_tamsin
+    - surface: La Fédération
+      start: 149
+      category: PART
+      expected: MATCH organization_federation_des_soudeurs
+    - surface: Kessel Logistique
+      start: 186
+      category: EASY
+      expected: MATCH organization_kessel_logistique
+    - surface: un pistolet-scellant neuf
+      start: 212
+      category: PART
+      expected: MATCH object_pistolet_scellant_neuf
+    - surface: l'ancien
+      start: 249
+      category: DESC
+      expected: MATCH object_pistolet_scellant
+    - surface: Le neuf
+      start: 344
+      category: PART
+      expected: MATCH object_pistolet_scellant_neuf
+    - surface: Sillage
+      start: 426
+      category: PC
+      expected: MATCH companion_sillage
+    - surface: La Bouilloire
+      start: 436
+      category: XTYPE
+      expected: MATCH object_pistolet_scellant
+  scene:
+    location: location_chantier_vesta
+    present:
+    - protagonist_naoki
+    - companion_sillage
+    reveals: []
+    planned_npcs: []
+    secrets: []
+    open_disclosures: []
+  narration: |-
+    Une alarme de dépressurisation retentit sur le pont 4. Tu cours, le scellant neuf à la main. La brèche est large comme un poing.
+
+    Le pistolet-scellant neuf tousse, crachote, et s'arrête : réservoir vide, jamais rempli à la livraison.
+
+    *Sors la Bouilloire*, ordonne Sillage.
+
+    Ton vieux pistolet siffle, chauffe, et colmate la brèche en huit secondes. Plus tard, à la Bouilloire, toute l'équipe paie sa tournée à l'outil cabossé.
+
+    *Je le savais*, dit Sillage. *La Fédération des Soudeurs devrait me consulter.*
+  gold:
+  - surface: le scellant neuf
+    start: 65
+    category: PART
+    expected: MATCH object_pistolet_scellant_neuf
+  - surface: Le pistolet-scellant neuf
+    start: 130
+    category: PART
+    expected: MATCH object_pistolet_scellant_neuf
+  - surface: la Bouilloire
+    start: 241
+    category: XTYPE
+    expected: MATCH object_pistolet_scellant
+  - surface: Sillage
+    start: 265
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: Ton vieux pistolet
+    start: 275
+    category: PART
+    expected: MATCH object_pistolet_scellant
+  - surface: la Bouilloire
+    start: 363
+    category: XTYPE
+    expected: MATCH location_la_bouilloire
+  - surface: toute l'équipe
+    start: 378
+    category: SKIP
+    expected: SKIP
+  - surface: l'outil cabossé
+    start: 411
+    category: DESC
+    expected: MATCH object_pistolet_scellant
+  - surface: Sillage
+    start: 449
+    category: PC
+    expected: MATCH companion_sillage
+  - surface: La Fédération des Soudeurs
+    start: 459
+    category: EASY
+    expected: MATCH organization_federation_des_soudeurs
+  gold_effects:
+    reveals: []
+    merges: []
+    forbidden_merges: []
+  gold_knowledge: []
+gold_clusters:
+  character_okwu_tamsin:
+  - seq-sf-objet-surnom-t1:0
+  - seq-sf-objet-surnom-t1:398
+  - seq-sf-objet-surnom-t2:420
+  - seq-sf-objet-surnom-t3:133
+  - seq-sf-objet-surnom-t3:337
+  - seq-sf-objet-surnom-t4:105
+  object_pistolet_scellant:
+  - seq-sf-objet-surnom-t1:41
+  - seq-sf-objet-surnom-t1:301
+  - seq-sf-objet-surnom-t2:41
+  - seq-sf-objet-surnom-t2:219
+  - seq-sf-objet-surnom-t2:385
+  - seq-sf-objet-surnom-t3:90
+  - seq-sf-objet-surnom-t3:225
+  - seq-sf-objet-surnom-t3:260
+  - seq-sf-objet-surnom-t4:249
+  - seq-sf-objet-surnom-t4:436
+  - seq-sf-objet-surnom-t5:241
+  - seq-sf-objet-surnom-t5:275
+  - seq-sf-objet-surnom-t5:411
+  organization_federation_des_soudeurs:
+  - seq-sf-objet-surnom-t1:211
+  - seq-sf-objet-surnom-t3:442
+  - seq-sf-objet-surnom-t4:149
+  - seq-sf-objet-surnom-t5:459
+  location_chantier_vesta:
+  - seq-sf-objet-surnom-t1:372
+  - seq-sf-objet-surnom-t4:10
+  companion_sillage:
+  - seq-sf-objet-surnom-t1:461
+  - seq-sf-objet-surnom-t2:191
+  - seq-sf-objet-surnom-t3:315
+  - seq-sf-objet-surnom-t3:420
+  - seq-sf-objet-surnom-t4:426
+  - seq-sf-objet-surnom-t5:265
+  - seq-sf-objet-surnom-t5:449
+  location_la_bouilloire:
+  - seq-sf-objet-surnom-t2:319
+  - seq-sf-objet-surnom-t3:0
+  - seq-sf-objet-surnom-t3:393
+  - seq-sf-objet-surnom-t5:363
+  organization_kessel_logistique:
+  - seq-sf-objet-surnom-t4:186
+  object_pistolet_scellant_neuf:
+  - seq-sf-objet-surnom-t4:212
+  - seq-sf-objet-surnom-t4:344
+  - seq-sf-objet-surnom-t5:65
+  - seq-sf-objet-surnom-t5:130

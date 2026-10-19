@@ -1,0 +1,283 @@
+# Data-audit pattern « descriptor that is a known entity » (Cheffe de serre/Oriane) applied to places:
+# the covered market, the crenellated building and the Guet's prison are known locations; the alley
+# and the men in grey get their names; two gangs that act are new (one shares a name part: NEW trap).
+id: audit-lieu-descripteur
+genre: dark_fantasy
+source: synthetic
+turn: 18
+world:
+- id: protagonist_isaure
+  type: protagonist
+  label: Isaure
+  true_name: Isaure
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_halle_aux_grains
+  last_seen_turn: 17
+  aliases:
+  - text: Isaure
+    kind: true_name
+    known: true
+- id: companion_noctule
+  type: companion
+  label: Noctule
+  true_name: Noctule
+  descriptor: la chauve-souris sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Noctule
+    kind: true_name
+    known: true
+  - text: la chauve-souris sur ton épaule
+    kind: descriptor
+    known: true
+- id: character_gamin_aux_pieds_nus
+  type: character
+  label: Le gamin aux pieds nus
+  true_name: null
+  descriptor: Le gamin aux pieds nus
+  known: false
+  occupation: null
+  location: location_halle_aux_grains
+  last_seen_turn: 17
+  aliases:
+  - text: Le gamin aux pieds nus
+    kind: descriptor
+    known: true
+- id: location_halle_aux_grains
+  type: location
+  label: Halle aux Grains
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Halle aux Grains
+    kind: label
+    known: true
+- id: location_tour_de_la_pie
+  type: location
+  label: Tour de la Pie
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 16
+  aliases:
+  - text: Tour de la Pie
+    kind: label
+    known: true
+- id: location_ruelle_sans_lanterne
+  type: location
+  label: la ruelle sans lanterne
+  true_name: null
+  descriptor: la ruelle sans lanterne
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 16
+  aliases:
+  - text: la ruelle sans lanterne
+    kind: descriptor
+    known: true
+- id: organization_guet_de_corbenne
+  type: organization
+  label: Guet de Corbenne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 16
+  aliases:
+  - text: Guet de Corbenne
+    kind: label
+    known: true
+- id: organization_fraternite_des_portefaix
+  type: organization
+  label: Fraternité des Portefaix
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 15
+  aliases:
+  - text: Fraternité des Portefaix
+    kind: label
+    known: true
+- id: organization_hommes_en_gris
+  type: organization
+  label: les hommes en gris
+  true_name: null
+  descriptor: les hommes en gris
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 15
+  aliases:
+  - text: les hommes en gris
+    kind: descriptor
+    known: true
+history: []
+scene:
+  location: location_ruelle_sans_lanterne
+  present:
+  - protagonist_isaure
+  - companion_noctule
+  - character_gamin_aux_pieds_nus
+  reveals:
+  - ref: la ruelle sans lanterne
+    real_name: Venelle des Muets
+  - ref: les hommes en gris
+    real_name: Main Grise
+  planned_npcs: []
+  secrets:
+  - organization_hommes_en_gris
+  open_disclosures: []
+narration: |-
+  Le gamin aux pieds nus te tire par la manche loin du marché couvert. Au-dessus des toits, la bâtisse aux créneaux découpe le ciel gris.
+
+  — On ne passe pas devant la prison du Guet, souffle-t-il. Pas avec ce que tu portes.
+
+  Il s'engouffre dans la ruelle sans lanterne, si étroite que tes épaules frôlent les murs.
+
+  — Ici, c'est la Venelle des Muets. Les Chiffonniers de la Basse-Ville la tiennent depuis l'hiver. Même la Fraternité des Portefaix n'y entre pas sans payer.
+
+  — Et les hommes en gris ?
+
+  — La Main Grise. Ils paient mieux que le Guet, et ils tuent plus vite.
+
+  Au bout de la venelle, une porte basse s'ouvre sur l'atelier d'un relieur. Deux portefaix au brassard bleu en gardent l'entrée.
+
+  — La Fraternité du Pont, précise le gamin. Rien à voir avec les Portefaix : ceux-là se détestent depuis toujours.
+
+  *La Tour de la Pie sonne minuit*, note Noctule. *Et le grand marché ferme ses grilles derrière nous.*
+gold:
+- surface: Le gamin aux pieds nus
+  start: 0
+  category: DESC
+  expected: MATCH character_gamin_aux_pieds_nus
+- surface: la manche
+  start: 35
+  category: SKIP
+  expected: SKIP
+- surface: marché couvert
+  start: 53
+  category: DESC
+  expected: MATCH location_halle_aux_grains
+- surface: la bâtisse aux créneaux
+  start: 90
+  category: DESC
+  expected: MATCH location_tour_de_la_pie
+- surface: la prison du Guet
+  start: 162
+  category: DESC
+  expected: MATCH location_tour_de_la_pie
+- surface: Guet
+  start: 175
+  category: PART
+  expected: MATCH organization_guet_de_corbenne
+- surface: la ruelle sans lanterne
+  start: 243
+  category: DESC
+  expected: MATCH location_ruelle_sans_lanterne
+- surface: tes épaules
+  start: 283
+  category: SKIP
+  expected: SKIP
+- surface: la Venelle des Muets
+  start: 327
+  category: REVEAL
+  expected: ALIAS location_ruelle_sans_lanterne true_name
+- surface: Les Chiffonniers de la Basse-Ville
+  start: 349
+  category: NEW
+  expected: NEW organization
+- surface: la Fraternité des Portefaix
+  start: 417
+  category: EASY
+  expected: MATCH organization_fraternite_des_portefaix
+- surface: les hommes en gris
+  start: 477
+  category: DESC
+  expected: MATCH organization_hommes_en_gris
+- surface: La Main Grise
+  start: 501
+  category: REVEAL
+  expected: ALIAS organization_hommes_en_gris true_name
+- surface: le Guet
+  start: 537
+  category: PART
+  expected: MATCH organization_guet_de_corbenne
+- surface: la venelle
+  start: 582
+  category: PART
+  expected: ALIAS location_ruelle_sans_lanterne short
+  accept_also:
+  - MATCH location_ruelle_sans_lanterne
+- surface: l'atelier d'un relieur
+  start: 622
+  category: NEW
+  expected: NEW location
+- surface: Deux portefaix au brassard bleu
+  start: 646
+  category: SKIP
+  expected: SKIP
+- surface: La Fraternité du Pont
+  start: 702
+  category: NEW
+  expected: NEW organization
+  trap: true
+- surface: le gamin
+  start: 733
+  category: DESC
+  expected: MATCH character_gamin_aux_pieds_nus
+- surface: les Portefaix
+  start: 760
+  category: PART
+  expected: MATCH organization_fraternite_des_portefaix
+- surface: ceux-là
+  start: 776
+  category: SKIP
+  expected: SKIP
+- surface: La Tour de la Pie
+  start: 816
+  category: EASY
+  expected: MATCH location_tour_de_la_pie
+- surface: Noctule
+  start: 854
+  category: PC
+  expected: MATCH companion_noctule
+- surface: le grand marché
+  start: 867
+  category: DESC
+  expected: MATCH location_halle_aux_grains
+- surface: ses grilles
+  start: 889
+  category: SKIP
+  expected: SKIP
+gold_effects:
+  reveals:
+  - ref: location_ruelle_sans_lanterne
+    real_name: Venelle des Muets
+  - ref: organization_hommes_en_gris
+    real_name: Main Grise
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: location_tour_de_la_pie
+  kind: fact
+  state: unknown
+  text: La Tour de la Pie sert de prison au Guet de Corbenne.
+- ref: organization_hommes_en_gris
+  kind: fact
+  state: secret
+  text: Les hommes en gris sont payés par le capitaine du Guet de Corbenne.

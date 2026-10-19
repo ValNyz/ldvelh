@@ -1,0 +1,273 @@
+# Data-audit pattern « reveal not applied » (Kethari/Nahle) on every type: a plate names the crate,
+# the docker introduces himself, a sign names the building, a shipping slip names the secret buyers
+# (secret name, disclosure open).
+id: audit-objet-revele
+genre: sf
+source: synthetic
+turn: 10
+world:
+- id: protagonist_naoki
+  type: protagonist
+  label: Naoki
+  true_name: Naoki
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_quai_marchand
+  last_seen_turn: 9
+  aliases:
+  - text: Naoki
+    kind: true_name
+    known: true
+- id: companion_sillage
+  type: companion
+  label: Sillage
+  true_name: Sillage
+  descriptor: la voix dans ton oreillette
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 9
+  aliases:
+  - text: Sillage
+    kind: true_name
+    known: true
+  - text: la voix dans ton oreillette
+    kind: descriptor
+    known: true
+- id: object_caisse_scellee
+  type: object
+  label: Conteneur 112-B
+  true_name: Conteneur 112-B
+  descriptor: la caisse scellée
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 9
+  aliases:
+  - text: Conteneur 112-B
+    kind: true_name
+    known: false
+  - text: la caisse scellée
+    kind: descriptor
+    known: true
+- id: location_batiment_sans_enseigne
+  type: location
+  label: Entrepôt Kessler
+  true_name: Entrepôt Kessler
+  descriptor: le bâtiment sans enseigne
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 9
+  aliases:
+  - text: Entrepôt Kessler
+    kind: true_name
+    known: false
+  - text: le bâtiment sans enseigne
+    kind: descriptor
+    known: true
+- id: organization_acheteurs_anonymes
+  type: organization
+  label: Consortium Ardent
+  true_name: Consortium Ardent
+  descriptor: les acheteurs anonymes
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 8
+  aliases:
+  - text: Consortium Ardent
+    kind: true_name
+    known: false
+    secret: true
+  - text: les acheteurs anonymes
+    kind: descriptor
+    known: true
+- id: character_ilan_varek
+  type: character
+  label: Ilan Varek
+  true_name: Ilan Varek
+  descriptor: le docker à la cicatrice
+  known: false
+  occupation: docker du Quai marchand
+  location: location_quai_marchand
+  last_seen_turn: 9
+  aliases:
+  - text: Ilan Varek
+    kind: true_name
+    known: false
+  - text: Ilan
+    kind: short
+    known: false
+  - text: Varek
+    kind: short
+    known: false
+  - text: le docker à la cicatrice
+    kind: descriptor
+    known: true
+- id: location_quai_marchand
+  type: location
+  label: Quai marchand
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 9
+  aliases:
+  - text: Quai marchand
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_quai_marchand
+  present:
+  - protagonist_naoki
+  - companion_sillage
+  - character_ilan_varek
+  - object_caisse_scellee
+  reveals:
+  - ref: la caisse scellée
+    real_name: Conteneur 112-B
+  - ref: le docker à la cicatrice
+    real_name: Ilan Varek
+  - ref: le bâtiment sans enseigne
+    real_name: Entrepôt Kessler
+  - ref: les acheteurs anonymes
+    real_name: Consortium Ardent
+  planned_npcs: []
+  secrets:
+  - object_caisse_scellee
+  - organization_acheteurs_anonymes
+  - character_ilan_varek
+  open_disclosures:
+  - handle: organization_acheteurs_anonymes
+    kind: name
+    condition: le PJ lit le bordereau d'expédition
+narration: |-
+  Le docker à la cicatrice fait rouler la caisse scellée depuis le quai marchand jusqu'à la porte du bâtiment sans enseigne. Sous la poussière, une plaque rivetée apparaît sur le flanc : Conteneur 112-B.
+
+  — Faut pas traîner ici, dit-il en s'essuyant le front. Moi, c'est Ilan Varek, si on te demande qui t'a aidé.
+
+  Au-dessus de la porte, une enseigne repeinte à la hâte laisse encore deviner deux mots : Entrepôt Kessler. Ilan glisse le bordereau d'expédition sous la sangle et tapote la case du destinataire.
+
+  — Consortium Ardent. Tu voulais savoir qui étaient les acheteurs anonymes ? Voilà. Et le Consortium paie à la livraison, pas avant.
+
+  Il pousse le conteneur à l'intérieur de l'entrepôt et rabat la bâche.
+
+  *Consortium Ardent : aucune trace dans les registres publics*, note Sillage. *Le docker, lui, figure sur la liste de paie du quai.*
+gold:
+- surface: Le docker à la cicatrice
+  start: 0
+  category: DESC
+  expected: MATCH character_ilan_varek
+- surface: la caisse scellée
+  start: 37
+  category: DESC
+  expected: MATCH object_caisse_scellee
+- surface: le quai marchand
+  start: 62
+  category: PART
+  expected: MATCH location_quai_marchand
+- surface: bâtiment sans enseigne
+  start: 99
+  category: DESC
+  expected: MATCH location_batiment_sans_enseigne
+- surface: Conteneur 112-B
+  start: 185
+  category: REVEAL
+  expected: ALIAS object_caisse_scellee true_name
+- surface: Ilan Varek
+  start: 269
+  category: REVEAL
+  expected: ALIAS character_ilan_varek true_name
+- surface: Entrepôt Kessler
+  start: 402
+  category: REVEAL
+  expected: ALIAS location_batiment_sans_enseigne true_name
+- surface: Ilan
+  start: 420
+  category: PART
+  expected: ALIAS character_ilan_varek short
+  accept_also:
+  - MATCH character_ilan_varek
+- surface: Consortium Ardent
+  start: 511
+  category: REVEAL
+  expected: ALIAS organization_acheteurs_anonymes true_name
+- surface: les acheteurs anonymes
+  start: 560
+  category: DESC
+  expected: MATCH organization_acheteurs_anonymes
+- surface: le Consortium
+  start: 595
+  category: PART
+  expected: ALIAS organization_acheteurs_anonymes short
+  accept_also:
+  - MATCH organization_acheteurs_anonymes
+- surface: le conteneur
+  start: 652
+  category: PART
+  expected: ALIAS object_caisse_scellee short
+  accept_also:
+  - MATCH object_caisse_scellee
+- surface: l'entrepôt
+  start: 682
+  category: PART
+  expected: ALIAS location_batiment_sans_enseigne short
+  accept_also:
+  - MATCH location_batiment_sans_enseigne
+- surface: Consortium Ardent
+  start: 714
+  category: EASY
+  expected: ALIAS organization_acheteurs_anonymes true_name
+- surface: Sillage
+  start: 781
+  category: PC
+  expected: MATCH companion_sillage
+- surface: Le docker
+  start: 791
+  category: DESC
+  expected: MATCH character_ilan_varek
+gold_effects:
+  reveals:
+  - ref: object_caisse_scellee
+    real_name: Conteneur 112-B
+  - ref: character_ilan_varek
+    real_name: Ilan Varek
+  - ref: location_batiment_sans_enseigne
+    real_name: Entrepôt Kessler
+  - ref: organization_acheteurs_anonymes
+    real_name: Consortium Ardent
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: object_caisse_scellee
+  kind: name
+  state: unknown
+  text: Conteneur 112-B
+- ref: location_batiment_sans_enseigne
+  kind: name
+  state: unknown
+  text: Entrepôt Kessler
+- ref: organization_acheteurs_anonymes
+  kind: name
+  state: secret
+  text: Consortium Ardent
+- ref: character_ilan_varek
+  kind: name
+  state: unknown
+  text: Ilan Varek
+- ref: object_caisse_scellee
+  kind: fact
+  state: secret
+  text: La caisse scellée contient des cartouches de combustible militaire déclarées comme pièces agricoles.
+- ref: character_ilan_varek
+  kind: fact
+  state: secret
+  text: Ilan Varek est payé par les acheteurs anonymes pour surveiller les livraisons.
+- ref: location_batiment_sans_enseigne
+  kind: fact
+  state: unknown
+  text: Le bâtiment sans enseigne appartient à un ancien transporteur en faillite.

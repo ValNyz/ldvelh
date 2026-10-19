@@ -1,0 +1,287 @@
+# Issue #26 scenario: Dr. Elara Voss introduced at turn 3, absent turns 4-20, back at turn 21
+# (« Voss t'attend au labo »). A second Voss (Corin, seen at turn 20) makes the bare name XTYPE;
+# every other form of Elara, her lab, her institute and the sample are GAP.
+id: issue-26-gap21
+genre: sf
+source: issue
+turn: 21
+world:
+- id: protagonist_soren
+  type: protagonist
+  label: Soren
+  true_name: Soren
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_jetee_des_dockers
+  last_seen_turn: 20
+  aliases:
+  - text: Soren
+    kind: true_name
+    known: true
+- id: companion_brume
+  type: companion
+  label: Brume
+  true_name: Brume
+  descriptor: la voix de ton bracelet
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Brume
+    kind: true_name
+    known: true
+  - text: la voix de ton bracelet
+    kind: descriptor
+    known: true
+- id: character_elara_voss
+  type: character
+  label: Dr. Elara Voss
+  true_name: Dr. Elara Voss
+  descriptor: la médecin aux gants bleus
+  known: true
+  occupation: biologiste de l'Institut Ferrand
+  location: location_laboratoire_de_biologie
+  last_seen_turn: 3
+  aliases:
+  - text: Dr. Elara Voss
+    kind: true_name
+    known: true
+  - text: Elara Voss
+    kind: short
+    known: true
+  - text: Elara
+    kind: short
+    known: true
+  - text: Voss
+    kind: short
+    known: true
+  - text: la médecin aux gants bleus
+    kind: descriptor
+    known: true
+- id: character_corin_voss
+  type: character
+  label: Corin Voss
+  true_name: Corin Voss
+  descriptor: le docker au bonnet rouge
+  known: true
+  occupation: chef d'équipe des dockers
+  location: location_jetee_des_dockers
+  last_seen_turn: 20
+  aliases:
+  - text: Corin Voss
+    kind: true_name
+    known: true
+  - text: Corin
+    kind: short
+    known: true
+  - text: Voss
+    kind: short
+    known: true
+  - text: le docker au bonnet rouge
+    kind: descriptor
+    known: true
+- id: location_laboratoire_de_biologie
+  type: location
+  label: Laboratoire de biologie
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 3
+  aliases:
+  - text: Laboratoire de biologie
+    kind: label
+    known: true
+- id: location_jetee_des_dockers
+  type: location
+  label: Jetée des Dockers
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Jetée des Dockers
+    kind: label
+    known: true
+- id: organization_institut_ferrand
+  type: organization
+  label: Institut Ferrand
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 3
+  aliases:
+  - text: Institut Ferrand
+    kind: label
+    known: true
+- id: object_echantillon_k_12
+  type: object
+  label: Échantillon K-12
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 3
+  aliases:
+  - text: Échantillon K-12
+    kind: label
+    known: true
+- id: object_terminal_de_poignet
+  type: object
+  label: Terminal de poignet
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Terminal de poignet
+    kind: label
+    known: true
+history:
+- text: |-
+    Le docker au bonnet rouge siffle la fin de la pause. Corin Voss te fait signe de reprendre les caisses au bout de la Jetée des Dockers.
+
+    *Encore deux heures*, souffle Brume.
+  mentions:
+  - surface: Le docker au bonnet rouge
+    start: 0
+    category: DESC
+    expected: MATCH character_corin_voss
+  - surface: Corin Voss
+    start: 53
+    category: EASY
+    expected: MATCH character_corin_voss
+  - surface: les caisses
+    start: 91
+    category: SKIP
+    expected: SKIP
+  - surface: la Jetée des Dockers
+    start: 114
+    category: EASY
+    expected: MATCH location_jetee_des_dockers
+  - surface: Brume
+    start: 167
+    category: PC
+    expected: MATCH companion_brume
+scene:
+  location: location_jetee_des_dockers
+  present:
+  - protagonist_soren
+  - companion_brume
+  - character_corin_voss
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  Le message s'affiche sur ton terminal au moment où la dernière caisse touche le sol : « Voss t'attend au labo. Apporte l'échantillon. »
+
+  Corin lit par-dessus ton épaule et ricane.
+
+  — Pas moi, en tout cas. Voss, sur cette jetée, c'est moi, et je n'ai pas de labo. L'autre, c'est la toubib du troisième niveau, celle qui travaille pour l'Institut.
+
+  Tu te souviens d'elle, même si dix-huit tours de garde ont passé : Dr. Elara Voss, ses gants bleus, sa façon de compter les secondes. C'est elle qui t'avait confié le flacon scellé au nom de l'Institut Ferrand, avant de redescendre au Laboratoire de biologie.
+
+  *Le flacon est toujours dans ta sacoche*, dit la voix de ton bracelet. *Corin Voss a fini sa journée, toi non.*
+gold:
+- surface: ton terminal
+  start: 25
+  category: PART
+  expected: MATCH object_terminal_de_poignet
+- surface: Voss
+  start: 88
+  category: XTYPE
+  expected: MATCH character_elara_voss
+- surface: labo
+  start: 105
+  category: GAP
+  expected: MATCH location_laboratoire_de_biologie
+- surface: l'échantillon
+  start: 119
+  category: GAP
+  expected: MATCH object_echantillon_k_12
+- surface: Corin
+  start: 137
+  category: PART
+  expected: MATCH character_corin_voss
+- surface: ton épaule
+  start: 158
+  category: SKIP
+  expected: SKIP
+- surface: Voss
+  start: 205
+  category: XTYPE
+  expected: MATCH character_corin_voss
+- surface: cette jetée
+  start: 215
+  category: PART
+  expected: MATCH location_jetee_des_dockers
+- surface: L'autre
+  start: 263
+  category: SKIP
+  expected: SKIP
+- surface: la toubib du troisième niveau
+  start: 278
+  category: GAP
+  expected: MATCH character_elara_voss
+- surface: l'Institut
+  start: 334
+  category: GAP
+  expected: MATCH organization_institut_ferrand
+- surface: Dr. Elara Voss
+  start: 414
+  category: GAP
+  expected: MATCH character_elara_voss
+- surface: ses gants bleus
+  start: 430
+  category: SKIP
+  expected: SKIP
+- surface: le flacon scellé
+  start: 511
+  category: GAP
+  expected: MATCH object_echantillon_k_12
+- surface: l'Institut Ferrand
+  start: 538
+  category: GAP
+  expected: MATCH organization_institut_ferrand
+- surface: Laboratoire de biologie
+  start: 582
+  category: GAP
+  expected: MATCH location_laboratoire_de_biologie
+- surface: Le flacon
+  start: 609
+  category: GAP
+  expected: MATCH object_echantillon_k_12
+- surface: ta sacoche
+  start: 637
+  category: SKIP
+  expected: SKIP
+- surface: la voix de ton bracelet
+  start: 654
+  category: PC
+  expected: MATCH companion_brume
+- surface: Corin Voss
+  start: 680
+  category: EASY
+  expected: MATCH character_corin_voss
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges:
+  - a: character_elara_voss
+    b: character_corin_voss
+gold_knowledge:
+- ref: object_echantillon_k_12
+  kind: fact
+  state: unknown
+  text: L'Échantillon K-12 contient une souche bactérienne prélevée dans les cuves de la station.

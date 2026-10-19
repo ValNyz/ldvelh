@@ -1,0 +1,493 @@
+# Synthetic dark fantasy scene (annotator C). Focus: NEW, with traps: a second steward who faces
+# the castle's steward, a « Tour Pendue » set apart from the baron's Tour d'Ombre; a miners' brotherhood
+# and a lamp given to the PC.
+id: syn-df-new-02
+genre: dark_fantasy
+source: synthetic
+turn: 16
+world:
+- id: protagonist_maelis
+  type: protagonist
+  label: Maëlis
+  true_name: Maëlis
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Maëlis
+    kind: true_name
+    known: true
+- id: companion_brume
+  type: companion
+  label: Brume
+  true_name: Brume
+  descriptor: la chouette sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 15
+  aliases:
+  - text: Brume
+    kind: true_name
+    known: true
+  - text: la chouette sur ton épaule
+    kind: descriptor
+    known: true
+  - text: ta chouette
+    kind: descriptor
+    known: true
+- id: organization_maison_vauclair
+  type: organization
+  label: Maison Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Maison Vauclair
+    kind: label
+    known: true
+  - text: Vauclair
+    kind: short
+    known: true
+- id: location_chateau_vauclair
+  type: location
+  label: Château Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Château Vauclair
+    kind: label
+    known: true
+  - text: Vauclair
+    kind: short
+    known: true
+- id: character_ysolde_vauclair
+  type: character
+  label: Ysolde Vauclair
+  true_name: Ysolde Vauclair
+  descriptor: la femme au voile d'argent
+  known: true
+  occupation: comtesse de Vauclair
+  location: location_chateau_vauclair
+  last_seen_turn: 13
+  aliases:
+  - text: Ysolde Vauclair
+    kind: true_name
+    known: true
+  - text: Ysolde
+    kind: short
+    known: true
+  - text: Vauclair
+    kind: short
+    known: true
+  - text: la Comtesse
+    kind: title
+    known: true
+  - text: la femme au voile d'argent
+    kind: descriptor
+    known: true
+- id: organization_maison_d_orgemont
+  type: organization
+  label: Maison d'Orgemont
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Maison d'Orgemont
+    kind: label
+    known: true
+  - text: Orgemont
+    kind: short
+    known: true
+- id: character_gaspard_d_orgemont
+  type: character
+  label: Gaspard d'Orgemont
+  true_name: Gaspard d'Orgemont
+  descriptor: le vieil homme à la canne d'ivoire
+  known: true
+  occupation: chef de la Maison d'Orgemont
+  location: location_tour_d_ombre
+  last_seen_turn: 13
+  aliases:
+  - text: Gaspard d'Orgemont
+    kind: true_name
+    known: true
+  - text: Gaspard
+    kind: short
+    known: true
+  - text: le Baron
+    kind: title
+    known: true
+  - text: le vieil homme à la canne d'ivoire
+    kind: descriptor
+    known: true
+- id: location_tour_d_ombre
+  type: location
+  label: Tour d'Ombre
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 13
+  aliases:
+  - text: Tour d'Ombre
+    kind: label
+    known: true
+- id: location_coeur_de_morne
+  type: location
+  label: Cœur de Morne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 15
+  aliases:
+  - text: Cœur de Morne
+    kind: label
+    known: true
+- id: object_coeur_de_morne
+  type: object
+  label: Cœur de Morne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 12
+  aliases:
+  - text: Cœur de Morne
+    kind: label
+    known: true
+- id: location_morne
+  type: location
+  label: Morne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Morne
+    kind: label
+    known: true
+- id: character_thibault_vasseur
+  type: character
+  label: Thibault Vasseur
+  true_name: Thibault Vasseur
+  descriptor: l'intendant au crâne rasé
+  known: true
+  occupation: intendant du Château Vauclair
+  location: location_chateau_vauclair
+  last_seen_turn: 15
+  aliases:
+  - text: Thibault Vasseur
+    kind: true_name
+    known: true
+  - text: Thibault
+    kind: short
+    known: true
+  - text: Vasseur
+    kind: short
+    known: true
+  - text: l'intendant au crâne rasé
+    kind: descriptor
+    known: true
+- id: character_clemence_d_orgemont
+  type: character
+  label: Clémence d'Orgemont
+  true_name: Clémence d'Orgemont
+  descriptor: la servante aux yeux vairons
+  known: false
+  occupation: espionne de la Maison d'Orgemont
+  location: location_chateau_vauclair
+  last_seen_turn: null
+  aliases:
+  - text: Clémence d'Orgemont
+    kind: true_name
+    known: false
+    secret: true
+  - text: Clémence
+    kind: short
+    known: false
+    secret: true
+  - text: la servante aux yeux vairons
+    kind: descriptor
+    known: true
+- id: location_passage_des_veuves
+  type: location
+  label: Passage des Veuves
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Passage des Veuves
+    kind: label
+    known: false
+    secret: true
+- id: location_chapelle_effondree
+  type: location
+  label: Oratoire Saint-Aubin
+  true_name: Oratoire Saint-Aubin
+  descriptor: la chapelle effondrée
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Oratoire Saint-Aubin
+    kind: true_name
+    known: true
+  - text: la chapelle effondrée
+    kind: descriptor
+    known: true
+- id: organization_cercle_de_cendre
+  type: organization
+  label: Cercle de Cendre
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cercle de Cendre
+    kind: label
+    known: false
+    secret: true
+- id: organization_lames_grises
+  type: organization
+  label: Lames Grises
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Lames Grises
+    kind: label
+    known: true
+- id: object_sceau_de_vauclair
+  type: object
+  label: Sceau de Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Sceau de Vauclair
+    kind: label
+    known: true
+- id: object_epee_d_haldric
+  type: object
+  label: Épée d'Haldric
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Épée d'Haldric
+    kind: label
+    known: true
+- id: object_coffret_de_plomb
+  type: object
+  label: le coffret de plomb
+  true_name: Reliquaire d'Aubin
+  descriptor: le coffret de plomb
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Reliquaire d'Aubin
+    kind: true_name
+    known: false
+  - text: le coffret de plomb
+    kind: descriptor
+    known: true
+- id: arc_succession_de_vauclair
+  type: arc
+  label: La succession de Vauclair
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La succession de Vauclair
+    kind: label
+    known: true
+history:
+- text: |-
+    Le chemin de Cœur de Morne descend en lacets jusqu'au carreau de la mine. L'intendant au crâne rasé marche devant toi sans se retourner.
+
+    *Il a peur de quelque chose, là en bas*, murmure Brume.
+  mentions:
+  - surface: Cœur de Morne
+    start: 13
+    category: XTYPE
+    expected: MATCH location_coeur_de_morne
+  - surface: L'intendant au crâne rasé
+    start: 74
+    category: DESC
+    expected: MATCH character_thibault_vasseur
+  - surface: Brume
+    start: 187
+    category: PC
+    expected: MATCH companion_brume
+scene:
+  location: location_coeur_de_morne
+  present:
+  - protagonist_maelis
+  - companion_brume
+  - character_thibault_vasseur
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - character_clemence_d_orgemont
+  - location_passage_des_veuves
+  - organization_cercle_de_cendre
+  open_disclosures: []
+narration: |-
+  Dans la baraque du carreau, l'intendant de la mine, un homme gras aux mains noires de charbon, se lève pour accueillir Vasseur. Les deux hommes se toisent.
+
+  — Les gars ne descendront plus, dit-il à Thibault Vasseur. Les Faucheurs de Morne ont voté la grève hier soir. Tant que la Comtesse ne paiera pas les veuves, personne ne touchera au filon.
+
+  Tu effleures le sceau pendu à ta ceinture. D'un coup de menton, il désigne la fenêtre.
+
+  — Les veuves se réunissent à la Tour Pendue. Rien à voir avec la Tour d'Ombre du Baron : celle-là ne tient debout que par habitude.
+
+  Avant que vous repartiez, il te tend une lampe de mineur à grille de cuivre.
+
+  — Si vous descendez quand même, prenez-la. La mine ne pardonne pas aux imprudents. Pas depuis qu'on lui a arraché le Cœur de Morne.
+
+  *Il ment sur la grève*, glisse ta chouette. *Pas sur les veuves.*
+gold:
+- surface: l'intendant de la mine
+  start: 28
+  category: NEW
+  expected: NEW character
+  trap: true
+- surface: un homme gras aux mains noires de charbon
+  start: 52
+  category: DESC
+  expected: SAME 28
+- surface: Vasseur
+  start: 119
+  category: PART
+  expected: MATCH character_thibault_vasseur
+- surface: Thibault Vasseur
+  start: 198
+  category: EASY
+  expected: MATCH character_thibault_vasseur
+- surface: Les Faucheurs de Morne
+  start: 216
+  category: NEW
+  expected: NEW organization
+- surface: la Comtesse
+  start: 277
+  category: PART
+  expected: MATCH character_ysolde_vauclair
+- surface: personne
+  start: 315
+  category: SKIP
+  expected: SKIP
+- surface: le sceau
+  start: 360
+  category: PART
+  expected: MATCH object_sceau_de_vauclair
+- surface: ta ceinture
+  start: 377
+  category: SKIP
+  expected: SKIP
+- surface: la Tour Pendue
+  start: 464
+  category: NEW
+  expected: NEW location
+  trap: true
+- surface: la Tour d'Ombre
+  start: 497
+  category: EASY
+  expected: MATCH location_tour_d_ombre
+- surface: Baron
+  start: 516
+  category: PART
+  expected: MATCH character_gaspard_d_orgemont
+- surface: celle-là
+  start: 524
+  category: SKIP
+  expected: SKIP
+- surface: une lampe de mineur à grille de cuivre
+  start: 605
+  category: NEW
+  expected: NEW object
+- surface: La mine
+  start: 689
+  category: DESC
+  expected: MATCH location_coeur_de_morne
+- surface: le Cœur de Morne
+  start: 760
+  category: XTYPE
+  expected: MATCH object_coeur_de_morne
+- surface: ta chouette
+  start: 810
+  category: PC
+  expected: MATCH companion_brume
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_clemence_d_orgemont
+  kind: name
+  state: secret
+  text: Clémence d'Orgemont
+- ref: location_passage_des_veuves
+  kind: name
+  state: secret
+  text: Passage des Veuves
+- ref: organization_cercle_de_cendre
+  kind: name
+  state: secret
+  text: Cercle de Cendre
+- ref: object_coffret_de_plomb
+  kind: name
+  state: unknown
+  text: Reliquaire d'Aubin
+- ref: arc_succession_de_vauclair
+  kind: fact
+  state: secret
+  text: La Comtesse a empoisonné son frère aîné pour hériter de Vauclair.
+- ref: arc_succession_de_vauclair
+  kind: fact
+  state: unknown
+  text: Le Baron d'Orgemont est endetté auprès des Lames Grises.
+- ref: character_clemence_d_orgemont
+  kind: fact
+  state: secret
+  text: La servante aux yeux vairons est la nièce du Baron d'Orgemont.

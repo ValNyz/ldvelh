@@ -1,0 +1,244 @@
+# Roadmap gate (P6): Rizka Voss and Elara Voss, two people sharing a surname.
+# Both exist: each bare « Voss » is XTYPE and the context picks one; no merge allowed.
+id: roadmap-rizka-elara
+genre: sf
+source: issue
+world:
+- id: protagonist_soren
+  type: protagonist
+  label: Soren
+  true_name: Soren
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_atelier_de_maintenance
+  last_seen_turn: 14
+  aliases:
+  - text: Soren
+    kind: true_name
+    known: true
+- id: companion_brume
+  type: companion
+  label: Brume
+  true_name: Brume
+  descriptor: la voix de ton bracelet
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Brume
+    kind: true_name
+    known: true
+  - text: la voix de ton bracelet
+    kind: descriptor
+    known: true
+- id: character_rizka_voss
+  type: character
+  label: Rizka Voss
+  true_name: Rizka Voss
+  descriptor: la mécanicienne aux avant-bras tatoués
+  known: true
+  occupation: mécanicienne de l'Atelier de maintenance
+  location: location_atelier_de_maintenance
+  last_seen_turn: 14
+  aliases:
+  - text: Rizka Voss
+    kind: true_name
+    known: true
+  - text: Rizka
+    kind: short
+    known: true
+  - text: Voss
+    kind: short
+    known: true
+  - text: la mécanicienne aux avant-bras tatoués
+    kind: descriptor
+    known: true
+- id: character_elara_voss
+  type: character
+  label: Elara Voss
+  true_name: Elara Voss
+  descriptor: la médecin aux gants bleus
+  known: true
+  occupation: médecin de bord
+  location: location_infirmerie
+  last_seen_turn: 12
+  aliases:
+  - text: Elara Voss
+    kind: true_name
+    known: true
+  - text: Elara
+    kind: short
+    known: true
+  - text: Voss
+    kind: short
+    known: true
+  - text: la médecin aux gants bleus
+    kind: descriptor
+    known: true
+- id: location_atelier_de_maintenance
+  type: location
+  label: Atelier de maintenance
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Atelier de maintenance
+    kind: label
+    known: true
+- id: location_infirmerie
+  type: location
+  label: Infirmerie
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 12
+  aliases:
+  - text: Infirmerie
+    kind: label
+    known: true
+- id: organization_conseil_de_bord
+  type: organization
+  label: Conseil de bord
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Conseil de bord
+    kind: label
+    known: true
+- id: object_coupleur_ionique
+  type: object
+  label: Coupleur ionique
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Coupleur ionique
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_atelier_de_maintenance
+  present:
+  - protagonist_soren
+  - companion_brume
+  - character_rizka_voss
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  Rizka Voss referme le capot du coupleur ionique et s'essuie les mains sur son bleu de travail.
+
+  — Voss est passée ce matin, dit-elle. Pas moi : l'autre, celle de l'infirmerie. Elle voulait savoir si le Conseil de bord t'avait déjà convoqué.
+
+  Un apprenti passe la tête par la porte de l'atelier.
+
+  — Voss, le coupleur, il est prêt ?
+
+  La mécanicienne aux avant-bras tatoués lève le pouce sans se retourner.
+
+  — Tu vois le problème, reprend Rizka. Deux Voss sur le même pont. Elara et moi, on n'est même pas cousines. Mais le Conseil nous range dans le même dossier depuis un mois.
+
+  *La médecin aux gants bleus t'attend à l'infirmerie avant la relève*, précise Brume.
+gold:
+- surface: Rizka Voss
+  start: 0
+  category: EASY
+  expected: MATCH character_rizka_voss
+- surface: coupleur ionique
+  start: 31
+  category: PART
+  expected: MATCH object_coupleur_ionique
+- surface: son bleu de travail
+  start: 74
+  category: SKIP
+  expected: SKIP
+- surface: Voss
+  start: 98
+  category: XTYPE
+  expected: MATCH character_elara_voss
+- surface: l'autre
+  start: 144
+  category: SKIP
+  expected: SKIP
+- surface: l'infirmerie
+  start: 162
+  category: PART
+  expected: MATCH location_infirmerie
+- surface: le Conseil de bord
+  start: 199
+  category: EASY
+  expected: MATCH organization_conseil_de_bord
+- surface: Un apprenti
+  start: 242
+  category: NEW
+  expected: NEW character
+- surface: la tête
+  start: 260
+  category: SKIP
+  expected: SKIP
+- surface: l'atelier
+  start: 284
+  category: PART
+  expected: MATCH location_atelier_de_maintenance
+- surface: Voss
+  start: 298
+  category: XTYPE
+  expected: MATCH character_rizka_voss
+- surface: le coupleur
+  start: 304
+  category: PART
+  expected: MATCH object_coupleur_ionique
+- surface: La mécanicienne aux avant-bras tatoués
+  start: 332
+  category: DESC
+  expected: MATCH character_rizka_voss
+- surface: Rizka
+  start: 436
+  category: PART
+  expected: MATCH character_rizka_voss
+- surface: Elara
+  start: 471
+  category: PART
+  expected: MATCH character_elara_voss
+- surface: le Conseil
+  start: 518
+  category: PART
+  expected: MATCH organization_conseil_de_bord
+- surface: La médecin aux gants bleus
+  start: 579
+  category: DESC
+  expected: MATCH character_elara_voss
+- surface: l'infirmerie
+  start: 617
+  category: PART
+  expected: MATCH location_infirmerie
+- surface: Brume
+  start: 656
+  category: PC
+  expected: MATCH companion_brume
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges:
+  - a: character_rizka_voss
+    b: character_elara_voss
+gold_knowledge:
+- ref: character_elara_voss
+  kind: fact
+  state: unknown
+  text: Elara Voss a demandé au Conseil de bord de séparer son dossier de celui de Rizka Voss.

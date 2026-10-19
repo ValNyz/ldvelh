@@ -1,0 +1,230 @@
+# Data-audit pattern « reveal not applied » (Kethari/Nahle) on objects: the nameless sword and the iron
+# box get their names from an inscription and a plate; later descriptions still link to them.
+id: audit-objet-nomme
+genre: dark_fantasy
+source: synthetic
+turn: 26
+world:
+- id: protagonist_isaure
+  type: protagonist
+  label: Isaure
+  true_name: Isaure
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_echoppe_d_olbert
+  last_seen_turn: 25
+  aliases:
+  - text: Isaure
+    kind: true_name
+    known: true
+- id: companion_noctule
+  type: companion
+  label: Noctule
+  true_name: Noctule
+  descriptor: la chauve-souris sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 25
+  aliases:
+  - text: Noctule
+    kind: true_name
+    known: true
+  - text: la chauve-souris sur ton épaule
+    kind: descriptor
+    known: true
+- id: character_maitre_olbert
+  type: character
+  label: Maître Olbert
+  true_name: Maître Olbert
+  descriptor: le vieil antiquaire
+  known: true
+  occupation: antiquaire
+  location: location_echoppe_d_olbert
+  last_seen_turn: 25
+  aliases:
+  - text: Maître Olbert
+    kind: true_name
+    known: true
+  - text: Olbert
+    kind: short
+    known: true
+  - text: le vieil antiquaire
+    kind: descriptor
+    known: true
+- id: object_epee_sans_fourreau
+  type: object
+  label: l'épée sans fourreau
+  true_name: null
+  descriptor: l'épée sans fourreau
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 25
+  aliases:
+  - text: l'épée sans fourreau
+    kind: descriptor
+    known: true
+- id: object_coffret_de_fer
+  type: object
+  label: Coffret des Sept Clés
+  true_name: Coffret des Sept Clés
+  descriptor: le coffret de fer
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 24
+  aliases:
+  - text: Coffret des Sept Clés
+    kind: true_name
+    known: false
+  - text: le coffret de fer
+    kind: descriptor
+    known: true
+- id: location_echoppe_d_olbert
+  type: location
+  label: Échoppe d'Olbert
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 25
+  aliases:
+  - text: Échoppe d'Olbert
+    kind: label
+    known: true
+- id: organization_college_des_runistes
+  type: organization
+  label: Collège des Runistes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 22
+  aliases:
+  - text: Collège des Runistes
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_echoppe_d_olbert
+  present:
+  - protagonist_isaure
+  - companion_noctule
+  - character_maitre_olbert
+  reveals:
+  - ref: l'épée sans fourreau
+    real_name: Veillenuit
+  - ref: le coffret de fer
+    real_name: Coffret des Sept Clés
+  planned_npcs: []
+  secrets:
+  - object_coffret_de_fer
+  open_disclosures: []
+narration: |-
+  Maître Olbert pose l'épée sans fourreau sur le comptoir et frotte la garde avec un chiffon gras.
+
+  — Il y a des runes sous la crasse, murmure-t-il. Regarde : « Veillenuit ». C'est son nom. Les vieilles lames en avaient toujours un.
+
+  Tu reprends ta lame. Elle te semble soudain plus lourde.
+
+  Le vieil antiquaire ouvre ensuite le coffret de fer que tu as rapporté des ruines. Sur le couvercle, une plaque d'argent ternie porte une inscription : Coffret des Sept Clés.
+
+  — Le Collège des Runistes paierait une fortune pour ce coffret, dit Olbert. Mais les Runistes posent trop de questions. Garde-le, et garde ton arme près de toi.
+
+  *L'épée a vibré quand il a dit son nom*, souffle Noctule. *Veillenuit. Ça lui va bien.*
+gold:
+- surface: Maître Olbert
+  start: 0
+  category: EASY
+  expected: MATCH character_maitre_olbert
+- surface: l'épée sans fourreau
+  start: 19
+  category: DESC
+  expected: MATCH object_epee_sans_fourreau
+- surface: la garde
+  start: 66
+  category: SKIP
+  expected: SKIP
+- surface: Veillenuit
+  start: 159
+  category: REVEAL
+  expected: ALIAS object_epee_sans_fourreau true_name
+- surface: ta lame
+  start: 244
+  category: DESC
+  expected: MATCH object_epee_sans_fourreau
+- surface: Le vieil antiquaire
+  start: 290
+  category: DESC
+  expected: MATCH character_maitre_olbert
+- surface: le coffret de fer
+  start: 324
+  category: DESC
+  expected: MATCH object_coffret_de_fer
+- surface: le couvercle
+  start: 377
+  category: SKIP
+  expected: SKIP
+- surface: Coffret des Sept Clés
+  start: 442
+  category: REVEAL
+  expected: ALIAS object_coffret_de_fer true_name
+- surface: Le Collège des Runistes
+  start: 468
+  category: EASY
+  expected: MATCH organization_college_des_runistes
+- surface: ce coffret
+  start: 518
+  category: PART
+  expected: ALIAS object_coffret_de_fer short
+  accept_also:
+  - MATCH object_coffret_de_fer
+- surface: Olbert
+  start: 534
+  category: PART
+  expected: MATCH character_maitre_olbert
+- surface: les Runistes
+  start: 547
+  category: PART
+  expected: MATCH organization_college_des_runistes
+- surface: ton arme
+  start: 605
+  category: DESC
+  expected: MATCH object_epee_sans_fourreau
+- surface: L'épée
+  start: 629
+  category: DESC
+  expected: MATCH object_epee_sans_fourreau
+- surface: Noctule
+  start: 677
+  category: PC
+  expected: MATCH companion_noctule
+- surface: Veillenuit
+  start: 687
+  category: EASY
+  expected: ALIAS object_epee_sans_fourreau true_name
+gold_effects:
+  reveals:
+  - ref: object_epee_sans_fourreau
+    real_name: Veillenuit
+  - ref: object_coffret_de_fer
+    real_name: Coffret des Sept Clés
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: object_coffret_de_fer
+  kind: name
+  state: unknown
+  text: Coffret des Sept Clés
+- ref: object_coffret_de_fer
+  kind: fact
+  state: secret
+  text: Le coffret de fer renferme la septième clé de la crypte du Collège des Runistes.
+- ref: object_epee_sans_fourreau
+  kind: fact
+  state: unknown
+  text: L'épée sans fourreau a été forgée pour un veilleur des remparts.

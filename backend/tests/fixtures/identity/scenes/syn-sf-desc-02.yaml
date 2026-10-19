@@ -1,0 +1,555 @@
+id: syn-sf-desc-02
+genre: sf
+source: synthetic
+turn: 21
+world:
+- id: protagonist_sacha
+  type: protagonist
+  label: Sacha
+  true_name: Sacha
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Sacha
+    kind: true_name
+    known: true
+- id: companion_oko
+  type: companion
+  label: Oko
+  true_name: Oko
+  descriptor: le petit drone à ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Oko
+    kind: true_name
+    known: true
+  - text: le petit drone à ton épaule
+    kind: descriptor
+    known: true
+  - text: ton drone
+    kind: descriptor
+    known: true
+- id: character_hugo_calder
+  type: character
+  label: Hugo Calder
+  true_name: Hugo Calder
+  descriptor: le vieux capitaine à la pipe éteinte
+  known: true
+  occupation: capitaine de dock, fondateur du secteur Calder
+  location: location_calder
+  last_seen_turn: 20
+  aliases:
+  - text: Hugo Calder
+    kind: true_name
+    known: true
+  - text: Hugo
+    kind: short
+    known: true
+  - text: Calder
+    kind: short
+    known: true
+  - text: le Capitaine
+    kind: title
+    known: true
+  - text: le vieux capitaine à la pipe éteinte
+    kind: descriptor
+    known: true
+- id: character_wen_albescu
+  type: character
+  label: Wen Albescu
+  true_name: Wen Albescu
+  descriptor: la douanière aux ongles noirs
+  known: true
+  occupation: douanière
+  location: location_douane
+  last_seen_turn: 20
+  aliases:
+  - text: Wen Albescu
+    kind: true_name
+    known: true
+  - text: Wen
+    kind: short
+    known: true
+  - text: Albescu
+    kind: short
+    known: true
+  - text: la douanière aux ongles noirs
+    kind: descriptor
+    known: true
+- id: character_petra_novak
+  type: character
+  label: Pétra Novák
+  true_name: Pétra Novák
+  descriptor: la pilote balafrée
+  known: true
+  occupation: pilote de remorqueur
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Pétra Novák
+    kind: true_name
+    known: true
+  - text: Pétra
+    kind: short
+    known: true
+  - text: Novák
+    kind: short
+    known: true
+  - text: la Pie
+    kind: nickname
+    known: true
+  - text: la pilote balafrée
+    kind: descriptor
+    known: true
+- id: character_anselme_duroc
+  type: character
+  label: Anselme Duroc
+  true_name: Anselme Duroc
+  descriptor: le vieux vendeur de nouilles
+  known: false
+  occupation: vendeur de nouilles
+  location: location_merou
+  last_seen_turn: 20
+  aliases:
+  - text: Anselme Duroc
+    kind: true_name
+    known: false
+    secret: true
+  - text: Anselme
+    kind: short
+    known: false
+    secret: true
+  - text: Duroc
+    kind: short
+    known: false
+    secret: true
+  - text: le vieux vendeur de nouilles
+    kind: descriptor
+    known: true
+- id: location_merou
+  type: location
+  label: Le Mérou
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le Mérou
+    kind: label
+    known: true
+- id: location_douane
+  type: location
+  label: La Douane
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: La Douane
+    kind: label
+    known: true
+- id: location_calder
+  type: location
+  label: Calder
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Calder
+    kind: label
+    known: true
+- id: location_quai_12
+  type: location
+  label: Quai 12
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Quai 12
+    kind: label
+    known: true
+- id: location_soute_aux_lumieres_bleues
+  type: location
+  label: Entrepôt Frigorifique Sept
+  true_name: Entrepôt Frigorifique Sept
+  descriptor: la soute aux lumières bleues
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 18
+  aliases:
+  - text: Entrepôt Frigorifique Sept
+    kind: label
+    known: true
+  - text: la soute aux lumières bleues
+    kind: descriptor
+    known: true
+  - text: Entrepôt Frigorifique Sept
+    kind: true_name
+    known: true
+- id: location_puits_de_maintenance_omega
+  type: location
+  label: Puits de maintenance Oméga
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Puits de maintenance Oméga
+    kind: label
+    known: false
+    secret: true
+- id: object_merou
+  type: object
+  label: Le Mérou
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 20
+  aliases:
+  - text: Le Mérou
+    kind: label
+    known: true
+- id: organization_douane
+  type: organization
+  label: La Douane
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: La Douane
+    kind: label
+    known: true
+- id: organization_guilde_des_pilotes
+  type: organization
+  label: Guilde des Pilotes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Guilde des Pilotes
+    kind: label
+    known: true
+  - text: Guilde
+    kind: short
+    known: true
+- id: organization_hommes_en_combinaison_blanche
+  type: organization
+  label: Clinique Sérénade
+  true_name: Clinique Sérénade
+  descriptor: les hommes en combinaison blanche
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 18
+  aliases:
+  - text: Clinique Sérénade
+    kind: label
+    known: true
+  - text: les hommes en combinaison blanche
+    kind: descriptor
+    known: true
+  - text: Clinique Sérénade
+    kind: true_name
+    known: true
+- id: organization_cartel_hesperos
+  type: organization
+  label: Cartel Hesperos
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cartel Hesperos
+    kind: label
+    known: false
+    secret: true
+- id: object_licence_de_pilote
+  type: object
+  label: Licence de pilote
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Licence de pilote
+    kind: label
+    known: true
+- id: object_pistolet_a_aiguilles
+  type: object
+  label: Pistolet à aiguilles
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 19
+  aliases:
+  - text: Pistolet à aiguilles
+    kind: label
+    known: true
+- id: object_colis_emballe_de_mousse
+  type: object
+  label: Colis 88-Tango
+  true_name: Colis 88-Tango
+  descriptor: le colis emballé de mousse
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 18
+  aliases:
+  - text: Colis 88-Tango
+    kind: label
+    known: true
+  - text: le colis emballé de mousse
+    kind: descriptor
+    known: true
+  - text: Colis 88-Tango
+    kind: true_name
+    known: true
+- id: object_puce_de_navigation_hesperos
+  type: object
+  label: Puce de navigation Hesperos
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Puce de navigation Hesperos
+    kind: label
+    known: false
+    secret: true
+- id: arc_contrebande_du_quai_12
+  type: arc
+  label: La contrebande du Quai 12
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La contrebande du Quai 12
+    kind: label
+    known: true
+history:
+- text: La journée avec Pétra s'est terminée tard. Hugo a insisté pour fêter ça, « dans le vrai », et Wen a fini par accepter de venir.
+  mentions:
+  - surface: Pétra
+    start: 16
+    category: PART
+    expected: MATCH character_petra_novak
+  - surface: Hugo
+    start: 43
+    category: PART
+    expected: MATCH character_hugo_calder
+  - surface: Wen
+    start: 94
+    category: PART
+    expected: MATCH character_wen_albescu
+scene:
+  location: location_merou
+  present:
+  - protagonist_sacha
+  - companion_oko
+  - character_hugo_calder
+  - character_wen_albescu
+  - character_anselme_duroc
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - arc_contrebande_du_quai_12
+  - character_anselme_duroc
+  - location_puits_de_maintenance_omega
+  - object_colis_emballe_de_mousse
+  - object_puce_de_navigation_hesperos
+  - organization_cartel_hesperos
+  - organization_hommes_en_combinaison_blanche
+  open_disclosures: []
+narration: |-
+  Dans le bar à l'enseigne de poisson, le vieux vendeur de nouilles a installé sa marmite près de la porte. Hugo lève son verre vers toi.
+
+  — À ta vieille coque, qui nous a ramenés entiers. Et à l'administration portuaire, qui ne nous a pas encore retrouvés.
+
+  Wen ne trinque pas. Elle fixe le vendeur par-dessus son épaule.
+
+  — Il était déjà là quand j'ai fouillé la chambre froide, murmure-t-elle. Le jour où les blouses blanches ont vidé la boîte de mousse.
+
+  *Elle a raison*, confirme Oko. *Il était posté devant le hall des contrôles, ce jour-là.*
+
+  Tu poses la main sur ton arme, sous la table.
+gold:
+- surface: le bar à l'enseigne de poisson
+  start: 5
+  category: DESC
+  expected: MATCH location_merou
+  accept_also:
+  - ALIAS location_merou descriptor
+- surface: le vieux vendeur de nouilles
+  start: 37
+  category: DESC
+  expected: MATCH character_anselme_duroc
+- surface: sa marmite
+  start: 77
+  category: SKIP
+  expected: SKIP
+- surface: Hugo
+  start: 106
+  category: PART
+  expected: MATCH character_hugo_calder
+- surface: son verre
+  start: 116
+  category: SKIP
+  expected: SKIP
+- surface: ta vieille coque
+  start: 141
+  category: DESC
+  expected: MATCH object_merou
+  accept_also:
+  - ALIAS object_merou descriptor
+- surface: l'administration portuaire
+  start: 192
+  category: DESC
+  expected: MATCH organization_douane
+  accept_also:
+  - ALIAS organization_douane descriptor
+- surface: Wen
+  start: 257
+  category: PART
+  expected: MATCH character_wen_albescu
+- surface: le vendeur
+  start: 287
+  category: DESC
+  expected: MATCH character_anselme_duroc
+  accept_also:
+  - ALIAS character_anselme_duroc descriptor
+- surface: son épaule
+  start: 309
+  category: SKIP
+  expected: SKIP
+- surface: la chambre froide
+  start: 360
+  category: DESC
+  expected: MATCH location_soute_aux_lumieres_bleues
+  accept_also:
+  - ALIAS location_soute_aux_lumieres_bleues descriptor
+- surface: les blouses blanches
+  start: 406
+  category: DESC
+  expected: MATCH organization_hommes_en_combinaison_blanche
+  accept_also:
+  - ALIAS organization_hommes_en_combinaison_blanche descriptor
+- surface: la boîte de mousse
+  start: 436
+  category: DESC
+  expected: MATCH object_colis_emballe_de_mousse
+  accept_also:
+  - ALIAS object_colis_emballe_de_mousse descriptor
+- surface: Oko
+  start: 483
+  category: PC
+  expected: MATCH companion_oko
+- surface: le hall des contrôles
+  start: 511
+  category: DESC
+  expected: MATCH location_douane
+  accept_also:
+  - ALIAS location_douane descriptor
+- surface: la main
+  start: 557
+  category: SKIP
+  expected: SKIP
+- surface: ton arme
+  start: 569
+  category: DESC
+  expected: MATCH object_pistolet_a_aiguilles
+  accept_also:
+  - ALIAS object_pistolet_a_aiguilles descriptor
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_anselme_duroc
+  kind: name
+  state: secret
+  text: Anselme Duroc
+- ref: location_puits_de_maintenance_omega
+  kind: name
+  state: secret
+  text: Puits de maintenance Oméga
+- ref: organization_cartel_hesperos
+  kind: name
+  state: secret
+  text: Cartel Hesperos
+- ref: object_puce_de_navigation_hesperos
+  kind: name
+  state: secret
+  text: Puce de navigation Hesperos
+- ref: character_anselme_duroc
+  kind: fact
+  state: secret
+  text: Anselme Duroc surveille le Quai 12 pour le Cartel Hesperos.
+- ref: organization_hommes_en_combinaison_blanche
+  kind: fact
+  state: secret
+  text: La Clinique Sérénade sert de façade au Cartel Hesperos.
+- ref: character_wen_albescu
+  kind: fact
+  state: unknown
+  text: Wen Albescu a été mutée à la Douane après une plainte de la Guilde des Pilotes.
+- ref: location_puits_de_maintenance_omega
+  kind: fact
+  state: secret
+  text: Le Puits de maintenance Oméga relie l'Entrepôt Frigorifique Sept au Quai 12.
+- ref: arc_contrebande_du_quai_12
+  kind: fact
+  state: unknown
+  text: La contrebande du Quai 12 passe par des colis médicaux.
+- ref: arc_contrebande_du_quai_12
+  kind: fact
+  state: secret
+  text: Hugo Calder touche une part de la contrebande du Quai 12.
+- ref: object_colis_emballe_de_mousse
+  kind: fact
+  state: secret
+  text: Le colis emballé de mousse contient des organes de synthèse non déclarés.
+- ref: location_douane
+  kind: fact
+  state: unknown
+  text: La Douane ferme ses guichets pendant les tempêtes magnétiques.

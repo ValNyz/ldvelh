@@ -1,0 +1,520 @@
+# Synthetic dark fantasy scene (annotator C). Focus: DESC of organizations (« l'Inquisition », « la secte »,
+# a procession known only by its descriptor), of places and of a relic.
+id: syn-df-desc-04
+genre: dark_fantasy
+source: synthetic
+turn: 16
+world:
+- id: protagonist_ronan
+  type: protagonist
+  label: Ronan
+  true_name: Ronan
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Ronan
+    kind: true_name
+    known: true
+- id: companion_isaure
+  type: companion
+  label: Isaure
+  true_name: Isaure
+  descriptor: le fantôme pâle à tes côtés
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 15
+  aliases:
+  - text: Isaure
+    kind: true_name
+    known: true
+  - text: le fantôme pâle à tes côtés
+    kind: descriptor
+    known: true
+  - text: la morte qui te suit
+    kind: descriptor
+    known: true
+- id: location_abbaye_de_sael
+  type: location
+  label: Abbaye de Saël
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 15
+  aliases:
+  - text: Abbaye de Saël
+    kind: label
+    known: true
+- id: location_sael
+  type: location
+  label: Saël
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Saël
+    kind: label
+    known: true
+- id: organization_compagnie_de_la_lanterne
+  type: organization
+  label: Compagnie de la Lanterne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Compagnie de la Lanterne
+    kind: label
+    known: true
+  - text: Lanterne
+    kind: short
+    known: true
+- id: object_lanterne_d_ysmer
+  type: object
+  label: Lanterne d'Ysmer
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Lanterne d'Ysmer
+    kind: label
+    known: true
+  - text: Lanterne
+    kind: short
+    known: true
+- id: organization_culte_de_la_flamme_pale
+  type: organization
+  label: Culte de la Flamme Pâle
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 13
+  aliases:
+  - text: Culte de la Flamme Pâle
+    kind: label
+    known: true
+  - text: Flamme Pâle
+    kind: short
+    known: true
+- id: character_anselme_daguerre
+  type: character
+  label: Anselme Daguerre
+  true_name: Anselme Daguerre
+  descriptor: le prêtre borgne
+  known: true
+  occupation: prieur de l'Abbaye de Saël
+  location: location_abbaye_de_sael
+  last_seen_turn: 15
+  aliases:
+  - text: Anselme Daguerre
+    kind: true_name
+    known: true
+  - text: Anselme
+    kind: short
+    known: true
+  - text: Daguerre
+    kind: short
+    known: true
+  - text: Père Anselme
+    kind: title
+    known: true
+  - text: le Prieur
+    kind: title
+    known: true
+  - text: le prêtre borgne
+    kind: descriptor
+    known: true
+- id: character_ide_ferraud
+  type: character
+  label: Ide Ferraud
+  true_name: Ide Ferraud
+  descriptor: la novice au visage brûlé
+  known: true
+  occupation: novice de l'Abbaye de Saël
+  location: location_abbaye_de_sael
+  last_seen_turn: null
+  aliases:
+  - text: Ide Ferraud
+    kind: true_name
+    known: true
+  - text: Ide
+    kind: short
+    known: true
+  - text: la novice au visage brûlé
+    kind: descriptor
+    known: true
+- id: character_bastien_corlay
+  type: character
+  label: Bastien Corlay
+  true_name: Bastien Corlay
+  descriptor: l'homme à la lanterne verte
+  known: true
+  occupation: inquisiteur de la Compagnie de la Lanterne
+  location: location_sael
+  last_seen_turn: 15
+  aliases:
+  - text: Bastien Corlay
+    kind: true_name
+    known: true
+  - text: Bastien
+    kind: short
+    known: true
+  - text: Corlay
+    kind: short
+    known: true
+  - text: l'Inquisiteur
+    kind: title
+    known: true
+  - text: l'homme à la lanterne verte
+    kind: descriptor
+    known: true
+- id: location_crypte_sous_le_choeur
+  type: location
+  label: Caveau des Abbesses
+  true_name: Caveau des Abbesses
+  descriptor: la crypte sous le chœur
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Caveau des Abbesses
+    kind: true_name
+    known: true
+  - text: la crypte sous le chœur
+    kind: descriptor
+    known: true
+- id: location_scriptorium
+  type: location
+  label: Scriptorium
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Scriptorium
+    kind: label
+    known: true
+- id: object_phalange_de_sainte_brune
+  type: object
+  label: Phalange de Sainte Brune
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 14
+  aliases:
+  - text: Phalange de Sainte Brune
+    kind: label
+    known: true
+- id: object_livre_relie_de_peau
+  type: object
+  label: le livre relié de peau
+  true_name: Codex de Vael
+  descriptor: le livre relié de peau
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Codex de Vael
+    kind: true_name
+    known: false
+    secret: true
+  - text: le livre relié de peau
+    kind: descriptor
+    known: true
+- id: organization_veilleurs_du_puits
+  type: organization
+  label: Veilleurs du Puits
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Veilleurs du Puits
+    kind: label
+    known: false
+    secret: true
+- id: character_ysmer_de_sael
+  type: character
+  label: Ysmer de Saël
+  true_name: Ysmer de Saël
+  descriptor: le pèlerin encapuchonné
+  known: false
+  occupation: fondateur du Culte de la Flamme Pâle
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Ysmer de Saël
+    kind: true_name
+    known: false
+    secret: true
+  - text: Ysmer
+    kind: short
+    known: false
+    secret: true
+  - text: le pèlerin encapuchonné
+    kind: descriptor
+    known: true
+- id: organization_procession_des_penitents
+  type: organization
+  label: la procession des pénitents
+  true_name: Fraternité de l'Aube
+  descriptor: la procession des pénitents
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 13
+  aliases:
+  - text: Fraternité de l'Aube
+    kind: true_name
+    known: false
+  - text: la procession des pénitents
+    kind: descriptor
+    known: true
+- id: object_cle_d_os
+  type: object
+  label: la clé d'os
+  true_name: Passe-Tombe
+  descriptor: la clé d'os
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Passe-Tombe
+    kind: true_name
+    known: false
+  - text: la clé d'os
+    kind: descriptor
+    known: true
+- id: location_hospice_des_ladres
+  type: location
+  label: Hospice des Ladres
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Hospice des Ladres
+    kind: label
+    known: true
+- id: location_cloitre_des_novices
+  type: location
+  label: Cloître des Novices
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cloître des Novices
+    kind: label
+    known: true
+- id: character_odon_lebrac
+  type: character
+  label: Odon Lebrac
+  true_name: Odon Lebrac
+  descriptor: le gros moine au trousseau
+  known: true
+  occupation: cellérier de l'Abbaye de Saël
+  location: location_abbaye_de_sael
+  last_seen_turn: 15
+  aliases:
+  - text: Odon Lebrac
+    kind: true_name
+    known: true
+  - text: Odon
+    kind: short
+    known: true
+  - text: Lebrac
+    kind: short
+    known: true
+  - text: Frère Odon
+    kind: title
+    known: true
+  - text: le Cellérier
+    kind: title
+    known: true
+  - text: le gros moine au trousseau
+    kind: descriptor
+    known: true
+- id: arc_novices_disparues
+  type: arc
+  label: Les novices disparues
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Les novices disparues
+    kind: label
+    known: true
+history:
+- text: |-
+    Anselme Daguerre a réuni les frères dans la salle du chapitre. Bastien Corlay s'est assis à sa place sans qu'on l'y invite, la lanterne posée devant lui comme un témoin.
+
+    *Il veut que tout le monde la regarde*, note Isaure.
+  mentions:
+  - surface: Anselme Daguerre
+    start: 0
+    category: EASY
+    expected: MATCH character_anselme_daguerre
+  - surface: Bastien Corlay
+    start: 63
+    category: EASY
+    expected: MATCH character_bastien_corlay
+  - surface: la lanterne
+    start: 124
+    category: XTYPE
+    expected: MATCH object_lanterne_d_ysmer
+  - surface: Isaure
+    start: 216
+    category: PC
+    expected: MATCH companion_isaure
+scene:
+  location: location_abbaye_de_sael
+  present:
+  - protagonist_ronan
+  - companion_isaure
+  - character_anselme_daguerre
+  - character_bastien_corlay
+  - character_odon_lebrac
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - object_livre_relie_de_peau
+  - organization_veilleurs_du_puits
+  - character_ysmer_de_sael
+  open_disclosures: []
+narration: |-
+  Le prêtre borgne frappe la table du plat de la main.
+
+  — L'Inquisition n'a aucun droit sur ce monastère !
+
+  L'homme à la lanterne verte ne se lève pas.
+
+  — La secte a des fidèles jusque dans la salle des copistes. La procession des pénitents passe chaque nuit sous vos fenêtres, et l'os de la martyre noircit dans sa châsse. Vous appelez ça la paix ?
+
+  Au fond de la salle, le gros moine au trousseau compte ses clés sans lever la tête.
+
+  *La confrérie des inquisiteurs m'a brûlée pour moins que ça*, souffle Isaure. *Il ferait mieux de se taire.*
+gold:
+- surface: Le prêtre borgne
+  start: 0
+  category: DESC
+  expected: MATCH character_anselme_daguerre
+- surface: L'Inquisition
+  start: 56
+  category: DESC
+  expected: MATCH organization_compagnie_de_la_lanterne
+- surface: ce monastère
+  start: 90
+  category: DESC
+  expected: MATCH location_abbaye_de_sael
+- surface: L'homme à la lanterne verte
+  start: 106
+  category: DESC
+  expected: MATCH character_bastien_corlay
+- surface: La secte
+  start: 153
+  category: DESC
+  expected: MATCH organization_culte_de_la_flamme_pale
+- surface: la salle des copistes
+  start: 188
+  category: DESC
+  expected: MATCH location_scriptorium
+- surface: La procession des pénitents
+  start: 211
+  category: DESC
+  expected: MATCH organization_procession_des_penitents
+- surface: l'os de la martyre
+  start: 279
+  category: DESC
+  expected: MATCH object_phalange_de_sainte_brune
+- surface: sa châsse
+  start: 311
+  category: SKIP
+  expected: SKIP
+- surface: le gros moine au trousseau
+  start: 370
+  category: DESC
+  expected: MATCH character_odon_lebrac
+- surface: ses clés
+  start: 404
+  category: SKIP
+  expected: SKIP
+- surface: La confrérie des inquisiteurs
+  start: 435
+  category: DESC
+  expected: MATCH organization_compagnie_de_la_lanterne
+  accept_also:
+  - ALIAS organization_compagnie_de_la_lanterne descriptor
+- surface: Isaure
+  start: 504
+  category: PC
+  expected: MATCH companion_isaure
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: object_livre_relie_de_peau
+  kind: name
+  state: secret
+  text: Codex de Vael
+- ref: organization_veilleurs_du_puits
+  kind: name
+  state: secret
+  text: Veilleurs du Puits
+- ref: character_ysmer_de_sael
+  kind: name
+  state: secret
+  text: Ysmer de Saël
+- ref: organization_procession_des_penitents
+  kind: name
+  state: unknown
+  text: Fraternité de l'Aube
+- ref: object_cle_d_os
+  kind: name
+  state: unknown
+  text: Passe-Tombe
+- ref: arc_novices_disparues
+  kind: fact
+  state: secret
+  text: Le Prieur livre les novices au Culte de la Flamme Pâle.
+- ref: arc_novices_disparues
+  kind: fact
+  state: unknown
+  text: Les novices disparaissent toujours la veille d'une nouvelle lune.
+- ref: character_ysmer_de_sael
+  kind: fact
+  state: secret
+  text: Le pèlerin encapuchonné est le saint fondateur de l'Abbaye de Saël, mort il y a trois siècles.

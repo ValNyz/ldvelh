@@ -1,0 +1,238 @@
+# Issue #26 pattern (long absence), dark fantasy variant: the nun, her abbey, her order and the reliquary
+# were last seen 8 or 9 turns ago and are absent from the history: every form of them is GAP.
+id: issue-26-gap-fantasy
+genre: dark_fantasy
+source: issue
+turn: 30
+world:
+- id: protagonist_isaure
+  type: protagonist
+  label: Isaure
+  true_name: Isaure
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_pont_aux_corbeaux
+  last_seen_turn: 29
+  aliases:
+  - text: Isaure
+    kind: true_name
+    known: true
+- id: companion_noctule
+  type: companion
+  label: Noctule
+  true_name: Noctule
+  descriptor: la chauve-souris sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 29
+  aliases:
+  - text: Noctule
+    kind: true_name
+    known: true
+  - text: la chauve-souris sur ton épaule
+    kind: descriptor
+    known: true
+- id: character_soeur_ambroisine
+  type: character
+  label: Sœur Ambroisine
+  true_name: Sœur Ambroisine
+  descriptor: la nonne aux mains brûlées
+  known: true
+  occupation: gardienne des reliques de l'Abbaye de Morteval
+  location: location_abbaye_de_morteval
+  last_seen_turn: 22
+  aliases:
+  - text: Sœur Ambroisine
+    kind: true_name
+    known: true
+  - text: Ambroisine
+    kind: short
+    known: true
+  - text: la Sœur
+    kind: title
+    known: true
+  - text: la nonne aux mains brûlées
+    kind: descriptor
+    known: true
+- id: character_messager_boiteux
+  type: character
+  label: Le messager boiteux
+  true_name: null
+  descriptor: Le messager boiteux
+  known: false
+  occupation: null
+  location: location_pont_aux_corbeaux
+  last_seen_turn: 29
+  aliases:
+  - text: Le messager boiteux
+    kind: descriptor
+    known: true
+- id: location_abbaye_de_morteval
+  type: location
+  label: Abbaye de Morteval
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 21
+  aliases:
+  - text: Abbaye de Morteval
+    kind: label
+    known: true
+- id: location_pont_aux_corbeaux
+  type: location
+  label: Pont-aux-Corbeaux
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 29
+  aliases:
+  - text: Pont-aux-Corbeaux
+    kind: label
+    known: true
+- id: organization_ordre_des_veilleurs
+  type: organization
+  label: Ordre des Veilleurs
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 22
+  aliases:
+  - text: Ordre des Veilleurs
+    kind: label
+    known: true
+- id: object_reliquaire_d_etain
+  type: object
+  label: Reliquaire d'étain
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 22
+  aliases:
+  - text: Reliquaire d'étain
+    kind: label
+    known: true
+history:
+- text: |-
+    Le messager boiteux t'a suivie jusqu'au milieu du Pont-aux-Corbeaux. Il reprend son souffle, appuyé au parapet.
+
+    *Il boite, mais il ne te lâche pas*, remarque Noctule.
+  mentions:
+  - surface: Le messager boiteux
+    start: 0
+    category: DESC
+    expected: MATCH character_messager_boiteux
+  - surface: Pont-aux-Corbeaux
+    start: 50
+    category: EASY
+    expected: MATCH location_pont_aux_corbeaux
+  - surface: Noctule
+    start: 159
+    category: PC
+    expected: MATCH companion_noctule
+scene:
+  location: location_pont_aux_corbeaux
+  present:
+  - protagonist_isaure
+  - companion_noctule
+  - character_messager_boiteux
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - object_reliquaire_d_etain
+  open_disclosures: []
+narration: |-
+  Le messager boiteux te tend un pli cacheté de cire verte.
+
+  — De la part de Sœur Ambroisine. Elle dit que le reliquaire n'est plus en sécurité à l'abbaye.
+
+  Tu revois la nonne aux mains brûlées, huit jours plus tôt, au pied des remparts de l'Abbaye de Morteval, quand elle avait soulevé pour toi le couvercle du Reliquaire d'étain.
+
+  — L'Ordre la surveille, ajoute le messager. Les Veilleurs ont doublé la garde aux portes.
+
+  Le pli n'est signé que d'une initiale, à la manière d'Ambroisine : un A barré. L'Ordre des Veilleurs n'en saura rien, si tu le brûles.
+
+  *Le pont n'est pas plus sûr que l'abbaye*, couine Noctule.
+gold:
+- surface: Le messager boiteux
+  start: 0
+  category: DESC
+  expected: MATCH character_messager_boiteux
+- surface: Sœur Ambroisine
+  start: 75
+  category: GAP
+  expected: MATCH character_soeur_ambroisine
+- surface: le reliquaire
+  start: 105
+  category: GAP
+  expected: MATCH object_reliquaire_d_etain
+- surface: l'abbaye
+  start: 144
+  category: GAP
+  expected: MATCH location_abbaye_de_morteval
+- surface: la nonne aux mains brûlées
+  start: 165
+  category: GAP
+  expected: MATCH character_soeur_ambroisine
+- surface: l'Abbaye de Morteval
+  start: 238
+  category: GAP
+  expected: MATCH location_abbaye_de_morteval
+- surface: Reliquaire d'étain
+  start: 310
+  category: GAP
+  expected: MATCH object_reliquaire_d_etain
+- surface: L'Ordre
+  start: 333
+  category: GAP
+  expected: MATCH organization_ordre_des_veilleurs
+- surface: le messager
+  start: 362
+  category: DESC
+  expected: MATCH character_messager_boiteux
+- surface: Les Veilleurs
+  start: 375
+  category: GAP
+  expected: MATCH organization_ordre_des_veilleurs
+- surface: Ambroisine
+  start: 476
+  category: GAP
+  expected: MATCH character_soeur_ambroisine
+- surface: L'Ordre des Veilleurs
+  start: 501
+  category: GAP
+  expected: MATCH organization_ordre_des_veilleurs
+- surface: Le pont
+  start: 559
+  category: PART
+  expected: MATCH location_pont_aux_corbeaux
+- surface: l'abbaye
+  start: 590
+  category: GAP
+  expected: MATCH location_abbaye_de_morteval
+- surface: Noctule
+  start: 608
+  category: PC
+  expected: MATCH companion_noctule
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: object_reliquaire_d_etain
+  kind: fact
+  state: secret
+  text: Le Reliquaire d'étain ne contient pas d'ossements mais la charte de fondation de l'Ordre des Veilleurs.
+- ref: organization_ordre_des_veilleurs
+  kind: fact
+  state: unknown
+  text: L'Ordre des Veilleurs a juré de récupérer le Reliquaire d'étain.

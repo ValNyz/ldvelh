@@ -1,0 +1,248 @@
+# Data-audit pattern « occupational descriptor that is a known NPC » (Cheffe de serre/Oriane), SF variant:
+# « la cheffe de quart » is Yara, never a new character; the chief of bay 5 is another person (NEW trap).
+id: audit-cheffe-occupation
+genre: sf
+source: synthetic
+turn: 9
+world:
+- id: protagonist_naoki
+  type: protagonist
+  label: Naoki
+  true_name: Naoki
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_baie_de_lancement_3
+  last_seen_turn: 8
+  aliases:
+  - text: Naoki
+    kind: true_name
+    known: true
+- id: companion_sillage
+  type: companion
+  label: Sillage
+  true_name: Sillage
+  descriptor: la voix dans ton oreillette
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 8
+  aliases:
+  - text: Sillage
+    kind: true_name
+    known: true
+  - text: la voix dans ton oreillette
+    kind: descriptor
+    known: true
+- id: character_yara_delcourt_mbaye
+  type: character
+  label: Yara Delcourt-Mbaye
+  true_name: Yara Delcourt-Mbaye
+  descriptor: La femme au casque rayé
+  known: false
+  occupation: cheffe de quart de la Baie de lancement 3
+  location: location_baie_de_lancement_3
+  last_seen_turn: 6
+  aliases:
+  - text: Yara Delcourt-Mbaye
+    kind: true_name
+    known: false
+  - text: Yara
+    kind: short
+    known: false
+  - text: Delcourt-Mbaye
+    kind: short
+    known: false
+  - text: La femme au casque rayé
+    kind: descriptor
+    known: true
+- id: character_contremaitre_moustachu
+  type: character
+  label: Le contremaître moustachu
+  true_name: null
+  descriptor: Le contremaître moustachu
+  known: false
+  occupation: contremaître des arrimeurs
+  location: location_baie_de_lancement_3
+  last_seen_turn: 8
+  aliases:
+  - text: Le contremaître moustachu
+    kind: descriptor
+    known: true
+- id: location_baie_de_lancement_3
+  type: location
+  label: Baie de lancement 3
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 8
+  aliases:
+  - text: Baie de lancement 3
+    kind: label
+    known: true
+- id: location_baie_de_lancement_5
+  type: location
+  label: Baie de lancement 5
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 7
+  aliases:
+  - text: Baie de lancement 5
+    kind: label
+    known: true
+- id: organization_syndicat_des_arrimeurs
+  type: organization
+  label: Syndicat des Arrimeurs
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 8
+  aliases:
+  - text: Syndicat des Arrimeurs
+    kind: label
+    known: true
+- id: object_combinaison_pressurisee
+  type: object
+  label: Combinaison pressurisée
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 8
+  aliases:
+  - text: Combinaison pressurisée
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_baie_de_lancement_3
+  present:
+  - protagonist_naoki
+  - companion_sillage
+  - character_yara_delcourt_mbaye
+  - character_contremaitre_moustachu
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - organization_syndicat_des_arrimeurs
+  - object_combinaison_pressurisee
+  open_disclosures: []
+narration: |-
+  Le contremaître moustachu pointe le menton vers la passerelle.
+
+  — La cheffe de quart veut te voir avant le lancement. Elle n'aime pas attendre, et le Syndicat non plus.
+
+  Tu reconnais la silhouette en haut des marches : la femme au casque rayé, qui t'a laissé entrer dans la baie il y a trois jours. Elle consulte sa tablette sans lever les yeux.
+
+  — Tu as un cycle de retard, dit-elle. Le chef de quart de la baie 5 m'a appelée ce matin. Il jure que ta combinaison sort de son vestiaire et il veut la récupérer. Je lui ai répondu que la Baie de lancement 5 pouvait attendre la fin de mon quart.
+
+  En bas, les arrimeurs se taisent pour écouter. La responsable referme sa tablette.
+
+  — Et dis à ton syndicat que ce n'est pas moi qui ai signé le bon de sortie.
+
+  *Elle t'a couvert au contrôle, la dernière fois*, rappelle la voix dans ton oreillette. *Le Syndicat des Arrimeurs, lui, n'a rien fait.*
+gold:
+- surface: Le contremaître moustachu
+  start: 0
+  category: DESC
+  expected: MATCH character_contremaitre_moustachu
+- surface: La cheffe de quart
+  start: 66
+  category: DESC
+  expected: MATCH character_yara_delcourt_mbaye
+  accept_also:
+  - ALIAS character_yara_delcourt_mbaye descriptor
+- surface: le Syndicat
+  start: 147
+  category: PART
+  expected: MATCH organization_syndicat_des_arrimeurs
+- surface: la femme au casque rayé
+  start: 219
+  category: DESC
+  expected: MATCH character_yara_delcourt_mbaye
+- surface: la baie
+  start: 271
+  category: PART
+  expected: MATCH location_baie_de_lancement_3
+- surface: sa tablette
+  start: 313
+  category: SKIP
+  expected: SKIP
+- surface: Le chef de quart de la baie 5
+  start: 385
+  category: NEW
+  expected: NEW character
+  trap: true
+- surface: la baie 5
+  start: 405
+  category: PART
+  expected: MATCH location_baie_de_lancement_5
+- surface: ta combinaison
+  start: 449
+  category: PART
+  expected: MATCH object_combinaison_pressurisee
+- surface: son vestiaire
+  start: 472
+  category: SKIP
+  expected: SKIP
+- surface: la Baie de lancement 5
+  start: 533
+  category: EASY
+  expected: MATCH location_baie_de_lancement_5
+- surface: les arrimeurs
+  start: 603
+  category: SKIP
+  expected: SKIP
+- surface: La responsable
+  start: 642
+  category: DESC
+  expected: MATCH character_yara_delcourt_mbaye
+- surface: sa tablette
+  start: 665
+  category: SKIP
+  expected: SKIP
+- surface: ton syndicat
+  start: 690
+  category: PART
+  expected: MATCH organization_syndicat_des_arrimeurs
+- surface: la voix dans ton oreillette
+  start: 815
+  category: PC
+  expected: MATCH companion_sillage
+- surface: ton oreillette
+  start: 828
+  category: SKIP
+  expected: SKIP
+- surface: Le Syndicat des Arrimeurs
+  start: 845
+  category: EASY
+  expected: MATCH organization_syndicat_des_arrimeurs
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_yara_delcourt_mbaye
+  kind: name
+  state: unknown
+  text: Yara Delcourt-Mbaye
+- ref: character_yara_delcourt_mbaye
+  kind: fact
+  state: unknown
+  text: Yara Delcourt-Mbaye est cheffe de quart de la Baie de lancement 3.
+- ref: object_combinaison_pressurisee
+  kind: fact
+  state: secret
+  text: La combinaison pressurisée de Naoki a été volée dans le vestiaire de la Baie de lancement 5.
+- ref: organization_syndicat_des_arrimeurs
+  kind: fact
+  state: secret
+  text: Le Syndicat des Arrimeurs revend les combinaisons volées dans les baies de lancement.

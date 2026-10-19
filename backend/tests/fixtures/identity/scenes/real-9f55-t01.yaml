@@ -1,0 +1,610 @@
+# Real turn of game 9f55 « Ombrelisse — la Lisière » (dev database, its only narrated
+# turn), exported by scripts/identity_corpus_export.py, gold annotated by hand.
+id: real-9f55-t01
+genre: sf
+source: real
+turn: 1
+world:
+- id: protagonist_ysaure_calvene
+  type: protagonist
+  label: Ysaure Calvène
+  true_name: Ysaure Calvène
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_vergence
+  last_seen_turn: null
+  aliases:
+  - text: Ysaure Calvène
+    kind: true_name
+    known: true
+  - text: Ysaure
+    kind: short
+    known: true
+  - text: Calvène
+    kind: short
+    known: true
+- id: companion_basalte
+  type: companion
+  label: Basalte
+  true_name: Basalte
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Basalte
+    kind: true_name
+    known: true
+- id: character_ysolde_marrach
+  type: character
+  label: Ysolde Marrach
+  true_name: Ysolde Marrach
+  descriptor: La femme aux doigts tachés d'encre
+  known: false
+  occupation: cartographe de la cité Héliade
+  location: location_heliade
+  last_seen_turn: null
+  aliases:
+  - text: Ysolde Marrach
+    kind: true_name
+    known: false
+  - text: Ysolde
+    kind: short
+    known: false
+  - text: Marrach
+    kind: short
+    known: false
+  - text: La femme aux doigts tachés d'encre
+    kind: descriptor
+    known: true
+- id: character_pater_ondrev
+  type: character
+  label: Pater Ondrev
+  true_name: Pater Ondrev
+  descriptor: Le vieux au récepteur greffé
+  known: true
+  occupation: oracle des balises
+  location: location_vergence
+  last_seen_turn: null
+  aliases:
+  - text: Pater Ondrev
+    kind: true_name
+    known: true
+  - text: Ondrev
+    kind: short
+    known: true
+  - text: Pater
+    kind: title
+    known: true
+  - text: Le vieux au récepteur greffé
+    kind: descriptor
+    known: true
+- id: character_kesh_varo_lunn
+  type: character
+  label: Kesh Varo-Lunn
+  true_name: Kesh Varo-Lunn
+  descriptor: L'homme au visage brûlé par le froid
+  known: false
+  occupation: contrebandier de la face nocturne
+  location: location_gue_des_balises
+  last_seen_turn: null
+  aliases:
+  - text: Kesh Varo-Lunn
+    kind: true_name
+    known: false
+  - text: Kesh
+    kind: short
+    known: false
+  - text: Varo-Lunn
+    kind: short
+    known: false
+  - text: L'homme au visage brûlé par le froid
+    kind: descriptor
+    known: true
+- id: character_dagny_oduya_ferrand
+  type: character
+  label: Dagny Oduya-Ferrand
+  true_name: Dagny Oduya-Ferrand
+  descriptor: La femme aux cernes et à la tablette
+  known: true
+  occupation: cheffe du Corps des Sondeurs
+  location: location_vergence
+  last_seen_turn: null
+  aliases:
+  - text: Dagny Oduya-Ferrand
+    kind: true_name
+    known: true
+  - text: Dagny
+    kind: short
+    known: true
+  - text: Oduya-Ferrand
+    kind: short
+    known: true
+  - text: La femme aux cernes et à la tablette
+    kind: descriptor
+    known: true
+- id: location_ombrelisse_la_lisiere
+  type: location
+  label: Ombrelisse — la Lisière
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Ombrelisse — la Lisière
+    kind: label
+    known: true
+- id: location_vergence
+  type: location
+  label: Vergence
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Vergence
+    kind: label
+    known: true
+- id: location_heliade
+  type: location
+  label: Héliade
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Héliade
+    kind: label
+    known: true
+- id: location_gue_des_balises
+  type: location
+  label: Le Gué des Balises
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le Gué des Balises
+    kind: label
+    known: true
+- id: location_coque_muette
+  type: location
+  label: La Coque Muette
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Coque Muette
+    kind: label
+    known: true
+- id: location_couchette_9_moteur
+  type: location
+  label: Couchette 9-Moteur
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Couchette 9-Moteur
+    kind: label
+    known: true
+- id: organization_corps_des_sondeurs_de_vergence
+  type: organization
+  label: Corps des Sondeurs de Vergence
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Corps des Sondeurs de Vergence
+    kind: label
+    known: true
+- id: organization_conclave_des_pistes
+  type: organization
+  label: Le Conclave des Pistes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Le Conclave des Pistes
+    kind: label
+    known: true
+- id: organization_restants
+  type: organization
+  label: Les Restants
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Les Restants
+    kind: label
+    known: true
+- id: object_casque_acoustique_rafistole
+  type: object
+  label: Casque acoustique rafistolé
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Casque acoustique rafistolé
+    kind: label
+    known: true
+- id: object_pieux_resonants
+  type: object
+  label: Pieux résonants
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Pieux résonants
+    kind: label
+    known: true
+- id: object_combinaison_bi_thermique
+  type: object
+  label: Combinaison bi-thermique
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Combinaison bi-thermique
+    kind: label
+    known: true
+- id: object_enregistreur_de_sondes
+  type: object
+  label: Enregistreur de sondes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Enregistreur de sondes
+    kind: label
+    known: true
+- id: object_gourde_isotherme
+  type: object
+  label: Gourde isotherme
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Gourde isotherme
+    kind: label
+    known: true
+- id: object_plaque_d_immatriculation_gravee
+  type: object
+  label: Plaque d'immatriculation gravée
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Plaque d'immatriculation gravée
+    kind: label
+    known: true
+- id: arc_pistes_que_personne_ne_voit
+  type: arc
+  label: Les pistes que personne ne voit
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+- id: arc_poste_de_trop
+  type: arc
+  label: Un poste de trop
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+- id: arc_oreille_qui_baisse
+  type: arc
+  label: L'oreille qui baisse
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+- id: arc_dette_de_glace
+  type: arc
+  label: Dette de glace
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+- id: arc_nee_sur_une_cite_arretee
+  type: arc
+  label: Née sur une cité arrêtée
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+- id: arc_battement_sous_la_glace
+  type: arc
+  label: Le battement sous la glace
+  true_name: null
+  descriptor: null
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases: []
+history: []
+scene:
+  location: location_vergence
+  present:
+  - protagonist_ysaure_calvene
+  - companion_basalte
+  - character_pater_ondrev
+  - character_dagny_oduya_ferrand
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  Quarante minutes pour remonter de la rampe arrière jusqu'à la Proue, à contre-courant de la relève. L'air filtré de Vergence te pique les narines. Après trois semaines à respirer à travers ton masque, il a un goût de graisse chaude et de poussière recuite. Sous tes semelles, le grondement des chenilles remonte dans les tibias, régulier et énorme. Tu l'avais oublié.
+
+  La coursive de transit est pleine. Une famille d'échangeurs d'une autre cité attend devant le guichet de contrôle, assise sur des ballots ficelés. Le gamin dort contre un sac de tubercules. Des chenilleurs en fin de quart passent en traînant leurs paquetages. L'un d'eux parle trop fort à son collègue :
+
+  — Paraît qu'ils coupent un poste chez les sondeurs. Avant la convergence.
+
+  L'autre hausse les épaules, et la phrase se perd dans le vacarme.
+
+  Près de la baie de proue, Pater Ondrev se tient au milieu d'un petit cercle de pilotes. Un jeune mécanicien lui crie presque dans l'oreille :
+
+  — Pater ! La balise quarante, on la passe ce soir ou demain ?
+
+  — Le vaisseau ne se presse jamais, mon fils, répond Ondrev en levant une main ample.
+
+  Le mécanicien fixe l'oracle un moment, puis s'éloigne sans insister.
+
+  Contre ta hanche, dans l'étui, un des pieux résonants vibre. C'est faible et bref. Tu n'as rien planté, et aucune mission n'est en cours.
+
+  *Sons depuis la rampe : quarante-trois. Moteurs, voix, un enfant qui ronfle. Un non classé. Hanche gauche.*
+
+  Derrière le pupitre du Corps, Dagny Oduya-Ferrand lève les yeux de sa tablette. Ses cernes sont plus creux que dans ton souvenir. Elle ne se lève pas.
+
+  — Calvène. Tu es rentrée par l'arrière ? Le treuil avant marchait, pourtant. Elle tapote déjà autre chose sur l'écran. Rapport d'avant-piste complet demain, huit heures. Relevés bruts, pas de commentaires. Sec.
+
+  Elle attend une réponse à sa première question. Pas longtemps, semble-t-il.
+gold:
+- surface: la rampe arrière
+  start: 34
+  category: NEW
+  expected: NEW location
+- surface: la Proue
+  start: 59
+  category: NEW
+  expected: NEW location
+- surface: Vergence
+  start: 116
+  category: EASY
+  expected: MATCH location_vergence
+- surface: ton masque
+  start: 189
+  category: SKIP
+  expected: SKIP
+- surface: tes semelles
+  start: 262
+  category: SKIP
+  expected: SKIP
+- surface: chenilles
+  start: 294
+  category: SKIP
+  expected: SKIP
+- surface: les tibias
+  start: 317
+  category: SKIP
+  expected: SKIP
+- surface: La coursive de transit
+  start: 369
+  category: NEW
+  expected: NEW location
+- surface: Une famille d'échangeurs d'une autre cité
+  start: 404
+  category: SKIP
+  expected: SKIP
+- surface: Le gamin
+  start: 516
+  category: SKIP
+  expected: SKIP
+- surface: Des chenilleurs en fin de quart
+  start: 559
+  category: SKIP
+  expected: SKIP
+- surface: L'un
+  start: 629
+  category: SKIP
+  expected: SKIP
+- surface: son collègue
+  start: 658
+  category: SKIP
+  expected: SKIP
+- surface: les sondeurs
+  start: 712
+  category: PART
+  expected: MATCH organization_corps_des_sondeurs_de_vergence
+- surface: L'autre
+  start: 749
+  category: SKIP
+  expected: SKIP
+- surface: Pater Ondrev
+  start: 842
+  category: EASY
+  expected: MATCH character_pater_ondrev
+- surface: un petit cercle de pilotes
+  start: 876
+  category: SKIP
+  expected: SKIP
+- surface: Un jeune mécanicien
+  start: 904
+  category: NEW
+  expected: NEW character
+- surface: l'oreille
+  start: 946
+  category: SKIP
+  expected: SKIP
+- surface: Pater
+  start: 961
+  category: PART
+  expected: MATCH character_pater_ondrev
+- surface: La balise quarante
+  start: 969
+  category: NEW
+  expected: NEW location
+- surface: Le vaisseau
+  start: 1024
+  category: DESC
+  expected: MATCH location_vergence
+- surface: mon fils
+  start: 1057
+  category: DESC
+  expected: SAME 904
+- surface: Ondrev
+  start: 1074
+  category: PART
+  expected: MATCH character_pater_ondrev
+- surface: une main ample
+  start: 1091
+  category: SKIP
+  expected: SKIP
+- surface: Le mécanicien
+  start: 1108
+  category: DESC
+  expected: SAME 904
+- surface: l'oracle
+  start: 1127
+  category: DESC
+  expected: MATCH character_pater_ondrev
+- surface: ta hanche
+  start: 1185
+  category: SKIP
+  expected: SKIP
+- surface: pieux résonants
+  start: 1216
+  category: PART
+  expected: MATCH object_pieux_resonants
+- surface: la rampe
+  start: 1330
+  category: DESC
+  expected: SAME 34
+- surface: un enfant
+  start: 1372
+  category: SKIP
+  expected: SKIP
+- surface: Hanche gauche
+  start: 1409
+  category: SKIP
+  expected: SKIP
+- surface: Corps
+  start: 1449
+  category: PART
+  expected: MATCH organization_corps_des_sondeurs_de_vergence
+- surface: Dagny Oduya-Ferrand
+  start: 1456
+  category: EASY
+  expected: MATCH character_dagny_oduya_ferrand
+- surface: les yeux
+  start: 1481
+  category: SKIP
+  expected: SKIP
+- surface: sa tablette
+  start: 1493
+  category: SKIP
+  expected: SKIP
+- surface: Ses cernes
+  start: 1506
+  category: SKIP
+  expected: SKIP
+- surface: Calvène
+  start: 1580
+  category: PC
+  expected: MATCH protagonist_ysaure_calvene
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_ysolde_marrach
+  kind: name
+  state: unknown
+  text: Ysolde Marrach
+- ref: character_kesh_varo_lunn
+  kind: name
+  state: unknown
+  text: Kesh Varo-Lunn
+- ref: character_ysolde_marrach
+  kind: fact
+  state: unknown
+  text: Ysolde Marrach est cartographe de la cité Héliade.
+- ref: character_kesh_varo_lunn
+  kind: fact
+  state: unknown
+  text: Kesh Varo-Lunn est contrebandier de la face nocturne.
+- ref: arc_pistes_que_personne_ne_voit
+  kind: fact
+  state: unknown
+  text: Ysolde Marrach retient une piste qu'elle juge trop dangereuse à livrer au Conclave et se sent surveillée.
+- ref: arc_poste_de_trop
+  kind: fact
+  state: unknown
+  text: 'Dagny refait ses comptes : un poste du Corps des Sondeurs sera supprimé, et Ysaure, absente trois semaines, est une cible facile.'
+- ref: arc_oreille_qui_baisse
+  kind: fact
+  state: unknown
+  text: Pater Ondrev entend de moins en moins, refuse le médecin et invente ce qu'il n'entend plus.
+- ref: arc_dette_de_glace
+  kind: fact
+  state: unknown
+  text: Kesh Varo-Lunn doit une cargaison aux Restants qui l'hébergent et cherche d'autres acheteurs au Gué.

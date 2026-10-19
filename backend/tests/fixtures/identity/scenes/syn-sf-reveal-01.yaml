@@ -1,0 +1,628 @@
+id: syn-sf-reveal-01
+genre: sf
+source: synthetic
+turn: 6
+world:
+- id: protagonist_jonas
+  type: protagonist
+  label: Jonas
+  true_name: Jonas
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Jonas
+    kind: true_name
+    known: true
+- id: companion_mire
+  type: companion
+  label: Mire
+  true_name: Mire
+  descriptor: la voix dans ton bracelet
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Mire
+    kind: true_name
+    known: true
+  - text: la voix dans ton bracelet
+    kind: descriptor
+    known: true
+  - text: ton IA
+    kind: descriptor
+    known: true
+- id: character_saskia_lindqvist
+  type: character
+  label: Saskia Lindqvist
+  true_name: Saskia Lindqvist
+  descriptor: la contremaîtresse au casque rayé
+  known: true
+  occupation: contremaîtresse du Puits 4
+  location: location_puits_4
+  last_seen_turn: null
+  aliases:
+  - text: Saskia Lindqvist
+    kind: true_name
+    known: true
+  - text: Saskia
+    kind: short
+    known: true
+  - text: Lindqvist
+    kind: short
+    known: true
+  - text: la contremaîtresse au casque rayé
+    kind: descriptor
+    known: true
+- id: character_teodor_lindqvist
+  type: character
+  label: Teodor Lindqvist
+  true_name: Teodor Lindqvist
+  descriptor: le mécanicien roux
+  known: true
+  occupation: mécanicien de l'atelier de la Forge
+  location: location_la_forge
+  last_seen_turn: null
+  aliases:
+  - text: Teodor Lindqvist
+    kind: true_name
+    known: true
+  - text: Teodor
+    kind: short
+    known: true
+  - text: Lindqvist
+    kind: short
+    known: true
+  - text: le mécanicien roux
+    kind: descriptor
+    known: true
+- id: character_amaru_quispe
+  type: character
+  label: Amaru Quispe
+  true_name: Amaru Quispe
+  descriptor: le barman aux tatouages lumineux
+  known: false
+  occupation: barman du Comptoir
+  location: location_comptoir
+  last_seen_turn: 5
+  aliases:
+  - text: Amaru Quispe
+    kind: true_name
+    known: false
+  - text: Amaru
+    kind: short
+    known: false
+  - text: Quispe
+    kind: short
+    known: false
+  - text: le barman aux tatouages lumineux
+    kind: descriptor
+    known: true
+- id: character_ines_ferrand
+  type: character
+  label: Ines Ferrand
+  true_name: Ines Ferrand
+  descriptor: la médecin aux lunettes fendues
+  known: true
+  occupation: médecin de l'Infirmerie
+  location: location_infirmerie
+  last_seen_turn: null
+  aliases:
+  - text: Ines Ferrand
+    kind: true_name
+    known: true
+  - text: Ines
+    kind: short
+    known: true
+  - text: Ferrand
+    kind: short
+    known: true
+  - text: la Docteure
+    kind: title
+    known: true
+  - text: la médecin aux lunettes fendues
+    kind: descriptor
+    known: true
+- id: character_corvin_hale
+  type: character
+  label: Corvin Hale
+  true_name: Corvin Hale
+  descriptor: l'homme au manteau gris
+  known: false
+  occupation: auditeur de la Compagnie Halvard
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Corvin Hale
+    kind: true_name
+    known: false
+    secret: true
+  - text: Corvin
+    kind: short
+    known: false
+    secret: true
+  - text: Hale
+    kind: short
+    known: false
+    secret: true
+  - text: l'homme au manteau gris
+    kind: descriptor
+    known: true
+- id: character_dalia_okonjo
+  type: character
+  label: Dalia Okonjo
+  true_name: Dalia Okonjo
+  descriptor: la femme au brassard orange
+  known: false
+  occupation: déléguée du Syndicat des Foreurs Libres
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Dalia Okonjo
+    kind: true_name
+    known: false
+  - text: Dalia
+    kind: short
+    known: false
+  - text: Okonjo
+    kind: short
+    known: false
+  - text: la femme au brassard orange
+    kind: descriptor
+    known: true
+- id: location_comptoir
+  type: location
+  label: Le Comptoir
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Le Comptoir
+    kind: label
+    known: true
+- id: location_puits_4
+  type: location
+  label: Puits 4
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Puits 4
+    kind: label
+    known: true
+- id: location_la_forge
+  type: location
+  label: La Forge
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Forge
+    kind: label
+    known: true
+- id: location_infirmerie
+  type: location
+  label: Infirmerie
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Infirmerie
+    kind: label
+    known: true
+- id: location_anneau_b
+  type: location
+  label: Anneau B
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Anneau B
+    kind: label
+    known: true
+- id: location_salle_derriere_le_sas_rouge
+  type: location
+  label: la salle derrière le sas rouge
+  true_name: Chambre de Décompression Deux
+  descriptor: la salle derrière le sas rouge
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: la salle derrière le sas rouge
+    kind: descriptor
+    known: true
+  - text: Chambre de Décompression Deux
+    kind: true_name
+    known: false
+- id: location_cache_du_niveau_zero
+  type: location
+  label: Cache du Niveau Zéro
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Cache du Niveau Zéro
+    kind: label
+    known: false
+    secret: true
+- id: organization_compagnie_halvard
+  type: organization
+  label: Compagnie Halvard
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Compagnie Halvard
+    kind: label
+    known: true
+  - text: Halvard
+    kind: short
+    known: true
+- id: organization_la_forge
+  type: organization
+  label: La Forge
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La Forge
+    kind: label
+    known: true
+- id: organization_brassards_orange
+  type: organization
+  label: les brassards orange
+  true_name: Syndicat des Foreurs Libres
+  descriptor: les brassards orange
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: les brassards orange
+    kind: descriptor
+    known: true
+  - text: Syndicat des Foreurs Libres
+    kind: true_name
+    known: false
+- id: organization_consortium_vey
+  type: organization
+  label: Consortium Vey
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Consortium Vey
+    kind: label
+    known: false
+    secret: true
+- id: object_bracelet_de_service
+  type: object
+  label: Bracelet de service
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Bracelet de service
+    kind: label
+    known: true
+- id: object_badge_d_acces_jaune
+  type: object
+  label: Badge d'accès jaune
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Badge d'accès jaune
+    kind: label
+    known: true
+- id: object_foreuse_portative
+  type: object
+  label: Foreuse portative
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Foreuse portative
+    kind: label
+    known: true
+- id: object_mallette_scellee
+  type: object
+  label: la mallette scellée
+  true_name: Lot H-114
+  descriptor: la mallette scellée
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: la mallette scellée
+    kind: descriptor
+    known: true
+  - text: Lot H-114
+    kind: true_name
+    known: false
+- id: object_carte_des_galeries_mortes
+  type: object
+  label: Carte des galeries mortes
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Carte des galeries mortes
+    kind: label
+    known: false
+    secret: true
+- id: arc_greve_du_puits_4
+  type: arc
+  label: La grève du Puits 4
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La grève du Puits 4
+    kind: label
+    known: true
+history:
+- text: |-
+    Tu pousses la porte du Comptoir. La salle est basse, enfumée, pleine de foreurs en fin de poste. Le barman aux tatouages lumineux lève à peine la tête.
+
+    *Trois crédits le bol*, annonce la voix dans ton bracelet. *C'est écrit au-dessus de sa tête.*
+  mentions:
+  - surface: Comptoir
+    start: 23
+    category: EASY
+    expected: MATCH location_comptoir
+  - surface: foreurs en fin de poste
+    start: 72
+    category: SKIP
+    expected: SKIP
+  - surface: Le barman aux tatouages lumineux
+    start: 97
+    category: DESC
+    expected: MATCH character_amaru_quispe
+  - surface: la tête
+    start: 143
+    category: SKIP
+    expected: SKIP
+  - surface: la voix dans ton bracelet
+    start: 185
+    category: PC
+    expected: MATCH companion_mire
+  - surface: ton bracelet
+    start: 198
+    category: PART
+    expected: MATCH object_bracelet_de_service
+  - surface: sa tête
+    start: 238
+    category: SKIP
+    expected: SKIP
+- text: |-
+    Tu t'assois au bout du zinc. Un peu plus loin, l'homme au manteau gris boit sans rien dire, une mallette aux fermoirs scellés posée contre ses pieds.
+
+    — Trois crédits, dit le barman. Tu payes ou tu regardes ?
+  mentions:
+  - surface: l'homme au manteau gris
+    start: 47
+    category: DESC
+    expected: MATCH character_corvin_hale
+  - surface: une mallette aux fermoirs scellés
+    start: 92
+    category: DESC
+    expected: MATCH object_mallette_scellee
+  - surface: ses pieds
+    start: 139
+    category: SKIP
+    expected: SKIP
+  - surface: le barman
+    start: 172
+    category: DESC
+    expected: MATCH character_amaru_quispe
+scene:
+  location: location_comptoir
+  present:
+  - protagonist_jonas
+  - companion_mire
+  - character_amaru_quispe
+  - character_corvin_hale
+  - object_mallette_scellee
+  reveals:
+  - ref: le barman aux tatouages lumineux
+    real_name: Amaru Quispe
+  - ref: la mallette scellée
+    real_name: Lot H-114
+  planned_npcs: []
+  secrets:
+  - arc_greve_du_puits_4
+  - character_corvin_hale
+  - location_cache_du_niveau_zero
+  - object_carte_des_galeries_mortes
+  - organization_consortium_vey
+  open_disclosures: []
+narration: |-
+  Le barman aux tatouages lumineux fait glisser un bol de bouillon sur le zinc et tapote son propre badge, où ne s'affiche qu'un logo effacé.
+
+  — Tu veux savoir à qui tu dois tes trois crédits ? Amaru Quispe. Mais tout le monde dit Amaru, sauf la Compagnie quand elle m'envoie ses factures.
+
+  Au bout du comptoir, l'homme au manteau gris a posé la mallette scellée sur ses genoux. Quand il la retourne pour l'ouvrir, tu lis sur l'étiquette pelliculée : « Lot H-114 ». Il la referme aussitôt.
+
+  *Le Lot H-114*, répète ton IA tout bas. *Je l'ai noté. Jonas, ne le fixe pas comme ça.*
+gold:
+- surface: Le barman aux tatouages lumineux
+  start: 0
+  category: DESC
+  expected: MATCH character_amaru_quispe
+- surface: son propre badge
+  start: 87
+  category: SKIP
+  expected: SKIP
+- surface: Amaru Quispe
+  start: 192
+  category: REVEAL
+  expected: ALIAS character_amaru_quispe true_name
+- surface: Amaru
+  start: 229
+  category: PART
+  expected: ALIAS character_amaru_quispe short
+  accept_also:
+  - MATCH character_amaru_quispe
+- surface: la Compagnie
+  start: 241
+  category: PART
+  expected: MATCH organization_compagnie_halvard
+- surface: comptoir
+  start: 300
+  category: SKIP
+  expected: SKIP
+- surface: l'homme au manteau gris
+  start: 310
+  category: DESC
+  expected: MATCH character_corvin_hale
+- surface: la mallette scellée
+  start: 341
+  category: DESC
+  expected: MATCH object_mallette_scellee
+- surface: ses genoux
+  start: 365
+  category: SKIP
+  expected: SKIP
+- surface: Lot H-114
+  start: 451
+  category: REVEAL
+  expected: ALIAS object_mallette_scellee true_name
+- surface: Le Lot H-114
+  start: 490
+  category: EASY
+  expected: ALIAS object_mallette_scellee true_name
+- surface: ton IA
+  start: 512
+  category: PC
+  expected: MATCH companion_mire
+- surface: Jonas
+  start: 544
+  category: PC
+  expected: MATCH protagonist_jonas
+gold_effects:
+  reveals:
+  - ref: character_amaru_quispe
+    real_name: Amaru Quispe
+  - ref: object_mallette_scellee
+    real_name: Lot H-114
+  merges: []
+  forbidden_merges:
+  - a: character_amaru_quispe
+    b: character_corvin_hale
+gold_knowledge:
+- ref: character_amaru_quispe
+  kind: name
+  state: unknown
+  text: Amaru Quispe
+- ref: character_corvin_hale
+  kind: name
+  state: secret
+  text: Corvin Hale
+- ref: character_dalia_okonjo
+  kind: name
+  state: unknown
+  text: Dalia Okonjo
+- ref: location_salle_derriere_le_sas_rouge
+  kind: name
+  state: unknown
+  text: Chambre de Décompression Deux
+- ref: location_cache_du_niveau_zero
+  kind: name
+  state: secret
+  text: Cache du Niveau Zéro
+- ref: organization_brassards_orange
+  kind: name
+  state: unknown
+  text: Syndicat des Foreurs Libres
+- ref: organization_consortium_vey
+  kind: name
+  state: secret
+  text: Consortium Vey
+- ref: object_mallette_scellee
+  kind: name
+  state: unknown
+  text: Lot H-114
+- ref: object_carte_des_galeries_mortes
+  kind: name
+  state: secret
+  text: Carte des galeries mortes
+- ref: character_corvin_hale
+  kind: fact
+  state: secret
+  text: Corvin Hale espionne la Compagnie Halvard pour le Consortium Vey.
+- ref: character_amaru_quispe
+  kind: fact
+  state: unknown
+  text: Amaru Quispe tient le Comptoir pour le compte de la Compagnie Halvard.
+- ref: arc_greve_du_puits_4
+  kind: fact
+  state: unknown
+  text: La grève du Puits 4 a commencé après une fausse alerte au grisou.
+- ref: arc_greve_du_puits_4
+  kind: fact
+  state: secret
+  text: Corvin Hale a déclenché la fausse alerte au grisou pour faire chuter la Compagnie Halvard.
+- ref: organization_consortium_vey
+  kind: fact
+  state: secret
+  text: Le Consortium Vey veut racheter Halcyon-7 à bas prix.
+- ref: object_carte_des_galeries_mortes
+  kind: fact
+  state: secret
+  text: La Carte des galeries mortes mène à la Cache du Niveau Zéro.
+- ref: object_mallette_scellee
+  kind: fact
+  state: unknown
+  text: La mallette scellée contient des carottes de minerai du Puits 4.

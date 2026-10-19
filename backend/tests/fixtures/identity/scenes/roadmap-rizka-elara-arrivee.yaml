@@ -1,0 +1,180 @@
+# Roadmap gate (P6), first appearance: Elara Voss walks in while only Rizka Voss exists.
+# She talks to Rizka (proof of a distinct person): NEW trap, never a match on Rizka.
+id: roadmap-rizka-elara-arrivee
+genre: sf
+source: issue
+turn: 3
+world:
+- id: protagonist_soren
+  type: protagonist
+  label: Soren
+  true_name: Soren
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_atelier_de_maintenance
+  last_seen_turn: 2
+  aliases:
+  - text: Soren
+    kind: true_name
+    known: true
+- id: companion_brume
+  type: companion
+  label: Brume
+  true_name: Brume
+  descriptor: la voix de ton bracelet
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Brume
+    kind: true_name
+    known: true
+  - text: la voix de ton bracelet
+    kind: descriptor
+    known: true
+- id: character_rizka_voss
+  type: character
+  label: Rizka Voss
+  true_name: Rizka Voss
+  descriptor: la mécanicienne aux avant-bras tatoués
+  known: true
+  occupation: mécanicienne de l'Atelier de maintenance
+  location: location_atelier_de_maintenance
+  last_seen_turn: 2
+  aliases:
+  - text: Rizka Voss
+    kind: true_name
+    known: true
+  - text: Rizka
+    kind: short
+    known: true
+  - text: Voss
+    kind: short
+    known: true
+  - text: la mécanicienne aux avant-bras tatoués
+    kind: descriptor
+    known: true
+- id: location_atelier_de_maintenance
+  type: location
+  label: Atelier de maintenance
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Atelier de maintenance
+    kind: label
+    known: true
+- id: organization_conseil_de_bord
+  type: organization
+  label: Conseil de bord
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 1
+  aliases:
+  - text: Conseil de bord
+    kind: label
+    known: true
+- id: object_coupleur_ionique
+  type: object
+  label: Coupleur ionique
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 2
+  aliases:
+  - text: Coupleur ionique
+    kind: label
+    known: true
+history: []
+scene:
+  location: location_atelier_de_maintenance
+  present:
+  - protagonist_soren
+  - companion_brume
+  - character_rizka_voss
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  Rizka a les deux bras plongés dans le coupleur quand la porte de l'atelier coulisse. Une femme en blouse blanche entre, une mallette de soins à la main, et s'arrête devant l'établi.
+
+  — Elara Voss, dit-elle en tendant la main à la mécanicienne. Médecin de bord, affectée depuis hier par le Conseil de bord.
+
+  Rizka Voss regarde la main tendue, puis ses propres doigts noirs de graisse.
+
+  — Le même nom que moi ? On va bien s'amuser avec les fiches de paie.
+
+  La nouvelle venue sourit à peine.
+
+  — Je ne vous connais pas, et je viens de l'autre bout du système. Le nom est courant, là-bas. Je cherche l'infirmerie du pont inférieur : on m'a dit de passer par ici.
+
+  *Elle n'est dans aucun de tes fichiers*, souffle Brume. *Deux personnes, un seul nom.*
+gold:
+- surface: Rizka
+  start: 0
+  category: PART
+  expected: MATCH character_rizka_voss
+- surface: le coupleur
+  start: 35
+  category: PART
+  expected: MATCH object_coupleur_ionique
+- surface: l'atelier
+  start: 65
+  category: PART
+  expected: MATCH location_atelier_de_maintenance
+- surface: Une femme en blouse blanche
+  start: 85
+  category: NEW
+  expected: NEW character
+- surface: une mallette de soins
+  start: 120
+  category: SKIP
+  expected: SKIP
+- surface: Elara Voss
+  start: 185
+  category: EASY
+  expected: SAME 85
+- surface: la mécanicienne
+  start: 227
+  category: DESC
+  expected: MATCH character_rizka_voss
+- surface: le Conseil de bord
+  start: 286
+  category: EASY
+  expected: MATCH organization_conseil_de_bord
+- surface: Rizka Voss
+  start: 307
+  category: EASY
+  expected: MATCH character_rizka_voss
+- surface: ses propres doigts
+  start: 347
+  category: SKIP
+  expected: SKIP
+- surface: La nouvelle venue
+  start: 455
+  category: DESC
+  expected: SAME 85
+- surface: l'infirmerie du pont inférieur
+  start: 595
+  category: NEW
+  expected: NEW location
+- surface: Brume
+  start: 708
+  category: PC
+  expected: MATCH companion_brume
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge: []

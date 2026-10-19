@@ -1,0 +1,20 @@
+# French closed word lists used by the identity corpus code (#151).
+# The code never names a language's words: it reads them from lexicon/<language>.yaml,
+# chosen by the scene's `language` field. ANNOTATION.md explains each list.
+
+# Leading determiners dropped before comparing names (« la Coopérative » = « Coopérative »).
+determiners: [le, la, les, un, une, des, du, ce, cet, cette, ces, mon, ma, mes, ton, ta, tes,
+  son, sa, ses, notre, nos, votre, vos, leur, leurs]
+# Determiners written glued to the noun with an apostrophe (« l'Ordre »).
+elided_determiners: ["l'"]
+# Never a mention (ANNOTATION § 4.1).
+personal_pronouns: [je, "j'", tu, il, elle, "on", nous, vous, ils, elles, me, "m'", te, "t'",
+  se, "s'", le, la, les, lui, leur, eux, moi, toi, soi]
+# Always SKIP when annotated (ANNOTATION § 5.2, case 6).
+indefinite_pronouns: ["quelqu'un", quiconque, personne, "l'un", "l'une", "l'autre",
+  les autres, chacun, chacune, celui-ci, celle-ci, ceux-ci, celles-ci, celui-là, celle-là,
+  ceux-là, celles-là]
+# The indefinite pronouns that are never a noun or a determiner: every occurrence in a
+# text must be annotated.
+unambiguous_pronouns: ["quelqu'un", quiconque, celui-ci, celle-ci, ceux-ci, celles-ci,
+  celui-là, celle-là, ceux-là, celles-là]

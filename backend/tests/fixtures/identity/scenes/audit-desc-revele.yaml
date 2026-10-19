@@ -1,0 +1,277 @@
+# Data-audit pattern « descriptor-only NPC later revealed » (Kethari/Nahle), dark fantasy variant:
+# the descriptor-only woman gives her name, and names the descriptor-only house as well.
+id: audit-desc-revele
+genre: dark_fantasy
+source: synthetic
+turn: 8
+world:
+- id: protagonist_isaure
+  type: protagonist
+  label: Isaure
+  true_name: Isaure
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_auberge_du_gue_noir
+  last_seen_turn: 7
+  aliases:
+  - text: Isaure
+    kind: true_name
+    known: true
+- id: companion_noctule
+  type: companion
+  label: Noctule
+  true_name: Noctule
+  descriptor: la chauve-souris sur ton épaule
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 7
+  aliases:
+  - text: Noctule
+    kind: true_name
+    known: true
+  - text: la chauve-souris sur ton épaule
+    kind: descriptor
+    known: true
+- id: character_vieille_au_capuchon_de_laine
+  type: character
+  label: La vieille au capuchon de laine
+  true_name: null
+  descriptor: La vieille au capuchon de laine
+  known: false
+  occupation: null
+  location: location_auberge_du_gue_noir
+  last_seen_turn: 7
+  aliases:
+  - text: La vieille au capuchon de laine
+    kind: descriptor
+    known: true
+- id: character_bertil_crane
+  type: character
+  label: Bertil Crane
+  true_name: Bertil Crane
+  descriptor: L'aubergiste à la barbe rousse
+  known: false
+  occupation: aubergiste du Gué Noir
+  location: location_auberge_du_gue_noir
+  last_seen_turn: 7
+  aliases:
+  - text: Bertil Crane
+    kind: true_name
+    known: false
+  - text: Bertil
+    kind: short
+    known: false
+  - text: Crane
+    kind: short
+    known: false
+  - text: L'aubergiste à la barbe rousse
+    kind: descriptor
+    known: true
+- id: location_auberge_du_gue_noir
+  type: location
+  label: Auberge du Gué Noir
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 7
+  aliases:
+  - text: Auberge du Gué Noir
+    kind: label
+    known: true
+- id: location_maison_aux_volets_clos
+  type: location
+  label: la maison aux volets clos
+  true_name: null
+  descriptor: la maison aux volets clos
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: la maison aux volets clos
+    kind: descriptor
+    known: true
+- id: organization_confrerie_des_lanterniers
+  type: organization
+  label: Confrérie des Lanterniers
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Confrérie des Lanterniers
+    kind: label
+    known: true
+- id: object_lanterne_de_corne
+  type: object
+  label: Lanterne de corne
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 7
+  aliases:
+  - text: Lanterne de corne
+    kind: label
+    known: true
+history:
+- text: |-
+    La vieille au capuchon de laine s'est assise près du feu de l'Auberge du Gué Noir. Elle regarde ta lanterne sans rien demander.
+
+    L'aubergiste à la barbe rousse remplit son bol.
+  mentions:
+  - surface: La vieille au capuchon de laine
+    start: 0
+    category: DESC
+    expected: MATCH character_vieille_au_capuchon_de_laine
+  - surface: l'Auberge du Gué Noir
+    start: 60
+    category: EASY
+    expected: MATCH location_auberge_du_gue_noir
+  - surface: ta lanterne
+    start: 96
+    category: PART
+    expected: MATCH object_lanterne_de_corne
+  - surface: L'aubergiste à la barbe rousse
+    start: 129
+    category: DESC
+    expected: MATCH character_bertil_crane
+  - surface: son bol
+    start: 168
+    category: SKIP
+    expected: SKIP
+scene:
+  location: location_auberge_du_gue_noir
+  present:
+  - protagonist_isaure
+  - companion_noctule
+  - character_vieille_au_capuchon_de_laine
+  - character_bertil_crane
+  reveals:
+  - ref: La vieille au capuchon de laine
+    real_name: Maud Ferrandine
+  - ref: la maison aux volets clos
+    real_name: Maison des Pendus
+  planned_npcs: []
+  secrets:
+  - location_maison_aux_volets_clos
+  open_disclosures: []
+narration: |-
+  La vieille au capuchon de laine repose son bol et te dévisage longtemps, comme si elle pesait ta question.
+
+  — Maud Ferrandine, finit-elle par dire. Maud, pour ceux qui me versent à boire. J'habitais la maison aux volets clos, en haut de la rue. On l'appelle la Maison des Pendus depuis l'hiver où la Confrérie me l'a prise.
+
+  L'aubergiste à la barbe rousse pose une cruche entre vous deux et s'essuie les mains sur son tablier.
+
+  — Elle dit vrai, grogne-t-il. Les Lanterniers ont cloué les volets eux-mêmes. Depuis, cette maison porte malheur à toute la rue.
+
+  Le feu de l'auberge baisse. Ta lanterne de corne grésille sur la table, et Maud Ferrandine tend ses doigts vers la flamme.
+
+  *Elle a bu deux cruches et elle se souvient de tout*, chuchote Noctule dans ton col.
+gold:
+- surface: La vieille au capuchon de laine
+  start: 0
+  category: DESC
+  expected: MATCH character_vieille_au_capuchon_de_laine
+- surface: son bol
+  start: 39
+  category: SKIP
+  expected: SKIP
+- surface: Maud Ferrandine
+  start: 110
+  category: REVEAL
+  expected: ALIAS character_vieille_au_capuchon_de_laine true_name
+- surface: Maud
+  start: 148
+  category: PART
+  expected: ALIAS character_vieille_au_capuchon_de_laine short
+  accept_also:
+  - MATCH character_vieille_au_capuchon_de_laine
+- surface: la maison aux volets clos
+  start: 199
+  category: DESC
+  expected: MATCH location_maison_aux_volets_clos
+- surface: la Maison des Pendus
+  start: 258
+  category: REVEAL
+  expected: ALIAS location_maison_aux_volets_clos true_name
+- surface: la Confrérie
+  start: 297
+  category: PART
+  expected: MATCH organization_confrerie_des_lanterniers
+- surface: L'aubergiste à la barbe rousse
+  start: 325
+  category: DESC
+  expected: MATCH character_bertil_crane
+- surface: son tablier
+  start: 414
+  category: SKIP
+  expected: SKIP
+- surface: Les Lanterniers
+  start: 458
+  category: PART
+  expected: MATCH organization_confrerie_des_lanterniers
+- surface: cette maison
+  start: 514
+  category: PART
+  expected: ALIAS location_maison_aux_volets_clos short
+  accept_also:
+  - MATCH location_maison_aux_volets_clos
+- surface: l'auberge
+  start: 568
+  category: PART
+  expected: MATCH location_auberge_du_gue_noir
+- surface: Ta lanterne de corne
+  start: 586
+  category: PART
+  expected: MATCH object_lanterne_de_corne
+- surface: Maud Ferrandine
+  start: 633
+  category: EASY
+  expected: ALIAS character_vieille_au_capuchon_de_laine true_name
+- surface: ses doigts
+  start: 654
+  category: SKIP
+  expected: SKIP
+- surface: Noctule
+  start: 745
+  category: PC
+  expected: MATCH companion_noctule
+- surface: ton col
+  start: 758
+  category: SKIP
+  expected: SKIP
+gold_effects:
+  reveals:
+  - ref: character_vieille_au_capuchon_de_laine
+    real_name: Maud Ferrandine
+  - ref: location_maison_aux_volets_clos
+    real_name: Maison des Pendus
+  merges: []
+  forbidden_merges:
+  - a: character_vieille_au_capuchon_de_laine
+    b: character_bertil_crane
+gold_knowledge:
+- ref: character_bertil_crane
+  kind: name
+  state: unknown
+  text: Bertil Crane
+- ref: character_vieille_au_capuchon_de_laine
+  kind: fact
+  state: unknown
+  text: La vieille au capuchon de laine a été chassée de sa maison par la Confrérie des Lanterniers.
+- ref: location_maison_aux_volets_clos
+  kind: fact
+  state: secret
+  text: La maison aux volets clos cache une cave murée où la Confrérie des Lanterniers entrepose ses morts.
+- ref: organization_confrerie_des_lanterniers
+  kind: fact
+  state: unknown
+  text: La Confrérie des Lanterniers saisit les maisons des veuves sans héritier.

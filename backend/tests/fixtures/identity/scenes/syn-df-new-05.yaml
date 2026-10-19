@@ -1,0 +1,583 @@
+# Synthetic dark fantasy scene (annotator C). Focus: NEW: a ship's boy who speaks, two guilds (one a trap
+# next to the known pilots' guild), a cove and a bone whistle the PC receives.
+id: syn-df-new-05
+genre: dark_fantasy
+source: synthetic
+turn: 18
+world:
+- id: protagonist_sabine
+  type: protagonist
+  label: Sabine
+  true_name: Sabine
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Sabine
+    kind: true_name
+    known: true
+- id: companion_grimaud
+  type: companion
+  label: Grimaud
+  true_name: Grimaud
+  descriptor: le crâne dans ta besace
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Grimaud
+    kind: true_name
+    known: true
+  - text: le crâne dans ta besace
+    kind: descriptor
+    known: true
+  - text: ton crâne bavard
+    kind: descriptor
+    known: true
+- id: location_port_cendre
+  type: location
+  label: Port-Cendre
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Port-Cendre
+    kind: label
+    known: true
+- id: character_mael_ferrand
+  type: character
+  label: Maël Ferrand
+  true_name: Maël Ferrand
+  descriptor: le borgne au manteau goudronné
+  known: true
+  occupation: chef de la Bande du Corbeau
+  location: location_quai_aux_pendus
+  last_seen_turn: null
+  aliases:
+  - text: Maël Ferrand
+    kind: true_name
+    known: true
+  - text: Maël
+    kind: short
+    known: true
+  - text: Ferrand
+    kind: short
+    known: true
+  - text: le Corbeau
+    kind: nickname
+    known: true
+  - text: le borgne au manteau goudronné
+    kind: descriptor
+    known: true
+- id: organization_bande_du_corbeau
+  type: organization
+  label: Bande du Corbeau
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 16
+  aliases:
+  - text: Bande du Corbeau
+    kind: label
+    known: true
+  - text: Corbeau
+    kind: short
+    known: true
+- id: character_ilse_ferrand
+  type: character
+  label: Ilse Ferrand
+  true_name: Ilse Ferrand
+  descriptor: la rousse aux bras tatoués
+  known: true
+  occupation: seconde de la Bande du Corbeau
+  location: location_quai_aux_pendus
+  last_seen_turn: 17
+  aliases:
+  - text: Ilse Ferrand
+    kind: true_name
+    known: true
+  - text: Ilse
+    kind: short
+    known: true
+  - text: Ferrand
+    kind: short
+    known: true
+  - text: la rousse aux bras tatoués
+    kind: descriptor
+    known: true
+- id: character_odile_gravel
+  type: character
+  label: Odile Gravel
+  true_name: Odile Gravel
+  descriptor: la grosse femme au tablier taché
+  known: true
+  occupation: aubergiste
+  location: location_auberge_gravel
+  last_seen_turn: null
+  aliases:
+  - text: Odile Gravel
+    kind: true_name
+    known: true
+  - text: Odile
+    kind: short
+    known: true
+  - text: Gravel
+    kind: short
+    known: true
+  - text: Mère Gravel
+    kind: title
+    known: true
+  - text: la grosse femme au tablier taché
+    kind: descriptor
+    known: true
+- id: location_auberge_gravel
+  type: location
+  label: Auberge Gravel
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Auberge Gravel
+    kind: label
+    known: true
+  - text: Gravel
+    kind: short
+    known: true
+- id: location_quai_aux_pendus
+  type: location
+  label: Quai aux Pendus
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 17
+  aliases:
+  - text: Quai aux Pendus
+    kind: label
+    known: true
+- id: organization_capitainerie
+  type: organization
+  label: Capitainerie
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Capitainerie
+    kind: label
+    known: true
+- id: location_capitainerie
+  type: location
+  label: Capitainerie
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Capitainerie
+    kind: label
+    known: true
+- id: character_renaud_esquer
+  type: character
+  label: Renaud Esquer
+  true_name: Renaud Esquer
+  descriptor: l'officier au chapeau à plume
+  known: true
+  occupation: capitaine du port
+  location: location_capitainerie
+  last_seen_turn: null
+  aliases:
+  - text: Renaud Esquer
+    kind: true_name
+    known: true
+  - text: Renaud
+    kind: short
+    known: true
+  - text: Esquer
+    kind: short
+    known: true
+  - text: le Capitaine
+    kind: title
+    known: true
+  - text: l'officier au chapeau à plume
+    kind: descriptor
+    known: true
+- id: character_gaubert_lamothe
+  type: character
+  label: Gaubert Lamothe
+  true_name: Gaubert Lamothe
+  descriptor: le marin à la jambe de bois
+  known: true
+  occupation: ancien pilote
+  location: location_auberge_gravel
+  last_seen_turn: null
+  aliases:
+  - text: Gaubert Lamothe
+    kind: true_name
+    known: true
+  - text: Gaubert
+    kind: short
+    known: true
+  - text: Lamothe
+    kind: short
+    known: true
+  - text: le marin à la jambe de bois
+    kind: descriptor
+    known: true
+- id: character_ermengarde_ferrand
+  type: character
+  label: Ermengarde Ferrand
+  true_name: Ermengarde Ferrand
+  descriptor: la veuve en noir
+  known: false
+  occupation: mère des Ferrand et vraie tête de la contrebande
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Ermengarde Ferrand
+    kind: true_name
+    known: false
+    secret: true
+  - text: Ermengarde
+    kind: short
+    known: false
+    secret: true
+  - text: la veuve en noir
+    kind: descriptor
+    known: true
+- id: location_entrepot_noir
+  type: location
+  label: Entrepôt Noir
+  true_name: null
+  descriptor: null
+  known: false
+  secret: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Entrepôt Noir
+    kind: label
+    known: false
+    secret: true
+- id: object_caisse_a_l_ancre_noire
+  type: object
+  label: la caisse à l'ancre noire
+  true_name: Lot de Sombrelune
+  descriptor: la caisse à l'ancre noire
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Lot de Sombrelune
+    kind: true_name
+    known: false
+  - text: la caisse à l'ancre noire
+    kind: descriptor
+    known: true
+- id: object_couteau_de_marin
+  type: object
+  label: Couteau de marin
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Couteau de marin
+    kind: label
+    known: true
+- id: object_carte_des_hauts_fonds
+  type: object
+  label: Carte des Hauts-Fonds
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Carte des Hauts-Fonds
+    kind: label
+    known: true
+- id: organization_douane_royale
+  type: organization
+  label: Douane royale
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Douane royale
+    kind: label
+    known: true
+- id: organization_equipage_au_pavillon_noir
+  type: organization
+  label: l'équipage au pavillon noir
+  true_name: Compagnons de la Marée
+  descriptor: l'équipage au pavillon noir
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Compagnons de la Marée
+    kind: true_name
+    known: false
+  - text: l'équipage au pavillon noir
+    kind: descriptor
+    known: true
+- id: location_cale_seche_abandonnee
+  type: location
+  label: Bassin des Noyés
+  true_name: Bassin des Noyés
+  descriptor: la cale sèche abandonnée
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Bassin des Noyés
+    kind: true_name
+    known: true
+  - text: la cale sèche abandonnée
+    kind: descriptor
+    known: true
+- id: location_phare_de_la_veuve
+  type: location
+  label: Phare de la Veuve
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Phare de la Veuve
+    kind: label
+    known: true
+  - text: Veuve
+    kind: short
+    known: true
+- id: object_longue_vue_de_cuivre
+  type: object
+  label: Longue-vue de cuivre
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Longue-vue de cuivre
+    kind: label
+    known: true
+- id: object_registre_des_mouillages
+  type: object
+  label: Registre des mouillages
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Registre des mouillages
+    kind: label
+    known: true
+- id: object_medaille_rouillee
+  type: object
+  label: la médaille rouillée
+  true_name: Œil de la Marée
+  descriptor: la médaille rouillée
+  known: false
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Œil de la Marée
+    kind: true_name
+    known: false
+  - text: la médaille rouillée
+    kind: descriptor
+    known: true
+- id: organization_guilde_des_pilotes
+  type: organization
+  label: Guilde des Pilotes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 15
+  aliases:
+  - text: Guilde des Pilotes
+    kind: label
+    known: true
+- id: location_marche_aux_ecailles
+  type: location
+  label: Marché aux Écailles
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: Marché aux Écailles
+    kind: label
+    known: true
+- id: arc_contrebande_de_cendre_lune
+  type: arc
+  label: La contrebande de cendre-lune
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: null
+  aliases:
+  - text: La contrebande de cendre-lune
+    kind: label
+    known: true
+history:
+- text: |-
+    Sur le Quai aux Pendus, Ilse Ferrand compte les barques amarrées en pestant.
+
+    — Il en manque quatre. Ça n'arrive jamais.
+  mentions:
+  - surface: le Quai aux Pendus
+    start: 4
+    category: EASY
+    expected: MATCH location_quai_aux_pendus
+  - surface: Ilse Ferrand
+    start: 24
+    category: EASY
+    expected: MATCH character_ilse_ferrand
+scene:
+  location: location_quai_aux_pendus
+  present:
+  - protagonist_sabine
+  - companion_grimaud
+  - character_ilse_ferrand
+  reveals: []
+  planned_npcs: []
+  secrets:
+  - character_ermengarde_ferrand
+  - location_entrepot_noir
+  open_disclosures: []
+narration: |-
+  Un mousse aux pieds nus dévale l'échelle du quai et s'arrête devant la rousse, hors d'haleine.
+
+  — La Guilde des Haleurs refuse de tirer vos barques, m'dame ! Ils disent que la Guilde des Pilotes leur a interdit. Et la Confrérie des Calfats a cloué la porte de vos hangars.
+
+  Elle jure entre ses dents, puis se tourne vers toi.
+
+  — Va à l'Anse aux Morues. Le vieux Pelletier y garde nos barques de secours. Donne-lui ça.
+
+  Elle te lance un sifflet d'os percé de trois trous. Tu le ranges avec ta carte.
+
+  *Des barques de secours*, résume Grimaud. *Elle a donc prévu des naufrages.*
+gold:
+- surface: Un mousse aux pieds nus
+  start: 0
+  category: NEW
+  expected: NEW character
+- surface: quai
+  start: 44
+  category: PART
+  expected: MATCH location_quai_aux_pendus
+- surface: la rousse
+  start: 68
+  category: DESC
+  expected: MATCH character_ilse_ferrand
+- surface: La Guilde des Haleurs
+  start: 98
+  category: NEW
+  expected: NEW organization
+  trap: true
+- surface: la Guilde des Pilotes
+  start: 173
+  category: EASY
+  expected: MATCH organization_guilde_des_pilotes
+- surface: la Confrérie des Calfats
+  start: 215
+  category: NEW
+  expected: NEW organization
+- surface: ses dents
+  start: 290
+  category: SKIP
+  expected: SKIP
+- surface: l'Anse aux Morues
+  start: 334
+  category: NEW
+  expected: NEW location
+- surface: Le vieux Pelletier
+  start: 353
+  category: NEW
+  expected: NEW character
+- surface: un sifflet d'os
+  start: 433
+  category: NEW
+  expected: NEW object
+- surface: ta carte
+  start: 489
+  category: PART
+  expected: MATCH object_carte_des_hauts_fonds
+- surface: Grimaud
+  start: 533
+  category: PC
+  expected: MATCH companion_grimaud
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge:
+- ref: character_ermengarde_ferrand
+  kind: name
+  state: secret
+  text: Ermengarde Ferrand
+- ref: location_entrepot_noir
+  kind: name
+  state: secret
+  text: Entrepôt Noir
+- ref: object_caisse_a_l_ancre_noire
+  kind: name
+  state: unknown
+  text: Lot de Sombrelune
+- ref: organization_equipage_au_pavillon_noir
+  kind: name
+  state: unknown
+  text: Compagnons de la Marée
+- ref: object_medaille_rouillee
+  kind: name
+  state: unknown
+  text: Œil de la Marée
+- ref: arc_contrebande_de_cendre_lune
+  kind: fact
+  state: secret
+  text: Ermengarde Ferrand dirige la contrebande de cendre-lune depuis l'Entrepôt Noir.
+- ref: arc_contrebande_de_cendre_lune
+  kind: fact
+  state: unknown
+  text: La cendre-lune arrive cachée dans des tonneaux de harengs.

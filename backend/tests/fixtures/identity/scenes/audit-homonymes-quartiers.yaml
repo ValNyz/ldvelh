@@ -1,0 +1,262 @@
+# Data-audit pattern « same name, two types » (Bureau des Résidences), extended to objects: Méridienne is
+# the PC's shuttle and a dock district, Hélios a district and the corporation that owns it.
+id: audit-homonymes-quartiers
+genre: sf
+source: synthetic
+turn: 12
+world:
+- id: protagonist_naoki
+  type: protagonist
+  label: Naoki
+  true_name: Naoki
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_helios
+  last_seen_turn: 11
+  aliases:
+  - text: Naoki
+    kind: true_name
+    known: true
+- id: companion_sillage
+  type: companion
+  label: Sillage
+  true_name: Sillage
+  descriptor: la voix dans ton oreillette
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Sillage
+    kind: true_name
+    known: true
+  - text: la voix dans ton oreillette
+    kind: descriptor
+    known: true
+- id: location_meridienne
+  type: location
+  label: Méridienne
+  true_name: null
+  descriptor: le quartier des docks
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 10
+  aliases:
+  - text: Méridienne
+    kind: label
+    known: true
+  - text: le quartier des docks
+    kind: descriptor
+    known: true
+- id: object_meridienne
+  type: object
+  label: Méridienne
+  true_name: null
+  descriptor: ta navette
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Méridienne
+    kind: label
+    known: true
+  - text: ta navette
+    kind: descriptor
+    known: true
+- id: location_helios
+  type: location
+  label: Hélios
+  true_name: null
+  descriptor: les quartiers hauts
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 11
+  aliases:
+  - text: Hélios
+    kind: label
+    known: true
+  - text: les quartiers hauts
+    kind: descriptor
+    known: true
+- id: organization_helios
+  type: organization
+  label: Hélios
+  true_name: null
+  descriptor: la corpo
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 10
+  aliases:
+  - text: Hélios
+    kind: label
+    known: true
+  - text: la corpo
+    kind: descriptor
+    known: true
+- id: character_joss_kerrigan
+  type: character
+  label: Joss Kerrigan
+  true_name: Joss Kerrigan
+  descriptor: la pilote au casque jaune
+  known: false
+  occupation: pilote de navette
+  location: location_helios
+  last_seen_turn: 11
+  aliases:
+  - text: Joss Kerrigan
+    kind: true_name
+    known: false
+  - text: Joss
+    kind: short
+    known: false
+  - text: Kerrigan
+    kind: short
+    known: false
+  - text: la pilote au casque jaune
+    kind: descriptor
+    known: true
+- id: character_dalia_vrenn
+  type: character
+  label: Dalia Vrenn
+  true_name: Dalia Vrenn
+  descriptor: null
+  known: true
+  occupation: receleuse
+  location: location_meridienne
+  last_seen_turn: 9
+  aliases:
+  - text: Dalia Vrenn
+    kind: true_name
+    known: true
+  - text: Dalia
+    kind: short
+    known: true
+  - text: Vrenn
+    kind: short
+    known: true
+history: []
+scene:
+  location: location_helios
+  present:
+  - protagonist_naoki
+  - companion_sillage
+  - character_joss_kerrigan
+  - object_meridienne
+  reveals:
+  - ref: la pilote au casque jaune
+    real_name: Joss Kerrigan
+  planned_npcs: []
+  secrets:
+  - location_meridienne
+  open_disclosures: []
+narration: |-
+  La Méridienne se pose en douceur sur un pad d'Hélios, entre deux tours de verre. La pilote au casque jaune coupe les moteurs et se retourne.
+
+  — Bienvenue dans les quartiers hauts. Tout ce que tu vois appartient à Hélios, la corpo, mais ça, tu le savais déjà.
+
+  Elle détache son casque.
+
+  — Au fait, moi, c'est Joss Kerrigan. Joss, si tu me rappelles un jour.
+
+  Tu dois rejoindre Dalia Vrenn à la Méridienne, le quartier des docks, avant le couvre-feu. Ta navette ne peut pas t'y emmener : la corporation interdit les vols bas après dix-huit heures.
+
+  *La Méridienne reste garée ici*, confirme Sillage. *Dalia t'attend en bas, à vingt minutes de tram.*
+gold:
+- surface: La Méridienne
+  start: 0
+  category: XTYPE
+  expected: MATCH object_meridienne
+- surface: Hélios
+  start: 46
+  category: XTYPE
+  expected: MATCH location_helios
+- surface: La pilote au casque jaune
+  start: 81
+  category: DESC
+  expected: MATCH character_joss_kerrigan
+- surface: les quartiers hauts
+  start: 159
+  category: DESC
+  expected: MATCH location_helios
+- surface: Hélios
+  start: 213
+  category: XTYPE
+  expected: MATCH organization_helios
+- surface: la corpo
+  start: 221
+  category: DESC
+  expected: MATCH organization_helios
+- surface: son casque
+  start: 273
+  category: SKIP
+  expected: SKIP
+- surface: Joss Kerrigan
+  start: 308
+  category: REVEAL
+  expected: ALIAS character_joss_kerrigan true_name
+- surface: Joss
+  start: 323
+  category: PART
+  expected: ALIAS character_joss_kerrigan short
+  accept_also:
+  - MATCH character_joss_kerrigan
+- surface: Dalia Vrenn
+  start: 376
+  category: EASY
+  expected: MATCH character_dalia_vrenn
+- surface: la Méridienne
+  start: 390
+  category: XTYPE
+  expected: MATCH location_meridienne
+- surface: le quartier des docks
+  start: 405
+  category: DESC
+  expected: MATCH location_meridienne
+- surface: Ta navette
+  start: 449
+  category: DESC
+  expected: MATCH object_meridienne
+- surface: la corporation
+  start: 486
+  category: DESC
+  expected: MATCH organization_helios
+- surface: La Méridienne
+  start: 548
+  category: XTYPE
+  expected: MATCH object_meridienne
+- surface: Sillage
+  start: 589
+  category: PC
+  expected: MATCH companion_sillage
+- surface: Dalia
+  start: 599
+  category: PART
+  expected: MATCH character_dalia_vrenn
+gold_effects:
+  reveals:
+  - ref: character_joss_kerrigan
+    real_name: Joss Kerrigan
+  merges: []
+  forbidden_merges:
+  - a: location_meridienne
+    b: object_meridienne
+  - a: location_helios
+    b: organization_helios
+gold_knowledge:
+- ref: character_joss_kerrigan
+  kind: name
+  state: unknown
+  text: Joss Kerrigan
+- ref: organization_helios
+  kind: fact
+  state: unknown
+  text: La corporation Hélios possède tous les pads d'atterrissage des quartiers hauts.
+- ref: location_meridienne
+  kind: fact
+  state: secret
+  text: Le quartier Méridienne abrite sous ses docks un hangar clandestin de la receleuse Dalia Vrenn.
