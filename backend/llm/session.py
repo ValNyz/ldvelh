@@ -101,15 +101,16 @@ class LLMSession:
                  catalog: ModelCatalog | None = None, *, user_id: UUID,
                  pool: asyncpg.Pool | None = None, game_id: UUID | None = None):
         # A request session is always a user's: its usage is attributed to the account.
-        self._setup(provider_name, api_key, user_model, ledger, catalog, user_id)
-        self.calls = CallLog(pool, game_id=game_id, user_id=user_id)
+        self._setup(provider_name, api_key, user_model, ledger, catalog, user_id,
+                    pool=pool, game_id=game_id)
 
     def _setup(self, provider_name: str, api_key: str | None, user_model: str | None,
                ledger: UsageLedger | None, catalog: ModelCatalog | None,
-               user_id: UUID | None) -> None:
+               user_id: UUID | None, pool: asyncpg.Pool | None = None,
+               game_id: UUID | None = None) -> None:
         self.user_id = user_id  # None only for from_provider() sessions (tests)
         # Call log (#106): no pool, nothing logged (from_provider() sessions, tests).
-        self.calls = CallLog(None, game_id=None, user_id=user_id)
+        self.calls = CallLog(pool, game_id=game_id, user_id=user_id)
         self.catalog = catalog
         self.provider_name = provider_name
         self._api_key = api_key

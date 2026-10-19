@@ -1,6 +1,7 @@
 """LLM call log (repos.llm_calls): one row per billed call, the account summary read from it
 (#106)."""
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -331,3 +332,35 @@ async def test_a_turn_deleted_during_the_flush_is_retried_without_it(
         (None, game_id, "resolver")
     ]
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+async def test_a_cancelled_flush_logs_the_dropped_rows_and_reraises(
+    test_pool, test_user, monkeypatch, caplog
+):
+    # CancelledError is a BaseException: the rows are gone, the loss must still be logged.
+    user_id = test_user["id"]
+    game_id = await GameService(test_pool).create_game(user_id)
+    log = CallLog(test_pool, game_id=game_id, user_id=user_id)
+    for _ in range(2):
+        log.add(
+            purpose="resolver",
+            provider="fake",
+            model="m",
+            usage=_usage(1, 1),
+            cost_usd=0.5,
+            cost_unknown=False,
+        )
+
+    async def cancelled(conn, rows):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(llm_calls, "insert_calls", cancelled)
+    with (
+        caplog.at_level(logging.ERROR, logger="llm.call_log"),
+        pytest.raises(asyncio.CancelledError),
+    ):
+        await log.flush()
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert len(errors) == 1
+    assert "rows=2" in errors[0].getMessage()
+    assert log.pending == 0

@@ -36,7 +36,7 @@ frontend/
 ├── hooks/          # Custom hooks
 └── lib/            # API client, game logic
 
-schema.sql          # PostgreSQL schema
+db/migrations/      # PostgreSQL schema: baseline migration + incremental ones (dbmate)
 ```
 
 ## Setup
@@ -75,9 +75,7 @@ npm run dev
 
 ### Database
 
-```bash
-psql -U your_user -d your_db -f schema.sql
-```
+The schema is the baseline migration (`db/migrations/20260413000000_baseline.sql`) plus the later ones in `db/migrations/` (dbmate format). They are applied at backend boot inside the container (`docker compose up`); never run dbmate from the host against a real database.
 
 Turn journal (#105): every table holding world state must be attached to the journal in the migration that creates it, with `SELECT ldvelh_journal('<table>');` (optionally a second argument, the column list of `UPDATE OF`). Without it, the rollback of P5b cannot undo the writes to that table. Tables that are not world state (accounting such as `llm_calls`, users, catalog, the journal itself) go in `NOT_JOURNALED` of `tests/test_journal.py::test_journal_is_attached_to_every_world_table`, which fails for any table with a `game_id` that is neither attached nor excluded (world tables without a `game_id`, the pivots, go in `PIVOTS` of the same test). Writes that must be journaled run inside `repos.uow.uow(conn, turn_id)`, the outermost transaction of the connection.
 
@@ -166,7 +164,7 @@ Images: both run as an unprivileged user (backend `app`, uid 10001; frontend `no
 
 ### Before a data migration
 
-Take a backup before deploying a migration that changes data (not needed for one that only adds an empty table or column):
+Take a backup before deploying a migration that changes data (not required for purely additive DDL such as an empty table, a column or triggers, which the P5a migrations are; recommended before any migration touching many tables):
 
 ```bash
 docker compose exec -T db pg_dump -U ldvelh -Fc ldvelh > ldvelh-$(date +%F).dump

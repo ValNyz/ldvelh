@@ -6,6 +6,7 @@ The flush acquires its own connection: no caller may hold a pool connection acro
 call or a flush (a request would then hold two and could starve the pool, #94, #96).
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from uuid import UUID
@@ -79,7 +80,8 @@ class CallLog:
 
     async def flush(self) -> None:
         """Write the buffered rows in one insert. The buffer is emptied first, so a failed
-        flush never inserts twice; its failure is logged, never raised."""
+        flush never inserts twice; its failure is logged, never raised (a cancellation is
+        logged with the dropped row count, then re-raised)."""
         rows, self._rows = self._rows, []
         if not rows or self.pool is None:
             return
@@ -91,6 +93,15 @@ class CallLog:
                     # A turn or game deleted while the insert ran: once more, the insert
                     # then sees the deletion and stores NULL for it.
                     await llm_calls.insert_calls(conn, rows)
+        except asyncio.CancelledError as e:
+            # Interrupted while waiting for a connection or inserting: the rows are dropped.
+            log_exception(
+                logger,
+                logging.ERROR,
+                f"[COST] llm_calls flush interrupted rows={len(rows)} dropped",
+                e,
+            )
+            raise
         except Exception as e:
             log_exception(
                 logger,
