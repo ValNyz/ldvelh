@@ -1,6 +1,7 @@
 """Identity gold corpus: format, loader and validation (#151)."""
 
 import random
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -1329,3 +1330,49 @@ def test_add_dev_appends_a_new_scene_and_leaves_the_test_untouched(tmp_path):
     assert (tmp_path / "TEST_SHA256").read_text(encoding="utf-8") == frozen
     assert corpus.fingerprint_test_split(tmp_path) == frozen.strip()
     assert (tmp_path / "split.yaml").read_text(encoding="utf-8").startswith(header)
+
+
+# --- re-review R1: the annotation guide cites no test-split material ---
+
+_QUOTED = re.compile(r"«\s*([^»]+?)\s*»")
+
+
+def _fold(text: str) -> str:
+    return text.replace("*", "").replace("’", "'").strip().casefold()
+
+
+def _guide_leaks(guide: str, test_scenes: list[Scene], allowed: set[str]) -> set[str]:
+    """Quoted guide examples equal to a test surface or name (any case), and test ids.
+
+    A string is a leak even when a dev scene also holds it: the guide would still give
+    the decision of the test mention. Only the closed word lists (`allowed`) are exempt.
+    """
+    quoted = {_fold(q) for q in _QUOTED.findall(guide)}
+    material = set()
+    for s in test_scenes:
+        material |= {m.surface for m in s.gold} | {e.label for e in s.world}
+        material |= {a.text for e in s.world for a in e.aliases}
+    leaks = {t for t in map(_fold, material) if t in quoted} - allowed
+    return leaks | {s.id for s in test_scenes if s.id in guide}
+
+
+def test_the_guide_cites_no_test_material():
+    from evals.identity.lexicon import load_lexicon
+
+    test_ids = set(load_split(ROOT).test)
+    tests = [s for s in load_scenes(ROOT) if s.id in test_ids]
+    guide = (ROOT / "ANNOTATION.md").read_text(encoding="utf-8")
+    # § 12 reports on the blind review and may name the scenes it measured; the rules
+    # (every other section) must not point at a test scene.
+    head, _, rest = guide.partition("\n## 12.")
+    guide = head + "\n## 13." + rest.partition("\n## 13.")[2]
+    allowed = {_fold(w) for w in load_lexicon("fr").indefinite_pronouns}
+    assert _guide_leaks(guide, tests, allowed) == set()
+
+
+def test_the_guide_leak_check_ignores_case_and_dev_copies():
+    scene = Scene.model_validate(_scene(id="t1"))
+    guide = "Exemple : « la KETHARI âgée » (DESC)."
+    assert _guide_leaks(guide, [scene], set()) == {"la kethari âgée"}
+    assert _guide_leaks("Voir `t1`.", [scene], set()) == {"t1"}
+    assert _guide_leaks("« sa paume »", [scene], {"sa paume"}) == set()

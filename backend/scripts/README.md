@@ -162,3 +162,8 @@ python -m scripts.eval_identity ... --import-responses DIR --responder subagent:
   `2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md|json`.
 - When to re-evaluate, and the rules of the frozen test split (`TEST_SHA256`): see
   CONTRIBUTING.md, "Identity evaluation".
+- A scene added after the freeze goes to dev with
+  `python -m scripts.identity_corpus_split --add-dev SCENE_ID...`: the test list and
+  `TEST_SHA256` stay untouched, and a scene whose campaign has test scenes is refused.
+  `--freeze --keep-split` refreshes the fingerprint after a gold correction of a test
+  scene (own PR, before any tuning); never re-split.
