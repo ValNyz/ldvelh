@@ -53,7 +53,9 @@ async def load_legacy_game(pool, extra: Sequence[Migration] = ()) -> tuple[str, 
     sql = FIXTURE.read_text(encoding="utf-8")
     game_id = sql.splitlines()[0].split()[-1]
     async with pool.acquire() as conn:
-        await conn.execute("TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres CASCADE;")
+        await conn.execute(
+            "TRUNCATE games CASCADE; TRUNCATE users CASCADE; TRUNCATE genres CASCADE;"
+        )
         # The dump has circular FKs (games <-> locations) and already contains the rows the
         # entity_registry triggers would create: load it as a replica (no FK checks, no
         # triggers), scoped to this transaction. Needs a superuser, as in the test DB.
@@ -66,25 +68,47 @@ async def load_legacy_game(pool, extra: Sequence[Migration] = ()) -> tuple[str, 
             try:
                 await conn.execute("SET LOCAL session_replication_role = replica")
             except asyncpg.InsufficientPrivilegeError as exc:
-                _db_unavailable(f"C-19 needs a superuser role to load the legacy dump: {exc}")
+                _db_unavailable(
+                    f"C-19 needs a superuser role to load the legacy dump: {exc}"
+                )
             await conn.execute(sql)
             await conn.execute("SET LOCAL session_replication_role = origin")
             for up, _ in migrations:
                 await conn.execute(up)
         email = await conn.fetchval(
             "SELECT u.email FROM users u JOIN games g ON g.user_id = u.id WHERE g.id = $1::uuid",
-            game_id)
+            game_id,
+        )
     return game_id, email
 
 
 async def legacy_invariants(conn, game_id: str) -> None:
     """Rows a migration must not damage: the legacy game keeps its messages, protagonist and rolls."""
-    messages = await conn.fetch("SELECT cycle FROM messages WHERE game_id = $1::uuid", game_id)
+    messages = await conn.fetch(
+        "SELECT cycle FROM messages WHERE game_id = $1::uuid", game_id
+    )
     assert len(messages) >= 4, f"legacy messages lost: {len(messages)}"
-    assert all(m["cycle"] is not None for m in messages), "a legacy message lost its cycle"
-    assert await conn.fetchval("SELECT COUNT(*) FROM protagonists WHERE game_id = $1::uuid", game_id) == 1
-    assert await conn.fetchval("SELECT COUNT(*) FROM mechanic_rolls WHERE game_id = $1::uuid", game_id) == 2
-    assert await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1::uuid", game_id) >= 1
+    assert all(m["cycle"] is not None for m in messages), (
+        "a legacy message lost its cycle"
+    )
+    assert (
+        await conn.fetchval(
+            "SELECT COUNT(*) FROM protagonists WHERE game_id = $1::uuid", game_id
+        )
+        == 1
+    )
+    assert (
+        await conn.fetchval(
+            "SELECT COUNT(*) FROM mechanic_rolls WHERE game_id = $1::uuid", game_id
+        )
+        == 2
+    )
+    assert (
+        await conn.fetchval(
+            "SELECT current_cycle FROM games WHERE id = $1::uuid", game_id
+        )
+        >= 1
+    )
 
 
 @pytest_asyncio.fixture
@@ -94,13 +118,15 @@ async def legacy_game(test_pool, scripted_llm):
 
 @pytest_asyncio.fixture
 async def legacy_token(test_pool, legacy_game):
-    game_id, email = legacy_game
+    _, email = legacy_game
     async with test_pool.acquire() as conn:
         user_id = await conn.fetchval("SELECT id FROM users WHERE email = $1", email)
     return create_token(user_id, email)
 
 
-async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, legacy_token, scripted_llm):
+async def test_c19_legacy_game_loads_and_plays(
+    client, test_pool, legacy_game, legacy_token, scripted_llm
+):
     """A legacy-shaped game loads with its Fate stats and accepts a new turn (see module docstring for scope)."""
     game_id, _ = legacy_game
     h = ChatHarness(client, test_pool, legacy_token, scripted_llm)
@@ -123,7 +149,9 @@ async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, l
         {"type": "other", "name": "Mon vieux cargo est ma maison"},
     ]
     async with test_pool.acquire() as conn:
-        rolls = await conn.fetchval("SELECT COUNT(*) FROM mechanic_rolls WHERE game_id = $1::uuid", game_id)
+        rolls = await conn.fetchval(
+            "SELECT COUNT(*) FROM mechanic_rolls WHERE game_id = $1::uuid", game_id
+        )
     assert rolls == 2
     assert body["state"]["pending_roll"] is None
 
@@ -150,8 +178,13 @@ async def test_legacy_pending_rows_are_expired(test_pool, legacy_game):
     async with test_pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT id::text, status, message_id IS NULL AS orphan FROM mechanic_rolls"
-            " WHERE game_id = $1::uuid ORDER BY created_at", game_id)
-    assert [(r["status"], r["orphan"]) for r in rows] == [("resolved", False), ("expired", True)]
+            " WHERE game_id = $1::uuid ORDER BY created_at",
+            game_id,
+        )
+    assert [(r["status"], r["orphan"]) for r in rows] == [
+        ("resolved", False),
+        ("expired", True),
+    ]
     assert rows[1]["id"] == LEGACY_PENDING_ROLL
 
 
@@ -159,12 +192,19 @@ async def test_legacy_users_start_at_token_version_zero(client, test_pool, legac
     """#83: users saved before token_version get version 0 and can sign in again."""
     _, email = legacy_game
     async with test_pool.acquire() as conn:
-        assert await conn.fetchval("SELECT token_version FROM users WHERE email = $1", email) == 0
-    login = await client.post("/api/auth/login",
-                              json={"identifier": email, "password": "testpassword"})
+        assert (
+            await conn.fetchval(
+                "SELECT token_version FROM users WHERE email = $1", email
+            )
+            == 0
+        )
+    login = await client.post(
+        "/api/auth/login", json={"identifier": email, "password": "testpassword"}
+    )
     assert login.status_code == 200, login.text
-    me = await client.get("/api/auth/me",
-                          headers={"Authorization": f"Bearer {login.json()['token']}"})
+    me = await client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {login.json()['token']}"}
+    )
     assert me.status_code == 200
 
 
@@ -178,13 +218,23 @@ async def test_legacy_arrival_facts_get_protagonist_keys(test_pool, legacy_game)
     async with test_pool.acquire() as conn:
         keys = await conn.fetch(
             "SELECT semantic_key FROM facts WHERE game_id = $1::uuid AND cycle = 1"
-            " ORDER BY semantic_key", game_id)
-        arrival = await KnowledgeGraphReader(test_pool, UUID(game_id)).get_arrival_event(conn)
+            " ORDER BY semantic_key",
+            game_id,
+        )
+        arrival = await KnowledgeGraphReader(
+            test_pool, UUID(game_id)
+        ).get_arrival_event(conn)
     assert arrival is not None
     assert [k["semantic_key"] for k in keys] == [
-        "protagonist:arrival:incident", "protagonist:arrival:mood", "protagonist:arrival:need",
-        "protagonist:arrival:sensory", "protagonist:arrival:station"]
-    assert arrival["arrival_description"].startswith("Arrivée sur la station via navette cargo")
+        "protagonist:arrival:incident",
+        "protagonist:arrival:mood",
+        "protagonist:arrival:need",
+        "protagonist:arrival:sensory",
+        "protagonist:arrival:station",
+    ]
+    assert arrival["arrival_description"].startswith(
+        "Arrivée sur la station via navette cargo"
+    )
     assert arrival["initial_mood"] == "fatigué, nauséeux, décalé"
     assert arrival["immediate_need"] == "Trouver l'appartement et dormir"
     assert arrival["incident"] == "Systèmes bagages en panne, attente indéterminée"
