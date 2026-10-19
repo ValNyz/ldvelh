@@ -124,3 +124,24 @@ async def test_pack_entries_fold_alike_in_sql_and_python(test_pool, lang):
     assert {
         r["s"]: r["f"] for r in rows if r["f"] != normalizer.fold(r["s"]).strip(" ")
     } == {}
+
+
+async def test_norm_refuses_unfolded_params(test_pool):
+    """Params must come from norm_params: raw pack entries would silently never match."""
+    pack = load_lang("fr")
+    raw = {
+        "articles": pack.articles,
+        "elisions": pack.elisions,
+        "ordinal_markers": pack.ordinal_markers,
+        "apostrophes": pack.apostrophes,
+    }
+    async with test_pool.acquire() as conn:
+        with pytest.raises(asyncpg.RaiseError, match="unfolded params"):
+            await conn.fetchval(
+                "SELECT ldvelh_norm('Quai numéro 9', $1::text::jsonb)", _json(raw)
+            )
+        folded = await conn.fetchval(
+            "SELECT ldvelh_norm('Quai numéro 9', $1::text::jsonb)",
+            _json(norm_params(pack)),
+        )
+    assert folded == "quai 9"

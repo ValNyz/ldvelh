@@ -37,6 +37,7 @@ def test_fr_and_en_packs_load_and_validate():
         "elisions",
         "ordinal_markers",
         "apostrophes",
+        "folded",
     }
 
 

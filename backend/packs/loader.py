@@ -192,10 +192,11 @@ def all_negative_answers() -> frozenset[str]:
     )
 
 
-def norm_params(pack: LangPack) -> dict[str, list[str]]:
+def norm_params(pack: LangPack) -> dict[str, list[str] | bool]:
     """The parameters of ldvelh_norm, the only pack keys the SQL side reads. Entries are
     given folded (steps 1-2 of the normalisation), without duplicates, longest first, so
-    that the SQL function compares them as they are instead of folding them on each call."""
+    that the SQL function compares them as they are instead of folding them on each call;
+    `folded` marks them so, and ldvelh_norm raises without it."""
     from services.identity.normalize import Normalizer
 
     normalizer = Normalizer(pack)
@@ -204,6 +205,8 @@ def norm_params(pack: LangPack) -> dict[str, list[str]]:
         "elisions": normalizer.folded_entries(pack.elisions),
         "ordinal_markers": normalizer.folded_entries(pack.ordinal_markers),
         "apostrophes": pack.apostrophes,
+        # ldvelh_norm refuses params without this mark: unfolded entries would never match.
+        "folded": True,
     }
 
 

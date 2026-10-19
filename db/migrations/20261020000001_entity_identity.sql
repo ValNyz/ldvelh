@@ -42,9 +42,10 @@ END $$;
 -- article (whole word) when something follows it; 7. drop apostrophes, collapse spaces.
 --
 -- p_params is what packs.loader.norm_params writes into lang_packs: the articles, elisions
--- and ordinal markers already folded (steps 1-2), longest first, so they are compared as
--- they are. About 13 µs a call: meant for the trigger-filled name_norm/alias_norm columns
--- and for one ldvelh_norm_for_game($1) per query, not for a per-row predicate of a query.
+-- and ordinal markers already folded (steps 1-2), longest first, marked "folded": true;
+-- the function raises on params without that mark. About 13 µs a call: meant for the
+-- trigger-filled name_norm/alias_norm columns and for one ldvelh_norm_for_game($1) per
+-- query, not for a per-row predicate of a query.
 CREATE FUNCTION public.ldvelh_norm(p_text text, p_params jsonb) RETURNS text
     LANGUAGE plpgsql IMMUTABLE STRICT PARALLEL SAFE
     AS $$
@@ -55,6 +56,9 @@ DECLARE
     v_head text;
     v_stripped boolean := false;
 BEGIN
+    IF (p_params -> 'folded') IS DISTINCT FROM 'true'::jsonb THEN
+        RAISE EXCEPTION 'ldvelh_norm: unfolded params, see norm_params';
+    END IF;
     v_out := public.ldvelh_norm_fold(p_text, p_params);
 
     SELECT string_agg(regexp_replace(mrk.entry, '([^[:alnum:] ])', '\\\1', 'g'), '|'

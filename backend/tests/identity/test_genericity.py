@@ -5,6 +5,7 @@ import ast
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 from packs.loader import PACKS_DIR, available_langs
@@ -68,16 +69,22 @@ def _words(value) -> set[str]:
     return set()
 
 
-def _pack_words() -> set[str]:
-    words = set()
+def _words_by_pack() -> dict[str, set[str]]:
+    by_pack = {}
     for lang in available_langs():
         raw = yaml.safe_load(
             (PACKS_DIR / "lang" / f"{lang}.yaml").read_text(encoding="utf-8")
         )
+        words = set()
         for key, value in raw.items():
             if key not in NON_LEXICAL_KEYS:
                 words |= _words(value)
-    return words - {""}
+        by_pack[lang] = words - {""}
+    return by_pack
+
+
+def _pack_words() -> set[str]:
+    return set().union(*_words_by_pack().values())
 
 
 def _skipped_nodes(tree: ast.AST) -> set[int]:
@@ -98,17 +105,17 @@ def _skipped_nodes(tree: ast.AST) -> set[int]:
 
 
 def _field_names(tree: ast.AST) -> set[int]:
-    """Constants that name a field, not a text: dict keys, subscripts (`row["type"]`) and the
-    arguments of `Literal[...]` (a subscript too)."""
+    """Single constants that name a field, not a text: dict keys, subscripts (`row["type"]`)
+    and the arguments of `Literal[...]` (a subscript too). Their sets are still word lists
+    to the collection check."""
     names = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Dict):
             names |= {id(k) for k in node.keys if k is not None}
         elif isinstance(node, ast.Subscript):
             index = node.slice
-            names.add(id(index))
-            if isinstance(index, ast.Tuple):
-                names |= {id(e) for e in index.elts}
+            elts = index.elts if isinstance(index, ast.Tuple) else [index]
+            names |= {id(e) for e in elts}
     return names
 
 
@@ -123,33 +130,50 @@ def _is_word(node: ast.AST, words: set[str]) -> str | None:
 _ALTERNATIVE = re.compile(r"(?<=[|(:])([\w'’-]+)(?=[|)])")
 
 
-def _python_hits(path: Path, rel: str, words: set[str]) -> set[str]:
+def _word_list(items: list, packs: dict[str, set[str]], *, keyed: bool) -> set[str]:
+    """Pack words of `items` when they form a word list: two distinct words of one pack. A
+    dict's key or value set must also be at least half pack words: a record such as
+    `{"type": …, "ms": …}` or a large vocabulary map with a few chance collisions is not a
+    word list, `{"monsieur": 1, "madame": 2}` is."""
+    texts = {
+        _fold(i.value)
+        for i in items
+        if isinstance(i, ast.Constant) and isinstance(i.value, str)
+    }
+    hits = set()
+    for words in packs.values():
+        found = texts & words
+        if len(found) >= 2 and (not keyed or 2 * len(found) >= len(texts)):
+            hits |= found
+    return hits
+
+
+def _python_hits(
+    path: Path, rel: str, words: set[str] | dict[str, set[str]]
+) -> set[str]:
     """Hits of a module: in identity code every literal equal to a pack word (docstrings,
-    f-string fragments and field names aside); everywhere a collection whose items (dict values, not
-    keys: those are field names; subscripts and Literal[...] neither) hold two distinct pack
-    words, i.e. a word list, or a
-    regex alternation of two pack words."""
+    f-string fragments and single field names aside); everywhere a word list (`_word_list`)
+    in a list, tuple (`Literal[...]` arguments included), set, dict key set or dict value
+    set, or a regex alternation of two pack words."""
+    packs = words if isinstance(words, dict) else {"pack": words}
+    every_word = set().union(*packs.values())
     tree = ast.parse(path.read_text(encoding="utf-8"))
     strict = rel.startswith(IDENTITY_CODE)
     skipped = _skipped_nodes(tree) | _field_names(tree)
     hits = set()
     for node in ast.walk(tree):
-        if strict and id(node) not in skipped and (word := _is_word(node, words)):
+        if strict and id(node) not in skipped and (word := _is_word(node, every_word)):
             hits.add(word)
-        elif (
-            isinstance(node, ast.List | ast.Tuple | ast.Set | ast.Dict)
-            and id(node) not in skipped
-        ):
-            items = (
-                node.values if isinstance(node, ast.Dict) else node.elts
-            )  # keys: field names
-            found = {w for item in items if (w := _is_word(item, words))}
-            if len(found) >= 2:
-                hits |= found
+        elif isinstance(node, ast.Dict):
+            hits |= _word_list([k for k in node.keys if k], packs, keyed=True)
+            hits |= _word_list(node.values, packs, keyed=True)
+        elif isinstance(node, ast.List | ast.Tuple | ast.Set):
+            hits |= _word_list(node.elts, packs, keyed=False)
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            alternatives = {_fold(a) for a in _ALTERNATIVE.findall(node.value)} & words
-            if len(alternatives) >= 2:
-                hits |= alternatives
+            alternatives = {_fold(a) for a in _ALTERNATIVE.findall(node.value)}
+            for pack_words in packs.values():
+                if len(alternatives & pack_words) >= 2:
+                    hits |= alternatives & pack_words
     return {w for w in hits if (rel, w) not in ALLOWED}
 
 
@@ -183,10 +207,11 @@ def _sql_literal_words(sql: str) -> set[str]:
 
 def test_no_language_lexicon_in_code():
     words = _pack_words()
+    by_pack = _words_by_pack()
     found = {
         f"{rel}: {sorted(hits)}"
         for path, rel in _python_files()
-        if (hits := _python_hits(path, rel, words))
+        if (hits := _python_hits(path, rel, by_pack))
     }
     for path in _identity_sql_files():
         if hits := _sql_literal_words(path.read_text(encoding="utf-8")) & words:
@@ -210,11 +235,11 @@ def test_the_literal_scan_catches_a_word_list_and_a_pattern(tmp_path):
 
 
 def test_the_strict_scan_lets_field_names_through(tmp_path):
-    words = {"type", "client"}
+    words = {"type", "client", "le", "la", "les", "monsieur", "madame"}
     module = tmp_path / "m.py"
     module.write_text(
-        'SCHEMA = {"type": "object"}\nKIND = row["type"]\n'
-        'Kind = Literal["type", "client"]\nPAIR = table["type", "client"]\n',
+        'SCHEMA = {"type": "object"}\nKIND = row["type"]\nKind = Literal["type"]\n'
+        'PAIR = table["type", "id"]\n',
         encoding="utf-8",
     )
     assert _python_hits(module, "services/identity/m.py", words) == set()
@@ -222,6 +247,17 @@ def test_the_strict_scan_lets_field_names_through(tmp_path):
         'SINGLE = "type"\nSCHEMA = {"kind": "client"}\n', encoding="utf-8"
     )
     assert _python_hits(module, "services/identity/m.py", words) == {"type", "client"}
+
+
+@pytest.mark.parametrize("rel", ["services/identity/m.py", "pipeline/m.py"])
+def test_keyed_word_lists_are_caught(tmp_path, rel):
+    words = {"le", "la", "les", "monsieur", "madame"}
+    module = tmp_path / "m.py"
+    module.write_text(
+        'Article = Literal["le", "la", "les"]\nTITLES = {"monsieur": 1, "madame": 2}\n',
+        encoding="utf-8",
+    )
+    assert _python_hits(module, rel, words) == words
 
 
 def test_the_scan_catches_a_negative_answer_list(tmp_path):
@@ -234,7 +270,9 @@ def test_the_scan_catches_a_negative_answer_list(tmp_path):
         'WORDS = frozenset({"", "null", "false", "none", "aucune", "non", "no"})\n',
         encoding="utf-8",
     )
-    assert {"aucune", "non", "no"} <= _python_hits(module, "schema/narration.py", words)
+    assert {"aucune", "non"} <= _python_hits(
+        module, "schema/narration.py", _words_by_pack()
+    )
 
 
 def test_sql_literal_words_are_scanned_inside_the_literal():
