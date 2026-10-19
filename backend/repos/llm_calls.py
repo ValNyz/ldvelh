@@ -28,20 +28,22 @@ _TOKEN_FIELDS = (
 async def insert_calls(conn, rows: list[dict]) -> None:
     """Log the calls of one phase in one insert. Each row: turn_id (None outside a turn),
     game_id (None outside a game), user_id, purpose, provider, model, usage (dict),
-    cost_usd, cost_unknown. A turn deleted meanwhile (rollback) is stored as NULL, as its
-    ON DELETE SET NULL would have done."""
+    cost_usd, cost_unknown. A turn (rollback) or a game deleted meanwhile is stored as NULL,
+    as their ON DELETE SET NULL would have done: the insert never fails on those FKs."""
     if not rows:
         return
     await conn.execute(
         """INSERT INTO llm_calls
            (turn_id, game_id, user_id, purpose, provider, model, usage, cost_usd, cost_unknown)
-        SELECT t.id, r.game_id, r.user_id, r.purpose, r.provider, r.model, r.usage,
+        SELECT t.id, g.id, r.user_id, r.purpose, r.provider, r.model, r.usage,
                r.cost_usd, r.cost_unknown
         FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::text[], $5::text[], $6::text[],
-                    $7::jsonb[], $8::numeric[], $9::boolean[])
+                    $7::jsonb[], $8::numeric[], $9::boolean[]) WITH ORDINALITY
              AS r(turn_id, game_id, user_id, purpose, provider, model, usage, cost_usd,
-                  cost_unknown)
-        LEFT JOIN turns t ON t.id = r.turn_id""",
+                  cost_unknown, n)
+        LEFT JOIN turns t ON t.id = r.turn_id
+        LEFT JOIN games g ON g.id = r.game_id
+        ORDER BY r.n""",  # ids follow the call order
         *([row[key] for row in rows] for key in _ROW_FIELDS),
     )
 

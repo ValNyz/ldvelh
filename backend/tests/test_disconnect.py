@@ -482,8 +482,10 @@ async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
         await asyncio.wait_for(narrated.wait(), TIMEOUT)
         await stream.aclose()
         await asyncio.wait({writer._task}, timeout=0.2)
-        # Cancelled at the commit wait, the turn now waits to flush its call log.
+        # Cancelled at the commit wait, the request now waits to flush its call log, with
+        # the game lock already released: the next request is not held behind it.
         assert not writer._task.done()
+        assert game_locks.is_held(game_id) is False
     finally:
         for conn in held:
             await harness.pool.release(conn)

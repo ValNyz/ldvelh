@@ -365,9 +365,18 @@ async def _reject_busy(sse_writer: SSEWriter):
 
 
 async def _handle_chat_locked(game_id: UUID, **kwargs):
-    """Acquire game lock then delegate to _handle_chat."""
-    async with game_locks.hold(game_id):
-        await _handle_chat(**kwargs)
+    """Acquire game lock then delegate to _handle_chat; the request's LLM call rows are
+    written once the lock is released (#106)."""
+    sessions: list[LLMSession] = []
+    try:
+        async with game_locks.hold(game_id):
+            await _handle_chat(**kwargs, sessions=sessions)
+    finally:
+        # Committed, halted, failed or disconnected alike: a cancellation is delivered once,
+        # so this still runs after a disconnect, and the next request of the game is not
+        # held behind the accounting.
+        for session in sessions:
+            await session.flush_calls()
 
 
 async def _api_key_or_raise(pool: asyncpg.Pool, user_id: UUID, provider_name: str) -> str:
@@ -413,8 +422,11 @@ async def _handle_chat(
     pool: asyncpg.Pool,
     settings: Settings,
     user_id: UUID,
+    sessions: list[LLMSession],
 ) -> None:
-    """Thin adapter: snapshot, API key, session, then the init or narration pipeline."""
+    """Thin adapter: snapshot, API key, session, then the init or narration pipeline.
+
+    The session is appended to `sessions`: the caller flushes its call log."""
     provider_name = request.provider or "anthropic"
     try:
         async with pool.acquire() as conn:
@@ -425,6 +437,7 @@ async def _handle_chat(
         session = LLMSession(provider_name, api_key, request.model,
                              catalog=await load_catalog(pool), user_id=user_id,
                              pool=pool, game_id=request.gameId)
+        sessions.append(session)
         ctx = TurnContext(
             request=_turn_request(request, user_id),
             snapshot=snapshot,

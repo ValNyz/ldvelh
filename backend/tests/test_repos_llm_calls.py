@@ -224,3 +224,47 @@ async def test_insert_of_no_rows_is_a_no_op(test_pool):
     async with test_pool.acquire() as conn:
         await llm_calls.insert_calls(conn, [])
         assert await conn.fetchval("SELECT count(*) FROM llm_calls") == 0
+
+
+async def test_a_deleted_game_keeps_its_calls_in_the_account_total(
+    test_pool, test_user
+):
+    user_id = test_user["id"]
+    game_id = await GameService(test_pool).create_game(user_id)
+    async with test_pool.acquire() as conn:
+        await _insert(conn, user_id, game_id, "narration", "m", _usage(1, 1), 0.25)
+        await conn.execute("DELETE FROM games WHERE id = $1", game_id)
+        summary = await llm_calls.user_summary(conn, user_id)
+        stored = await conn.fetchval(
+            "SELECT game_id FROM llm_calls WHERE user_id = $1", user_id
+        )
+    assert (
+        summary["total_cost_usd"] == 0.25
+        and summary["purposes"]["narration"]["calls"] == 1
+    )
+    assert stored is None  # ON DELETE SET NULL
+
+
+async def test_a_flush_after_the_game_is_deleted_stores_no_game(test_pool, test_user):
+    # A job of a game deleted meanwhile still logs its paid calls, without the game.
+    user_id = test_user["id"]
+    game_id = await GameService(test_pool).create_game(user_id)
+    log = CallLog(test_pool, game_id=game_id, user_id=user_id)
+    log.add(
+        purpose="director",
+        provider="fake",
+        model="m",
+        usage=_usage(1, 1),
+        cost_usd=0.5,
+        cost_unknown=False,
+    )
+    async with test_pool.acquire() as conn:
+        await conn.execute("DELETE FROM games WHERE id = $1", game_id)
+    await log.flush()
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT game_id, purpose FROM llm_calls WHERE user_id = $1", user_id
+        )
+        summary = await llm_calls.user_summary(conn, user_id)
+    assert [(r["game_id"], r["purpose"]) for r in rows] == [(None, "director")]
+    assert summary["total_cost_usd"] == 0.5

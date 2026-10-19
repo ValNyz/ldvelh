@@ -161,15 +161,8 @@ async def _initial_director(ctx: TurnContext, session: LLMSession) -> None:
 
 
 async def run_init(ctx: TurnContext) -> None:
-    """Generate the world. Catches nothing: the API adapter reports failures."""
-    try:
-        await _run_init(ctx)
-    finally:
-        # The world generation call, saved world or not (no turn yet: turn_id NULL, #106).
-        await ctx.session.flush_calls()
-
-
-async def _run_init(ctx: TurnContext) -> None:
+    """Generate the world. Catches nothing: the API adapter reports failures (and flushes
+    the request's call log, after the game lock, #106)."""
     logger.info("[CHAT] Mode: INIT (World Builder)")
     game_id = ctx.request.game_id
     async with ctx.pool.acquire() as conn:

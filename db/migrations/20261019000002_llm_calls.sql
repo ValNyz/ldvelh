@@ -2,11 +2,11 @@
 -- #106: one row per billed LLM call, linked to its turn (NULL outside a turn: world
 -- generation, initial Director, form helpers). The account's cost summary is read from it,
 -- so it survives a restart. Accounting, not world state: never journaled, and a rolled
--- back turn keeps its calls (they were paid).
+-- back turn or a deleted game keeps its calls (they were paid: SET NULL, not CASCADE).
 CREATE TABLE public.llm_calls (
     id bigserial PRIMARY KEY,
     turn_id uuid REFERENCES public.turns(id) ON DELETE SET NULL,
-    game_id uuid REFERENCES public.games(id) ON DELETE CASCADE,
+    game_id uuid REFERENCES public.games(id) ON DELETE SET NULL,
     user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
     purpose text NOT NULL,
     provider text NOT NULL,
