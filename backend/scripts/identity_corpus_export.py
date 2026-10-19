@@ -16,8 +16,8 @@ When the database cannot be reached directly, `--print-sql` writes the dump quer
 split (narration and mention surfaces, no decision) for the delayed blind review.
 
 Usage (from backend/):
-  python -m scripts.identity_corpus_export --database-url postgresql://… --game <id> \
-      --genre <genre> [--language <lexicon>]
+  DATABASE_URL=postgresql://… python -m scripts.identity_corpus_export --game <id> \
+      --genre <genre> [--language <lexicon>]     (or --database-url, visible in ps)
   python -m scripts.identity_corpus_export --print-sql --game <id> > dump.sql
   python -m scripts.identity_corpus_export --from-json dump.json --game <id> --genre <genre>
   python -m scripts.identity_corpus_export --export-surfaces test
@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -103,9 +104,8 @@ _QUERIES = {
 # --- pure conversion ---------------------------------------------------------
 
 
-def slugify(label: str, lexicon: Lexicon | None = None) -> str:
+def slugify(label: str, lexicon: Lexicon) -> str:
     """`La Kethari âgée` -> `kethari_agee`: lower case, no accents, no leading determiner."""
-    lexicon = lexicon or load_lexicon(DEFAULT_LANGUAGE)
     text = lexicon.strip_determiner(label).casefold()
     plain = "".join(
         c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c)
@@ -113,17 +113,17 @@ def slugify(label: str, lexicon: Lexicon | None = None) -> str:
     return re.sub(r"[^a-z0-9]+", "_", plain).strip("_")
 
 
-def entity_id(entity_type: str, label: str) -> str:
-    return f"{entity_type}_{slugify(label)}"
+def entity_id(entity_type: str, label: str, lexicon: Lexicon) -> str:
+    return f"{entity_type}_{slugify(label, lexicon)}"
 
 
 def _alias(text: str, kind: str, known: bool) -> dict:
     return {"text": text, "kind": kind, "known": known}
 
 
-def _entity(entity_type: str, label: str, **fields) -> dict:
+def _entity(entity_type: str, label: str, lexicon: Lexicon, **fields) -> dict:
     return {
-        "id": entity_id(entity_type, label),
+        "id": entity_id(entity_type, label, lexicon),
         "type": entity_type,
         "label": label,
         "true_name": fields.get("true_name"),
@@ -136,7 +136,7 @@ def _entity(entity_type: str, label: str, **fields) -> dict:
     }
 
 
-def _character(row: dict, location_ids: dict[str, str]) -> dict:
+def _character(row: dict, location_ids: dict[str, str], lexicon: Lexicon) -> dict:
     name, descriptor = row["name"], row.get("unknown_name")
     known = bool(row.get("known_by_protagonist"))
     aliases = [_alias(name, "true_name", known)]
@@ -149,6 +149,7 @@ def _character(row: dict, location_ids: dict[str, str]) -> dict:
     return _entity(
         "character",
         name,
+        lexicon,
         true_name=name,
         descriptor=descriptor,
         known=known,
@@ -158,8 +159,8 @@ def _character(row: dict, location_ids: dict[str, str]) -> dict:
     )
 
 
-def _thing(entity_type: str, name: str) -> dict:
-    return _entity(entity_type, name, aliases=[_alias(name, "label", True)])
+def _thing(entity_type: str, name: str, lexicon: Lexicon) -> dict:
+    return _entity(entity_type, name, lexicon, aliases=[_alias(name, "label", True)])
 
 
 def _protagonist_name(dump: dict) -> str:
@@ -169,26 +170,28 @@ def _protagonist_name(dump: dict) -> str:
     if data.get("name"):
         return data["name"]
     rows = dump.get("registry") or []
-    return next(
-        (r["name"] for r in rows if r["entity_type"] == "protagonist"), "Protagoniste"
-    )
+    name = next((r["name"] for r in rows if r["entity_type"] == "protagonist"), None)
+    if not name:
+        raise ValueError("the dump names no protagonist (character_data or registry)")
+    return name
 
 
-def _location_ids(dump: dict) -> dict[str, str]:
+def _location_ids(dump: dict, lexicon: Lexicon) -> dict[str, str]:
     return {
-        str(r["id"]): entity_id("location", r["name"])
+        str(r["id"]): entity_id("location", r["name"], lexicon)
         for r in dump.get("locations") or []
     }
 
 
-def build_world(dump: dict) -> list[dict]:
+def build_world(dump: dict, lexicon: Lexicon) -> list[dict]:
     """World skeleton: protagonist, companion, characters, locations, organizations, objects, arcs."""
     hero = _protagonist_name(dump)
-    location_ids = _location_ids(dump)
+    location_ids = _location_ids(dump, lexicon)
     world = [
         _entity(
             "protagonist",
             hero,
+            lexicon,
             true_name=hero,
             aliases=[_alias(hero, "true_name", True)],
         )
@@ -197,41 +200,48 @@ def build_world(dump: dict) -> list[dict]:
         _entity(
             "companion",
             r["name"],
+            lexicon,
             true_name=r["name"],
             aliases=[_alias(r["name"], "true_name", True)],
         )
         for r in dump.get("companions") or []
     ]
-    world += [_character(r, location_ids) for r in dump.get("characters") or []]
+    world += [
+        _character(r, location_ids, lexicon) for r in dump.get("characters") or []
+    ]
     for key, entity_type in (
         ("locations", "location"),
         ("organizations", "organization"),
         ("objects", "object"),
     ):
-        world += [_thing(entity_type, r["name"]) for r in dump.get(key) or []]
+        world += [_thing(entity_type, r["name"], lexicon) for r in dump.get(key) or []]
     world += [
-        _entity("arc", r["title"], known=False) for r in dump.get("arcs") or []
+        _entity("arc", r["title"], lexicon, known=False) for r in dump.get("arcs") or []
     ]  # arc titles are Director-side: the PC knows no name of an arc
     return world
 
 
-def _name_index(world: list[dict]) -> dict[tuple[str, str], str]:
+def _name_index(world: list[dict], lexicon: Lexicon) -> dict[tuple[str, str], str]:
     """(type, normalized name or alias) -> entity id, to resolve old canonicals."""
     index: dict[tuple[str, str], str] = {}
     for entity in world:
         person = entity["type"] in ("protagonist", "companion")
         entity_type = "character" if person else entity["type"]
         for text in [entity["label"]] + [a["text"] for a in entity["aliases"]]:
-            index.setdefault((entity_type, slugify(text)), entity["id"])
+            index.setdefault((entity_type, slugify(text, lexicon)), entity["id"])
     return index
 
 
 def resolve_canonical(
-    index: dict[tuple[str, str], str], canonical: str, entity_type: str
+    index: dict[tuple[str, str], str],
+    canonical: str,
+    entity_type: str,
+    lexicon: Lexicon,
 ) -> str:
     """Id of the world entity an old resolver canonical names (or its would-be id)."""
     return index.get(
-        (entity_type, slugify(canonical)), entity_id(entity_type, canonical)
+        (entity_type, slugify(canonical, lexicon)),
+        entity_id(entity_type, canonical, lexicon),
     )
 
 
@@ -239,7 +249,7 @@ def context_to_mentions(
     text: str,
     context: list | None,
     index: dict[tuple[str, str], str],
-    lexicon: Lexicon | None = None,
+    lexicon: Lexicon,
 ) -> list[dict]:
     """Old `narrator_context` spans -> history mentions TO REVIEW (MATCH, category guessed).
 
@@ -247,7 +257,6 @@ def context_to_mentions(
     the longest is kept. An unresolved canonical keeps a would-be id that is not in
     the world, so that validation flags it for the annotator.
     """
-    lexicon = lexicon or load_lexicon(DEFAULT_LANGUAGE)
     spans: dict[int, tuple[int, str, str]] = {}
     for start, end, canonical, entity_type in context or []:
         if start in spans and spans[start][0] >= end:
@@ -259,13 +268,13 @@ def context_to_mentions(
         surface = text[start:end]
         if not surface.strip() or lexicon.key(surface) in lexicon.personal_pronouns:
             continue
-        target = resolve_canonical(index, canonical, entity_type)
+        target = resolve_canonical(index, canonical, entity_type, lexicon)
         mentions.append(
             {
                 "surface": surface,
                 "start": start,
                 "category": "EASY"
-                if slugify(surface) == slugify(canonical)
+                if slugify(surface, lexicon) == slugify(canonical, lexicon)
                 else "DESC",
                 "expected": f"MATCH {target}",
             }
@@ -277,9 +286,11 @@ def _assistant_turns(dump: dict) -> list[dict]:
     return [m for m in dump.get("messages") or [] if m["role"] == "assistant"]
 
 
-def _mentioned_ids(message: dict, index: dict[tuple[str, str], str]) -> set[str]:
+def _mentioned_ids(
+    message: dict, index: dict[tuple[str, str], str], lexicon: Lexicon
+) -> set[str]:
     return {
-        resolve_canonical(index, canonical, entity_type)
+        resolve_canonical(index, canonical, entity_type, lexicon)
         for _, _, canonical, entity_type in message.get("narrator_context") or []
     }
 
@@ -304,13 +315,13 @@ def build_scene(
     lexicon = load_lexicon(language)
     turns = _assistant_turns(dump)
     message = turns[turn - 1]
-    world = build_world(dump)
-    index = _name_index(world)
+    world = build_world(dump, lexicon)
+    index = _name_index(world, lexicon)
     for entity in world:  # last turn before this one where the old resolver tagged it
         seen = [
             n
             for n, m in enumerate(turns[: turn - 1], start=1)
-            if entity["id"] in _mentioned_ids(m, index)
+            if entity["id"] in _mentioned_ids(m, index, lexicon)
         ]
         entity["last_seen_turn"] = seen[-1] if seen else None
     history = [
@@ -322,10 +333,11 @@ def build_scene(
         }
         for m in turns[max(0, turn - 1 - HISTORY_SIZE) : turn - 1]
     ]
-    location_ids = _location_ids(dump)
+    location_ids = _location_ids(dump, lexicon)
     return {
         "id": f"real-{game_prefix}-t{turn:02d}",
         "genre": genre,
+        "campaign": f"real-{game_prefix}",
         "language": language,
         "source": "real",
         "turn": turn,
@@ -351,14 +363,14 @@ def build_scene(
     }
 
 
-def unresolved_canonicals(dump: dict) -> list[str]:
+def unresolved_canonicals(dump: dict, lexicon: Lexicon) -> list[str]:
     """Old resolver canonicals that name no world entity (invented or missing)."""
-    index = _name_index(build_world(dump))
+    index = _name_index(build_world(dump, lexicon), lexicon)
     found = {
         f"{canonical} ({entity_type})"
         for m in _assistant_turns(dump)
         for _, _, canonical, entity_type in m.get("narrator_context") or []
-        if (entity_type, slugify(canonical)) not in index
+        if (entity_type, slugify(canonical, lexicon)) not in index
     }
     return sorted(found)
 
@@ -412,7 +424,7 @@ def write_scenes(
     language: str = DEFAULT_LANGUAGE,
 ) -> list[Path]:
     prefix = game.replace("-", "")[:4]
-    missing = unresolved_canonicals(dump)
+    missing = unresolved_canonicals(dump, load_lexicon(language))
     header = (
         "# Skeleton exported by scripts/identity_corpus_export.py: review the world,\n"
         "# the history mentions and write the gold by hand (ANNOTATION.md).\n"
@@ -449,7 +461,9 @@ def export_surfaces(root: Path, split_name: str) -> list[Path]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("--database-url")
+    parser.add_argument(
+        "--database-url", help="prefer the DATABASE_URL variable (not shown by ps)"
+    )
     parser.add_argument("--game", help="game id (UUID)")
     parser.add_argument("--out", type=Path, default=ROOT / "scenes", help="directory")
     parser.add_argument("--from-json", type=Path, help="psql dump of --print-sql")
@@ -477,10 +491,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.from_json:
         dump = json.loads(args.from_json.read_text(encoding="utf-8"))
-    elif args.database_url:
-        dump = asyncio.run(fetch_dump(args.database_url, game))
+    elif args.database_url or os.environ.get("DATABASE_URL"):
+        url = args.database_url or os.environ["DATABASE_URL"]
+        dump = asyncio.run(fetch_dump(url, game))
     else:
-        parser.error("--database-url or --from-json is required")
+        parser.error("DATABASE_URL, --database-url or --from-json is required")
     written = write_scenes(
         dump, game, args.out, force=args.force, genre=args.genre, language=args.language
     )

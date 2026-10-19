@@ -1,5 +1,6 @@
 id: syn-sf-reveal-02
 genre: sf
+campaign: halcyon-7
 source: synthetic
 turn: 15
 world:
@@ -515,6 +516,8 @@ gold:
   start: 441
   category: EASY
   expected: ALIAS character_dalia_okonjo true_name
+  accept_also:
+  - MATCH character_dalia_okonjo
 - surface: la Compagnie
   start: 458
   category: PART

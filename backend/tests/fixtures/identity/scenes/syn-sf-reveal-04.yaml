@@ -1,5 +1,6 @@
 id: syn-sf-reveal-04
 genre: sf
+campaign: thule-3
 source: synthetic
 turn: 11
 world:
@@ -461,6 +462,8 @@ gold:
   start: 463
   category: EASY
   expected: ALIAS location_couloir_condamne true_name
+  accept_also:
+  - MATCH location_couloir_condamne
 - surface: Sel
   start: 487
   category: PC

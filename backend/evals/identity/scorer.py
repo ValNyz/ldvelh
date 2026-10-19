@@ -15,16 +15,17 @@ What counts as correct, from ANNOTATION.md § 4.3 and § 5:
   decision on it; any link, NEW or UNSURE on it is wrong;
 - a linked gold (MATCH, ALIAS, NEW) with no decision is wrong;
 - UNSURE is wrong, except on a NEW trap (`trap: true`), where not merging is right;
-- `SAME <start>` (a repeat of an entity born at the NEW mention at `<start>` of the same
-  narration) is resolved against the system's own decision on that NEW mention: when
-  the system decided NEW there, the repeat must be a MATCH or an ALIAS (any kind) to the
-  id it gave the created entity (`Decision.entity_id`), and it is scored as an existing
-  gold (a link elsewhere is a wrong merge, a second NEW a duplicate; a NEW without an id
-  leaves nothing to link to, so no decision is right). When the system missed the NEW
-  (a link, SKIP, UNSURE or no decision there), the entity does not exist on its side
-  yet: the repeat is scored exactly like a gold `NEW <type of the target>` without trap
-  (counted in NEW recall; a link on it is a wrong merge). Its category stays the one of
-  its surface (EASY, PART, DESC), its type is the target's NEW type.
+- a NEW mention and its `SAME <start>` repeats (later mentions of the entity born at
+  `<start>`) form one **chain**, scored in narration order against the system's own
+  decisions: the first chain mention where the system decided NEW is the birth, and
+  every later chain mention must be a MATCH or an ALIAS (any kind) to the id given
+  there (`Decision.entity_id`); it is then an existing gold (a link elsewhere is a
+  wrong merge, a second NEW a duplicate; a birth without an id leaves nothing to link
+  to, so no decision is right). Before the birth (the system missed the NEW at the
+  head, and maybe at earlier repeats), a repeat is scored exactly like a gold
+  `NEW <type of the head>`, counted in NEW recall, a link on it a wrong merge, and
+  UNSURE on it right when the head is a trap. A repeat's category stays the one of its
+  surface (EASY, PART, DESC), its type is the head's NEW type.
 
 Decisions aligned to no gold mention are **spurious**, reported per turn
 (`spurious_link_per_turn`, `spurious_new_per_turn`). A spurious MATCH/ALIAS is a wrong
@@ -155,23 +156,55 @@ class _Gold(NamedTuple):
     forms: list[Expected]
     existing: bool  # an entity the system should link to
     new_type: str | None  # the type of a gold NEW (or of the entity a SAME repeats)
+    trap: bool  # UNSURE is right (a NEW trap, or a repeat of a trap not yet created)
 
 
-def _resolve(scene: Scene, m: GoldMention, by_gold: dict[int, Decision]) -> _Gold:
-    expected = m.parsed
-    if expected.decision != "SAME":
-        return _Gold(_accepted(m), expected.decision in LINKS, expected.new_type)
-    born = next(g for g in scene.gold if g.start == expected.same_start)
-    new_type = born.parsed.new_type
-    at_birth = by_gold.get(born.start)
-    if at_birth is None or at_birth.decision != "NEW":
-        return _Gold([Expected("NEW", new_type=new_type)], False, new_type)
-    system_id = at_birth.entity_id
-    if system_id is None:
-        return _Gold([], True, new_type)
+def _linked(system_id: str | None, new_type: str | None) -> _Gold:
+    if system_id is None:  # a NEW without id leaves nothing to link to
+        return _Gold([], True, new_type, False)
     forms = [Expected("MATCH", system_id)]
     forms += [Expected("ALIAS", system_id, alias_kind=k) for k in sorted(ALIAS_KINDS)]
-    return _Gold(forms, True, new_type)
+    return _Gold(forms, True, new_type, False)
+
+
+def _created(d: Decision | None) -> bool:
+    return d is not None and d.decision == "NEW"
+
+
+def _resolve(scene: Scene, by_gold: dict[int, Decision]) -> dict[int, _Gold]:
+    """Accepted forms per gold start; a NEW and its SAME repeats are scored as one chain.
+
+    Walking the chain in narration order, the first mention where the system decided
+    NEW is the birth: every later mention must link to the id given there. Before the
+    birth, a repeat is a gold NEW (the entity does not exist on the system's side).
+    """
+    golds = {
+        m.start: _Gold(
+            _accepted(m), m.parsed.decision in LINKS, m.parsed.new_type, m.trap
+        )
+        for m in scene.gold
+        if m.parsed.decision != "SAME"
+    }
+    for head in scene.gold:
+        if head.parsed.decision != "NEW":
+            continue
+        new_type = head.parsed.new_type
+        repeats = sorted(
+            (g for g in scene.gold if g.parsed.same_start == head.start),
+            key=lambda g: g.start,
+        )
+        born = _created(by_gold.get(head.start))
+        system_id = by_gold[head.start].entity_id if born else None
+        for repeat in repeats:
+            if born:
+                golds[repeat.start] = _linked(system_id, new_type)
+                continue
+            new = Expected("NEW", new_type=new_type)
+            golds[repeat.start] = _Gold([new], False, new_type, head.trap)
+            d = by_gold.get(repeat.start)
+            if _created(d):
+                born, system_id = True, d.entity_id
+    return golds
 
 
 def _matches(decision: Decision | None, form: Expected) -> bool:
@@ -186,9 +219,9 @@ def _matches(decision: Decision | None, form: Expected) -> bool:
     return form.decision == "MATCH" or decision.alias_kind == form.alias_kind
 
 
-def _is_correct(m: GoldMention, gold: _Gold, decision: Decision | None) -> bool:
+def _is_correct(gold: _Gold, decision: Decision | None) -> bool:
     if decision is not None and decision.decision == "UNSURE":
-        return m.trap
+        return gold.trap
     return any(_matches(decision, form) for form in gold.forms)
 
 
@@ -217,7 +250,7 @@ def _outcome(
     return MentionOutcome(
         category=m.category,
         entity_type=_entity_type(scene, m, gold),
-        correct=_is_correct(m, gold, decision),
+        correct=_is_correct(gold, decision),
         wrong_merge=kind in LINKS and decision.entity_id not in gold_ids,
         existing_gold=gold.existing,
         duplicate=gold.existing and kind == "NEW",
@@ -246,7 +279,7 @@ def score_scene(scene: Scene, result: RunResult) -> SceneScore:
         raise ValueError(f"result of {result.scene_id!r} scored against {scene.id!r}")
     alignment = align(scene.gold, result.decisions)
     by_gold = alignment.by_gold
-    golds = {m.start: _resolve(scene, m, by_gold) for m in scene.gold}
+    golds = _resolve(scene, by_gold)
     outcomes = []
     for m in scene.gold:
         d = by_gold.get(m.start)

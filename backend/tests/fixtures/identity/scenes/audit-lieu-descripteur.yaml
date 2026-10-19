@@ -3,6 +3,7 @@
 # and the men in grey get their names; two gangs that act are new (one shares a name part: NEW trap).
 id: audit-lieu-descripteur
 genre: dark_fantasy
+campaign: audit-lieu-descripteur
 source: synthetic
 turn: 18
 world:

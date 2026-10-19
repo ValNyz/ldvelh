@@ -3,6 +3,7 @@
 # the newcomer Mila Voss is a NEW trap: she must not inherit Elara's relations.
 id: issue-25-voss
 genre: sf
+campaign: voss
 source: issue
 turn: 34
 world:
@@ -236,6 +237,7 @@ gold:
   start: 116
   category: NEW
   expected: NEW character
+  trap: true
 - surface: ses gants
   start: 167
   category: SKIP

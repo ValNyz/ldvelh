@@ -4,6 +4,7 @@ id: seq-df-homonymes
 turns:
 - id: seq-df-homonymes-t1
   genre: dark_fantasy
+  campaign: seq-df-homonymes
   source: synthetic
   turn: 20
   world:
@@ -171,6 +172,7 @@ turns:
   gold_knowledge: []
 - id: seq-df-homonymes-t2
   genre: dark_fantasy
+  campaign: seq-df-homonymes
   source: synthetic
   turn: 21
   world:
@@ -365,6 +367,7 @@ turns:
     start: 66
     category: NEW
     expected: NEW character
+    trap: true
   - surface: les bottes
     start: 107
     category: SKIP
@@ -424,6 +427,7 @@ turns:
   gold_knowledge: []
 - id: seq-df-homonymes-t3
   genre: dark_fantasy
+  campaign: seq-df-homonymes
   source: synthetic
   turn: 22
   world:
@@ -712,6 +716,7 @@ turns:
   gold_knowledge: []
 - id: seq-df-homonymes-t4
   genre: dark_fantasy
+  campaign: seq-df-homonymes
   source: synthetic
   turn: 23
   world:
@@ -1001,6 +1006,7 @@ turns:
   gold_knowledge: []
 - id: seq-df-homonymes-t5
   genre: dark_fantasy
+  campaign: seq-df-homonymes
   source: synthetic
   turn: 24
   world:

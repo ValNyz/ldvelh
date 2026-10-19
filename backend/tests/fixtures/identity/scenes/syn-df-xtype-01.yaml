@@ -2,6 +2,7 @@
 # hall; « la Doyenne » is the guild's doyenne (title) and its great bell (object label).
 id: syn-df-xtype-01
 genre: dark_fantasy
+campaign: vargne
 source: synthetic
 turn: 18
 world:

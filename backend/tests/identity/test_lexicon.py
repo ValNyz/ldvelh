@@ -1,6 +1,7 @@
 """Language data of the identity corpus code lives in lexicon files, never in code (#151)."""
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -11,8 +12,16 @@ from evals.identity.lexicon import LEXICON_DIR, load_lexicon
 from tests.identity.test_corpus import ROOT, _custom_errors, _scene
 
 BACKEND = Path(__file__).resolve().parents[2]
+# report.py writes the evaluation report for the French-speaking maintainers: its labels
+# are presentation text, not language rules of the corpus. Making them configurable is
+# tracked apart (review M8); every other module must stay free of language words.
+PRESENTATION = frozenset({"report.py"})
 CODE = [
-    *sorted((BACKEND / "evals" / "identity").glob("*.py")),
+    *sorted(
+        p
+        for p in (BACKEND / "evals" / "identity").glob("*.py")
+        if p.name not in PRESENTATION
+    ),
     *sorted((BACKEND / "scripts").glob("identity_corpus_*.py")),
 ]
 
@@ -29,12 +38,22 @@ def _string_literals(path: Path) -> set[str]:
         and isinstance(node.body[0].value, ast.Constant)
     }
     return {
-        node.value.casefold().strip()
+        node.value
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
         and id(node) not in docstrings
     }
+
+
+# Lexicon words that are also English words of the code (SQL `= on`, messages).
+ENGLISH_COLLISIONS = frozenset({"on", "me", "se", "des"})
+
+
+def _tokens(literal: str) -> set[str]:
+    """Word tokens of a literal, the whole literal included (« l' », « les autres »)."""
+    folded = literal.replace("’", "'").casefold()
+    return {folded.strip()} | set(re.findall(r"\w+(?:['-]\w+)*'?", folded))
 
 
 def _lexicon_words() -> set[str]:
@@ -72,14 +91,20 @@ def test_the_pronoun_rule_reads_the_lexicon_of_the_scene(monkeypatch):
 
 
 def test_identity_code_has_no_language_or_genre_literals():
-    words = _lexicon_words()
+    words = {w for w in _lexicon_words() if len(w) >= 2} - ENGLISH_COLLISIONS
     genres = {s.genre for s in load_scenes(ROOT)}
     genres |= {t.genre for q in load_sequences(ROOT) for t in q.turns}
     assert len(genres) >= 2
+    banned = words | {g.casefold() for g in genres}
     found = {
-        f"{path.name}: {literal!r}"
+        f"{path.name}: {literal!r} ({sorted(_tokens(literal) & banned)})"
         for path in CODE
         for literal in _string_literals(path)
-        if literal in words or literal in {g.casefold() for g in genres}
+        if _tokens(literal) & banned
     }
     assert found == set()
+
+
+def test_the_literal_scan_sees_words_inside_a_pattern():
+    assert {"la", "les"} <= _tokens(r"^(?:le|la|les)\s")
+    assert "quelqu'un" in _tokens("quelqu’un est là")

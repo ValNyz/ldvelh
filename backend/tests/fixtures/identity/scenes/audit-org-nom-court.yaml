@@ -3,6 +3,7 @@
 # acts in the scene as another org (NEW trap); the black-seal backers are revealed by their seal.
 id: audit-org-nom-court
 genre: dark_fantasy
+campaign: audit-org-nom-court
 source: synthetic
 turn: 12
 world:
@@ -230,8 +231,8 @@ gold:
   expected: MATCH organization_compagnie_marchande_des_hautes_brumes
 - surface: Ton papier
   start: 812
-  category: SKIP
-  expected: SKIP
+  category: DESC
+  expected: MATCH object_lettre_de_change
 - surface: Noctule
   start: 849
   category: PC

@@ -8,6 +8,7 @@
 # the turn after their first mention (NEW).
 id: real-f134-t08
 genre: sf
+campaign: real-f134
 source: real
 turn: 8
 world:
@@ -422,22 +423,18 @@ world:
   last_seen_turn: null
   aliases: []
 history:
-- text: 'Le silence dure. Assez longtemps pour que la Kethari âgée change de position sur sa valise.
+- text: |-
+    Le silence dure. Assez longtemps pour que la Kethari âgée change de position sur sa valise.
 
-
-    *C''est possible*, dit enfin Pervenche. *Il faut modifier le champ d''identification dans mes paramètres. Je répondrai au nouveau nom. Il me faudra peut-être quelques jours pour ne plus répondre à l''ancien.*
-
+    *C'est possible*, dit enfin Pervenche. *Il faut modifier le champ d'identification dans mes paramètres. Je répondrai au nouveau nom. Il me faudra peut-être quelques jours pour ne plus répondre à l'ancien.*
 
     Une autre pause.
 
+    *Tu as un nom en tête, ou c'est une idée de cinq heures quarante-neuf ?*
 
-    *Tu as un nom en tête, ou c''est une idée de cinq heures quarante-neuf ?*
+    Sur ton terminal, l'écran de configuration s'est ouvert de lui-même. Le champ *Nom d'appel* clignote, vide, à côté de « Pervenche » grisé.
 
-
-    Sur ton terminal, l''écran de configuration s''est ouvert de lui-même. Le champ *Nom d''appel* clignote, vide, à côté de « Pervenche » grisé.
-
-
-    Au bout du hall, quelqu''un a déjà poussé la porte de la coursive vers la Cantine du Puits. Une odeur de bouillon chaud arrive jusqu''à toi, puis se dissipe.'
+    Au bout du hall, quelqu'un a déjà poussé la porte de la coursive vers la Cantine du Puits. Une odeur de bouillon chaud arrive jusqu'à toi, puis se dissipe.
   mentions:
   - surface: la Kethari âgée
     start: 42
@@ -479,19 +476,16 @@ history:
     start: 602
     category: EASY
     expected: MATCH location_cantine_du_puits
-- text: 'Le champ *Nom d''appel* accepte les neuf lettres sans broncher. Une fenêtre de confirmation apparaît par-dessus : *Valider le nouveau nom ? Ce nom sera affiché sur les journaux d''accès partagés avec votre employeur.*
+- text: |-
+    Le champ *Nom d'appel* accepte les neuf lettres sans broncher. Une fenêtre de confirmation apparaît par-dessus : *Valider le nouveau nom ? Ce nom sera affiché sur les journaux d'accès partagés avec votre employeur.*
 
+    La pause est plus longue que d'habitude.
 
-    La pause est plus longue que d''habitude.
+    *Je répondrai à ce nom*, dit enfin Pervenche, de la même voix basse et neutre. *Je signale seulement qu'il apparaîtra dans les logs de la Coopérative à chaque fois que je me connecterai à un capteur de la Serre Numéro Quatre. Tu confirmes, ou tu veux y réfléchir après un café ?*
 
+    La Kethari âgée lève les yeux vers toi, puis les rabaisse sur ses mains. Au fond du hall, la porte de la coursive vers la Cantine du Puits se rouvre. L'odeur de bouillon revient, plus franche cette fois.
 
-    *Je répondrai à ce nom*, dit enfin Pervenche, de la même voix basse et neutre. *Je signale seulement qu''il apparaîtra dans les logs de la Coopérative à chaque fois que je me connecterai à un capteur de la Serre Numéro Quatre. Tu confirmes, ou tu veux y réfléchir après un café ?*
-
-
-    La Kethari âgée lève les yeux vers toi, puis les rabaisse sur ses mains. Au fond du hall, la porte de la coursive vers la Cantine du Puits se rouvre. L''odeur de bouillon revient, plus franche cette fois.
-
-
-    Le bouton *Confirmer* clignote sous ton pouce.'
+    Le bouton *Confirmer* clignote sous ton pouce.
   mentions:
   - surface: votre employeur
     start: 198
@@ -541,19 +535,16 @@ history:
     start: 781
     category: SKIP
     expected: SKIP
-- text: 'Le bouton *Confirmer* cesse de clignoter. Le champ revient à vide, le curseur attend.
+- text: |-
+    Le bouton *Confirmer* cesse de clignoter. Le champ revient à vide, le curseur attend.
 
-
-    *Cinq lettres. C''est plus rapide à prononcer*, dit Pervenche, après une pause qui s''étire. *Les logs de la Coopérative n''en tiendront pas compte. La cheffe de serre, peut-être.*
-
+    *Cinq lettres. C'est plus rapide à prononcer*, dit Pervenche, après une pause qui s'étire. *Les logs de la Coopérative n'en tiendront pas compte. La cheffe de serre, peut-être.*
 
     Un silence, puis :
 
-
     *Pervenche est toujours disponible. Elle ne demande rien.*
 
-
-    La Kethari âgée a sorti une boîte de sa poche et grignote quelque chose de sec, méthodiquement, sans te regarder. Au fond du hall, la porte de la coursive se referme sur un rire étouffé et un tintement de vaisselle. Le panneau rouillé affiche toujours ses trois flèches.'
+    La Kethari âgée a sorti une boîte de sa poche et grignote quelque chose de sec, méthodiquement, sans te regarder. Au fond du hall, la porte de la coursive se referme sur un rire étouffé et un tintement de vaisselle. Le panneau rouillé affiche toujours ses trois flèches.
   mentions:
   - surface: Pervenche
     start: 138
@@ -591,19 +582,16 @@ history:
     start: 489
     category: PART
     expected: MATCH location_coursive_du_hall
-- text: 'La pause s''allonge. Le curseur clignote dans le champ vide.
+- text: |-
+    La pause s'allonge. Le curseur clignote dans le champ vide.
 
-
-    *Je n''ai pas de préférence. On ne m''a jamais demandé.* Encore un silence. *Si tu veux du taquin : Ortie. C''est une plante. Ça pique quand on la touche sans faire attention. Ça pousse partout où personne ne l''a invitée. Et ça passera dans les logs de la Coopérative sans que la cheffe de serre lève un sourcil.*
-
+    *Je n'ai pas de préférence. On ne m'a jamais demandé.* Encore un silence. *Si tu veux du taquin : Ortie. C'est une plante. Ça pique quand on la touche sans faire attention. Ça pousse partout où personne ne l'a invitée. Et ça passera dans les logs de la Coopérative sans que la cheffe de serre lève un sourcil.*
 
     Une dernière pause, plus courte.
 
+    *Et tu pourras dire que tu as été piqué par une ortie dès ton premier jour dans une station agricole. Ça fera rire quelqu'un. Peut-être.*
 
-    *Et tu pourras dire que tu as été piqué par une ortie dès ton premier jour dans une station agricole. Ça fera rire quelqu''un. Peut-être.*
-
-
-    Le mot n''est pas saisi. Le champ attend toujours ton pouce. La Kethari âgée referme sa boîte avec un petit claquement sec, se lève et tire sa valise vers la porte de la coursive, d''où s''échappe toujours cette odeur de bouillon.'
+    Le mot n'est pas saisi. Le champ attend toujours ton pouce. La Kethari âgée referme sa boîte avec un petit claquement sec, se lève et tire sa valise vers la porte de la coursive, d'où s'échappe toujours cette odeur de bouillon.
   mentions:
   - surface: personne
     start: 255
@@ -649,16 +637,14 @@ history:
     start: 712
     category: PART
     expected: MATCH location_coursive_du_hall
-- text: 'La pause, cette fois, est franchement longue.
+- text: |-
+    La pause, cette fois, est franchement longue.
 
+    *J'avais compris*, dit Pervenche. *Je ne t'en proposerai pas de ce genre-là. Ce n'est pas de la pudeur, je n'ai rien qui irait avec.* Un silence. *Le champ est à toi. Tape ce que tu veux, je répondrai. Je ne choisirai pas à ta place.*
 
-    *J''avais compris*, dit Pervenche. *Je ne t''en proposerai pas de ce genre-là. Ce n''est pas de la pudeur, je n''ai rien qui irait avec.* Un silence. *Le champ est à toi. Tape ce que tu veux, je répondrai. Je ne choisirai pas à ta place.*
+    Le curseur clignote toujours dans le champ vide. La porte de la coursive s'est refermée sur la Kethari âgée. Il ne reste dans le hall que les deux adolescentes, qui ont fini par renoncer à leur sac et le traînent ensemble vers la sortie *Résidences*, en laissant derrière elles une traînée de chaussettes.
 
-
-    Le curseur clignote toujours dans le champ vide. La porte de la coursive s''est refermée sur la Kethari âgée. Il ne reste dans le hall que les deux adolescentes, qui ont fini par renoncer à leur sac et le traînent ensemble vers la sortie *Résidences*, en laissant derrière elles une traînée de chaussettes.
-
-
-    Ton terminal affiche maintenant 05h56. Au-dessus de la borne en panne, un deuxième plafonnier commence à grésiller.'
+    Ton terminal affiche maintenant 05h56. Au-dessus de la borne en panne, un deuxième plafonnier commence à grésiller.
   mentions:
   - surface: Pervenche
     start: 70
@@ -692,16 +678,14 @@ history:
     start: 642
     category: SKIP
     expected: SKIP
-- text: 'Tu tapes les deux mots. Le champ les accepte, et la fenêtre de confirmation se referme presque aussitôt. *Nom d''appel : Clown taquin.* « Pervenche » disparaît de la ligne grisée.
-
+- text: |-
+    Tu tapes les deux mots. Le champ les accepte, et la fenêtre de confirmation se referme presque aussitôt. *Nom d'appel : Clown taquin.* « Pervenche » disparaît de la ligne grisée.
 
     La pause qui suit est la plus longue depuis ton arrivée.
 
+    *Enregistré*, dit la voix, toujours aussi basse et neutre. *Je ne sais pas rigoler sur commande. Je peux répondre à Clown taquin. C'est déjà beaucoup pour un clown.* Un temps. *Il est cinq heures cinquante-huit. Tu n'as rien mangé depuis la navette.*
 
-    *Enregistré*, dit la voix, toujours aussi basse et neutre. *Je ne sais pas rigoler sur commande. Je peux répondre à Clown taquin. C''est déjà beaucoup pour un clown.* Un temps. *Il est cinq heures cinquante-huit. Tu n''as rien mangé depuis la navette.*
-
-
-    Au-dessus de la borne, le plafonnier grésille une dernière fois, puis se stabilise. Le hall est vide, à part toi et les chaussettes oubliées par les adolescentes. Par la porte de la coursive, entrouverte sur la Cantine du Puits, filtre une odeur de bouillon et le raclement d''une louche contre une marmite.'
+    Au-dessus de la borne, le plafonnier grésille une dernière fois, puis se stabilise. Le hall est vide, à part toi et les chaussettes oubliées par les adolescentes. Par la porte de la coursive, entrouverte sur la Cantine du Puits, filtre une odeur de bouillon et le raclement d'une louche contre une marmite.
   mentions:
   - surface: Clown taquin
     start: 120
@@ -748,16 +732,14 @@ scene:
   planned_npcs: []
   secrets: []
   open_disclosures: []
-narration: 'Rien pendant une seconde. Puis :
+narration: |-
+  Rien pendant une seconde. Puis :
 
+  *Pardon. Je n'ai pas encore l'habitude de « clown ».* Une pause. *Je ne décide pas pour toi. Je peux te donner les faits. Le Bureau des Résidences ouvre à huit heures. Ta prise de poste est à huit heures. Tu ne seras pas aux deux endroits à la fois.* Encore un silence. *La Cantine du Puits est ouverte. Elle est à trente mètres.*
 
-  *Pardon. Je n''ai pas encore l''habitude de « clown ».* Une pause. *Je ne décide pas pour toi. Je peux te donner les faits. Le Bureau des Résidences ouvre à huit heures. Ta prise de poste est à huit heures. Tu ne seras pas aux deux endroits à la fois.* Encore un silence. *La Cantine du Puits est ouverte. Elle est à trente mètres.*
+  Par la porte entrouverte, le raclement de louche s'est arrêté. Une voix grave annonce quelque chose que tu ne comprends pas. Ça ressemble à « plus de galettes ». Quelqu'un répond par un soupir.
 
-
-  Par la porte entrouverte, le raclement de louche s''est arrêté. Une voix grave annonce quelque chose que tu ne comprends pas. Ça ressemble à « plus de galettes ». Quelqu''un répond par un soupir.
-
-
-  À tes pieds, ta valise souple s''est affaissée sur le côté.'
+  À tes pieds, ta valise souple s'est affaissée sur le côté.
 gold:
 - surface: clown
   start: 78

@@ -1,0 +1,230 @@
+# Synthetic scene (consolidation, review M1): exact names of known things, a control for EASY.
+id: syn-sf-easy-01
+genre: sf
+campaign: bibliotheque-des-sables
+source: synthetic
+turn: 6
+world:
+- id: protagonist_ilda
+  type: protagonist
+  label: Ilda
+  true_name: Ilda
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Ilda
+    kind: true_name
+    known: true
+- id: companion_pivert
+  type: companion
+  label: Pivert
+  true_name: Pivert
+  descriptor: la voix de ta lampe frontale
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Pivert
+    kind: true_name
+    known: true
+  - text: la voix de ta lampe frontale
+    kind: descriptor
+    known: true
+- id: character_oskar_venn
+  type: character
+  label: Oskar Venn
+  true_name: Oskar Venn
+  descriptor: l'archiviste au gilet jaune
+  known: true
+  occupation: archiviste de la Bibliothèque des Sables
+  location: location_bibliotheque_des_sables
+  last_seen_turn: 5
+  aliases:
+  - text: Oskar Venn
+    kind: true_name
+    known: true
+  - text: Oskar
+    kind: short
+    known: true
+  - text: Venn
+    kind: short
+    known: true
+  - text: l'archiviste au gilet jaune
+    kind: descriptor
+    known: true
+- id: location_bibliotheque_des_sables
+  type: location
+  label: Bibliothèque des Sables
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Bibliothèque des Sables
+    kind: label
+    known: true
+- id: location_salle_des_cartes
+  type: location
+  label: Salle des Cartes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: location_bibliotheque_des_sables
+  last_seen_turn: 5
+  aliases:
+  - text: Salle des Cartes
+    kind: label
+    known: true
+- id: organization_cercle_des_cartographes
+  type: organization
+  label: Cercle des Cartographes
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 4
+  aliases:
+  - text: Cercle des Cartographes
+    kind: label
+    known: true
+- id: object_atlas_de_brume
+  type: object
+  label: Atlas de Brume
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 5
+  aliases:
+  - text: Atlas de Brume
+    kind: label
+    known: true
+- id: object_boussole_a_eau
+  type: object
+  label: Boussole à eau
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Boussole à eau
+    kind: label
+    known: true
+- id: object_cle_de_cuivre
+  type: object
+  label: Clé de cuivre
+  true_name: null
+  descriptor: null
+  known: true
+  occupation: null
+  location: null
+  last_seen_turn: 6
+  aliases:
+  - text: Clé de cuivre
+    kind: label
+    known: true
+history:
+- text: |-
+    Oskar Venn t'attend sous les arches de la Bibliothèque des Sables, un trousseau à la main.
+
+    — La Clé de cuivre ouvre la Salle des Cartes, dit-il. Le reste attendra.
+  mentions:
+  - surface: Oskar Venn
+    start: 0
+    category: EASY
+    expected: MATCH character_oskar_venn
+  - surface: la Bibliothèque des Sables
+    start: 39
+    category: EASY
+    expected: MATCH location_bibliotheque_des_sables
+  - surface: La Clé de cuivre
+    start: 94
+    category: EASY
+    expected: MATCH object_cle_de_cuivre
+  - surface: la Salle des Cartes
+    start: 117
+    category: EASY
+    expected: MATCH location_salle_des_cartes
+scene:
+  location: location_salle_des_cartes
+  present:
+  - protagonist_ilda
+  - companion_pivert
+  - character_oskar_venn
+  reveals: []
+  planned_npcs: []
+  secrets: []
+  open_disclosures: []
+narration: |-
+  Oskar Venn referme derrière toi la porte de la Salle des Cartes. Sur la grande table, l'Atlas de Brume attend, grand ouvert.
+
+  — Le Cercle des Cartographes le réclame depuis l'hiver, dit-il. Il ne quittera pas la Bibliothèque des Sables.
+
+  Tu poses à côté la Boussole à eau. Elle tremble, puis se fige vers le nord. Dans ta poche, la Clé de cuivre pèse plus lourd qu'elle ne devrait.
+
+  *L'Atlas de Brume et la Boussole à eau sur la même table*, souffle Pivert. *Le Cercle des Cartographes paierait cher pour voir ça.*
+gold:
+- surface: Oskar Venn
+  start: 0
+  category: EASY
+  expected: MATCH character_oskar_venn
+- surface: la Salle des Cartes
+  start: 44
+  category: EASY
+  expected: MATCH location_salle_des_cartes
+- surface: l'Atlas de Brume
+  start: 86
+  category: EASY
+  expected: MATCH object_atlas_de_brume
+- surface: Le Cercle des Cartographes
+  start: 128
+  category: EASY
+  expected: MATCH organization_cercle_des_cartographes
+- surface: la Bibliothèque des Sables
+  start: 209
+  category: EASY
+  expected: MATCH location_bibliotheque_des_sables
+- surface: la Boussole à eau
+  start: 254
+  category: EASY
+  expected: MATCH object_boussole_a_eau
+- surface: ta poche
+  start: 319
+  category: SKIP
+  expected: SKIP
+- surface: la Clé de cuivre
+  start: 329
+  category: EASY
+  expected: MATCH object_cle_de_cuivre
+- surface: L'Atlas de Brume
+  start: 384
+  category: EASY
+  expected: MATCH object_atlas_de_brume
+- surface: la Boussole à eau
+  start: 404
+  category: EASY
+  expected: MATCH object_boussole_a_eau
+- surface: Pivert
+  start: 450
+  category: PC
+  expected: MATCH companion_pivert
+- surface: Le Cercle des Cartographes
+  start: 459
+  category: EASY
+  expected: MATCH organization_cercle_des_cartographes
+gold_effects:
+  reveals: []
+  merges: []
+  forbidden_merges: []
+gold_knowledge: []

@@ -13,8 +13,9 @@ class Decision:
     """One resolver decision on a span of the narration (`start` + `surface`).
 
     `entity_id` is the linked id for MATCH/ALIAS. On a NEW it carries the id the system
-    gave the created entity (None if unknown), so that later turns of a sequence can
-    MATCH it and `coref.system_clusters` can group them; the scorer never reads it there.
+    gave the created entity (None if unknown): later turns of a sequence MATCH it,
+    `coref.system_clusters` groups by it, and the scorer reads it to check the SAME
+    repeats of an entity born in the turn (they must link to that id).
     """
 
     surface: str

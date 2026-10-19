@@ -1,5 +1,6 @@
 id: syn-sf-reveal-08
 genre: sf
+campaign: grappin
 source: synthetic
 turn: 14
 world:
@@ -357,6 +358,8 @@ gold:
   start: 89
   category: EASY
   expected: ALIAS character_ezra_hollis true_name
+  accept_also:
+  - MATCH character_ezra_hollis
 - surface: l'Albatros-9
   start: 123
   category: EASY

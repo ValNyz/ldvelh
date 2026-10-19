@@ -2,6 +2,7 @@
 # (« la mine », « la pierre noire », « cette forteresse », « ma lignée », « ta lame »).
 id: syn-df-desc-03
 genre: dark_fantasy
+campaign: vauclair
 source: synthetic
 turn: 20
 world:

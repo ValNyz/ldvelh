@@ -1,5 +1,6 @@
 id: syn-sf-new-01
 genre: sf
+campaign: halcyon-7
 source: synthetic
 turn: 12
 world:
@@ -524,7 +525,6 @@ gold:
   start: 497
   category: NEW
   expected: NEW organization
-  trap: true
 - surface: l'Anneau C
   start: 518
   category: NEW

@@ -75,6 +75,13 @@ def label_is_a_name(entity: WorldEntity) -> bool:
     )
 
 
+def pc_knows_a_name(entity: WorldEntity) -> bool:
+    """The PC knows a name of the entity (a known name-like alias, or its known true name)."""
+    return any(a.known and a.kind in NAME_KINDS for a in entity.aliases) or bool(
+        entity.known and entity.true_name
+    )
+
+
 def knows_no_name(entity: WorldEntity) -> bool:
     """True when the PC knows the entity only by a descriptor (it must then be `known: false`)."""
     return entity.true_name is None and not any(
@@ -166,7 +173,7 @@ def _form_error(
     if (
         m.category == "PART"
         and entity.type in NAMEABLE_TYPES
-        and not entity.known
+        and not pc_knows_a_name(entity)
         and not reintroduced
     ):
         return (
@@ -186,6 +193,16 @@ def _form_error(
         return (
             "a form of a name revealed earlier in the turn is "
             f"ALIAS {entity.id} short with accept_also MATCH {entity.id}"
+        )
+    if (
+        m.category == "EASY"
+        and reintroduced
+        and expected.decision == "ALIAS"
+        and f"MATCH {entity.id}" not in m.accept_also
+    ):
+        return (
+            "a full name repeated after its reveal in the turn is already known: "
+            f"accept_also MATCH {entity.id}"
         )
     if expected.alias_kind == "label" and m.category == "DESC":
         return "a new label (renamed entity) is PART, not DESC"

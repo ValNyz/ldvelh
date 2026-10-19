@@ -4,6 +4,7 @@
 # World = gold graph before the turn (duplicates merged, Pervenche added). See ANNOTATION.md.
 id: example-f134-t15
 genre: sf
+campaign: real-f134
 source: real
 turn: 15
 world:

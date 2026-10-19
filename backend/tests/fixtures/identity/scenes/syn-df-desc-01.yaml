@@ -2,6 +2,7 @@
 # the relic, unnamed characters); « la Halle » is a guild and its hall (XTYPE).
 id: syn-df-desc-01
 genre: dark_fantasy
+campaign: vargne
 source: synthetic
 turn: 14
 world:

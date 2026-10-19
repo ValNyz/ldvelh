@@ -31,6 +31,7 @@ def _scene(**overrides) -> dict:
     data = {
         "id": "unit-scene",
         "genre": "sf",
+        "campaign": "unit",
         "source": "synthetic",
         "world": [
             {
@@ -900,12 +901,16 @@ def test_split_is_stratified_and_disjoint():
     assert _coverage_errors(scenes, split, frozen) == []
 
 
-def _synthetic_scene(scene_id: str, categories: list[str]) -> Scene:
+def _synthetic_scene(
+    scene_id: str, categories: list[str], campaign: str | None = None
+) -> Scene:
     gold = [
         {"surface": "x", "start": i, "category": c, "expected": "SKIP"}
         for i, c in enumerate(categories)
     ]
-    return Scene.model_validate(_scene(id=scene_id, gold=gold))
+    return Scene.model_validate(
+        _scene(id=scene_id, gold=gold, campaign=campaign or scene_id)
+    )
 
 
 def test_stratified_split_holds_each_category_share_on_a_synthetic_corpus():
@@ -929,7 +934,7 @@ def test_split_script_writes_the_split_and_its_fingerprint(tmp_path):
 
     (tmp_path / "scenes").mkdir()
     for i in range(5):
-        data = _scene(id=f"s{i}")
+        data = _scene(id=f"s{i}", campaign=f"c{i}")
         text = yaml.safe_dump(data, allow_unicode=True)
         (tmp_path / "scenes" / f"s{i}.yaml").write_text(text, encoding="utf-8")
     assert main(["--root", str(tmp_path), "--freeze"]) == 0
@@ -1183,8 +1188,8 @@ def _coverage_target_errors(scenes: list[Scene]) -> list[str]:
 
 
 def test_corpus_meets_the_coverage_targets():
-    scenes = load_scenes(ROOT) + [t for q in load_sequences(ROOT) for t in q.turns]
-    assert _coverage_target_errors(scenes) == []
+    # Scenes only: the per-category metrics never see the sequence turns (§ 8).
+    assert _coverage_target_errors(load_scenes(ROOT)) == []
 
 
 def test_coverage_targets_fail_on_a_thin_corpus():
@@ -1193,3 +1198,97 @@ def test_coverage_targets_fail_on_a_thin_corpus():
     assert "fewer than two genres" in errors
     assert "required scene issue-25-voss is missing" in errors
     assert "gold_knowledge has no secret item on a arc" in errors
+
+
+# --- review I4 and M2: forms after a reveal, nameless test on names only ---
+
+TESK_TWICE = "— Tesk Vahrun-Oo, dit-il. Tesk Vahrun-Oo, répète-t-il."
+
+
+def _tesk_twice(accept: list[str]) -> list[str]:
+    gold = [
+        {"surface": "Tesk Vahrun-Oo", "category": "REVEAL",
+         "expected": "ALIAS character_tesk true_name"},
+        {"surface": "Tesk Vahrun-Oo", "start": TESK_TWICE.index("Tesk", 10),
+         "category": "EASY", "expected": "ALIAS character_tesk true_name",
+         "accept_also": accept},
+    ]  # fmt: skip
+    effects = {"reveals": [{"ref": "character_tesk", "real_name": "Tesk Vahrun-Oo"}],
+               "merges": [], "forbidden_merges": []}  # fmt: skip
+    return _custom_errors(TESK_TWICE, gold, world_extra=[TESK_OLD], turn=21,
+                          gold_effects=effects, gold_knowledge=[TESK_NAME])  # fmt: skip
+
+
+def test_a_full_name_repeated_after_a_reveal_accepts_a_plain_match():
+    assert _tesk_twice(["MATCH character_tesk"]) == []
+    errors = _tesk_twice([])
+    assert len(errors) == 1 and "MATCH character_tesk" in errors[0]
+
+
+def test_part_is_allowed_on_an_unknown_entity_with_a_known_title():
+    titled = {**ROOM, "aliases": [*ROOM["aliases"],
+              {"text": "la Salle", "kind": "title", "known": True}]}  # fmt: skip
+    text = "Tu entres dans la salle."
+    gold = [{"surface": "la salle", "category": "PART",
+             "expected": "MATCH location_salle_au_bout_du_couloir"}]  # fmt: skip
+    assert _custom_errors(text, gold, world_extra=[titled]) == []
+
+
+# --- review I2: campaigns, a group-aware split, no leak through histories ---
+
+
+def test_a_scene_needs_its_campaign():
+    data = _scene()
+    del data["campaign"]
+    with pytest.raises(ValidationError):
+        Scene.model_validate(data)
+
+
+def test_the_split_keeps_each_campaign_on_one_side():
+    rng = random.Random(3)
+    pool = [*HARD_CATEGORIES, "EASY", "PC", "SKIP"]
+    scenes = [
+        _synthetic_scene(f"s{i:03}", rng.choices(pool, k=rng.randint(2, 8)),
+                         campaign=f"c{i // 4}")
+        for i in range(120)
+    ]  # fmt: skip
+    split = stratified_split(scenes, ratio=0.6, seed=42)
+    side = {i: "test" for i in split.test} | {i: "dev" for i in split.dev}
+    by_campaign: dict[str, set[str]] = {}
+    for s in scenes:
+        by_campaign.setdefault(s.campaign, set()).add(side[s.id])
+    assert all(len(sides) == 1 for sides in by_campaign.values())
+    assert _share_errors(scenes, split) == []
+    assert stratified_split(list(reversed(scenes)), ratio=0.6, seed=42) == split
+
+
+def test_no_test_narration_is_seen_from_the_dev_side():
+    scenes = {s.id: s for s in load_scenes(ROOT)}
+    split = load_split(ROOT)
+    turns = [t for q in load_sequences(ROOT) for t in q.turns]
+    for side, other in ((split.test, split.dev), (split.dev, split.test)):
+        hidden = {scenes[i].narration for i in side}
+        seen = [scenes[i] for i in other]
+        if side is split.test:
+            seen += turns  # sequences are used for coreference, never for the test
+        leaks = [
+            f"{s.id} history holds a narration of the other side"
+            for s in seen
+            for h in s.history
+            if h.text in hidden
+        ]
+        leaks += [f"{s.id} repeats a narration of the other side"
+                  for s in seen if s.narration in hidden]  # fmt: skip
+        assert leaks == []
+
+
+def test_scenes_sharing_a_history_share_a_campaign():
+    scenes = load_scenes(ROOT)
+    owner = {s.narration: s.campaign for s in scenes}
+    mixed = [
+        f"{s.id} ({s.campaign}) shows a narration of {owner[h.text]}"
+        for s in scenes
+        for h in s.history
+        if h.text in owner and owner[h.text] != s.campaign
+    ]
+    assert mixed == []

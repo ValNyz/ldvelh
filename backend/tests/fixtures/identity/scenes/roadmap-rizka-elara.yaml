@@ -2,6 +2,7 @@
 # Both exist: each bare « Voss » is XTYPE and the context picks one; no merge allowed.
 id: roadmap-rizka-elara
 genre: sf
+campaign: voss
 source: issue
 world:
 - id: protagonist_soren

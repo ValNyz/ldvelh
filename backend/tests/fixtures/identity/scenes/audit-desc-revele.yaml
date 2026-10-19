@@ -2,6 +2,7 @@
 # the descriptor-only woman gives her name, and names the descriptor-only house as well.
 id: audit-desc-revele
 genre: dark_fantasy
+campaign: audit-desc-revele
 source: synthetic
 turn: 8
 world:
@@ -236,6 +237,8 @@ gold:
   start: 633
   category: EASY
   expected: ALIAS character_vieille_au_capuchon_de_laine true_name
+  accept_also:
+  - MATCH character_vieille_au_capuchon_de_laine
 - surface: ses doigts
   start: 654
   category: SKIP

@@ -2,6 +2,7 @@
 # a crypt known only as « la crypte sous le chœur » (carved frieze).
 id: syn-df-reveal-05
 genre: dark_fantasy
+campaign: sael
 source: synthetic
 turn: 7
 world:
@@ -453,6 +454,8 @@ gold:
   start: 192
   category: EASY
   expected: ALIAS character_ide_ferraud true_name
+  accept_also:
+  - MATCH character_ide_ferraud
 - surface: la crypte sous le chœur
   start: 310
   category: DESC

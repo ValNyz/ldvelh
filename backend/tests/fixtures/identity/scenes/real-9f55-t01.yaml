@@ -2,6 +2,7 @@
 # turn), exported by scripts/identity_corpus_export.py, gold annotated by hand.
 id: real-9f55-t01
 genre: sf
+campaign: real-9f55
 source: real
 turn: 1
 world:
@@ -479,6 +480,10 @@ gold:
   start: 749
   category: SKIP
   expected: SKIP
+- surface: la baie de proue
+  start: 824
+  category: NEW
+  expected: NEW location
 - surface: Pater Ondrev
   start: 842
   category: EASY

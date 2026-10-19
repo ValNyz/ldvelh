@@ -3,6 +3,7 @@
 # a name part with a world entity), never a match on the existing one.
 id: audit-creations-manquees
 genre: sf
+campaign: audit-creations-manquees
 source: synthetic
 turn: 7
 world:

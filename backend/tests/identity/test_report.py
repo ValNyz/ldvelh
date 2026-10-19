@@ -21,6 +21,7 @@ def _scene(scene_id: str, gold: list[tuple[int, str, str]]) -> Scene:
         {
             "id": scene_id,
             "genre": "sf",
+            "campaign": "unit",
             "source": "synthetic",
             "world": WORLD,
             "history": [],

@@ -2,6 +2,7 @@
 # is named and described several ways; all PC, it must exist in the world and never be created again.
 id: audit-compagnon-oublie
 genre: sf
+campaign: audit-compagnon-oublie
 source: synthetic
 turn: 3
 world:

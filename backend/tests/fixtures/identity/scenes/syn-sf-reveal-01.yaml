@@ -1,5 +1,6 @@
 id: syn-sf-reveal-01
 genre: sf
+campaign: halcyon-7
 source: synthetic
 turn: 6
 world:
@@ -543,6 +544,8 @@ gold:
   start: 490
   category: EASY
   expected: ALIAS object_mallette_scellee true_name
+  accept_also:
+  - MATCH object_mallette_scellee
 - surface: ton IA
   start: 512
   category: PC

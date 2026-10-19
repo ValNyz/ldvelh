@@ -4,6 +4,7 @@ id: seq-df-ordre-court
 turns:
 - id: seq-df-ordre-court-t1
   genre: dark_fantasy
+  campaign: seq-df-ordre-court
   source: synthetic
   turn: 30
   world:
@@ -221,6 +222,7 @@ turns:
     text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
 - id: seq-df-ordre-court-t2
   genre: dark_fantasy
+  campaign: seq-df-ordre-court
   source: synthetic
   turn: 31
   world:
@@ -493,6 +495,7 @@ turns:
     text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
 - id: seq-df-ordre-court-t3
   genre: dark_fantasy
+  campaign: seq-df-ordre-court
   source: synthetic
   turn: 32
   world:
@@ -771,6 +774,7 @@ turns:
     text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
 - id: seq-df-ordre-court-t4
   genre: dark_fantasy
+  campaign: seq-df-ordre-court
   source: synthetic
   turn: 33
   world:
@@ -1100,6 +1104,7 @@ turns:
     text: Ysambert de Vaux a lui-même livré la Bannière cendrée à l'Ordre du Lys pour provoquer une guerre entre les ordres.
 - id: seq-df-ordre-court-t5
   genre: dark_fantasy
+  campaign: seq-df-ordre-court
   source: synthetic
   turn: 34
   world:

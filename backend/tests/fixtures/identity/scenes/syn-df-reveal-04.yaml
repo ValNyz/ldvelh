@@ -2,6 +2,7 @@
 # character name and of a secret organization, both with an open disclosure.
 id: syn-df-reveal-04
 genre: dark_fantasy
+campaign: vauclair
 source: synthetic
 turn: 28
 world:
@@ -427,6 +428,8 @@ gold:
   start: 239
   category: EASY
   expected: ALIAS character_clemence_d_orgemont true_name
+  accept_also:
+  - MATCH character_clemence_d_orgemont
 - surface: Le Baron
   start: 260
   category: PART

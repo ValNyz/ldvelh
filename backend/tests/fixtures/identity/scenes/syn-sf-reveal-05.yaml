@@ -1,5 +1,6 @@
 id: syn-sf-reveal-05
 genre: sf
+campaign: lointaine-esperance
 source: synthetic
 turn: 9
 world:
@@ -442,6 +443,8 @@ gold:
   start: 331
   category: EASY
   expected: ALIAS character_tilio_marchetti true_name
+  accept_also:
+  - MATCH character_tilio_marchetti
 - surface: la Fraternité du Retour
   start: 362
   category: REVEAL

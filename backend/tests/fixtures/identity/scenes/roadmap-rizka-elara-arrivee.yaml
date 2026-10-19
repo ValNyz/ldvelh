@@ -2,6 +2,7 @@
 # She talks to Rizka (proof of a distinct person): NEW trap, never a match on Rizka.
 id: roadmap-rizka-elara-arrivee
 genre: sf
+campaign: voss
 source: issue
 turn: 3
 world:
@@ -137,6 +138,7 @@ gold:
   start: 85
   category: NEW
   expected: NEW character
+  trap: true
 - surface: une mallette de soins
   start: 120
   category: SKIP

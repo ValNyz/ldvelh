@@ -4,6 +4,7 @@ id: seq-sf-retour
 turns:
 - id: seq-sf-retour-t1
   genre: sf
+  campaign: seq-sf-retour
   source: synthetic
   turn: 2
   world:
@@ -165,6 +166,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-retour-t2
   genre: sf
+  campaign: seq-sf-retour
   source: synthetic
   turn: 3
   world:
@@ -384,6 +386,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-retour-t3
   genre: sf
+  campaign: seq-sf-retour
   source: synthetic
   turn: 4
   world:
@@ -599,6 +602,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-retour-t4
   genre: sf
+  campaign: seq-sf-retour
   source: synthetic
   turn: 10
   world:
@@ -834,6 +838,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-retour-t5
   genre: sf
+  campaign: seq-sf-retour
   source: synthetic
   turn: 11
   world:
@@ -1107,6 +1112,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-retour-t6
   genre: sf
+  campaign: seq-sf-retour
   source: synthetic
   turn: 12
   world:

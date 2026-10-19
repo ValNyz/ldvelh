@@ -4,6 +4,7 @@ id: seq-sf-objet-surnom
 turns:
 - id: seq-sf-objet-surnom-t1
   genre: sf
+  campaign: seq-sf-objet-surnom
   source: synthetic
   turn: 5
   world:
@@ -164,6 +165,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-objet-surnom-t2
   genre: sf
+  campaign: seq-sf-objet-surnom
   source: synthetic
   turn: 6
   world:
@@ -383,6 +385,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-objet-surnom-t3
   genre: sf
+  campaign: seq-sf-objet-surnom
   source: synthetic
   turn: 7
   world:
@@ -620,6 +623,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-objet-surnom-t4
   genre: sf
+  campaign: seq-sf-objet-surnom
   source: synthetic
   turn: 8
   world:
@@ -864,6 +868,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-objet-surnom-t5
   genre: sf
+  campaign: seq-sf-objet-surnom
   source: synthetic
   turn: 9
   world:

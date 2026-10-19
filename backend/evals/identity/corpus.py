@@ -187,6 +187,7 @@ class KnowledgeItem(_Strict):
 class Scene(_Strict):
     id: str
     genre: str  # free label; the corpus needs at least two (ANNOTATION § 8)
+    campaign: str  # scenes sharing a world or a history; the split keeps it whole
     language: str = DEFAULT_LANGUAGE  # selects evals/identity/lexicon/<language>.yaml
     source: Literal["real", "synthetic", "issue"]
     turn: int | None = None

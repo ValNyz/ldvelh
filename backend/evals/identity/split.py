@@ -1,14 +1,17 @@
-"""Stratified dev/test split of the identity corpus (#151, spec § 3.3).
+"""Stratified dev/test split of the identity corpus, by campaign (#151, spec § 3.3).
 
-Each scene is stratified by its **dominant category**: the hard category with the most
-gold mentions (ties broken by the order of HARD_CATEGORIES), else its most frequent
-category. Strata are visited in a fixed order and their scenes shuffled with the seed;
-each scene then goes to the side that keeps every category's test share of mentions
-closest to `1 - ratio` (a greedy balance on the running counts). A scene-level split
-alone could not hold the mention shares: scenes carry several categories each.
+A **campaign** (`Scene.campaign`) groups the scenes that share a world or a history:
+all turns of one real game, all scenes of one synthetic world, one issue family. A dev
+scene's history holds the earlier narrations of its campaign with their reviewed links,
+so splitting a campaign would show test gold on the dev side: the split moves whole
+campaigns.
 
-The split is deterministic for a given corpus, ratio and seed; it is regenerated while
-the corpus grows and frozen with TEST_SHA256 once the corpus is complete (D25).
+The objective is that every category's share of mentions in test is close to
+`1 - ratio` (hard categories weigh more). Campaigns are assigned greedily in an order
+shuffled with the seed, then improved by single moves and pairwise swaps until no move
+lowers the objective; this is repeated from several shuffles and the best split kept.
+The split is deterministic for a given corpus, ratio and seed; it is frozen with
+TEST_SHA256 once the corpus is complete (D25).
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ from collections import Counter
 from evals.identity.corpus import HARD_CATEGORIES, Scene, Split
 
 CATEGORY_ORDER = (*HARD_CATEGORIES, "EASY", "PC", "SKIP")
+HARD_WEIGHT = 4.0
+RESTARTS = 16
 
 
 def dominant_category(scene: Scene) -> str:
@@ -30,35 +35,78 @@ def dominant_category(scene: Scene) -> str:
     return max(pool, key=lambda c: (counts[c], -CATEGORY_ORDER.index(c)))
 
 
-def _deviation(test: Counter, seen: Counter, share: float) -> float:
-    return sum((test[c] - share * seen[c]) ** 2 for c in seen)
+def _cost(test: Counter, totals: Counter, share: float) -> float:
+    return sum(
+        (HARD_WEIGHT if c in HARD_CATEGORIES else 1.0)
+        * (test[c] / totals[c] - share) ** 2
+        for c in totals
+        if totals[c]
+    )
+
+
+def _greedy(order: list[str], counts: dict[str, Counter], share: float) -> set[str]:
+    test, seen, chosen = Counter(), Counter(), set()
+    for group in order:
+        seen.update(counts[group])
+        if _cost(test + counts[group], seen, share) < _cost(test, seen, share):
+            test.update(counts[group])
+            chosen.add(group)
+    return chosen
+
+
+def _improve(
+    chosen: set[str], counts: dict[str, Counter], totals: Counter, share: float
+) -> tuple[set[str], float]:
+    """Single moves and dev/test swaps while one lowers the objective."""
+    test = sum((counts[g] for g in chosen), Counter())
+    best = _cost(test, totals, share)
+    improved = True
+    while improved:
+        improved = False
+        names = sorted(counts)
+        moves = [((g,), ()) if g in chosen else ((), (g,)) for g in names]
+        moves += [
+            ((a,), (b,)) for a in sorted(chosen) for b in names if b not in chosen
+        ]
+        for out, into in moves:
+            candidate = Counter(test)
+            for g in out:
+                candidate.subtract(counts[g])
+            for g in into:
+                candidate.update(counts[g])
+            cost = _cost(candidate, totals, share)
+            if cost < best - 1e-12:
+                chosen = (chosen - set(out)) | set(into)
+                test, best, improved = candidate, cost, True
+                break
+    return chosen, best
 
 
 def stratified_split(scenes: list[Scene], *, ratio: float, seed: int) -> Split:
-    """Dev gets about `ratio` of each category's mentions, test the rest."""
+    """Dev gets about `ratio` of each category's mentions, test the rest; campaigns stay whole."""
     if not 0 < ratio < 1:
         raise ValueError(f"ratio must be in (0, 1), got {ratio}")
     share = 1 - ratio
-    rng = random.Random(seed)
-    strata: dict[str, list[Scene]] = {}
+    counts: dict[str, Counter] = {}
+    members: dict[str, list[str]] = {}
     for scene in sorted(scenes, key=lambda s: s.id):
-        strata.setdefault(dominant_category(scene), []).append(scene)
-    order = [c for c in (*CATEGORY_ORDER, "NONE") if c in strata]
-    test_counts, seen = Counter(), Counter()
-    dev, test = [], []
-    for category in order:
-        members = strata[category]
-        rng.shuffle(members)
-        for scene in members:
-            counts = Counter(m.category for m in scene.gold)
-            seen.update(counts)
-            to_test = test_counts + counts
-            if _deviation(to_test, seen, share) < _deviation(test_counts, seen, share):
-                test_counts = to_test
-                test.append(scene.id)
-            else:
-                dev.append(scene.id)
-    return Split(dev=sorted(dev), test=sorted(test))
+        counts.setdefault(scene.campaign, Counter()).update(
+            m.category for m in scene.gold
+        )
+        members.setdefault(scene.campaign, []).append(scene.id)
+    totals = sum(counts.values(), Counter())
+    rng = random.Random(seed)
+    best: tuple[float, set[str]] | None = None
+    for _ in range(RESTARTS):
+        order = sorted(counts)
+        rng.shuffle(order)
+        chosen, cost = _improve(_greedy(order, counts, share), counts, totals, share)
+        if best is None or cost < best[0] - 1e-12:
+            best = (cost, chosen)
+    chosen = best[1] if best else set()
+    test = sorted(i for g in chosen for i in members[g])
+    dev = sorted(i for g in counts if g not in chosen for i in members[g])
+    return Split(dev=dev, test=test)
 
 
 def shares_in_test(scenes: list[Scene], split: Split) -> dict[str, tuple[int, int]]:

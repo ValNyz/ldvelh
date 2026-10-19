@@ -2,6 +2,7 @@
 # port », « l'équipage du borgne », « la confrérie des barreurs »), places and objects.
 id: syn-df-desc-06
 genre: dark_fantasy
+campaign: port-cendre
 source: synthetic
 turn: 24
 world:

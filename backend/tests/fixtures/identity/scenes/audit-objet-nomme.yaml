@@ -2,6 +2,7 @@
 # box get their names from an inscription and a plate; later descriptions still link to them.
 id: audit-objet-nomme
 genre: dark_fantasy
+campaign: audit-objet-nomme
 source: synthetic
 turn: 26
 world:
@@ -207,6 +208,8 @@ gold:
   start: 687
   category: EASY
   expected: ALIAS object_epee_sans_fourreau true_name
+  accept_also:
+  - MATCH object_epee_sans_fourreau
 gold_effects:
   reveals:
   - ref: object_epee_sans_fourreau

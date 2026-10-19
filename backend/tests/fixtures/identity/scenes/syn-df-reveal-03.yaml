@@ -2,6 +2,7 @@
 # (« Vasseur », surname first); an inscription names the ruined chapel (no shared word with its descriptor).
 id: syn-df-reveal-03
 genre: dark_fantasy
+campaign: vauclair
 source: synthetic
 turn: 9
 world:
@@ -424,6 +425,8 @@ gold:
   start: 490
   category: EASY
   expected: ALIAS character_thibault_vasseur true_name
+  accept_also:
+  - MATCH character_thibault_vasseur
 - surface: la Maison
   start: 592
   category: PART

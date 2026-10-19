@@ -2,6 +2,7 @@
 # « la cheffe de quart » is Yara, never a new character; the chief of bay 5 is another person (NEW trap).
 id: audit-cheffe-occupation
 genre: sf
+campaign: audit-cheffe-occupation
 source: synthetic
 turn: 9
 world:

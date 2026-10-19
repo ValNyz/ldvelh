@@ -2,6 +2,7 @@
 # next to the known pilots' guild), a cove and a bone whistle the PC receives.
 id: syn-df-new-05
 genre: dark_fantasy
+campaign: port-cendre
 source: synthetic
 turn: 18
 world:

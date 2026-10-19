@@ -3,10 +3,13 @@
 import yaml
 
 from evals.identity.corpus import Scene
+from evals.identity.lexicon import load_lexicon
 from scripts.identity_corpus_export import (
+    DUMP_SQL,
     build_scene,
     context_to_mentions,
     entity_id,
+    fetch_dump,
     main,
     slugify,
     surfaces_only,
@@ -76,9 +79,10 @@ def _dump() -> dict:
 
 
 def test_slug_drops_article_accents_and_punctuation():
-    assert slugify("La Kethari âgée") == "kethari_agee"
-    assert slugify("L'audit de la Serre Quatre") == "audit_de_la_serre_quatre"
-    assert entity_id("location", "Hall d'Arrivée Quai Sud") == (
+    fr = load_lexicon("fr")
+    assert slugify("La Kethari âgée", fr) == "kethari_agee"
+    assert slugify("L'audit de la Serre Quatre", fr) == "audit_de_la_serre_quatre"
+    assert entity_id("location", "Hall d'Arrivée Quai Sud", fr) == (
         "location_hall_d_arrivee_quai_sud"
     )
 
@@ -87,7 +91,7 @@ def test_context_spans_become_history_mentions_to_review():
     index = {("character", "kethari_agee"): "character_kethari_agee"}
     text = TURN_2
     context = _dump()["messages"][3]["narrator_context"]
-    mentions = context_to_mentions(text, context, index)
+    mentions = context_to_mentions(text, context, index, load_lexicon("fr"))
     # the pronoun « Il » is dropped; of two spans at one start the longest is kept
     assert [(m["surface"], m["expected"]) for m in mentions] == [
         ("La Kethari âgée", "MATCH character_kethari_agee"),
@@ -100,6 +104,7 @@ def test_skeleton_scene_is_loadable_and_carries_the_history():
     Scene.model_validate(scene)  # the shape is right; the gold is left to the annotator
     assert scene["id"] == "real-f134-t02"
     assert (scene["genre"], scene["language"]) == ("sf", "fr")
+    assert scene["campaign"] == "real-f134"
     assert scene["narration"] == TURN_2
     assert scene["gold"] == []
     assert [h["text"] for h in scene["history"]] == [TURN_1]
@@ -124,7 +129,9 @@ def test_skeleton_scene_is_loadable_and_carries_the_history():
 
 
 def test_invented_canonicals_are_reported():
-    assert unresolved_canonicals(_dump()) == ["Le Kethari de la cantine (character)"]
+    assert unresolved_canonicals(_dump(), load_lexicon("fr")) == [
+        "Le Kethari de la cantine (character)"
+    ]
 
 
 def test_surfaces_only_keeps_no_decision():
@@ -155,3 +162,47 @@ def test_export_never_overwrites_an_annotated_scene(tmp_path):
     path.write_text("annotated", encoding="utf-8")
     main(args)
     assert path.read_text(encoding="utf-8") == "annotated"
+
+
+def test_the_dump_is_read_only():
+    assert DUMP_SQL.startswith("SET default_transaction_read_only = on;")
+
+
+class _FakeConnection:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    async def execute(self, sql):
+        self.calls.append(sql)
+
+    async def fetch(self, sql, *args):
+        self.calls.append(sql)
+        return []
+
+    async def close(self):
+        self.calls.append("close")
+
+
+def test_the_live_export_sets_read_only_before_any_query(monkeypatch):
+    import asyncio
+    import sys
+    import types
+
+    conn = _FakeConnection()
+
+    async def connect(url):
+        return conn
+
+    monkeypatch.setitem(sys.modules, "asyncpg", types.SimpleNamespace(connect=connect))
+    asyncio.run(fetch_dump("postgresql://x", "f1340000-0000-0000-0000-000000000000"))
+    assert conn.calls[0] == "SET default_transaction_read_only = on"
+    assert len(conn.calls) > 2 and conn.calls[-1] == "close"
+
+
+def test_a_dump_without_protagonist_is_refused():
+    import pytest
+
+    dump = _dump()
+    dump["registry"] = []
+    with pytest.raises(ValueError):
+        build_scene(dump, 1, "f134", genre="sf")

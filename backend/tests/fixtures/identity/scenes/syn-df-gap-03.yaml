@@ -2,6 +2,7 @@
 # the scriptorium, the hospice, the relic and the bone key, all absent for nine turns or more.
 id: syn-df-gap-03
 genre: dark_fantasy
+campaign: sael
 source: synthetic
 turn: 30
 world:

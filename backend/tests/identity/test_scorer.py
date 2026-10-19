@@ -34,6 +34,7 @@ def _scene_data(gold: list[dict], scene_id: str) -> dict:
     return {
         "id": scene_id,
         "genre": "sf",
+        "campaign": "unit",
         "source": "synthetic",
         "world": WORLD,
         "history": [],
@@ -592,3 +593,65 @@ def test_same_after_a_new_without_id_cannot_be_right():
     for repeat in (_d(20, "MATCH", "character_tesk"),
                    _d(20, "NEW", None, new_type="character")):  # fmt: skip
         assert _metrics(BORN_GOLD, [born, repeat]).by_category["DESC"].value == 0.0
+
+
+# --- review I1: a NEW and its SAME repeats form one chain ---
+
+CHAIN_GOLD = [
+    _mention(0, "NEW", "NEW character"),
+    _mention(20, "DESC", "SAME 0"),
+    _mention(40, "PART", "SAME 0"),
+]
+
+
+def _chain(*decisions):
+    return _metrics(CHAIN_GOLD, [d for d in decisions if d is not None])
+
+
+def test_a_chain_born_at_a_repeat_links_the_following_repeats_to_it():
+    m = _chain(
+        _d(0, "SKIP"),
+        _d(20, "NEW", "sys_1", new_type="character"),
+        _d(40, "MATCH", "sys_1"),
+    )
+    assert m.by_category["DESC"].value == 1.0 and m.by_category["PART"].value == 1.0
+    assert m.W == 0.0 and m.D == 0.0
+    assert m.new_recall == pytest.approx(1 / 2)  # the head NEW was missed
+
+
+def test_a_second_new_in_a_chain_is_a_duplicate():
+    m = _chain(
+        _d(0, "SKIP"),
+        _d(20, "NEW", "sys_1", new_type="character"),
+        _d(40, "NEW", "sys_2", new_type="character"),
+    )
+    assert m.by_category["DESC"].value == 1.0 and m.by_category["PART"].value == 0.0
+    assert m.D == 1.0
+    m = _chain(
+        _d(0, "NEW", "sys_1", new_type="character"),
+        _d(20, "MATCH", "sys_1"),
+        _d(40, "NEW", "sys_2", new_type="character"),
+    )
+    assert m.by_category["PART"].value == 0.0 and m.D == pytest.approx(1 / 2)
+
+
+def test_every_repeat_of_a_chain_born_at_the_head_links_to_the_head_id():
+    m = _chain(
+        _d(0, "NEW", "sys_1", new_type="character"),
+        _d(20, "MATCH", "sys_1"),
+        _d(40, "ALIAS", "sys_1", "short"),
+    )
+    assert m.by_category["DESC"].value == 1.0 and m.by_category["PART"].value == 1.0
+
+
+def test_unsure_on_a_repeat_of_an_unborn_trap_chain_is_right():
+    gold = [
+        _mention(0, "NEW", "NEW character", trap=True),
+        _mention(20, "EASY", "SAME 0"),
+    ]
+    assert (
+        _metrics(gold, [_d(0, "SKIP"), _d(20, "UNSURE")]).by_category["EASY"].value
+        == 1.0
+    )
+    born = _d(0, "NEW", "sys_1", new_type="character")
+    assert _metrics(gold, [born, _d(20, "UNSURE")]).by_category["EASY"].value == 0.0

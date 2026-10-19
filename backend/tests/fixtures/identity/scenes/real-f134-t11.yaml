@@ -8,6 +8,7 @@
 # the turn after their first mention (NEW).
 id: real-f134-t11
 genre: sf
+campaign: real-f134
 source: real
 turn: 11
 world:
@@ -457,19 +458,16 @@ world:
   last_seen_turn: null
   aliases: []
 history:
-- text: 'La pause s''allonge. Le curseur clignote dans le champ vide.
+- text: |-
+    La pause s'allonge. Le curseur clignote dans le champ vide.
 
-
-    *Je n''ai pas de préférence. On ne m''a jamais demandé.* Encore un silence. *Si tu veux du taquin : Ortie. C''est une plante. Ça pique quand on la touche sans faire attention. Ça pousse partout où personne ne l''a invitée. Et ça passera dans les logs de la Coopérative sans que la cheffe de serre lève un sourcil.*
-
+    *Je n'ai pas de préférence. On ne m'a jamais demandé.* Encore un silence. *Si tu veux du taquin : Ortie. C'est une plante. Ça pique quand on la touche sans faire attention. Ça pousse partout où personne ne l'a invitée. Et ça passera dans les logs de la Coopérative sans que la cheffe de serre lève un sourcil.*
 
     Une dernière pause, plus courte.
 
+    *Et tu pourras dire que tu as été piqué par une ortie dès ton premier jour dans une station agricole. Ça fera rire quelqu'un. Peut-être.*
 
-    *Et tu pourras dire que tu as été piqué par une ortie dès ton premier jour dans une station agricole. Ça fera rire quelqu''un. Peut-être.*
-
-
-    Le mot n''est pas saisi. Le champ attend toujours ton pouce. La Kethari âgée referme sa boîte avec un petit claquement sec, se lève et tire sa valise vers la porte de la coursive, d''où s''échappe toujours cette odeur de bouillon.'
+    Le mot n'est pas saisi. Le champ attend toujours ton pouce. La Kethari âgée referme sa boîte avec un petit claquement sec, se lève et tire sa valise vers la porte de la coursive, d'où s'échappe toujours cette odeur de bouillon.
   mentions:
   - surface: personne
     start: 255
@@ -515,16 +513,14 @@ history:
     start: 712
     category: PART
     expected: MATCH location_coursive_du_hall
-- text: 'La pause, cette fois, est franchement longue.
+- text: |-
+    La pause, cette fois, est franchement longue.
 
+    *J'avais compris*, dit Pervenche. *Je ne t'en proposerai pas de ce genre-là. Ce n'est pas de la pudeur, je n'ai rien qui irait avec.* Un silence. *Le champ est à toi. Tape ce que tu veux, je répondrai. Je ne choisirai pas à ta place.*
 
-    *J''avais compris*, dit Pervenche. *Je ne t''en proposerai pas de ce genre-là. Ce n''est pas de la pudeur, je n''ai rien qui irait avec.* Un silence. *Le champ est à toi. Tape ce que tu veux, je répondrai. Je ne choisirai pas à ta place.*
+    Le curseur clignote toujours dans le champ vide. La porte de la coursive s'est refermée sur la Kethari âgée. Il ne reste dans le hall que les deux adolescentes, qui ont fini par renoncer à leur sac et le traînent ensemble vers la sortie *Résidences*, en laissant derrière elles une traînée de chaussettes.
 
-
-    Le curseur clignote toujours dans le champ vide. La porte de la coursive s''est refermée sur la Kethari âgée. Il ne reste dans le hall que les deux adolescentes, qui ont fini par renoncer à leur sac et le traînent ensemble vers la sortie *Résidences*, en laissant derrière elles une traînée de chaussettes.
-
-
-    Ton terminal affiche maintenant 05h56. Au-dessus de la borne en panne, un deuxième plafonnier commence à grésiller.'
+    Ton terminal affiche maintenant 05h56. Au-dessus de la borne en panne, un deuxième plafonnier commence à grésiller.
   mentions:
   - surface: Pervenche
     start: 70
@@ -558,16 +554,14 @@ history:
     start: 642
     category: SKIP
     expected: SKIP
-- text: 'Tu tapes les deux mots. Le champ les accepte, et la fenêtre de confirmation se referme presque aussitôt. *Nom d''appel : Clown taquin.* « Pervenche » disparaît de la ligne grisée.
-
+- text: |-
+    Tu tapes les deux mots. Le champ les accepte, et la fenêtre de confirmation se referme presque aussitôt. *Nom d'appel : Clown taquin.* « Pervenche » disparaît de la ligne grisée.
 
     La pause qui suit est la plus longue depuis ton arrivée.
 
+    *Enregistré*, dit la voix, toujours aussi basse et neutre. *Je ne sais pas rigoler sur commande. Je peux répondre à Clown taquin. C'est déjà beaucoup pour un clown.* Un temps. *Il est cinq heures cinquante-huit. Tu n'as rien mangé depuis la navette.*
 
-    *Enregistré*, dit la voix, toujours aussi basse et neutre. *Je ne sais pas rigoler sur commande. Je peux répondre à Clown taquin. C''est déjà beaucoup pour un clown.* Un temps. *Il est cinq heures cinquante-huit. Tu n''as rien mangé depuis la navette.*
-
-
-    Au-dessus de la borne, le plafonnier grésille une dernière fois, puis se stabilise. Le hall est vide, à part toi et les chaussettes oubliées par les adolescentes. Par la porte de la coursive, entrouverte sur la Cantine du Puits, filtre une odeur de bouillon et le raclement d''une louche contre une marmite.'
+    Au-dessus de la borne, le plafonnier grésille une dernière fois, puis se stabilise. Le hall est vide, à part toi et les chaussettes oubliées par les adolescentes. Par la porte de la coursive, entrouverte sur la Cantine du Puits, filtre une odeur de bouillon et le raclement d'une louche contre une marmite.
   mentions:
   - surface: Clown taquin
     start: 120
@@ -605,16 +599,14 @@ history:
     start: 698
     category: EASY
     expected: MATCH location_cantine_du_puits
-- text: 'Rien pendant une seconde. Puis :
+- text: |-
+    Rien pendant une seconde. Puis :
 
+    *Pardon. Je n'ai pas encore l'habitude de « clown ».* Une pause. *Je ne décide pas pour toi. Je peux te donner les faits. Le Bureau des Résidences ouvre à huit heures. Ta prise de poste est à huit heures. Tu ne seras pas aux deux endroits à la fois.* Encore un silence. *La Cantine du Puits est ouverte. Elle est à trente mètres.*
 
-    *Pardon. Je n''ai pas encore l''habitude de « clown ».* Une pause. *Je ne décide pas pour toi. Je peux te donner les faits. Le Bureau des Résidences ouvre à huit heures. Ta prise de poste est à huit heures. Tu ne seras pas aux deux endroits à la fois.* Encore un silence. *La Cantine du Puits est ouverte. Elle est à trente mètres.*
+    Par la porte entrouverte, le raclement de louche s'est arrêté. Une voix grave annonce quelque chose que tu ne comprends pas. Ça ressemble à « plus de galettes ». Quelqu'un répond par un soupir.
 
-
-    Par la porte entrouverte, le raclement de louche s''est arrêté. Une voix grave annonce quelque chose que tu ne comprends pas. Ça ressemble à « plus de galettes ». Quelqu''un répond par un soupir.
-
-
-    À tes pieds, ta valise souple s''est affaissée sur le côté.'
+    À tes pieds, ta valise souple s'est affaissée sur le côté.
   mentions:
   - surface: clown
     start: 78
@@ -644,22 +636,18 @@ history:
     start: 574
     category: PART
     expected: MATCH object_valise_souple
-- text: 'Tu attrapes ta valise affaissée et tu traverses le hall. La coursive est courte, basse, tapissée de tuyaux qui suintent. Une flaque s''est formée sous un raccord. Quelqu''un a posé un bac en plastique dessous, déjà plein à moitié.
-
+- text: |-
+    Tu attrapes ta valise affaissée et tu traverses le hall. La coursive est courte, basse, tapissée de tuyaux qui suintent. Une flaque s'est formée sous un raccord. Quelqu'un a posé un bac en plastique dessous, déjà plein à moitié.
 
     La Cantine du Puits occupe un ancien local technique. On voit encore les fixations des machines au sol, sous une couche de peinture jaune écaillée. Six tables, des bancs dépareillés, une baie de service avec deux marmites fumantes et une plaque chauffante vide, encore grasse. Trois clients tout au plus : un type en bleu de travail endormi sur son plateau, et la Kethari âgée, assise dans un coin, sa valise contre les genoux. Près de la baie, une caisse vide sert de cale-porte. Sur son flanc, une étiquette tamponnée : *PROTÉINES TEXTURÉES — LOT 2851-09 — 40 PORTIONS*.
 
-
     Derrière la baie, un Kethari au tablier taché fait défiler quelque chose sur son terminal. Il le pose face contre le comptoir quand tu approches.
 
-
-    — Plus de galettes, dit-il d''une voix grave, sans préambule. Bouillon de racines, neuf crédits. Il y avait du supplément protéines, il n''y en a plus. Désolé. Il reste du pain d''algue d''hier, je le donne avec.
-
+    — Plus de galettes, dit-il d'une voix grave, sans préambule. Bouillon de racines, neuf crédits. Il y avait du supplément protéines, il n'y en a plus. Désolé. Il reste du pain d'algue d'hier, je le donne avec.
 
     Il attend, la louche déjà en main. Le terminal vibre sous sa paume. Il ne le retourne pas.
 
-
-    *Bouillon*, dit ta compagne, après un temps. *Ce sera ton premier repas depuis trente et une heures. Je ne compte pas. Je le note, c''est tout.*'
+    *Bouillon*, dit ta compagne, après un temps. *Ce sera ton premier repas depuis trente et une heures. Je ne compte pas. Je le note, c'est tout.*
   mentions:
   - surface: ta valise affaissée
     start: 12
@@ -733,22 +721,18 @@ history:
     start: 1269
     category: PC
     expected: MATCH companion_pervenche
-- text: 'Tu poses neuf crédits sur le lecteur. Le Kethari au tablier remplit un bol jusqu''au bord, ajoute un carré de pain d''algue grisâtre et pousse le tout vers toi sans un mot.
+- text: |-
+    Tu poses neuf crédits sur le lecteur. Le Kethari au tablier remplit un bol jusqu'au bord, ajoute un carré de pain d'algue grisâtre et pousse le tout vers toi sans un mot.
 
-
-    Le bouillon est trop salé, un peu terreux, avec des morceaux de racine qui fondent sous la dent. Le pain d''algue est caoutchouteux mais trempé dedans, ça passe. Tu vides le bol jusqu''à racler le fond avec la croûte.
-
+    Le bouillon est trop salé, un peu terreux, avec des morceaux de racine qui fondent sous la dent. Le pain d'algue est caoutchouteux mais trempé dedans, ça passe. Tu vides le bol jusqu'à racler le fond avec la croûte.
 
     Quand tu lèves les yeux, le gérant te regarde, la louche toujours en main.
 
-
     — Il en reste un fond, dit-il. Je te le mets ? Ça sera jeté sinon.
-
 
     Sous sa paume, le terminal vibre de nouveau. Cette fois il le retourne, lit, et sa mâchoire se crispe. Il le repose face contre le comptoir, un peu trop fort. Dans son coin, la Kethari âgée a relevé la tête au bruit.
 
-
-    *Six heures vingt-deux*, dit la voix basse sur ton terminal. *Il te reste une heure trente-huit. Et tu ne sais toujours pas où est la Serre Numéro Quatre.*'
+    *Six heures vingt-deux*, dit la voix basse sur ton terminal. *Il te reste une heure trente-huit. Et tu ne sais toujours pas où est la Serre Numéro Quatre.*
   mentions:
   - surface: Le Kethari au tablier
     start: 38
@@ -806,19 +790,16 @@ scene:
   planned_npcs: []
   secrets: []
   open_disclosures: []
-narration: 'La pause est longue. Le gérant attend toujours, la louche au-dessus de la marmite.
+narration: |-
+  La pause est longue. Le gérant attend toujours, la louche au-dessus de la marmite.
 
+  *Un programme. Je peux te donner un ordre possible, pas un ordre à suivre.* Un temps. *Un : demander à quelqu'un où est la Serre Numéro Quatre. Il y a quelqu'un devant toi. Deux : être à la serre à huit heures. Trois : passer au Bureau des Résidences pendant ta pause, si tu en as une. Ton contrat le dit peut-être. Tu ne l'as pas lu.* Encore un silence. *Quatre : décider si tu veux le fond de bouillon. Il attend.*
 
-  *Un programme. Je peux te donner un ordre possible, pas un ordre à suivre.* Un temps. *Un : demander à quelqu''un où est la Serre Numéro Quatre. Il y a quelqu''un devant toi. Deux : être à la serre à huit heures. Trois : passer au Bureau des Résidences pendant ta pause, si tu en as une. Ton contrat le dit peut-être. Tu ne l''as pas lu.* Encore un silence. *Quatre : décider si tu veux le fond de bouillon. Il attend.*
+  Le Kethari au tablier n'a pas bougé. Son terminal vibre une troisième fois sous sa paume. Il ne le regarde pas.
 
+  — Alors ? dit-il. Oui ou non, j'ai la plonge à faire.
 
-  Le Kethari au tablier n''a pas bougé. Son terminal vibre une troisième fois sous sa paume. Il ne le regarde pas.
-
-
-  — Alors ? dit-il. Oui ou non, j''ai la plonge à faire.
-
-
-  Dans son coin, la Kethari âgée a rangé sa boîte et te fixe maintenant, ouvertement, comme si elle aussi attendait ta réponse.'
+  Dans son coin, la Kethari âgée a rangé sa boîte et te fixe maintenant, ouvertement, comme si elle aussi attendait ta réponse.
 gold:
 - surface: Le gérant
   start: 21

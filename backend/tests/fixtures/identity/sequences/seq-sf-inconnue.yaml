@@ -4,6 +4,7 @@ id: seq-sf-inconnue
 turns:
 - id: seq-sf-inconnue-t1
   genre: sf
+  campaign: seq-sf-inconnue
   source: synthetic
   turn: 2
   world:
@@ -154,6 +155,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-inconnue-t2
   genre: sf
+  campaign: seq-sf-inconnue
   source: synthetic
   turn: 3
   world:
@@ -390,6 +392,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-inconnue-t3
   genre: sf
+  campaign: seq-sf-inconnue
   source: synthetic
   turn: 4
   world:
@@ -648,6 +651,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-inconnue-t4
   genre: sf
+  campaign: seq-sf-inconnue
   source: synthetic
   turn: 5
   world:
@@ -905,6 +909,8 @@ turns:
     start: 332
     category: EASY
     expected: ALIAS character_femme_au_manteau_de_pluie true_name
+    accept_also:
+    - MATCH character_femme_au_manteau_de_pluie
   - surface: la Douane
     start: 372
     category: PART
@@ -924,6 +930,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-inconnue-t5
   genre: sf
+  campaign: seq-sf-inconnue
   source: synthetic
   turn: 6
   world:
@@ -1196,6 +1203,7 @@ turns:
   gold_knowledge: []
 - id: seq-sf-inconnue-t6
   genre: sf
+  campaign: seq-sf-inconnue
   source: synthetic
   turn: 7
   world:

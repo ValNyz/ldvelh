@@ -2,6 +2,7 @@
 # secret object name, with an open disclosure (inscription on the blade).
 id: syn-df-reveal-02
 genre: dark_fantasy
+campaign: vargne
 source: synthetic
 turn: 26
 world:
@@ -421,6 +422,8 @@ gold:
   start: 143
   category: EASY
   expected: ALIAS object_tranchoir_a_manche_d_os true_name
+  accept_also:
+  - MATCH object_tranchoir_a_manche_d_os
 - surface: Vespérine
   start: 161
   category: PC

@@ -2,6 +2,7 @@
 # the Capitainerie is a building and an authority; Vigie is the PC's drone and the port militia.
 id: audit-homonyme-lieu-org
 genre: sf
+campaign: audit-homonyme-lieu-org
 source: synthetic
 turn: 6
 world:

@@ -3,6 +3,7 @@
 # (secret name, disclosure open).
 id: audit-objet-revele
 genre: sf
+campaign: audit-objet-revele
 source: synthetic
 turn: 10
 world:
@@ -222,6 +223,8 @@ gold:
   start: 714
   category: EASY
   expected: ALIAS organization_acheteurs_anonymes true_name
+  accept_also:
+  - MATCH organization_acheteurs_anonymes
 - surface: Sillage
   start: 781
   category: PC

@@ -1,5 +1,6 @@
 id: syn-sf-reveal-03
 genre: sf
+campaign: port-abysse
 source: synthetic
 turn: 13
 world:
@@ -448,6 +449,8 @@ gold:
   start: 255
   category: EASY
   expected: ALIAS organization_hommes_en_combinaison_blanche true_name
+  accept_also:
+  - MATCH organization_hommes_en_combinaison_blanche
 - surface: Oko
   start: 282
   category: PC

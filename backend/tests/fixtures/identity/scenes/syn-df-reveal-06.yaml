@@ -2,6 +2,7 @@
 # and of an object (inscription), plus a GAP on the inquisitor.
 id: syn-df-reveal-06
 genre: dark_fantasy
+campaign: sael
 source: synthetic
 turn: 21
 world:

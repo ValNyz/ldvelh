@@ -2,6 +2,7 @@
 # the PC's shuttle and a dock district, Hélios a district and the corporation that owns it.
 id: audit-homonymes-quartiers
 genre: sf
+campaign: audit-homonymes-quartiers
 source: synthetic
 turn: 12
 world:

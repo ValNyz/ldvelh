@@ -2,6 +2,7 @@
 # short form first) and of a location (rusty street plaque).
 id: syn-df-reveal-01
 genre: dark_fantasy
+campaign: vargne
 source: synthetic
 turn: 15
 world:
@@ -409,6 +410,8 @@ gold:
   start: 189
   category: EASY
   expected: ALIAS character_jorin_saulce true_name
+  accept_also:
+  - MATCH character_jorin_saulce
 - surface: la Halle
   start: 242
   category: XTYPE
