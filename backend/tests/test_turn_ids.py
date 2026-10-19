@@ -8,7 +8,7 @@ from uuid import UUID
 from repos import turns
 from services.engine import fate_core
 from tests.characterization import payloads
-from tests.helpers import rollback_last_turn
+from tests.helpers import narration_with, rollback_last_turn
 
 
 async def _turns(conn, game_id) -> list[dict]:
@@ -161,3 +161,38 @@ async def test_rollback_deletes_the_turns_of_the_deleted_messages(harness, world
         )
     assert [(t["id"], t["status"]) for t in left] == [(played[0]["id"], "committed")]
     assert orphan_journal == 0
+
+
+async def test_every_llm_call_of_a_turn_is_linked_to_it(harness, world_game, test_user):
+    # Narration, mechanical, resolver, extraction and the scheduled Director (new day) all
+    # carry the turn's id, background ones included (#106).
+    game_id = UUID(world_game)
+    async with harness.pool.acquire() as conn:
+        await conn.execute("UPDATE games SET current_cycle = 11 WHERE id = $1", game_id)
+        last_call = await conn.fetchval("SELECT coalesce(max(id), 0) FROM llm_calls")
+        first_turn = await conn.fetchval(
+            "SELECT min(created_at) FROM turns WHERE game_id = $1", game_id)
+        world_calls = await conn.fetch(
+            """SELECT turn_id, user_id, purpose FROM llm_calls
+               WHERE game_id = $1 AND created_at < $2""",
+            game_id, first_turn)
+    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
+    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    harness.llm._responses["narration"] = narration_with(
+        day_transition={"new_cycle": 12, "new_date": "Jour 12"})
+
+    events = await harness.chat(world_game, "Je dors jusqu'au matin.")
+    await harness.drain()
+    assert "done" in harness.summarize(events)
+
+    async with harness.pool.acquire() as conn:
+        turn_id = (await _turns(conn, game_id))[-1]["id"]
+        calls = await conn.fetch(
+            "SELECT turn_id, purpose FROM llm_calls WHERE game_id = $1 AND id > $2",
+            game_id, last_call)
+    # World generation and the initial Director run before any turn: no turn id.
+    assert {r["purpose"] for r in world_calls} == {"world_gen", "director"}
+    assert {r["turn_id"] for r in world_calls} == {None}
+    assert {r["user_id"] for r in world_calls} == {test_user["id"]}
+    assert {r["turn_id"] for r in calls} == {turn_id}
+    assert {"narration", "resolver", "extraction", "director"} <= {r["purpose"] for r in calls}

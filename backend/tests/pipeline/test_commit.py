@@ -212,4 +212,7 @@ async def test_engine_setup_failure_saves_no_world(harness, monkeypatch):
     assert [(e["code"], e["recoverable"]) for e in errors] == [("internal", True)]
     async with harness.pool.acquire() as conn:
         assert (await get_snapshot(conn, UUID(game_id))).world_created is False
-    assert await harness.db_summary(UUID(game_id)) == before
+    after = await harness.db_summary(UUID(game_id))
+    # The world generation call was paid: it stays in the call log (#106).
+    assert after.pop("llm_calls") == before.pop("llm_calls") + 1
+    assert after == before

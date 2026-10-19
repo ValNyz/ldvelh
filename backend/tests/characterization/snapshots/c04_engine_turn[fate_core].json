@@ -15,6 +15,7 @@
     "extraction_logs": 1,
     "facts": 5,
     "inventory": 2,
+    "llm_calls": 7,
     "locations": 6,
     "mechanic_rolls": 1,
     "messages": 4,

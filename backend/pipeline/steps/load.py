@@ -64,6 +64,7 @@ async def load_turn(ctx: TurnContext) -> Prepared:
         # Every request opens a turn; it stays open until its commit (halted, failed or
         # abandoned turns never commit) (#105).
         ctx.turn_id = await turns.open_turn(conn, snapshot.id)
+        ctx.session.bind_turn(ctx.turn_id)  # every LLM call of the turn is logged under it
         pending_roll = await load_pending_roll(conn, snapshot.id, ctx.engine)
         # Resumed roll: the stored action is narrated and saved, whatever the request
         # carried (#32). Protocol token (__ARRIVEE__): narrate the genre's arrival text,

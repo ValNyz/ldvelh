@@ -19,6 +19,7 @@ from api.streaming import SSEWriter, create_sse_response
 from config import Settings
 from llm.session import LLMSession
 from repos import games as games_repo
+from repos import llm_calls
 from repos import users as users_repo
 from repos.llm_models import load_catalog
 from schema import PROTAGONIST_REF, is_usable_protagonist_name
@@ -219,11 +220,13 @@ async def get_world_data(
 
 
 @router.get("/session/cost")
-async def session_cost(user: dict = Depends(get_current_user)):
-    """Return accumulated token usage and cost for the requesting user."""
-    from llm.usage import get_usage_ledger
-
-    return get_usage_ledger().get_summary(user["id"])
+async def session_cost(
+    user: dict = Depends(get_current_user),
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """The requesting user's all-time token usage and cost, from the call log (#106)."""
+    async with pool.acquire() as conn:
+        return await llm_calls.user_summary(conn, user["id"])
 
 
 @router.get("/providers")
@@ -420,7 +423,8 @@ async def _handle_chat(
             raise TurnError("game_not_found", "Partie introuvable.", recoverable=False)
         api_key = await _api_key_or_raise(pool, user_id, provider_name)
         session = LLMSession(provider_name, api_key, request.model,
-                             catalog=await load_catalog(pool), user_id=user_id)
+                             catalog=await load_catalog(pool), user_id=user_id,
+                             pool=pool, game_id=request.gameId)
         ctx = TurnContext(
             request=_turn_request(request, user_id),
             snapshot=snapshot,

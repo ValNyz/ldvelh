@@ -1,12 +1,14 @@
 """LLMSession: per-purpose provider/model, explicit per-call cost, structured dispatch."""
 
 import asyncio
+import logging
 from uuid import uuid4
 
 import pytest
 
 from llm.session import LLMCall, LLMSession, Purpose
 from llm.usage import UsageLedger
+from tests.helpers import RecordingLedger
 from services.llm_providers import (
     CompletionResult, LLMProvider, LLMUsage, StructuredOutputMode, ToolResult,
 )
@@ -52,12 +54,12 @@ class FakeProvider(LLMProvider):
 
 
 async def test_complete_json_returns_value_and_its_own_cost():
-    ledger = UsageLedger()
+    ledger = RecordingLedger()
     call = await LLMSession.from_provider(FakeProvider(), ledger).complete_json(
         Purpose.MECHANICAL, "sys", "user", 0.2, 500)
     assert call.value == {"ok": True}
     assert call.cost["input_tokens"] == 10 and call.cost["provider"] == "fake"
-    assert "mechanical" in ledger.get_summary()["purposes"]
+    assert ledger.purposes == ["mechanical"]
 
 
 async def test_failed_call_has_no_cost():
@@ -85,13 +87,13 @@ async def test_stream_yields_text_then_exposes_cost():
 
 
 async def test_stream_failure_records_nothing():
-    ledger = UsageLedger()
+    ledger = RecordingLedger()
     stream = LLMSession.from_provider(FakeProvider(fail=RuntimeError("down")), ledger).stream(
         Purpose.NARRATION, "sys", [], 0.7, 100)
     with pytest.raises(RuntimeError):
         async for _ in stream:
             pass
-    assert stream.cost is None and ledger.get_summary()["total_cost_usd"] == 0
+    assert stream.cost is None and ledger.purposes == []
 
 
 @pytest.mark.parametrize("mode,expected_call", [
@@ -174,23 +176,23 @@ class _SchemaProvider(FakeProvider):
 
 
 async def test_json_schema_success_returns_value_and_cost():
-    ledger = UsageLedger()
+    ledger = RecordingLedger()
     provider = _SchemaProvider('{"facts": [1]}')
     call = await LLMSession.from_provider(provider, ledger).extract_structured(
         "sys", "user", "t", "d", {}, 0.3, 100)
     assert provider.calls == ["schema"]
     assert call.value == {"facts": [1]} and call.cost["input_tokens"] == 10
-    assert ledger.get_summary()["purposes"]["extraction"]["calls"] == 1
+    assert ledger.purposes == ["extraction"]
 
 
 async def test_json_schema_invalid_json_is_still_recorded_then_text_fallback():
-    ledger = UsageLedger()
+    ledger = RecordingLedger()
     provider = _SchemaProvider("not json", text='{"ok": true}')
     call = await LLMSession.from_provider(provider, ledger).extract_structured(
         "sys", "user", "t", "d", {}, 0.3, 100)
     assert provider.calls == ["schema", "complete"]
     assert call.value == {"ok": True}
-    assert ledger.get_summary()["purposes"]["extraction"]["calls"] == 2
+    assert ledger.purposes == ["extraction", "extraction"]
 
 
 class _SurrogateProvider(FakeProvider):
@@ -214,3 +216,40 @@ async def test_text_extraction_replaces_lone_surrogates():
     provider = _SurrogateProvider(text='{"t": "x\\ud83d"}', mode=StructuredOutputMode.TEXT)
     call = await LLMSession.from_provider(provider).extract_structured("sys", "user", "t", "d", {}, 0.3, 100)
     assert call.value == {"t": "x�"}
+
+
+class _FailingPool:
+    """Pool whose connections cannot be acquired: the call log is down."""
+
+    def __init__(self):
+        self.acquired = 0
+
+    def acquire(self):
+        self.acquired += 1
+        raise ConnectionError("pool closed")
+
+
+async def test_record_without_pool_inserts_nothing():
+    session = LLMSession.from_provider(FakeProvider())
+    assert session.pool is None
+    call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    assert call.cost["input_tokens"] == 10
+
+
+async def test_insert_failure_is_logged_not_raised(caplog):
+    session = LLMSession.from_provider(FakeProvider())
+    session.pool = pool = _FailingPool()
+    with caplog.at_level(logging.ERROR, logger="llm.session"):
+        call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    assert pool.acquired == 1
+    assert call.cost["input_tokens"] == 10  # the caller still gets its cost
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert [r.getMessage() for r in errors] == ["[COST] llm_calls insert failed purpose=resolver"]
+
+
+def test_bind_turn_sets_the_turn_of_later_calls():
+    session = LLMSession("anthropic", api_key="k", user_id=USER, game_id=uuid4())
+    assert session.turn_id is None
+    turn_id = uuid4()
+    session.bind_turn(turn_id)
+    assert session.turn_id == turn_id

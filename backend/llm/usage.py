@@ -1,12 +1,10 @@
-"""Usage ledger: records every LLM call and returns its cost to the caller (#18).
+"""Usage ledger: prices every LLM call and returns its cost to the caller (#18).
 
 The cost is never read back from shared state: concurrent calls (another game,
 a background extraction) cannot overwrite each other's cost.
 """
 
 import logging
-from dataclasses import dataclass
-from uuid import UUID
 
 from services.llm_providers import LLMUsage
 from services.pricing import lookup_pricing
@@ -42,32 +40,20 @@ def cost_from_stored(usage_data: dict) -> float:
     )
 
 
-@dataclass
-class _Totals:
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_creation_input_tokens: int = 0
-    cache_read_input_tokens: int = 0
-    calls: int = 0
-    cost_usd: float = 0.0
+def is_unpriced(provider_name: str, model: str) -> bool:
+    """True when the model has no known price: its calls are logged at $0, flagged unknown."""
+    p = lookup_pricing(model, provider_name)
+    return p.input == p.output == p.cache_write == p.cache_read == 0
 
 
 class UsageLedger:
-    """Process-wide usage totals, keyed by (user, purpose, provider, model)."""
+    """Prices each LLM call and returns its cost to the caller; keeps no totals.
 
-    def __init__(self):
-        self._totals: dict[tuple[UUID | None, str, str, str], _Totals] = {}
+    The account totals are read from llm_calls (repos/llm_calls.py, #106).
+    """
 
-    def record(self, purpose: str, provider_name: str, model: str, usage: LLMUsage,
-               user_id: UUID | None = None) -> dict:
+    def record(self, purpose: str, provider_name: str, model: str, usage: LLMUsage) -> dict:
         cost = call_cost(usage, provider_name, model)
-        t = self._totals.setdefault((user_id, purpose, provider_name, model), _Totals())
-        t.input_tokens += usage.input_tokens
-        t.output_tokens += usage.output_tokens
-        t.cache_creation_input_tokens += usage.cache_creation_input_tokens
-        t.cache_read_input_tokens += usage.cache_read_input_tokens
-        t.calls += 1
-        t.cost_usd += cost
         logger.debug(
             f"[COST] {purpose}/{provider_name}/{model}: +{usage.input_tokens}in "
             f"+{usage.output_tokens}out (cache_read={usage.cache_read_input_tokens}) = ${cost:.6f}"
@@ -81,27 +67,6 @@ class UsageLedger:
             "model": model,
             "provider": provider_name,
         }
-
-    def get_summary(self, user_id: UUID | None = None) -> dict:
-        """Totals for one user's calls; every call when user_id is None (internal use, tests)."""
-        purposes: dict[str, dict] = {}
-        total = 0.0
-        for (uid, purpose, _provider, model), t in self._totals.items():
-            if user_id is not None and uid != user_id:
-                continue
-            total += t.cost_usd
-            entry = purposes.setdefault(purpose, {"models": {}, "cost_usd": 0.0, "calls": 0})
-            m = entry["models"].setdefault(model, {
-                "input_tokens": 0, "output_tokens": 0, "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 0, "calls": 0, "cost_usd": 0.0,
-            })
-            for field in ("input_tokens", "output_tokens", "cache_creation_input_tokens",
-                          "cache_read_input_tokens", "calls"):
-                m[field] += getattr(t, field)
-            m["cost_usd"] = round(m["cost_usd"] + t.cost_usd, 6)
-            entry["cost_usd"] = round(entry["cost_usd"] + t.cost_usd, 6)
-            entry["calls"] += t.calls
-        return {"purposes": purposes, "total_cost_usd": round(total, 6)}
 
 
 _ledger = UsageLedger()

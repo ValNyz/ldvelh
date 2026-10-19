@@ -2,6 +2,8 @@
 Shared helpers for integration tests.
 """
 
+from llm.usage import UsageLedger
+
 
 def auth_headers(token: str) -> dict:
     """Build Authorization header dict."""
@@ -12,6 +14,18 @@ def auth_headers(token: str) -> dict:
 # /world/enhance must refuse it alike (one bounded form type, api/request_types.py).
 OVERSIZED_WIZARD_FORM = {part: {"lore": "x" * 9_000}
                          for part in ("world_config", "character_data", "manual_entities")}
+
+
+class RecordingLedger(UsageLedger):
+    """Usage ledger that remembers the purpose of every call it records."""
+
+    def __init__(self):
+        super().__init__()
+        self.purposes: list[str] = []
+
+    def record(self, purpose, *args, **kwargs) -> dict:
+        self.purposes.append(purpose)
+        return super().record(purpose, *args, **kwargs)
 
 
 # =============================================================================

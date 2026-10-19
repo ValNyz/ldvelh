@@ -432,22 +432,22 @@ class TestDirectorGuards:
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_director_cost_is_recorded(test_pool, test_user):
-    from llm.usage import UsageLedger
     from services.director_service import run_director
     from services.game_service import GameService
     from schema import WorldGeneration
     from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
+    from tests.helpers import RecordingLedger
     from tests.test_llm_session import FakeProvider
 
     service = GameService(test_pool)
     game_id = await service.create_game(test_user["id"])
     await service.process_init(game_id, WorldGeneration.model_validate(json.loads(WORLD_GENERATION_EXAMPLE)))
-    ledger = UsageLedger()
+    ledger = RecordingLedger()
     session = LLMSession.from_provider(
         FakeProvider(text=json.dumps({"tension_level": 3, "narrator_guidance": "g"})), ledger)
     assert await run_director(pool=test_pool, game_id=game_id, current_cycle=1,
                               current_time="08h00", session=session) is not None
-    assert ledger.get_summary()["purposes"]["director"]["calls"] == 1
+    assert ledger.purposes == ["director"]
 
 
 STORY = "Le dragon de verre murmure"

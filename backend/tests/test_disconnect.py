@@ -457,6 +457,11 @@ async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
     """Exhausted pool at commit time: a disconnect cancels the wait, nothing is saved."""
     game_id = UUID(fate_game)
     before = await _game_state(harness.pool, game_id)
+    # Without the call log: its insert would be the first wait for a connection, at the end
+    # of the narration stream (covered by the next test).
+    real_session = routes.LLMSession
+    monkeypatch.setattr(routes, "LLMSession",
+                        lambda *a, **kw: real_session(*a, **{**kw, "pool": None}))
     gate = asyncio.Event()
     harness.llm.stream_gate = gate
     narrated = asyncio.Event()
@@ -479,6 +484,46 @@ async def test_disconnect_while_waiting_for_a_connection_cancels_the_turn(
         # No sleep needed: the turn goes from narrate's return to pool.acquire() without
         # yielding, so it is already blocked on the exhausted pool when this wait returns.
         await asyncio.wait_for(narrated.wait(), TIMEOUT)
+        await stream.aclose()
+        await asyncio.wait({writer._task}, timeout=TIMEOUT)
+        assert writer._task.cancelled()  # done while the pool is still exhausted
+    finally:
+        for conn in held:
+            await harness.pool.release(conn)
+
+    await asyncio.wait_for(harness.drain(), TIMEOUT)
+    assert await _game_state(harness.pool, game_id) == before
+    assert game_locks.is_held(game_id) is False
+
+
+async def test_disconnect_while_logging_the_narration_call_cancels_the_turn(
+        harness, fate_game, test_user, monkeypatch):
+    """Exhausted pool when the narration call is logged (#106): a disconnect cancels the
+    wait, nothing is saved."""
+    from llm.session import LLMSession
+
+    game_id = UUID(fate_game)
+    before = await _game_state(harness.pool, game_id)
+    gate, recording = asyncio.Event(), asyncio.Event()
+    harness.llm.stream_gate = gate
+    original_record = LLMSession._record
+
+    async def spy_record(self, purpose, provider, usage):
+        recording.set()
+        return await original_record(self, purpose, provider, usage)
+
+    monkeypatch.setattr(LLMSession, "_record", spy_record)
+    writer = routes.start_chat(routes.ChatRequest(message="Je regarde autour.", gameId=game_id),
+                               harness.pool, get_settings(), test_user["id"])
+    stream = writer.iterate()
+    await asyncio.wait_for(_read_until_chunk(stream), TIMEOUT)
+    recording.clear()  # the mechanical call was logged before the narration started
+    held = [await harness.pool.acquire() for _ in range(harness.pool.get_max_size())]
+    try:
+        harness.llm.stream_gate = None
+        gate.set()
+        # The narration's record goes from the spy to pool.acquire() without yielding.
+        await asyncio.wait_for(recording.wait(), TIMEOUT)
         await stream.aclose()
         await asyncio.wait({writer._task}, timeout=TIMEOUT)
         assert writer._task.cancelled()  # done while the pool is still exhausted

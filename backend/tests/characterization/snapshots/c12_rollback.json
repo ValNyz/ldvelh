@@ -15,6 +15,7 @@
     "extraction_logs": 1,
     "facts": 5,
     "inventory": 2,
+    "llm_calls": 7,
     "locations": 6,
     "mechanic_rolls": 0,
     "messages": 2,
@@ -46,6 +47,7 @@
     "extraction_logs": 2,
     "facts": 5,
     "inventory": 2,
+    "llm_calls": 7,
     "locations": 6,
     "mechanic_rolls": 0,
     "messages": 4,
@@ -77,6 +79,7 @@
     "extraction_logs": 1,
     "facts": 5,
     "inventory": 2,
+    "llm_calls": 4,
     "locations": 6,
     "mechanic_rolls": 0,
     "messages": 2,
@@ -131,6 +134,10 @@
     "entity_registry": [
       13,
       14
+    ],
+    "llm_calls": [
+      4,
+      7
     ]
   },
   "response_deleted": 2,
@@ -177,6 +184,10 @@
     "extraction_logs": [
       1,
       2
+    ],
+    "llm_calls": [
+      4,
+      7
     ],
     "messages": [
       2,

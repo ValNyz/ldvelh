@@ -2,6 +2,7 @@
 
 It picks the provider instance and model for each purpose, exposes the
 provider capabilities, and returns the cost of every call to its caller.
+Given a pool, it also logs every call in llm_calls under its game and turn (#106).
 """
 
 from __future__ import annotations
@@ -13,7 +14,10 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from llm.usage import UsageLedger, get_usage_ledger
+import asyncpg
+
+from llm.usage import UsageLedger, get_usage_ledger, is_unpriced
+from repos import llm_calls
 from services.llm_providers import (
     LLMProvider,
     LLMUsage,
@@ -23,7 +27,7 @@ from services.llm_providers import (
 )
 from repos.llm_models import ModelCatalog
 from utils import parse_json_response, replace_lone_surrogates
-from utils.log_safe import safe_repr, safe_text
+from utils.log_safe import log_exception, safe_repr, safe_text
 
 logger = logging.getLogger(__name__)
 
@@ -78,24 +82,35 @@ class StreamCall:
             yield item
         if self.usage is not None:
             try:
-                self.cost = self._session._record(self._purpose, provider, self.usage)
+                self.cost = await self._session._record(self._purpose, provider, self.usage)
             except Exception as e:
                 raise UsageRecordingFailed("usage ledger failed") from e
 
 
 class LLMSession:
-    """Provider, models and usage for one game request. Holds no request resources."""
+    """Provider, models and usage for one game request. Holds no request resources.
+
+    One session per request, hence per turn: the background jobs of the turn (extraction,
+    hooks, Director) receive this same session, so they log their calls under its turn.
+    """
 
     def __init__(self, provider_name: str, api_key: str | None,
                  user_model: str | None = None, ledger: UsageLedger | None = None,
-                 catalog: ModelCatalog | None = None, *, user_id: UUID):
+                 catalog: ModelCatalog | None = None, *, user_id: UUID,
+                 pool: asyncpg.Pool | None = None, game_id: UUID | None = None):
         # A request session is always a user's: its usage is attributed to the account.
         self._setup(provider_name, api_key, user_model, ledger, catalog, user_id)
+        self.pool = pool
+        self.game_id = game_id
 
     def _setup(self, provider_name: str, api_key: str | None, user_model: str | None,
                ledger: UsageLedger | None, catalog: ModelCatalog | None,
                user_id: UUID | None) -> None:
         self.user_id = user_id  # None only for from_provider() sessions (tests)
+        # Call log (#106): no pool, nothing logged (from_provider() sessions, tests).
+        self.pool: asyncpg.Pool | None = None
+        self.game_id: UUID | None = None
+        self.turn_id: UUID | None = None  # None before the turn opens: world generation
         self.catalog = catalog
         self.provider_name = provider_name
         self._api_key = api_key
@@ -171,10 +186,33 @@ class LLMSession:
         provider = self.provider_for(Purpose.NARRATION)
         return Caps(provider.supports_cache_control, provider.structured_output_mode)
 
-    def _record(self, purpose: Purpose, provider: LLMProvider, usage: LLMUsage) -> dict:
-        return self.ledger.record(purpose.value, provider.provider_name,
-                                  provider.model_name(purpose.value), usage,
-                                  user_id=self.user_id)
+    def bind_turn(self, turn_id: UUID | None) -> None:
+        """Log the calls made from now on under `turn_id` (set once the turn opens)."""
+        self.turn_id = turn_id
+
+    async def _record(self, purpose: Purpose, provider: LLMProvider, usage: LLMUsage) -> dict:
+        """This call's cost; logged in llm_calls when the session has a pool.
+
+        The insert runs on its own connection, outside any turn transaction; its failure is
+        logged, never raised: the narration does not fail for a counter."""
+        provider_name, model = provider.provider_name, provider.model_name(purpose.value)
+        cost = self.ledger.record(purpose.value, provider_name, model, usage)
+        if self.pool is None:
+            return cost
+        try:
+            async with self.pool.acquire() as conn:
+                await llm_calls.insert_call(
+                    conn, turn_id=self.turn_id, game_id=self.game_id, user_id=self.user_id,
+                    purpose=purpose.value, provider=provider_name, model=model,
+                    usage={k: cost[k] for k in ("input_tokens", "output_tokens",
+                                                "cache_creation_input_tokens",
+                                                "cache_read_input_tokens")},
+                    cost_usd=cost["cost_usd"], cost_unknown=is_unpriced(provider_name, model),
+                )
+        except Exception as e:
+            log_exception(logger, logging.ERROR,
+                          f"[COST] llm_calls insert failed purpose={purpose.value}", e)
+        return cost
 
     # -- calls ----------------------------------------------------------------
 
@@ -188,7 +226,7 @@ class LLMSession:
         provider = self.provider_for(purpose)
         result = await provider.complete(system_prompt=system_prompt, messages=messages,
                                          temperature=temperature, max_tokens=max_tokens)
-        return LLMCall(result.content, self._record(purpose, provider, result.usage))
+        return LLMCall(result.content, await self._record(purpose, provider, result.usage))
 
     async def complete_json(self, purpose: Purpose, system_prompt: str, user_message: str,
                             temperature: float, max_tokens: int) -> LLMCall:
@@ -203,7 +241,7 @@ class LLMSession:
         except Exception as e:
             logger.error(f"[LLM] {purpose.value} call failed ({self.provider_name}): {safe_text(e)}")
             return LLMCall(None, None)
-        cost = self._record(purpose, provider, result.usage)
+        cost = await self._record(purpose, provider, result.usage)
         return LLMCall(parse_json_response(result.content), cost)
 
     async def extract_structured(self, system_prompt: str, user_message: str, tool_name: str,
@@ -223,7 +261,7 @@ class LLMSession:
                     tool_choice={"type": "tool", "name": tool_name},
                     temperature=temperature, max_tokens=max_tokens,
                 )
-                cost = self._record(purpose, provider, result.usage)
+                cost = await self._record(purpose, provider, result.usage)
                 return LLMCall(replace_lone_surrogates(result.tool_input), cost)
             if mode == StructuredOutputMode.JSON_SCHEMA:
                 result = await provider.complete_with_schema(
@@ -231,7 +269,7 @@ class LLMSession:
                     schema_name=tool_name, schema=schema,
                     temperature=temperature, max_tokens=max_tokens,
                 )
-                cost = self._record(purpose, provider, result.usage)  # billed even if unparsable
+                cost = await self._record(purpose, provider, result.usage)  # billed even if unparsable
                 return LLMCall(replace_lone_surrogates(json.loads(result.content)), cost)
         except NotImplementedError:
             logger.info(f"[LLM] {self.provider_name} has no {mode.value} support, using text")

@@ -5,6 +5,7 @@ import pytest
 from services.engine import get_engine
 from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
 from llm.session import LLMSession
+from tests.helpers import RecordingLedger
 from tests.test_llm_session import FakeProvider
 from services.llm_providers import AnthropicProvider, MistralProvider, get_provider
 
@@ -40,10 +41,11 @@ class TestRunMechanicalStep:
             return await original(**kwargs)
 
         provider.complete = spy
-        session = LLMSession.from_provider(provider)
+        ledger = RecordingLedger()
+        session = LLMSession.from_provider(provider, ledger)
         await run_mechanical_step(get_engine("fate_core"), {}, "Je force la porte", "", "moderate", session)
         assert (seen["max_tokens"], seen["temperature"]) == (500, 0.2)
-        assert "mechanical" in session.ledger.get_summary()["purposes"]
+        assert ledger.purposes == ["mechanical"]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("requires_test", [False, True])

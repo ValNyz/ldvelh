@@ -13,7 +13,8 @@ from tests.test_game_and_populator import _setup_game_with_world
 
 pytestmark = pytest.mark.integration
 
-# Tables with a game_id that are not world state: never journaled.
+# Tables with a game_id that are not world state: never journaled (llm_calls: cost
+# accounting, #106; a rolled back turn keeps the calls it paid for).
 NOT_JOURNALED = {"messages", "conversations", "extraction_logs", "turns", "llm_calls"}
 # World tables without a game_id column (pivots and per-entity engine rows).
 PIVOTS = {

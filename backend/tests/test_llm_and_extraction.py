@@ -469,7 +469,7 @@ class TestComputeCost:
 
 
 class TestUsageLedger:
-    """Tests for UsageLedger.record and UsageLedger.get_summary."""
+    """Tests for UsageLedger.record (the summary is read from llm_calls: test_repos_llm_calls)."""
 
     def test_record_returns_snapshot(self):
         tracker = UsageLedger()
@@ -480,43 +480,6 @@ class TestUsageLedger:
         assert snapshot["output_tokens"] == 500
         assert snapshot["model"] == "claude-sonnet-4-6"
         assert snapshot["provider"] == "anthropic"
-
-    def test_record_accumulates(self):
-        tracker = UsageLedger()
-        usage = _make_usage(inp=100, out=50)
-        tracker.record("narration", "anthropic", "claude-sonnet-4-6", usage)
-        tracker.record("narration", "anthropic", "claude-sonnet-4-6", usage)
-
-        accumulated = tracker._totals[(None, "narration", "anthropic", "claude-sonnet-4-6")]
-        assert accumulated.input_tokens == 200
-        assert accumulated.output_tokens == 100
-        assert accumulated.calls == 2
-
-    def test_get_summary_empty(self):
-        tracker = UsageLedger()
-        summary = tracker.get_summary()
-        assert summary["total_cost_usd"] == 0.0
-        assert summary["purposes"] == {}
-
-    def test_get_summary_grouped_by_purpose(self):
-        tracker = UsageLedger()
-        tracker.record("narration", "anthropic", "claude-sonnet-4-6", _make_usage(inp=1000, out=500))
-        tracker.record("extraction", "anthropic", "claude-sonnet-4-6", _make_usage(inp=500, out=200))
-
-        summary = tracker.get_summary()
-        assert "narration" in summary["purposes"]
-        assert "extraction" in summary["purposes"]
-        assert summary["purposes"]["narration"]["calls"] == 1
-        assert summary["purposes"]["extraction"]["calls"] == 1
-        assert summary["total_cost_usd"] > 0
-
-    def test_get_summary_detects_mistral_model(self):
-        """Mistral calls are priced via the mistral entry."""
-        tracker = UsageLedger()
-        tracker.record("narration", "mistral", "mistral-large-latest", _make_usage(inp=100, out=50))
-        summary = tracker.get_summary()
-        assert "narration" in summary["purposes"]
-        assert "total_cost_usd" in summary
 
 
 # Section 3 (LLMService) removed: narration streaming is tested in tests/pipeline/.
