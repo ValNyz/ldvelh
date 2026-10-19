@@ -57,7 +57,7 @@ async def _registry_names(conn, game_id: UUID, entity_type: str = "character") -
 
 async def _new_character(conn, game_id: UUID, name: str) -> UUID:
     return await conn.fetchval(
-        "INSERT INTO characters (game_id, name, mood, occupation) "
+        "INSERT INTO characters (game_id, true_name, mood, occupation) "
         "VALUES ($1, $2, 'calme', 'docker') RETURNING id",
         game_id,
         name,
@@ -82,7 +82,7 @@ async def test_undo_removes_inserted_rows_and_their_registry_entry(test_pool, wo
         )
         assert "Nouveau" not in await _registry_names(conn, game_id)
     assert chars == 0
-    assert replayed == 2
+    assert replayed == 3  # the character, its registry row and the alias of its name
 
 
 async def test_undo_restores_updated_columns_only(test_pool, world):
@@ -106,11 +106,11 @@ async def test_undo_restores_updated_columns_only(test_pool, world):
 
 
 async def _fact_with_participant(conn, game_id: UUID, name: str) -> UUID:
-    await _new_character(conn, game_id, name)
+    char_id = await _new_character(conn, game_id, name)
     return await conn.fetchval(
         "SELECT create_fact($1, 1, 'action', 'Un fait', p_participants => $2::jsonb)",
         game_id,
-        [{"name": name, "role": "actor"}],
+        [{"entity_id": str(char_id), "role": "actor"}],
     )
 
 

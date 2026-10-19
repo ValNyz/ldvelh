@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from config import get_identity_config
 from schema import (
     CharacterData,
     CompanionData,
@@ -145,11 +146,13 @@ class KnowledgeGraphPopulator:
         name: str = "Nouvelle partie",
         user_id: UUID | None = None,
     ) -> UUID:
-        """Create a new game. user_id required by DB (NOT NULL)."""
+        """Create a new game. user_id required by DB (NOT NULL). Its language (the pack its
+        entity names are normalised with) is the configured default."""
         self.game_id = await conn.fetchval(
-            "INSERT INTO games (user_id, name) VALUES ($1, $2) RETURNING id",
+            "INSERT INTO games (user_id, name, language) VALUES ($1, $2, $3) RETURNING id",
             user_id,
             name,
+            get_identity_config().default_language,
         )
         logger.info(f"Created game {self.game_id}: {name}")
         return self.game_id

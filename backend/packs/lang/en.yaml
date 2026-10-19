@@ -22,6 +22,8 @@ plural_markers: [s]
 ordinal_markers: ["no.", number]
 apostrophes: ["'", "’"]
 
+unknown_character_label: "Unknown person"
+
 proper_name_uses_capitals: true
 min_distinctive_token_len: 4
 

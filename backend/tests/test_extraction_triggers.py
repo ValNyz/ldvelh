@@ -27,7 +27,8 @@ async def _game(test_pool, test_user, registry_names=()):
     game_id = uuid4()
     async with test_pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO games (id, user_id) VALUES ($1, $2)", game_id, test_user["id"])
+            "INSERT INTO games (id, user_id, language) VALUES ($1, $2, 'fr')",
+            game_id, test_user["id"])
         for name in registry_names:
             await conn.execute(
                 "INSERT INTO entity_registry (game_id, entity_type, name) "

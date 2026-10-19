@@ -278,9 +278,15 @@ async def pending_roll_turn(conn, roll_id: UUID) -> UUID | None:
     return await conn.fetchval("SELECT turn_id FROM mechanic_rolls WHERE id = $1", roll_id)
 
 
-# Every column referencing turns(id), world_changes first: deleting the turn cascades to it.
-_TURN_REFERENCES = ("world_changes", "messages", "mechanic_rolls", "extraction_logs",
-                    "director_commitments", "llm_calls")
+# Every (table, column) referencing turns(id), world_changes first: deleting the turn
+# cascades to it.
+_TURN_REFERENCES = (
+    ("world_changes", "turn_id"), ("messages", "turn_id"), ("mechanic_rolls", "turn_id"),
+    ("extraction_logs", "turn_id"), ("director_commitments", "turn_id"),
+    ("llm_calls", "turn_id"), ("entity_registry", "created_turn_id"),
+    ("entity_aliases", "turn_id"), ("entity_mentions", "turn_id"),
+    ("entity_merges", "turn_id"), ("identity_events", "turn_id"),
+)
 
 
 async def adopt_halted_turn(conn, game_id: UUID, halted_turn_id: UUID | None,
@@ -300,8 +306,8 @@ async def adopt_halted_turn(conn, game_id: UUID, halted_turn_id: UUID | None,
     )
     if halted is None:
         return False
-    for table in _TURN_REFERENCES:
-        await conn.execute(f"UPDATE {table} SET turn_id = $2 WHERE turn_id = $1",
+    for table, column in _TURN_REFERENCES:
+        await conn.execute(f"UPDATE {table} SET {column} = $2 WHERE {column} = $1",
                            halted_turn_id, turn_id)
     await conn.execute("DELETE FROM turns WHERE id = $1", halted_turn_id)
     return True

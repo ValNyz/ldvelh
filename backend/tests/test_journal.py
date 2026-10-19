@@ -16,7 +16,8 @@ pytestmark = pytest.mark.integration
 
 # Tables with a game_id that are not world state: never journaled (llm_calls: cost
 # accounting, #106; a rolled back turn keeps the calls it paid for).
-# lang_packs (no game_id) is configuration, listed for the record.
+# lang_packs (no game_id) is configuration, listed for the record. identity_events:
+# identity telemetry (#152), kept like llm_calls when a turn is rolled back.
 NOT_JOURNALED = {
     "messages",
     "conversations",
@@ -24,6 +25,7 @@ NOT_JOURNALED = {
     "turns",
     "llm_calls",
     "lang_packs",
+    "identity_events",
 }
 # World tables without a game_id column (pivots and per-entity engine rows).
 PIVOTS = {
@@ -74,7 +76,7 @@ async def test_insert_update_delete_are_journaled_in_order(test_pool, world):
     async with test_pool.acquire() as conn:
         async with uow(conn, turn_id):
             char_id = await conn.fetchval(
-                "INSERT INTO characters (game_id, name) VALUES ($1, 'Journa') RETURNING id",
+                "INSERT INTO characters (game_id, true_name) VALUES ($1, 'Journa') RETURNING id",
                 game_id,
             )
             await conn.execute(
@@ -96,19 +98,23 @@ async def test_insert_update_delete_are_journaled_in_order(test_pool, world):
 
 
 async def test_registry_row_is_journaled_before_the_entity(test_pool, world):
+    """The BEFORE INSERT trigger registers the entity, at its id, with the alias of its
+    name (#152): both are journaled before the entity itself."""
     game_id, turn_id = world
     async with test_pool.acquire() as conn:
         async with uow(conn, turn_id):
             await conn.execute(
-                "INSERT INTO characters (game_id, name) VALUES ($1, 'Registre')",
+                "INSERT INTO characters (game_id, true_name) VALUES ($1, 'Registre')",
                 game_id,
             )
         rows = await _journal(conn, turn_id)
 
     assert [(r["table_name"], r["op"]) for r in rows] == [
         ("entity_registry", "I"),
+        ("entity_aliases", "I"),
         ("characters", "I"),
     ]
+    assert rows[0]["row_id"] == rows[2]["row_id"]
 
 
 async def test_cascade_children_are_journaled_after_the_parent(test_pool, world):
@@ -117,13 +123,14 @@ async def test_cascade_children_are_journaled_after_the_parent(test_pool, world)
     own zz_journal_id, so the children's D rows follow the parent's, in the same turn."""
     game_id, turn_id = world
     async with test_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO characters (game_id, name) VALUES ($1, 'Témoin')", game_id
+        witness = await conn.fetchval(
+            "INSERT INTO characters (game_id, true_name) VALUES ($1, 'Témoin') RETURNING id",
+            game_id,
         )
         fact_id = await conn.fetchval(
             "SELECT create_fact($1, 1, 'action', 'Un fait', p_participants => $2::jsonb)",
             game_id,
-            [{"name": "Témoin", "role": "actor"}],
+            [{"entity_id": str(witness), "role": "actor"}],
         )
         assert (
             await conn.fetchval(
@@ -175,7 +182,7 @@ async def test_write_outside_a_turn_is_not_journaled(test_pool, world):
         before = await _count(conn)
         async with conn.transaction():
             char_id = await conn.fetchval(
-                "INSERT INTO characters (game_id, name) VALUES ($1, 'Horstour') RETURNING id",
+                "INSERT INTO characters (game_id, true_name) VALUES ($1, 'Horstour') RETURNING id",
                 game_id,
             )
             await conn.execute(
@@ -250,7 +257,8 @@ async def test_deleting_the_turn_drops_its_journal_and_logs_and_keeps_its_rows(
         )
         async with uow(conn, turn_id):
             await conn.execute(
-                "INSERT INTO characters (game_id, name) VALUES ($1, 'Effacé')", game_id
+                "INSERT INTO characters (game_id, true_name) VALUES ($1, 'Effacé')",
+                game_id,
             )
         assert await _journal(conn, turn_id)
 

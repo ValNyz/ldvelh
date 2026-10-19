@@ -3,8 +3,9 @@
 A language pack (`packs/lang/<lang>.yaml`) holds every word the identity code compares
 with; a genre pack (`packs/genre/<slug>.yaml`) adds the words of a universe in its optional
 `identity` section. Both are validated at load: a missing or unknown key is an error, and
-the backend refuses to start (startup_checks). `sync_lang_packs` copies the normalisation
-parameters of every language pack into `lang_packs`, where `ldvelh_norm` reads them.
+the backend refuses to start (startup_checks). `sync_lang_packs` copies the parameters the
+SQL side reads (`sql_params`) of every language pack into `lang_packs`, where `ldvelh_norm`
+and `display_for_player` read them.
 """
 
 from __future__ import annotations
@@ -88,6 +89,7 @@ class LangPack(_Strict):
     plural_markers: list[str]
     ordinal_markers: list[str]
     apostrophes: list[str]
+    unknown_character_label: str
     proper_name_uses_capitals: bool
     min_distinctive_token_len: int
     prompt_examples: LangExamples
@@ -193,7 +195,7 @@ def all_negative_answers() -> frozenset[str]:
 
 
 def norm_params(pack: LangPack) -> dict[str, list[str] | bool]:
-    """The parameters of ldvelh_norm, the only pack keys the SQL side reads. Entries are
+    """The parameters of ldvelh_norm (see sql_params for all the SQL side reads). Entries are
     given folded (steps 1-2 of the normalisation), without duplicates, longest first, so
     that the SQL function compares them as they are instead of folding them on each call;
     `folded` marks them so, and ldvelh_norm raises without it."""
@@ -210,6 +212,15 @@ def norm_params(pack: LangPack) -> dict[str, list[str] | bool]:
     }
 
 
+def sql_params(pack: LangPack) -> dict[str, list[str] | bool | str]:
+    """What lang_packs holds for the SQL side: the parameters of ldvelh_norm and the label
+    display_for_player shows for a character with neither a known name nor a descriptor."""
+    return {
+        **norm_params(pack),
+        "unknown_character_label": pack.unknown_character_label,
+    }
+
+
 async def sync_lang_packs(conn) -> int:
     """Upsert every language pack into lang_packs; the number of packs written."""
     langs = available_langs()
@@ -222,6 +233,6 @@ async def sync_lang_packs(conn) -> int:
                SET version = EXCLUDED.version, params = EXCLUDED.params, loaded_at = now()""",
             lang,
             pack.version,
-            json.dumps(norm_params(pack)),
+            json.dumps(sql_params(pack)),
         )
     return len(langs)

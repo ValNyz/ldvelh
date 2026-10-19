@@ -70,6 +70,10 @@ ordinal_markers: ["n°", "nº", "no", numéro]
 # Apostrophe characters folded into the first one.
 apostrophes: ["'", "’", "ʼ", "‘"]
 
+# What the player reads for a character whose name the PC does not know and who has no
+# descriptor (display_for_player).
+unknown_character_label: "Inconnu(e)"
+
 # The script has letter case: a multi-word name has a capital after its first word.
 proper_name_uses_capitals: true
 # Shortest token that can single out an entity in a text (leak guard, implicit reveals).

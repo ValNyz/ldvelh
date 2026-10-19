@@ -15,6 +15,7 @@ from packs.loader import (
     load_lang,
     misnamed_packs,
     norm_params,
+    sql_params,
     sync_lang_packs,
 )
 
@@ -44,7 +45,13 @@ def test_fr_and_en_packs_load_and_validate():
 def test_missing_key_is_a_validation_error():
     raw = _raw("fr")
     LangPack.model_validate(raw)
-    for key in ("articles", "pronouns", "proper_name_uses_capitals", "prompt_examples"):
+    for key in (
+        "articles",
+        "pronouns",
+        "proper_name_uses_capitals",
+        "prompt_examples",
+        "unknown_character_label",
+    ):
         broken = {k: v for k, v in raw.items() if k != key}
         with pytest.raises(ValidationError):
             LangPack.model_validate(broken)
@@ -84,7 +91,10 @@ async def test_sync_lang_packs_is_idempotent(test_pool):
     assert [dict(r) for r in rows] == [dict(r) for r in again]
     by_lang = {r["lang"]: r for r in again}
     assert by_lang["fr"]["version"] == load_lang("fr").version
-    assert by_lang["fr"]["params"] == norm_params(load_lang("fr"))
+    assert by_lang["fr"]["params"] == sql_params(load_lang("fr"))
+    assert by_lang["fr"]["params"]["unknown_character_label"] == (
+        load_lang("fr").unknown_character_label
+    )
 
 
 @pytest.mark.parametrize(

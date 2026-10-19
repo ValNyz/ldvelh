@@ -212,7 +212,7 @@ async def test_populate_that_wins_the_for_share_race_is_undone(harness, world_ga
             uow(conn, last["turn_id"], source_message_id=last["id"]),
         ):
             await conn.execute(
-                "INSERT INTO characters (game_id, name) VALUES ($1, 'Témoin')",
+                "INSERT INTO characters (game_id, true_name) VALUES ($1, 'Témoin')",
                 world_game,
             )
             written.set()

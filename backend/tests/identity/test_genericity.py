@@ -51,6 +51,8 @@ SQL_KEYWORDS = frozenset(
         "no",
         "all",
         "any",
+        # A PostgreSQL keyword, and the column of facts, events and relations.
+        "type",
     }
 )
 
@@ -191,8 +193,14 @@ def _identity_sql_files() -> list[Path]:
     )
 
 
+# The P5b replay guard every side-effect trigger opens with (test_world_changes_undo): its
+# 'on' is the value of a setting, not a word of a game's language.
+_REPLAY_GUARD = re.compile(r"current_setting\('ldvelh\.replay', true\) = 'on'")
+
+
 def _sql_without_comments(sql: str) -> str:
-    return re.sub(r"--[^\n]*", "", sql)
+    """`sql` without its comments and replay guards: the text the scans read."""
+    return _REPLAY_GUARD.sub(" ", re.sub(r"--[^\n]*", "", sql))
 
 
 _SQL_QUOTED = re.compile(r"'((?:[^']|'')*)'")

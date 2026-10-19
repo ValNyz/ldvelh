@@ -651,8 +651,9 @@ async def test_every_reference_to_turns_is_moved_by_the_adoption(test_pool):
     """A new foreign key to turns missing from _TURN_REFERENCES would make the adoption's
     DELETE fail (NO ACTION: every Fate resume stuck) or lose its rows' turn (SET NULL)."""
     async with test_pool.acquire() as conn:
-        referencing = {r["t"] for r in await conn.fetch(
-            """SELECT conrelid::regclass::text AS t FROM pg_constraint
-               WHERE contype = 'f' AND confrelid = 'turns'::regclass""")}
+        referencing = {(r["t"], r["c"]) for r in await conn.fetch(
+            """SELECT c.conrelid::regclass::text AS t, a.attname AS c FROM pg_constraint c
+               JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+               WHERE c.contype = 'f' AND c.confrelid = 'turns'::regclass""")}
     assert set(turns._TURN_REFERENCES) == referencing
-    assert turns._TURN_REFERENCES[0] == "world_changes"
+    assert turns._TURN_REFERENCES[0] == ("world_changes", "turn_id")
