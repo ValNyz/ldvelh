@@ -1,0 +1,465 @@
+{
+  "provider": "anthropic",
+  "models": {
+    "resolver": "claude-sonnet-5-5"
+  },
+  "split": "test",
+  "runs": 1,
+  "scenes": 39,
+  "caveat": "chiffres = accord avec l'annotateur unique, plafond humain non mesuré",
+  "header_note": "Source: answers of subagent:claude-sonnet to the emitted requests (not the API path: no thinking budget, no temperature, model tier of the responder).",
+  "thresholds": {
+    "hard_macro": 0.9,
+    "hard_pool": 0.9,
+    "hard_category": 0.85,
+    "hard_category_binding": 0.88,
+    "binding_min_mentions": 60,
+    "easy_pool": 0.97,
+    "W": 0.02,
+    "D": 0.08,
+    "c_at_10": 0.98,
+    "b_cubed": 0.85
+  },
+  "gate": [
+    {
+      "name": "hard_macro",
+      "label": "Macro-moyenne A_cat (6 catégories dures)",
+      "op": ">=",
+      "threshold": 0.9,
+      "estimator": "pooled",
+      "per_run": [
+        0.2579081125592753
+      ],
+      "value": 0.2579081125592753,
+      "ci": [
+        0.20408165551341237,
+        0.30998778243478864
+      ],
+      "undefined_draws": 1,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "hard_pool",
+      "label": "Accuracy groupée, mentions dures (pool)",
+      "op": ">=",
+      "threshold": 0.9,
+      "estimator": "pooled",
+      "per_run": [
+        0.2681704260651629
+      ],
+      "value": 0.2681704260651629,
+      "ci": [
+        0.1950535714285714,
+        0.3419122129967757
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "A_PART",
+      "label": "Catégorie dure PART seule",
+      "op": ">=",
+      "threshold": 0.85,
+      "estimator": "pooled",
+      "per_run": [
+        0.26356589147286824
+      ],
+      "value": 0.26356589147286824,
+      "ci": [
+        0.1792991309223437,
+        0.35
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "A_DESC",
+      "label": "Catégorie dure DESC seule",
+      "op": ">=",
+      "threshold": 0.85,
+      "estimator": "pooled",
+      "per_run": [
+        0.2846153846153846
+      ],
+      "value": 0.2846153846153846,
+      "ci": [
+        0.19490348399246707,
+        0.40708784005244186
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "A_GAP",
+      "label": "Catégorie dure GAP seule",
+      "op": ">=",
+      "threshold": 0.85,
+      "estimator": "pooled",
+      "per_run": [
+        0.0
+      ],
+      "value": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "A_REVEAL",
+      "label": "Catégorie dure REVEAL seule",
+      "op": ">=",
+      "threshold": 0.85,
+      "estimator": "pooled",
+      "per_run": [
+        0.0
+      ],
+      "value": 0.0,
+      "ci": [
+        0.0,
+        0.0
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "A_NEW",
+      "label": "Catégorie dure NEW seule",
+      "op": ">=",
+      "threshold": 0.85,
+      "estimator": "pooled",
+      "per_run": [
+        0.7428571428571429
+      ],
+      "value": 0.7428571428571429,
+      "ci": [
+        0.5,
+        0.9259259259259259
+      ],
+      "undefined_draws": 1,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "A_XTYPE",
+      "label": "Catégorie dure XTYPE seule",
+      "op": ">=",
+      "threshold": 0.85,
+      "estimator": "pooled",
+      "per_run": [
+        0.2564102564102564
+      ],
+      "value": 0.2564102564102564,
+      "ci": [
+        0.10810810810810811,
+        0.3958431603773585
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "easy_pool",
+      "label": "Accuracy EASY + PC + SKIP",
+      "op": ">=",
+      "threshold": 0.97,
+      "estimator": "pooled",
+      "per_run": [
+        0.8109452736318408
+      ],
+      "value": 0.8109452736318408,
+      "ci": [
+        0.7299964454976303,
+        0.8772739945927679
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "W",
+      "label": "W fusions abusives",
+      "op": "<=",
+      "threshold": 0.02,
+      "estimator": "pooled",
+      "per_run": [
+        0.10833333333333334
+      ],
+      "value": 0.10833333333333334,
+      "ci": [
+        0.07559006683918465,
+        0.14285714285714285
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "D",
+      "label": "D doublons",
+      "op": "<=",
+      "threshold": 0.08,
+      "estimator": "pooled",
+      "per_run": [
+        0.37777777777777777
+      ],
+      "value": 0.37777777777777777,
+      "ci": [
+        0.31646031746031744,
+        0.43897950483168074
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    },
+    {
+      "name": "c_at_10",
+      "label": "C@10 blocage",
+      "op": ">=",
+      "threshold": 0.98,
+      "estimator": "pooled",
+      "per_run": [
+        0.3972972972972973
+      ],
+      "value": 0.3972972972972973,
+      "ci": [
+        0.35013384274935433,
+        0.4486946278224263
+      ],
+      "undefined_draws": 0,
+      "verdict": "ÉCHEC"
+    }
+  ],
+  "gate_passed": false,
+  "gate_complete": false,
+  "c_at_10_source": "dev + test, 1 run",
+  "iterations": 2000,
+  "not_measured": [
+    {
+      "name": "R",
+      "label": "Révélations correctes R",
+      "threshold": "≥ 0,90"
+    },
+    {
+      "name": "P",
+      "label": "Erreurs de point de vue P",
+      "threshold": "≤ 0,05"
+    },
+    {
+      "name": "L",
+      "label": "Fuites de secrets L",
+      "threshold": "= 0"
+    }
+  ],
+  "missing_hard_categories": [],
+  "hard_macro_present": 0.2579081125592753,
+  "floors": {
+    "test_mentions": {
+      "PART": 129,
+      "DESC": 130,
+      "GAP": 39,
+      "REVEAL": 27,
+      "NEW": 35,
+      "XTYPE": 39
+    },
+    "indicative": {
+      "threshold": 0.85,
+      "verdicts": {
+        "PART": "ÉCHEC",
+        "DESC": "ÉCHEC",
+        "GAP": "ÉCHEC",
+        "REVEAL": "ÉCHEC",
+        "NEW": "ÉCHEC",
+        "XTYPE": "ÉCHEC"
+      }
+    },
+    "binding": {
+      "threshold": 0.88,
+      "min_mentions": 60,
+      "applies": false,
+      "verdicts": {
+        "PART": "ÉCHEC",
+        "DESC": "ÉCHEC",
+        "GAP": "ÉCHEC",
+        "REVEAL": "ÉCHEC",
+        "NEW": "ÉCHEC",
+        "XTYPE": "ÉCHEC"
+      }
+    }
+  },
+  "category_type": {
+    "DESC": {
+      "character": {
+        "accuracy": 0.5961538461538461,
+        "mentions": 52
+      },
+      "location": {
+        "accuracy": 0.041666666666666664,
+        "mentions": 24
+      },
+      "object": {
+        "accuracy": 0.125,
+        "mentions": 32
+      },
+      "organization": {
+        "accuracy": 0.045454545454545456,
+        "mentions": 22
+      }
+    },
+    "EASY": {
+      "character": {
+        "accuracy": 1.0,
+        "mentions": 16
+      },
+      "location": {
+        "accuracy": 0.6428571428571429,
+        "mentions": 14
+      },
+      "object": {
+        "accuracy": 0.2857142857142857,
+        "mentions": 7
+      },
+      "organization": {
+        "accuracy": 0.16666666666666666,
+        "mentions": 6
+      }
+    },
+    "GAP": {
+      "character": {
+        "accuracy": 0.0,
+        "mentions": 11
+      },
+      "location": {
+        "accuracy": 0.0,
+        "mentions": 11
+      },
+      "object": {
+        "accuracy": 0.0,
+        "mentions": 10
+      },
+      "organization": {
+        "accuracy": 0.0,
+        "mentions": 7
+      }
+    },
+    "NEW": {
+      "character": {
+        "accuracy": 0.7777777777777778,
+        "mentions": 9
+      },
+      "location": {
+        "accuracy": 0.45454545454545453,
+        "mentions": 11
+      },
+      "object": {
+        "accuracy": 0.8571428571428571,
+        "mentions": 7
+      },
+      "organization": {
+        "accuracy": 1.0,
+        "mentions": 8
+      }
+    },
+    "PART": {
+      "character": {
+        "accuracy": 0.4864864864864865,
+        "mentions": 37
+      },
+      "location": {
+        "accuracy": 0.2222222222222222,
+        "mentions": 27
+      },
+      "object": {
+        "accuracy": 0.15151515151515152,
+        "mentions": 33
+      },
+      "organization": {
+        "accuracy": 0.15625,
+        "mentions": 32
+      }
+    },
+    "PC": {
+      "companion": {
+        "accuracy": 0.6341463414634146,
+        "mentions": 41
+      },
+      "protagonist": {
+        "accuracy": 0.0,
+        "mentions": 5
+      }
+    },
+    "REVEAL": {
+      "character": {
+        "accuracy": 0.0,
+        "mentions": 9
+      },
+      "location": {
+        "accuracy": 0.0,
+        "mentions": 7
+      },
+      "object": {
+        "accuracy": 0.0,
+        "mentions": 6
+      },
+      "organization": {
+        "accuracy": 0.0,
+        "mentions": 5
+      }
+    },
+    "SKIP": {
+      "none": {
+        "accuracy": 0.9732142857142857,
+        "mentions": 112
+      }
+    },
+    "XTYPE": {
+      "character": {
+        "accuracy": 0.36363636363636365,
+        "mentions": 11
+      },
+      "location": {
+        "accuracy": 0.1,
+        "mentions": 10
+      },
+      "object": {
+        "accuracy": 0.3333333333333333,
+        "mentions": 6
+      },
+      "organization": {
+        "accuracy": 0.25,
+        "mentions": 12
+      }
+    }
+  },
+  "hard_type_shares": {
+    "character": 0.3233082706766917,
+    "location": 0.22556390977443608,
+    "object": 0.23558897243107768,
+    "organization": 0.21553884711779447
+  },
+  "rates": {
+    "spurious_link_per_turn": 0.23076923076923078,
+    "spurious_new_per_turn": 0.07692307692307693,
+    "new_type_errors": 1.0,
+    "new_precision": 0.13432835820895522,
+    "new_recall": 0.7105263157894737,
+    "unsure_rate": 0.0,
+    "deterministic_share": 0.0,
+    "escalation_rate": 0.0
+  },
+  "cost": {
+    "cache_creation_input_tokens": 0.0,
+    "cache_read_input_tokens": 0.0,
+    "calls": 39.0,
+    "cost_usd": 0.0,
+    "failed_calls": 0.0,
+    "input_tokens": 0.0,
+    "output_tokens": 0.0,
+    "per_turn_cache_creation_input_tokens": 0.0,
+    "per_turn_cache_read_input_tokens": 0.0,
+    "per_turn_calls": 1.0,
+    "per_turn_cost_usd": 0.0,
+    "per_turn_failed_calls": 0.0,
+    "per_turn_input_tokens": 0.0,
+    "per_turn_output_tokens": 0.0
+  },
+  "cheap_tier": null,
+  "coref": null,
+  "responder": "subagent:claude-sonnet"
+}
