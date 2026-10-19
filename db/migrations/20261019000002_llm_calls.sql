@@ -18,6 +18,9 @@ CREATE TABLE public.llm_calls (
 );
 CREATE INDEX llm_calls_user_created_idx ON public.llm_calls (user_id, created_at);
 CREATE INDEX llm_calls_game_idx ON public.llm_calls (game_id);
+-- Deleting a turn (rollback) sets its calls' turn_id to NULL: index the reference.
+CREATE INDEX llm_calls_turn_idx ON public.llm_calls (turn_id) WHERE turn_id IS NOT NULL;
 
 -- migrate:down
+DROP INDEX public.llm_calls_turn_idx;
 DROP TABLE public.llm_calls;

@@ -32,6 +32,13 @@ ALTER TABLE public.mechanic_rolls
     ADD COLUMN turn_id uuid REFERENCES public.turns(id) ON DELETE SET NULL;
 ALTER TABLE public.extraction_logs
     ADD COLUMN turn_id uuid REFERENCES public.turns(id) ON DELETE CASCADE;
+-- Deleting a turn runs the FK action on each referencing table: index the references
+-- (partial, legacy rows have none).
+CREATE INDEX messages_turn_idx ON public.messages (turn_id) WHERE turn_id IS NOT NULL;
+CREATE INDEX mechanic_rolls_turn_idx
+    ON public.mechanic_rolls (turn_id) WHERE turn_id IS NOT NULL;
+CREATE INDEX extraction_logs_turn_idx
+    ON public.extraction_logs (turn_id) WHERE turn_id IS NOT NULL;
 
 -- One world_changes row per written row. U keeps only the changed keys (old and new).
 -- AFTER triggers named zz_* fire last on their row (trigger names sort byte-wise): rows
@@ -108,6 +115,8 @@ END;
 $$;
 DROP FUNCTION public.ldvelh_journal(text, text);
 DROP FUNCTION public.ldvelh_journal_row();
+DROP INDEX public.extraction_logs_turn_idx, public.mechanic_rolls_turn_idx,
+    public.messages_turn_idx;
 ALTER TABLE public.extraction_logs DROP COLUMN turn_id;
 ALTER TABLE public.mechanic_rolls DROP COLUMN turn_id;
 ALTER TABLE public.messages DROP COLUMN turn_id;

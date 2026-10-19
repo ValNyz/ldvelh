@@ -16,7 +16,11 @@ CREATE TABLE public.director_commitments (
 );
 CREATE INDEX director_commitments_game_status_idx
     ON public.director_commitments (game_id, status);
+-- Deleting a turn sets its commitments' turn_id to NULL: index the reference.
+CREATE INDEX director_commitments_turn_idx
+    ON public.director_commitments (turn_id) WHERE turn_id IS NOT NULL;
 SELECT public.ldvelh_journal('director_commitments');
 
 -- migrate:down
+DROP INDEX public.director_commitments_turn_idx;
 DROP TABLE public.director_commitments;
