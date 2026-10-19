@@ -17,13 +17,13 @@ from pydantic import BaseModel, ValidationError
 
 from .columns import (
     CharacterAge,
+    CharacterDescriptor,
     CharacterGender,
     CharacterMood,
     CharacterOccupation,
     CharacterOrigin,
     CharacterPronouns,
     CharacterSpecies,
-    CharacterUnknownName,
     LocationAtmosphere,
     LocationOperatingHours,
     LocationPriceRange,
@@ -44,7 +44,7 @@ class CharacterChanges(BaseModel):
     """Columns of `characters` an update may set."""
 
     known_by_protagonist: bool | None = None
-    unknown_name: CharacterUnknownName | None = None
+    descriptor: CharacterDescriptor | None = None
     species: CharacterSpecies | None = None
     gender: CharacterGender | None = None
     pronouns: CharacterPronouns | None = None

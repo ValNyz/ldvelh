@@ -31,6 +31,8 @@ from schema import (
     RelationType,
     is_protagonist_ref,
 )
+from repos import entities as entity_repo
+
 from .item_writes import write_item, write_items
 from .populator import KnowledgeGraphPopulator
 from .semantic_keys import arrival_key, use_key
@@ -39,6 +41,12 @@ if TYPE_CHECKING:
     from asyncpg import Connection
 
 logger = logging.getLogger(__name__)
+
+# Types an untyped extractor reference may name (updates, removals), in the order tried.
+_DETECTABLE_TYPES = (
+    EntityType.PROTAGONIST, EntityType.CHARACTER, EntityType.ORGANIZATION,
+    EntityType.LOCATION, EntityType.OBJECT,
+)
 
 
 # =============================================================================
@@ -123,6 +131,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 await self.create_character(
                     conn, char, cycle=1,
                     workplace_id=wp_id, residence_id=res_id,
+                    name_is_true_name=True,
                 )
 
             # 10. Create objects + inventory entries
@@ -174,7 +183,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 await finalize(conn)
 
             logger.info(
-                f"World populated: {len(self.registry._by_name)} entities"
+                f"World populated: {len(self.registry)} entities"
             )
 
         return self.game_id
@@ -203,13 +212,12 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 parent_id = await self._resolve_location_id(
                     conn, loc.parent_location_ref
                 )
-                if parent_id:
+                location_id = await self._find(conn, loc.name, EntityType.LOCATION)
+                if parent_id and location_id:
                     await conn.execute(
-                        "UPDATE locations SET parent_id = $1"
-                        " WHERE game_id = $2 AND LOWER(name) = LOWER($3)",
+                        "UPDATE locations SET parent_id = $1 WHERE id = $2",
                         parent_id,
-                        self.game_id,
-                        loc.name,
+                        location_id,
                     )
 
     async def _resolve_org_headquarters(
@@ -221,13 +229,12 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 hq_id = await self._resolve_location_id(
                     conn, org.headquarters_ref
                 )
-                if hq_id:
+                org_id = await self._find(conn, org.name, EntityType.ORGANIZATION)
+                if hq_id and org_id:
                     await conn.execute(
-                        "UPDATE organizations SET headquarters_id = $1"
-                        " WHERE game_id = $2 AND LOWER(name) = LOWER($3)",
+                        "UPDATE organizations SET headquarters_id = $1 WHERE id = $2",
                         hq_id,
-                        self.game_id,
-                        org.name,
+                        org_id,
                     )
 
     async def _resolve_protagonist_refs(
@@ -382,7 +389,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             conn,
             cycle=0,
             stats={
-                "entities_created": len(self.registry._by_name),
+                "entities_created": len(self.registry),
                 "relations_created": (
                     len(world_gen.initial_relations)
                     if hasattr(world_gen, "initial_relations")
@@ -427,7 +434,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 await write_items(conn, stats, label, values, write, counter, prefix)
 
             async with conn.transaction():
-                if not self.registry._by_name:
+                if not self.registry:
                     await self.load_registry(conn)
 
                 # One SAVEPOINT per item: a failed item never aborts the others.
@@ -435,7 +442,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                             lambda e: self._process_entity_creation(conn, e, cycle),
                             "entities_created")
                 await items("Object creation", extraction.objects_created,
-                            lambda o: self._created(self._process_object_creation(conn, o, cycle)),
+                            lambda o: self._created(self.create_object_by_label(conn, o, cycle)),
                             "objects_created")
 
                 # Reload registry (new entities registered by triggers)
@@ -533,7 +540,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             char_data = CharacterData(
                 name=creation.name,
                 known_by_protagonist=creation.known_by_protagonist,
-                unknown_name=creation.unknown_name,
+                descriptor=creation.descriptor,
                 **{k: v for k, v in data.items()
                    if k not in ("workplace_ref", "residence_ref")},
             )
@@ -583,10 +590,15 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             return False
         return True
 
-    async def _process_object_creation(
+    async def create_object_by_label(
         self, conn: Connection, obj_creation: ObjectCreation, cycle: int
-    ) -> None:
-        """Create an object from acquisition and add to protagonist inventory."""
+    ) -> UUID | None:
+        """Create an acquired object and add it to the protagonist's inventory.
+
+        An object its name already resolves to (its label or an alias, find_entity) is
+        reused: only the inventory grows. None when nothing was added (removed object,
+        ambiguous name).
+        """
         obj_data = ObjectData(
             name=obj_creation.name,
             category=obj_creation.category,
@@ -597,13 +609,6 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         )
         obj_id = await self.create_object(conn, obj_data, cycle)
         if obj_id:
-            # Store canonical_name if provided
-            canonical = getattr(obj_creation, "canonical_name", None)
-            if canonical:
-                await conn.execute(
-                    "UPDATE objects SET canonical_name = $1 WHERE id = $2",
-                    canonical, obj_id,
-                )
             await self.add_to_inventory(
                 conn,
                 obj_id,
@@ -611,46 +616,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 cycle=cycle,
                 origin="acquired",
             )
-
-    async def create_object_with_canonical(
-        self, conn: Connection, obj_creation: ObjectCreation, cycle: int
-    ) -> UUID | None:
-        """Create object with canonical_name dedup.
-
-        If an active object with the same canonical_name already exists,
-        just add to inventory instead of creating a new record.
-        """
-        canonical = getattr(obj_creation, "canonical_name", None)
-        if canonical:
-            existing = await conn.fetchval(
-                "SELECT id FROM objects"
-                " WHERE game_id = $1 AND canonical_name = $2"
-                " AND removed_cycle IS NULL",
-                self.game_id, canonical,
-            )
-            if existing:
-                logger.info(
-                    f"[CANONICAL] Object '{canonical}' already exists, "
-                    f"adding to inventory"
-                )
-                await self.add_to_inventory(
-                    conn, existing,
-                    quantity=obj_creation.quantity,
-                    cycle=cycle, origin="acquired",
-                )
-                return existing
-
-        # No canonical match — create normally
-        await self._process_object_creation(conn, obj_creation, cycle)
-        # Resolve the newly created object ID
-        row = await conn.fetchval(
-            "SELECT id FROM objects"
-            " WHERE game_id = $1 AND LOWER(name) = LOWER($2)"
-            " AND removed_cycle IS NULL"
-            " ORDER BY created_at DESC LIMIT 1",
-            self.game_id, obj_creation.name,
-        )
-        return row
+        return obj_id
 
     # =========================================================================
     # ENTITY UPDATE ROUTING
@@ -698,18 +664,12 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     async def _detect_entity_type(
         self, conn: Connection, name: str
     ) -> EntityType | None:
-        """Detect entity type from entity_registry."""
-        row = await conn.fetchrow(  # find_entity maps PROTAGONIST_REF too (#28)
-            "SELECT entity_type FROM entity_registry WHERE id = find_entity($1, $2)",
-            self.game_id,
-            name,
+        """Type of the entity an untyped reference names (typed find_entity per type,
+        PROTAGONIST_REF included, #28); None when unknown or ambiguous."""
+        found = await entity_repo.find_any(
+            conn, self.game_id, name, tuple(t.value for t in _DETECTABLE_TYPES)
         )
-        if row:
-            try:
-                return EntityType(row["entity_type"])
-            except ValueError:
-                pass
-        return None
+        return EntityType(found[1]) if found else None
 
     async def _update_entity_skills(
         self,
@@ -721,12 +681,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     ) -> None:
         """Update skills for a character or protagonist."""
         if entity_type == EntityType.CHARACTER:
-            char_id = await conn.fetchval(
-                "SELECT id FROM characters"
-                " WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
-                self.game_id,
-                entity_ref,
-            )
+            char_id = await self._find(conn, entity_ref, EntityType.CHARACTER)
             if char_id:
                 for skill in skills:
                     await self.update_skill(
@@ -831,7 +786,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         )
 
         for participant_ref in event.participants:
-            entity_id = self.registry.resolve(participant_ref)
+            entity_id = await self._find_any(conn, participant_ref)
             if entity_id:
                 await self.add_event_participant(conn, event_id, entity_id)
 

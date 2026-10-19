@@ -80,16 +80,16 @@ async def resolver_triggers(
                   if m.is_new and m.entity_type in TYPE_TO_EXTRACTOR]
     if not candidates:
         return set()
-    canonicals = list({m.canonical for m in candidates})
+    pairs = list({(m.canonical, m.entity_type) for m in candidates})
     rows = await conn.fetch(
-        """SELECT c AS canonical FROM unnest($2::text[]) AS c
-           WHERE EXISTS (SELECT 1 FROM entity_registry
-                         WHERE game_id = $1 AND LOWER(name) = LOWER(c))""",
-        game_id, canonicals,
+        """SELECT ref.canonical, ref.entity_type
+           FROM unnest($2::text[], $3::text[]) AS ref (canonical, entity_type)
+           WHERE find_entity($1, ref.canonical, ref.entity_type) IS NOT NULL""",
+        game_id, [p[0] for p in pairs], [p[1] for p in pairs],
     )
-    known = {r["canonical"] for r in rows}
+    known = {(r["canonical"], r["entity_type"]) for r in rows}
     return {TYPE_TO_EXTRACTOR[m.entity_type] for m in candidates
-            if m.canonical not in known}
+            if (m.canonical, m.entity_type) not in known}
 
 
 async def _compute_triggers(

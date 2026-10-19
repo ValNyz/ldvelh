@@ -136,8 +136,12 @@ class KnowledgeGraphReader:
     async def get_entities(
         self, conn: Connection, entity_type: str | None = None
     ) -> list[dict]:
-        """Get all entities from entity_registry."""
-        query = "SELECT id, entity_type, name FROM entity_registry WHERE game_id = $1"
+        """Live entities of entity_registry (merge tombstones left out), with their
+        normalised label."""
+        query = (
+            "SELECT id, entity_type, name, name_norm, handle FROM entity_registry"
+            " WHERE game_id = $1 AND merged_into IS NULL"
+        )
         params: list = [self.game_id]
         if entity_type:
             query += " AND entity_type = $2"
@@ -146,18 +150,20 @@ class KnowledgeGraphReader:
         return [dict(r) for r in rows]
 
     async def resolve_entity_refs(
-        self, conn: Connection, names: list[str]
+        self, conn: Connection, refs: list[str], entity_type: str
     ) -> dict[str, UUID]:
-        """Resolve multiple names to {name_lower: entity_registry UUID}."""
-        if not names:
+        """{ref: id} of the refs find_entity resolves for `entity_type` (an unknown or
+        ambiguous ref is left out)."""
+        if not refs:
             return {}
         rows = await conn.fetch(
-            """SELECT LOWER(name) as name_lower, id FROM entity_registry
-               WHERE game_id = $1 AND LOWER(name) = ANY($2)""",
+            """SELECT ref, find_entity($1, ref, $3) AS id
+               FROM unnest($2::text[]) AS ref""",
             self.game_id,
-            [n.lower() for n in names],
+            list(refs),
+            entity_type,
         )
-        return {r["name_lower"]: r["id"] for r in rows}
+        return {r["ref"]: r["id"] for r in rows if r["id"] is not None}
 
     async def get_entity_counts_by_type(self, conn: Connection) -> dict[str, int]:
         """Count active entities per type."""
@@ -243,7 +249,8 @@ class KnowledgeGraphReader:
         """Get all active NPCs with their fields and relation to protagonist."""
         rows = await conn.fetch(
             """SELECT
-                c.id, c.name, c.known_by_protagonist, c.unknown_name,
+                c.id, c.name, c.known_by_protagonist, c.true_name, c.descriptor,
+                display_for_player(c.id) AS display_name,
                 c.species, c.gender, c.pronouns, c.age, c.description,
                 c.traits, c.mood, c.occupation, c.origin,
                 c.romantic_potential, c.is_mandatory, c.ambient,
@@ -254,10 +261,8 @@ class KnowledgeGraphReader:
                 r_knows.context as relation_context,
                 -- Usual location (first spatial relation target)
                 (SELECT l.name FROM relations r_sp
-                 JOIN entity_registry er_src ON r_sp.source_id = er_src.id AND er_src.name = c.name
-                 JOIN entity_registry er_tgt ON r_sp.target_id = er_tgt.id
-                 JOIN locations l ON l.game_id = c.game_id AND l.name = er_tgt.name
-                 WHERE r_sp.game_id = c.game_id
+                 JOIN locations l ON l.id = r_sp.target_id
+                 WHERE r_sp.game_id = c.game_id AND r_sp.source_id = c.id
                    AND r_sp.type IN ('works_at', 'lives_at', 'frequents')
                    AND r_sp.end_cycle IS NULL
                  LIMIT 1) as usual_location
@@ -270,9 +275,7 @@ class KnowledgeGraphReader:
                 FROM relations r
                 JOIN entity_registry er_proto ON r.source_id = er_proto.id
                     AND er_proto.entity_type = 'protagonist'
-                JOIN entity_registry er_char ON r.target_id = er_char.id
-                    AND er_char.name = c.name
-                WHERE r.game_id = c.game_id
+                WHERE r.game_id = c.game_id AND r.target_id = c.id
                   AND r.type = 'knows'
                   AND r.end_cycle IS NULL
                 LIMIT 1
@@ -291,28 +294,28 @@ class KnowledgeGraphReader:
     async def get_npcs_at_location(
         self, conn: Connection, location_name: str
     ) -> list[dict]:
-        """Get NPCs whose spatial relations point to a given location."""
+        """Get NPCs whose spatial relations point to a given location (or to the
+        organization of the same name), resolved by find_entity."""
         rows = await conn.fetch(
             """SELECT DISTINCT
-                c.id, c.name, c.known_by_protagonist, c.unknown_name,
+                c.id, c.name, c.known_by_protagonist, c.true_name, c.descriptor,
+                display_for_player(c.id) AS display_name,
                 c.species, c.occupation, c.traits, c.mood, c.ambient,
                 r_knows.level as relation_level,
                 r_knows.context as relation_context
             FROM characters c
-            JOIN entity_registry er_c ON er_c.game_id = c.game_id
-                AND er_c.entity_type = 'character' AND er_c.name = c.name
-            JOIN relations r ON r.source_id = er_c.id
+            JOIN relations r ON r.source_id = c.id
                 AND r.type IN ('works_at', 'frequents', 'lives_at')
                 AND r.end_cycle IS NULL
-            JOIN entity_registry er_loc ON r.target_id = er_loc.id
-                AND LOWER(er_loc.name) = LOWER($2)
+                AND r.target_id IN (find_entity($1, $2, 'location'),
+                                    find_entity($1, $2, 'organization'))
             -- Protagonist relation
             LEFT JOIN LATERAL (
                 SELECT rel.level, rel.context
                 FROM relations rel
                 JOIN entity_registry er_p ON rel.source_id = er_p.id
                     AND er_p.entity_type = 'protagonist'
-                WHERE rel.target_id = er_c.id
+                WHERE rel.target_id = c.id
                   AND rel.type = 'knows' AND rel.end_cycle IS NULL
                 LIMIT 1
             ) r_knows ON true
@@ -352,7 +355,7 @@ class KnowledgeGraphReader:
                       p.name as parent_location_name
                FROM locations l
                LEFT JOIN locations p ON l.parent_id = p.id
-               WHERE l.game_id = $1 AND LOWER(l.name) = LOWER($2)
+               WHERE l.id = find_entity($1, $2, 'location')
                  AND l.removed_cycle IS NULL""",
             self.game_id,
             name,
@@ -379,9 +382,8 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(
             """WITH current AS (
                 SELECT id, sector FROM locations
-                WHERE game_id = $1 AND LOWER(name) = LOWER($2)
+                WHERE id = find_entity($1, $2, 'location')
                   AND removed_cycle IS NULL
-                LIMIT 1
             )
             SELECT l.name, l.location_type, l.sector, l.atmosphere, l.ambient
             FROM locations l, current c
@@ -808,20 +810,10 @@ class KnowledgeGraphReader:
     # OBJECTS
     # =========================================================================
 
-    async def get_object_canonical_names(self, conn: Connection) -> list[str]:
-        """Get all canonical_name values for active objects in this game."""
-        rows = await conn.fetch(
-            "SELECT canonical_name FROM objects"
-            " WHERE game_id = $1 AND canonical_name IS NOT NULL"
-            " AND removed_cycle IS NULL",
-            self.game_id,
-        )
-        return [r["canonical_name"] for r in rows]
-
     async def get_objects(self, conn: Connection) -> list[dict]:
         """Get all active objects."""
         rows = await conn.fetch(
-            """SELECT id, name, canonical_name, category, description,
+            """SELECT id, name, category, description,
                       transportable, stackable, base_value
                FROM objects
                WHERE game_id = $1 AND removed_cycle IS NULL
@@ -862,75 +854,57 @@ class KnowledgeGraphReader:
         )
         return result or []
 
-    async def get_entity_details_by_name(
-        self, conn: Connection, name: str
+    async def get_entity_details(
+        self, conn: Connection, entity_id: UUID
     ) -> dict | None:
-        """Load full details of an entity by name (character, location, or org)."""
-        # Try character
-        row = await conn.fetchrow(
-            """SELECT c.*, r.level as relation_level, r.context as relation_context
-               FROM characters c
-               LEFT JOIN entity_registry er ON er.game_id = c.game_id
-                   AND er.entity_type = 'character' AND er.name = c.name
-               LEFT JOIN relations r ON r.game_id = c.game_id
-                   AND r.target_id = er.id AND r.end_cycle IS NULL
-                   AND r.source_id = (
-                       SELECT id FROM entity_registry
-                       WHERE game_id = $1 AND entity_type = 'protagonist'
-                       LIMIT 1
-                   )
-               WHERE c.game_id = $1 AND LOWER(c.name) = LOWER($2)
-                 AND c.removed_cycle IS NULL""",
-            self.game_id, name,
+        """Full details of a live character, location or organization, by id."""
+        entity_type = await conn.fetchval(
+            "SELECT entity_type FROM entity_registry WHERE game_id = $1 AND id = $2",
+            self.game_id, entity_id,
         )
-        if row:
-            d = dict(row)
-            d["_entity_type"] = "character"
-            # Load recent facts involving this character
-            d["recent_facts"] = await self._get_entity_recent_facts(conn, name, limit=5)
-            return d
-
-        # Try location
-        row = await conn.fetchrow(
-            """SELECT * FROM locations
-               WHERE game_id = $1 AND LOWER(name) = LOWER($2)
-                 AND removed_cycle IS NULL""",
-            self.game_id, name,
-        )
-        if row:
-            d = dict(row)
-            d["_entity_type"] = "location"
-            d["recent_facts"] = await self._get_entity_recent_facts(conn, name, limit=5)
-            return d
-
-        # Try organization
-        row = await conn.fetchrow(
-            """SELECT * FROM organizations
-               WHERE game_id = $1 AND LOWER(name) = LOWER($2)
-                 AND removed_cycle IS NULL""",
-            self.game_id, name,
-        )
-        if row:
-            d = dict(row)
-            d["_entity_type"] = "organization"
-            d["recent_facts"] = await self._get_entity_recent_facts(conn, name, limit=5)
-            return d
-
-        return None
+        if entity_type == "character":
+            row = await conn.fetchrow(
+                """SELECT c.*, r.level as relation_level, r.context as relation_context
+                   FROM characters c
+                   LEFT JOIN relations r ON r.game_id = c.game_id
+                       AND r.target_id = c.id AND r.end_cycle IS NULL
+                       AND r.source_id = (
+                           SELECT id FROM entity_registry
+                           WHERE game_id = $1 AND entity_type = 'protagonist'
+                           LIMIT 1
+                       )
+                   WHERE c.game_id = $1 AND c.id = $2
+                     AND c.removed_cycle IS NULL""",
+                self.game_id, entity_id,
+            )
+        elif entity_type in ("location", "organization"):
+            table = "locations" if entity_type == "location" else "organizations"
+            row = await conn.fetchrow(
+                f"""SELECT * FROM {table}
+                    WHERE game_id = $1 AND id = $2 AND removed_cycle IS NULL""",
+                self.game_id, entity_id,
+            )
+        else:
+            return None
+        if not row:
+            return None
+        d = dict(row)
+        d["_entity_type"] = entity_type
+        d["recent_facts"] = await self._get_entity_recent_facts(conn, entity_id, limit=5)
+        return d
 
     async def _get_entity_recent_facts(
-        self, conn: Connection, entity_name: str, limit: int = 5
+        self, conn: Connection, entity_id: UUID, limit: int = 5
     ) -> list[dict]:
         """Get recent facts involving a specific entity."""
         rows = await conn.fetch(
             """SELECT f.cycle, f.type, f.description, f.importance
                FROM facts f
                JOIN fact_participants fp ON fp.fact_id = f.id
-               JOIN entity_registry er ON er.id = fp.entity_id
-               WHERE f.game_id = $1 AND LOWER(er.name) = LOWER($2)
+               WHERE f.game_id = $1 AND fp.entity_id = $2
                ORDER BY f.cycle DESC, f.importance DESC
                LIMIT $3""",
-            self.game_id, entity_name, limit,
+            self.game_id, entity_id, limit,
         )
         return [dict(r) for r in rows]
 

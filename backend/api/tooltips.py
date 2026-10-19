@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
+from repos import entities as entity_repo
 from services.game_service import GameService
 
 router = APIRouter(tags=["tooltips"])
@@ -32,11 +33,12 @@ class TooltipInfo(BaseModel):
 
 
 class AnnotationEntry(BaseModel):
-    """A single entity span in a message"""
+    """A single entity span in a message; `name` is what the player may read for it
+    (display_for_player), the resolver's label when it no longer resolves."""
 
     start: int
     end: int
-    canonical_name: str
+    name: str
     entity_type: str
 
 
@@ -135,7 +137,7 @@ async def get_annotations(
             game_id, limit,
         )
 
-    messages = []
+    parsed = []
     for row in rows:
         raw = row["narrator_context"]
         if isinstance(raw, str):
@@ -146,22 +148,56 @@ async def get_annotations(
                 continue
         if not isinstance(raw, list):
             continue
+        spans = [ann for ann in raw if isinstance(ann, list) and len(ann) >= 4]
+        if spans:
+            parsed.append((row, spans))
 
-        annotations = []
-        for ann in raw:
-            if isinstance(ann, list) and len(ann) >= 4:
-                annotations.append(AnnotationEntry(
-                    start=ann[0], end=ann[1],
-                    canonical_name=ann[2], entity_type=ann[3],
-                ))
-        if annotations:
-            messages.append(MessageAnnotations(
-                message_id=row["id"],
-                sequence=row["sequence"],
-                annotations=annotations,
-            ))
+    async with pool.acquire() as conn:
+        labels = await _player_labels(
+            conn, game_id, [(ann[2], ann[3]) for _, spans in parsed for ann in spans]
+        )
+
+    messages = []
+    for row, spans in parsed:
+        annotations = [
+            AnnotationEntry(
+                start=ann[0], end=ann[1],
+                name=labels.get((ann[2], ann[3])) or ann[2], entity_type=ann[3],
+            )
+            for ann in spans
+        ]
+        messages.append(MessageAnnotations(
+            message_id=row["id"],
+            sequence=row["sequence"],
+            annotations=annotations,
+        ))
 
     return {"messages": [m.model_dump() for m in messages]}
+
+
+async def _player_labels(
+    conn, game_id: UUID, refs: list[tuple[str, str]]
+) -> dict[tuple[str, str], str]:
+    """{(label, type): display_for_player} of the annotation refs find_entity resolves."""
+    pairs = list({(r, t) for r, t in refs if isinstance(r, str) and isinstance(t, str)})
+    if not pairs:
+        return {}
+    rows = await conn.fetch(
+        """SELECT ref.name, ref.entity_type,
+                  display_for_player(find_entity($1, ref.name, ref.entity_type)) AS label
+           FROM unnest($2::text[], $3::text[]) AS ref (name, entity_type)""",
+        game_id, [p[0] for p in pairs], [p[1] for p in pairs],
+    )
+    return {(r["name"], r["entity_type"]): r["label"] for r in rows if r["label"]}
+
+
+# Columns a tooltip reads, per entity type (the table is the type's).
+_TOOLTIP_COLUMNS = {
+    "character": ("characters", "occupation, species, mood, ambient, description"),
+    "location": ("locations", "location_type, sector, atmosphere, ambient, description"),
+    "organization": ("organizations", "org_type, domain, description, ambient"),
+    "object": ("objects", "category, description"),
+}
 
 
 @router.get("/tooltips/entity")
@@ -172,81 +208,44 @@ async def get_entity_tooltip(
     user: dict = Depends(get_current_user),
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> dict:
-    """Return tooltip details for a specific entity by name and type.
+    """Return tooltip details for the entity of a type that `name` refers to.
 
-    Queries the current DB schema (characters, locations, etc.)
+    `name` is resolved by find_entity (label, true name, descriptor, alias, handle), the
+    row is read by id; the tooltip's name is what the player may read (display_for_player).
     """
     await GameService(pool).verify_ownership(game_id, user["id"])
+    details = {}
+    display_name = name
     async with pool.acquire() as conn:
-        details = {}
-
-        if entity_type == "character":
+        entity_id = None
+        if entity_type in _TOOLTIP_COLUMNS:
+            entity_id = await entity_repo.find_entity(conn, game_id, name, entity_type)
+        if entity_id is not None:
+            table, columns = _TOOLTIP_COLUMNS[entity_type]
             row = await conn.fetchrow(
-                """SELECT name, occupation, species, mood, ambient,
-                          known_by_protagonist, description
-                   FROM characters
-                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
-                     AND removed_cycle IS NULL
-                   LIMIT 1""",
-                game_id, name,
+                f"""SELECT {columns} FROM {table}
+                    WHERE game_id = $1 AND id = $2 AND removed_cycle IS NULL""",
+                game_id, entity_id,
             )
             if row:
                 details = dict(row)
-                # Check relation with protagonist
+                display_name = await entity_repo.display_for_player(conn, entity_id)
+            if row and entity_type == "character":
                 rel = await conn.fetchrow(
                     """SELECT r.type::text as relation_type
                        FROM relations r
-                       JOIN entity_registry e ON r.source_id = e.id
-                       WHERE r.game_id = $1
-                         AND LOWER(e.name) = LOWER($2)
+                       WHERE r.game_id = $1 AND r.source_id = $2
                          AND r.end_cycle IS NULL
                        LIMIT 1""",
-                    game_id, name,
+                    game_id, entity_id,
                 )
                 if rel:
                     details["relation_type"] = rel["relation_type"]
 
-        elif entity_type == "location":
-            row = await conn.fetchrow(
-                """SELECT name, location_type, sector, atmosphere, ambient,
-                          description
-                   FROM locations
-                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
-                     AND removed_cycle IS NULL
-                   LIMIT 1""",
-                game_id, name,
-            )
-            if row:
-                details = dict(row)
-
-        elif entity_type == "organization":
-            row = await conn.fetchrow(
-                """SELECT name, org_type, domain, description, ambient
-                   FROM organizations
-                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
-                     AND removed_cycle IS NULL
-                   LIMIT 1""",
-                game_id, name,
-            )
-            if row:
-                details = dict(row)
-
-        elif entity_type == "object":
-            row = await conn.fetchrow(
-                """SELECT name, category, description
-                   FROM objects
-                   WHERE game_id = $1 AND LOWER(name) = LOWER($2)
-                     AND removed_cycle IS NULL
-                   LIMIT 1""",
-                game_id, name,
-            )
-            if row:
-                details = dict(row)
-
     if not details:
         return {"found": False, "name": name, "type": entity_type}
 
-    tooltip = _build_tooltip_info(name, entity_type, details)
+    tooltip = _build_tooltip_info(display_name, entity_type, details)
     return {
         "found": True,
         "tooltip": tooltip.model_dump(),

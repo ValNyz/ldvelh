@@ -31,7 +31,7 @@ def _dump() -> dict:
             {
                 "id": "c1",
                 "name": "Tesk Vahrun-Oo",
-                "unknown_name": "Le Kethari au tablier",
+                "descriptor": "Le Kethari au tablier",
                 "known_by_protagonist": False,
                 "occupation": "gérant",
                 "workplace_id": "l1",
@@ -39,7 +39,7 @@ def _dump() -> dict:
             {
                 "id": "c2",
                 "name": "Kethari âgée",
-                "unknown_name": "La Kethari âgée",
+                "descriptor": "La Kethari âgée",
                 "known_by_protagonist": False,
             },
         ],

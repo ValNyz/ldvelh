@@ -421,7 +421,7 @@ def _scene_info_errors(scene: Scene, ids: set[str]) -> list[str]:
     ]
 
 
-def unknown_names(entity: WorldEntity) -> dict[str, bool]:
+def names_unknown_to_pc(entity: WorldEntity) -> dict[str, bool]:
     """Names of `entity` the PC does not know, mapped to their secret flag."""
     names = {a.text: a.secret or entity.secret for a in entity.aliases if not a.known}
     if not entity.known and entity.true_name:
@@ -448,7 +448,7 @@ def _knowledge_errors(scene: Scene, world: dict[str, WorldEntity]) -> list[str]:
             continue
         if item.kind != "name":
             continue
-        unknown = unknown_names(entity)
+        unknown = names_unknown_to_pc(entity)
         if item.text not in unknown:
             errors.append(
                 f"gold_knowledge: name {item.text!r} is not an unknown name of {item.ref!r}"

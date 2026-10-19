@@ -11,6 +11,7 @@ from config import get_settings
 from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
+from repos import entities as entity_repo
 from schema import DEFAULT_GAME_TIME
 from schema.engine import RollResult
 from schema.narration import NarrationOutput
@@ -26,30 +27,24 @@ def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
 
 
 async def _resolve_location(conn, game_id: UUID, location: str, new_cycle: int) -> UUID | None:
-    """Id of the narrated location, created as a stub when unknown."""
-    location_id = await conn.fetchval(
-        "SELECT id FROM locations WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
-        game_id, location,
-    )
-    if location_id:
+    """Id of the narrated location (find_entity), created as a stub when unknown. A name
+    that is ambiguous, or that an existing location holds as its label alongside another
+    one's alias, never creates a duplicate."""
+    target = await entity_repo.find_for_upsert(conn, game_id, location, "location")
+    if target.entity_id:
         old_loc = await KnowledgeGraphReader(None, game_id).get_current_location_name(conn)
         if old_loc and old_loc.lower() != location.lower():
             logger.info(f"[GAME] Location changed: '{old_loc}' → '{location}'")
-        return location_id
+        return target.entity_id
+    if target.ambiguous:
+        return None
     # Create a stub location (will be fully populated during extraction)
     location_id = await conn.fetchval(
         """INSERT INTO locations (game_id, name, created_cycle)
         VALUES ($1, $2, $3)
-        ON CONFLICT (game_id, name) DO NOTHING
         RETURNING id""",
         game_id, location, new_cycle,
     )
-    if not location_id:
-        # Race condition: created between check and insert
-        location_id = await conn.fetchval(
-            "SELECT id FROM locations WHERE game_id = $1 AND LOWER(name) = LOWER($2)",
-            game_id, location,
-        )
     logger.info(
         f"[GAME] Created stub location '{location}' "
         f"(cycle {new_cycle}), to be enriched during extraction"

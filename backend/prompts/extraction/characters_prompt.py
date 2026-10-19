@@ -20,7 +20,7 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux personn
             "entity_type": "character",
             "name": "Elena Vasquez",
             "known_by_protagonist": true,
-            "unknown_name": null,
+            "descriptor": null,
             "data": {{
                 "description": "Grande, cheveux courts",
                 "mood": "anxieuse mais déterminée",
@@ -112,7 +112,7 @@ Only extract protagonist skill changes (new skills learned or level-ups).
 
 1. Only create entities with entity_type="character"
 2. If the narrative mentions a name matching an existing character's alias, do NOT create a new character — update the existing one instead.
-3. For unknown characters (protagonist hasn't learned their name): known_by_protagonist=false, unknown_name must be a SIMPLE PHYSICAL description of what the protagonist SEES.
+3. For unknown characters (protagonist hasn't learned their name): known_by_protagonist=false, descriptor must be a SIMPLE PHYSICAL description of what the protagonist SEES.
    Good: "La femme aux cernes", "Le vieux en manteau", "Le type aux lunettes"
    Bad: "Celle qui sait", "Le Gardien des Secrets", "La Nouvelle" — NO poetic titles, NO narrative roles
 4. entities_removed: only for permanent departures (death, left the station) — NOT temporary absence
@@ -132,14 +132,14 @@ def build_user_prompt(
     chars_lines = []
     for c in known_characters[:50]:
         name = c.get("name", "?")
-        unknown_name = c.get("unknown_name")
+        descriptor = c.get("descriptor")
         occ = c.get("occupation", "")
         known = c.get("known_by_protagonist", True)
         mood = c.get("mood", "")
         ambient = c.get("ambient", "")
         line = f"- {name}"
-        if unknown_name:
-            line += f' (alias: "{unknown_name}")'
+        if descriptor:
+            line += f' (alias: "{descriptor}")'
         if occ:
             line += f" ({occ})"
         if not known:

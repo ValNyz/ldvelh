@@ -10,10 +10,14 @@
     "conversations": 1,
     "director_commitments": 0,
     "director_plans": 1,
-    "entity_registry": 13,
+    "entity_aliases": 14,
+    "entity_mentions": 0,
+    "entity_merges": 0,
+    "entity_registry": 14,
     "events": 1,
     "extraction_logs": 1,
     "facts": 5,
+    "identity_events": 0,
     "inventory": 2,
     "llm_calls": 7,
     "locations": 6,
@@ -42,10 +46,14 @@
     "conversations": 1,
     "director_commitments": 0,
     "director_plans": 1,
-    "entity_registry": 14,
+    "entity_aliases": 15,
+    "entity_mentions": 0,
+    "entity_merges": 0,
+    "entity_registry": 15,
     "events": 1,
     "extraction_logs": 2,
     "facts": 5,
+    "identity_events": 0,
     "inventory": 2,
     "llm_calls": 7,
     "locations": 6,
@@ -74,10 +82,14 @@
     "conversations": 1,
     "director_commitments": 0,
     "director_plans": 1,
-    "entity_registry": 13,
+    "entity_aliases": 14,
+    "entity_mentions": 0,
+    "entity_merges": 0,
+    "entity_registry": 14,
     "events": 1,
     "extraction_logs": 1,
     "facts": 5,
+    "identity_events": 0,
     "inventory": 2,
     "llm_calls": 4,
     "locations": 6,
@@ -143,7 +155,7 @@
   ],
   "response_rollback_result": {
     "deleted_turns": 1,
-    "undone_changes": 3
+    "undone_changes": 4
   },
   "response_state_cycle": 1,
   "response_target_cycle": 1,
@@ -152,9 +164,13 @@
       4,
       3
     ],
+    "entity_aliases": [
+      15,
+      14
+    ],
     "entity_registry": [
-      14,
-      13
+      15,
+      14
     ],
     "extraction_logs": [
       2,
@@ -174,9 +190,13 @@
       3,
       4
     ],
+    "entity_aliases": [
+      14,
+      15
+    ],
     "entity_registry": [
-      13,
-      14
+      14,
+      15
     ],
     "extraction_logs": [
       1,

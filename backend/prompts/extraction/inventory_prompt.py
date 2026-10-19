@@ -1,6 +1,6 @@
 """
 LDVELH - Inventory Extractor Prompt
-Handles object creation with canonical_name dedup, inventory changes, and inventory-related facts.
+Handles object creation deduplicated by object label, inventory changes, and inventory-related facts.
 """
 
 from schema import PROTAGONIST_REF
@@ -18,7 +18,6 @@ Tu analyses les textes narratifs et crées les fiches d'objets acquis et les cha
     "objects_created": [
         {{
             "name": "Carte d'accès niveau 2",
-            "canonical_name": "carte_acces_niveau_2",
             "category": "tech",
             "description": "Carte magnétique bleue avec puce intégrée",
             "transportable": true,
@@ -57,18 +56,17 @@ Tu analyses les textes narratifs et crées les fiches d'objets acquis et les cha
 }}
 ```
 
-## CANONICAL NAME DEDUP
+## OBJECT DEDUP
 
-canonical_name is a snake_case ASCII key for deduplication.
-- Format: lowercase, underscores, no accents (e.g. "cafe_au_lait", "carte_acces_niveau_2")
-- If the canonical_name matches an existing object, do NOT create a new objects_created entry.
-  Instead, use inventory_changes with object_ref pointing to the existing object name.
-- This prevents duplicates like "Café" and "café au lait" creating separate objects.
+Existing objects are listed by their label.
+- If the item is an existing object (same object, even written with another case, accents
+  or article), do NOT create a new objects_created entry.
+  Instead, use inventory_changes with object_ref = the existing object label, exactly as listed.
+- This prevents the same object being recorded twice under two spellings.
 
 ## OBJECT FIELDS
 
-- name (string max 100): display name
-- canonical_name (string max 100): snake_case dedup key
+- name (string max 100): display name (the object label)
 - category: tech, weapon, clothing, food, document, tool, misc
 - description (string max 300): brief description
 - transportable (bool): can the protagonist carry it?
@@ -81,7 +79,7 @@ canonical_name is a snake_case ASCII key for deduplication.
 
 - action: acquire, lose, use
 - For "acquire" with a new object: set object_ref=null, object_hint=item description
-- For "acquire" with an existing canonical_name: set object_ref=existing object name
+- For "acquire" with an existing object: set object_ref=existing object label
 - For "lose" and "use": object_ref is required (exact name of existing object)
 
 {STRICT_KEYS_RULE}
@@ -96,14 +94,14 @@ canonical_name is a snake_case ASCII key for deduplication.
 
 1. Only create objects_created for items that need a DETAILED record
 2. Match inventory_hints from the narrator (from_hint field) to formalize them
-3. Check existing canonical_names before creating — if a match exists, use inventory_changes instead
+3. Check existing object labels before creating — if a match exists, use inventory_changes instead
 4. Extract only INVENTORY-related facts (acquisitions, losses, notable uses)"""
 
 
 def build_user_prompt(
     narrative_text: str,
     cycle: int,
-    existing_canonical_names: list[str],
+    existing_labels: list[str],
     inventory_hints: list[dict] | None = None,
     known_objects: list[dict] | None = None,
     engine_object_addon: str | None = None,
@@ -111,7 +109,7 @@ def build_user_prompt(
     """Build the user prompt for the inventory extractor."""
     texts_joined = narrative_text
 
-    canon_str = ", ".join(existing_canonical_names[:50]) if existing_canonical_names else "None"
+    labels_str = ", ".join(existing_labels[:50]) if existing_labels else "None"
 
     hints_section = ""
     if inventory_hints:
@@ -132,7 +130,7 @@ def build_user_prompt(
 
     return f"""## CONTEXT
 - Cycle: {cycle}
-- Existing canonical_names (do NOT create duplicates): {canon_str}
+- Existing object labels (do NOT create duplicates): {labels_str}
 {objects_section}
 {hints_section}
 {engine_section}
@@ -142,8 +140,8 @@ def build_user_prompt(
 {texts_joined}
 
 ## INSTRUCTIONS
-1. For each inventory_hint, create objects_created if the item is new (check canonical_names)
-2. If canonical_name already exists, use inventory_changes with object_ref instead
+1. For each inventory_hint, create objects_created if the item is new (check the object labels)
+2. If the object already exists, use inventory_changes with object_ref instead
 3. Extract inventory_changes for items lost or used
 4. Extract inventory-related facts
 

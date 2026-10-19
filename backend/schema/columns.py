@@ -13,7 +13,7 @@ cannot drift. `text` columns have no width: the models keep their product caps.
 from .core import Label, Mood, Name, ShortText, Tag
 
 # characters
-CharacterUnknownName = Name
+CharacterDescriptor = Name
 CharacterSpecies = Tag
 CharacterGender = Label
 CharacterPronouns = Label

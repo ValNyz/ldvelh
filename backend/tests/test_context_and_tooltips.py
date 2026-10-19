@@ -269,6 +269,36 @@ async def test_build_context_all_npcs_light(
 
 
 @pytest.mark.asyncio
+async def test_unknown_npc_uses_descriptor(client, test_user, test_pool, world_gen_data):
+    """An NPC the PC has not identified is listed under its descriptor, one without a
+    descriptor under the language pack's label: never under its true name (#152)."""
+    from packs.loader import load_lang
+    from services.context_builder import ContextBuilder
+
+    game_id, _, world_gen = await _create_and_populate(
+        client, test_user, test_pool, world_gen_data
+    )
+    async with test_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE characters SET descriptor = 'La femme aux cernes'"
+            " WHERE game_id = $1 AND true_name = 'Justine Lépicier'",
+            game_id,
+        )
+        ctx = await ContextBuilder(test_pool, game_id).build(
+            conn,
+            player_input="test",
+            current_cycle=1,
+            current_time="08h00",
+            current_location_name=world_gen.arrival_event.arrival_location_ref,
+        )
+
+    names = {npc.name for npc in ctx.all_npcs}
+    assert "La femme aux cernes" in names
+    assert load_lang("fr").unknown_character_label in names  # Dr. Yuki Tanaka
+    assert not names & {"Justine Lépicier", "Dr. Yuki Tanaka"}
+
+
+@pytest.mark.asyncio
 async def test_build_context_after_messages(
     client, test_user, test_pool, world_gen_data
 ):
@@ -460,8 +490,9 @@ class TestBuildAllNpcsLight:
         characters = [
             {
                 "name": "Alice",
+                "display_name": "Alice",
                 "known_by_protagonist": True,
-                "unknown_name": None,
+                "descriptor": None,
                 "occupation": "engineer",
                 "species": "human",
                 "relation_level": 5,
@@ -474,13 +505,16 @@ class TestBuildAllNpcsLight:
         assert result[0].name == "Alice"
         assert result[0].known is True
 
-    def test_unknown_npc_uses_unknown_name(self):
+    def test_name_is_the_display_name_read_from_the_database(self):
+        """The player-facing name comes from display_for_player (the reader's display_name):
+        never recomputed from the label."""
         builder = self._make_builder()
         characters = [
             {
                 "name": "Secret Agent",
+                "display_name": "Mysterious Stranger",
                 "known_by_protagonist": False,
-                "unknown_name": "Mysterious Stranger",
+                "descriptor": "Mysterious Stranger",
                 "occupation": None,
                 "species": "human",
                 "relation_level": None,
@@ -491,23 +525,6 @@ class TestBuildAllNpcsLight:
         result = builder._build_all_npcs_light(characters)
         assert result[0].name == "Mysterious Stranger"
         assert result[0].known is False
-
-    def test_unknown_npc_no_unknown_name_defaults(self):
-        builder = self._make_builder()
-        characters = [
-            {
-                "name": "Hidden NPC",
-                "known_by_protagonist": False,
-                "unknown_name": None,
-                "occupation": None,
-                "species": "alien",
-                "relation_level": None,
-                "usual_location": None,
-                "ambient": None,
-            }
-        ]
-        result = builder._build_all_npcs_light(characters)
-        assert result[0].name == "Inconnu(e)"
 
 
 class TestBuildRelevantNpcs:
@@ -523,8 +540,9 @@ class TestBuildRelevantNpcs:
         all_characters = [
             {
                 "name": "Alice",
+                "display_name": "Alice",
                 "known_by_protagonist": True,
-                "unknown_name": None,
+                "descriptor": None,
                 "occupation": "engineer",
                 "species": "human",
                 "relation_level": 5,
@@ -544,8 +562,9 @@ class TestBuildRelevantNpcs:
         all_characters = [
             {
                 "name": "Stranger",
+                "display_name": "Stranger",
                 "known_by_protagonist": True,
-                "unknown_name": None,
+                "descriptor": None,
                 "occupation": None,
                 "species": "human",
                 "relation_level": None,
@@ -565,8 +584,9 @@ class TestBuildRelevantNpcs:
         all_characters = [
             {
                 "name": f"NPC_{i}",
+                "display_name": f"NPC_{i}",
                 "known_by_protagonist": True,
-                "unknown_name": None,
+                "descriptor": None,
                 "occupation": "worker",
                 "species": "human",
                 "relation_level": 10 - i,
@@ -693,12 +713,14 @@ class TestCompanionNotInNPCs:
         builder = ContextBuilder.__new__(ContextBuilder)
         builder._companion_name = "théo"
         characters = [
-            {"name": "Elena", "known_by_protagonist": True, "occupation": "ingénieure",
+            {"name": "Elena", "display_name": "Elena",
+             "known_by_protagonist": True, "occupation": "ingénieure",
              "species": "human", "relation_level": 5, "usual_location": "Labo",
-             "unknown_name": None, "ambient": None},
-            {"name": "Théo", "known_by_protagonist": True, "occupation": None,
+             "descriptor": None, "ambient": None},
+            {"name": "Théo", "display_name": "Théo",
+             "known_by_protagonist": True, "occupation": None,
              "species": "human", "relation_level": None, "usual_location": None,
-             "unknown_name": None, "ambient": None},
+             "descriptor": None, "ambient": None},
         ]
         result = builder._build_all_npcs_light(characters)
         names = [n.name for n in result]
@@ -712,13 +734,15 @@ class TestCompanionNotInNPCs:
         builder = ContextBuilder.__new__(ContextBuilder)
         builder._companion_name = "théo"
         characters = [
-            {"name": "Elena", "known_by_protagonist": True, "occupation": "ingénieure",
+            {"name": "Elena", "display_name": "Elena",
+             "known_by_protagonist": True, "occupation": "ingénieure",
              "species": "human", "relation_level": 5, "usual_location": "Labo",
-             "unknown_name": None, "ambient": None, "traits": ["prudente"],
+             "descriptor": None, "ambient": None, "traits": ["prudente"],
              "relation_context": "collègue", "mood": None},
-            {"name": "Théo", "known_by_protagonist": True, "occupation": None,
+            {"name": "Théo", "display_name": "Théo",
+             "known_by_protagonist": True, "occupation": None,
              "species": "human", "relation_level": 3, "usual_location": None,
-             "unknown_name": None, "ambient": None, "traits": [],
+             "descriptor": None, "ambient": None, "traits": [],
              "relation_context": None, "mood": None},
         ]
         result = builder._build_relevant_npcs(characters, set())
@@ -732,9 +756,10 @@ class TestCompanionNotInNPCs:
         builder = ContextBuilder.__new__(ContextBuilder)
         builder._companion_name = None
         characters = [
-            {"name": "Elena", "known_by_protagonist": True, "occupation": None,
+            {"name": "Elena", "display_name": "Elena",
+             "known_by_protagonist": True, "occupation": None,
              "species": "human", "relation_level": None, "usual_location": None,
-             "unknown_name": None, "ambient": None},
+             "descriptor": None, "ambient": None},
         ]
         result = builder._build_all_npcs_light(characters)
         assert len(result) == 1

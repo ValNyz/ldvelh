@@ -1,6 +1,6 @@
 """
 LDVELH - Inventory Extractor
-Handles object creation with canonical_name dedup, inventory changes, and facts.
+Handles object creation deduplicated by label, inventory changes, and facts.
 """
 
 from __future__ import annotations
@@ -26,7 +26,6 @@ class InventoryExtractor(BaseExtractor):
     tool_description = "Extract inventory changes from narrative text"
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
-        canonical_names = await self.reader.get_object_canonical_names(conn)
         objects = await self.reader.get_objects(conn)
 
         # Load engine for object extensions
@@ -38,7 +37,6 @@ class InventoryExtractor(BaseExtractor):
         inventory_hints = narrator_deltas.get("inventory_hints", [])
 
         return {
-            "canonical_names": canonical_names,
             "objects": objects,
             "inventory_hints": inventory_hints,
         }
@@ -54,7 +52,7 @@ class InventoryExtractor(BaseExtractor):
         user_prompt = inventory_prompt.build_user_prompt(
             narrative_text=narrative_text,
             cycle=cycle,
-            existing_canonical_names=context["canonical_names"],
+            existing_labels=[o["name"] for o in context["objects"]],
             inventory_hints=context.get("inventory_hints") or None,
             known_objects=known_objs or None,
             engine_object_addon=self._engine.get_object_prompt_addon() or None,
@@ -86,10 +84,10 @@ class InventoryExtractor(BaseExtractor):
     async def _create_object(
         self, conn: Connection, stats: dict, obj_data: dict, cycle: int
     ) -> bool:
-        """Create an object (with canonical dedup) and its engine extension."""
+        """Create an object (deduplicated by label) and its engine extension."""
         obj_data.setdefault("from_hint", obj_data.get("name", ""))
         obj = ObjectCreation.model_validate(obj_data)
-        result = await self.populator.create_object_with_canonical(conn, obj, cycle)
+        result = await self.populator.create_object_by_label(conn, obj, cycle)
         if not result:
             return False
         engine_data = obj.engine_data

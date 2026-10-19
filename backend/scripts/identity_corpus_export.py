@@ -55,7 +55,7 @@ SELECT json_build_object(
  'companions', (SELECT json_agg(c) FROM (SELECT name, voice FROM companions
                 WHERE game_id = '{game}') c),
  'characters', (SELECT json_agg(c ORDER BY c.created_at) FROM (SELECT id, name,
-                unknown_name, known_by_protagonist, occupation, workplace_id,
+                descriptor, known_by_protagonist, occupation, workplace_id,
                 residence_id, created_at FROM characters WHERE game_id = '{game}'
                 AND removed_cycle IS NULL) c),
  'locations', (SELECT json_agg(l ORDER BY l.created_at) FROM (SELECT id, name,
@@ -65,7 +65,7 @@ SELECT json_build_object(
                    org_type, created_at FROM organizations WHERE game_id = '{game}'
                    AND removed_cycle IS NULL) o),
  'objects', (SELECT json_agg(x ORDER BY x.created_at) FROM (SELECT id, name,
-             canonical_name, category, created_at FROM objects
+             category, created_at FROM objects
              WHERE game_id = '{game}' AND removed_cycle IS NULL) x),
  'arcs', (SELECT json_agg(a ORDER BY a.created_at) FROM (SELECT title, description,
           created_at FROM narrative_arcs WHERE game_id = '{game}') a),
@@ -83,14 +83,14 @@ _QUERIES = {
     "registry": "SELECT entity_type, name FROM entity_registry WHERE game_id = $1"
     " ORDER BY entity_type, name",
     "companions": "SELECT name, voice FROM companions WHERE game_id = $1",
-    "characters": "SELECT id, name, unknown_name, known_by_protagonist, occupation,"
+    "characters": "SELECT id, name, descriptor, known_by_protagonist, occupation,"
     " workplace_id, residence_id FROM characters WHERE game_id = $1"
     " AND removed_cycle IS NULL ORDER BY created_at",
     "locations": "SELECT id, name, location_type, parent_id FROM locations"
     " WHERE game_id = $1 AND removed_cycle IS NULL ORDER BY created_at",
     "organizations": "SELECT id, name, org_type FROM organizations WHERE game_id = $1"
     " AND removed_cycle IS NULL ORDER BY created_at",
-    "objects": "SELECT id, name, canonical_name, category FROM objects"
+    "objects": "SELECT id, name, category FROM objects"
     " WHERE game_id = $1 AND removed_cycle IS NULL ORDER BY created_at",
     "arcs": "SELECT title, description FROM narrative_arcs WHERE game_id = $1"
     " ORDER BY created_at",
@@ -137,7 +137,7 @@ def _entity(entity_type: str, label: str, lexicon: Lexicon, **fields) -> dict:
 
 
 def _character(row: dict, location_ids: dict[str, str], lexicon: Lexicon) -> dict:
-    name, descriptor = row["name"], row.get("unknown_name")
+    name, descriptor = row["name"], row.get("descriptor")
     known = bool(row.get("known_by_protagonist"))
     aliases = [_alias(name, "true_name", known)]
     parts = name.split()

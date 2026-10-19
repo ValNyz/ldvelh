@@ -377,7 +377,7 @@ class EntityReveal(BaseModel):
     """An entity whose identity/existence was revealed to the protagonist"""
 
     entity_type: Literal["character", "location"] = "character"
-    current_name: Name  # Name used until now (unknown_name or description)
+    current_name: Name  # Name used until now (descriptor or description)
     real_name: Name | None = None  # Actual name if revealed (characters only)
 
 

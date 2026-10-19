@@ -25,12 +25,17 @@ from schema.narration import (
 )
 
 from kg.reader import KnowledgeGraphReader
+from repos import entities as entity_repo
 from repos import games as games_repo
 from services.engine import get_engine
 from utils.json_utils import parse_json
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
+
+
+# Entity types a narrator detail request may name, in the order they are tried.
+_DETAIL_TYPES = ("character", "location", "organization")
 
 
 class ContextBuilder:
@@ -307,9 +312,7 @@ class ContextBuilder:
         companion = getattr(self, "_companion_name", None)
         return [
             NPCLightSummary(
-                name=r["name"]
-                if r["known_by_protagonist"]
-                else (r["unknown_name"] or "Inconnu(e)"),
+                name=r["display_name"],
                 occupation=r.get("occupation"),
                 species=r.get("species") or "human",
                 relationship_level=r.get("relation_level"),
@@ -344,10 +347,7 @@ class ContextBuilder:
                 break
             if companion and r["name"].lower() == companion:
                 continue
-            display_name = r["name"]
-            if not r.get("known_by_protagonist", True):
-                display_name = r.get("unknown_name") or "Inconnu(e)"
-            if display_name in exclude_names:
+            if r["display_name"] in exclude_names:
                 continue
             # Only include NPCs with an established relation
             if r.get("relation_level") is not None:
@@ -356,9 +356,7 @@ class ContextBuilder:
 
     def _row_to_npc_summary(self, row: dict) -> NPCSummary:
         """Convert DB row to NPCSummary"""
-        display_name = row["name"]
-        if not row.get("known_by_protagonist", True):
-            display_name = row.get("unknown_name") or "Inconnu(e)"
+        display_name = row["display_name"]
 
         traits = row.get("traits") or []
         if isinstance(traits, str):
@@ -533,7 +531,8 @@ class ContextBuilder:
 
         result = {}
         for name in detail_requests:
-            details = await self.reader.get_entity_details_by_name(conn, name)
+            found = await entity_repo.find_any(conn, self.game_id, name, _DETAIL_TYPES)
+            details = found and await self.reader.get_entity_details(conn, found[0])
             if details:
                 result[name] = details
         return result

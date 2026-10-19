@@ -110,11 +110,13 @@ def test_registry_resolves_the_token_to_the_protagonist_row():
     registry.register(PC, pc_id, EntityType.PROTAGONIST)
     registry.register("Marie", npc_id, EntityType.CHARACTER)
 
-    assert registry.resolve(PROTAGONIST_REF) == pc_id
-    assert registry.resolve(f"  {PROTAGONIST_REF.lower()}\n") == pc_id
-    assert registry.resolve(PC) == pc_id  # the real name still resolves
-    assert PROTAGONIST_REF in registry
-    assert EntityRegistry().resolve(PROTAGONIST_REF) is None  # no PC registered yet
+    assert registry.resolve(PROTAGONIST_REF, EntityType.PROTAGONIST) == pc_id
+    assert registry.resolve(f"  {PROTAGONIST_REF.lower()}\n", EntityType.PROTAGONIST) == pc_id
+    assert registry.resolve(PC, EntityType.PROTAGONIST) == pc_id  # the real name too
+    # Typed: the token never names another type (#152).
+    assert registry.resolve(PROTAGONIST_REF, EntityType.CHARACTER) is None
+    assert registry.resolve("Marie", EntityType.CHARACTER) == npc_id
+    assert EntityRegistry().resolve(PROTAGONIST_REF, EntityType.PROTAGONIST) is None
 
 
 def test_entity_ref_schema_tells_the_llm_about_the_token():
@@ -132,7 +134,7 @@ async def test_sql_find_entity_maps_the_token(test_pool, test_user):
             "SELECT id FROM entity_registry WHERE game_id = $1 AND entity_type = 'protagonist'",
             game_id)
 
-        async def find(name: str, entity_type: str | None = None):
+        async def find(name: str, entity_type: str = "protagonist"):
             return await conn.fetchval("SELECT find_entity($1, $2, $3)",
                                        game_id, name, entity_type)
 

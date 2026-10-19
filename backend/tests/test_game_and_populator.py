@@ -1741,6 +1741,41 @@ class TestExtractionPopulator:
         assert row["mood"] == "souriante et détendue"
 
     @pytest.mark.asyncio
+    async def test_reveal_by_descriptor_with_article_marks_the_character_known(
+        self, client, test_user, test_pool
+    ):
+        """The Kethari case (#152): an NPC extracted under a description is stored with it as
+        descriptor; a reveal naming it with an article finds it (find_entity), sets its true
+        name and marks it known, registry included."""
+        from kg.specialized_populator import ExtractionPopulator
+        from schema import NarrativeExtraction
+
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        populator = ExtractionPopulator(test_pool, game_id)
+        await populator.process_extraction(NarrativeExtraction.model_validate({
+            "cycle": 2,
+            "entities_created": [{"entity_type": "character", "name": "Kethari âgée",
+                                  "known_by_protagonist": False}],
+        }))
+
+        async with test_pool.acquire() as conn:
+            created = await conn.fetchrow(
+                "SELECT id, true_name, descriptor FROM characters"
+                " WHERE game_id = $1 AND name = 'Kethari âgée'", game_id)
+            revealed = await populator.mark_character_known(
+                conn, "La Kethari âgée", "Nahle Irun-Sa")
+            row = await conn.fetchrow(
+                "SELECT c.known_by_protagonist, c.true_name, c.descriptor, er.name AS label,"
+                " display_for_player(c.id) AS shown"
+                " FROM characters c JOIN entity_registry er ON er.id = c.id"
+                " WHERE c.id = $1", created["id"])
+        assert (created["true_name"], created["descriptor"]) == (None, "Kethari âgée")
+        assert revealed is True
+        assert dict(row) == {"known_by_protagonist": True, "true_name": "Nahle Irun-Sa",
+                             "descriptor": "Kethari âgée", "label": "Nahle Irun-Sa",
+                             "shown": "Nahle Irun-Sa"}
+
+    @pytest.mark.asyncio
     async def test_process_extraction_skips_owns_relations(
         self, client, test_user, test_pool
     ):
@@ -2129,6 +2164,7 @@ class TestContextBuilderTraitsFallback:
         builder = ContextBuilder.__new__(ContextBuilder)
         row = {
             "name": "Elena",
+            "display_name": "Elena",
             "known_by_protagonist": True,
             "occupation": "ingénieure",
             "species": "human",
@@ -2148,6 +2184,7 @@ class TestContextBuilderTraitsFallback:
         builder = ContextBuilder.__new__(ContextBuilder)
         row = {
             "name": "Raj",
+            "display_name": "Raj",
             "known_by_protagonist": True,
             "occupation": "médecin",
             "species": "human",
@@ -2168,6 +2205,7 @@ class TestContextBuilderTraitsFallback:
         builder = ContextBuilder.__new__(ContextBuilder)
         row = {
             "name": "Zed",
+            "display_name": "Zed",
             "known_by_protagonist": True,
             "occupation": None,
             "species": "alien",
@@ -2187,8 +2225,9 @@ class TestContextBuilderTraitsFallback:
         builder = ContextBuilder.__new__(ContextBuilder)
         row = {
             "name": "Ghost",
+            "display_name": "Silhouette",
             "known_by_protagonist": False,
-            "unknown_name": "Silhouette",
+            "descriptor": "Silhouette",
             "occupation": None,
             "species": "human",
             "traits": None,

@@ -329,7 +329,7 @@ class TestInventoryPromptEngineAddon:
         prompt = build_user_prompt(
             narrative_text="Some text",
             cycle=1,
-            existing_canonical_names=["item_a"],
+            existing_labels=["item_a"],
         )
         assert "ENGINE-SPECIFIC" not in prompt
 
@@ -338,7 +338,7 @@ class TestInventoryPromptEngineAddon:
         prompt = build_user_prompt(
             narrative_text="Some text",
             cycle=1,
-            existing_canonical_names=["item_a"],
+            existing_labels=["item_a"],
             engine_object_addon='Add "engine_data": {"damage": "4D"} for weapons',
         )
         assert "ENGINE-SPECIFIC OBJECT DATA" in prompt

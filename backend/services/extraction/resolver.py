@@ -104,7 +104,7 @@ def build_span_annotations(
 ) -> list[list]:
     """Find spans of resolved mentions in the narrator response text.
 
-    Returns list of [char_start, char_end, canonical_name, entity_type].
+    Returns list of [char_start, char_end, canonical, entity_type].
     """
     annotations = []
     text_lower = text.lower()

@@ -257,7 +257,8 @@ class GameService:
     # =========================================================================
 
     async def load_npcs(self, game_id: UUID) -> list[dict]:
-        """Charge les PNJs connus du protagoniste"""
+        """Charge les PNJs connus du protagoniste, sous le nom que le joueur peut lire
+        (display_for_player)."""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
@@ -266,7 +267,7 @@ class GameService:
         return [
             {
                 "id": str(c["id"]),
-                "name": c["name"],
+                "name": c["display_name"],
                 "occupation": c.get("occupation"),
                 "location": c.get("workplace_name") or c.get("usual_location"),
                 "relationship": self._get_relation_label(c.get("relation_level")),

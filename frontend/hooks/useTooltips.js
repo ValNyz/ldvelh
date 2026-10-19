@@ -10,7 +10,8 @@ const MAX_POLLS = 12;
  * Hook to load entity tooltip data from resolver annotations.
  *
  * After each turn, call refresh() to start polling for new annotations.
- * Builds a tooltipMap: { lowercase_canonical_name: { icon, name, type, infos, relation } }
+ * Builds a tooltipMap: { lowercase_name: { icon, name, type, infos, relation } }, keyed by the
+ * name the player may read for each annotated entity.
  *
  * Bold text in messages is matched against these names for tooltip display.
  */
@@ -50,8 +51,8 @@ export function useTooltips(gameId) {
 			const entities = new Map();
 			for (const msg of messages) {
 				for (const ann of msg.annotations) {
-					if (!entities.has(ann.canonical_name)) {
-						entities.set(ann.canonical_name, ann.entity_type);
+					if (!entities.has(ann.name)) {
+						entities.set(ann.name, ann.entity_type);
 					}
 				}
 			}

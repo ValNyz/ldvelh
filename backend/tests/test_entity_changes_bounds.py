@@ -126,7 +126,8 @@ async def test_process_extraction_isolates_a_failed_item(test_pool, test_user):
 
     async def colliding_update(conn, entity_type, name, changes):
         if name == "Alpha":  # rename collision: server-side unique violation
-            await conn.execute("UPDATE characters SET name = 'Beta' "
+            # (the name is derived from true_name, #152: the collision goes through it)
+            await conn.execute("UPDATE characters SET true_name = 'Beta' "
                                "WHERE game_id = $1 AND name = 'Alpha'", game_id)
         return await real_update(conn, entity_type, name, changes)
 

@@ -11,6 +11,7 @@ from uuid import UUID
 
 from domain.errors import SourceMessageGone
 from kg.item_writes import write_item
+from repos import entities as entity_repo
 from repos.uow import uow
 from schema.director import DirectorOutput
 
@@ -106,16 +107,20 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
         )
         # Link involved entities via arc_participants
         if arc_id and arc_update.involved_entities:
+            unresolved = 0
             for entity_name in arc_update.involved_entities:
-                entity_id = await conn.fetchval(
-                    "SELECT find_entity($1, $2)",  # maps PROTAGONIST_REF too (#28)
-                    game_id, entity_name,
-                )
-                if entity_id:
+                # Typed find_entity per type; PROTAGONIST_REF maps to the PC (#28).
+                found = await entity_repo.find_any(conn, game_id, entity_name)
+                if found:
                     await conn.execute(
                         "INSERT INTO arc_participants (arc_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        arc_id, entity_id,
+                        arc_id, found[0],
                     )
+                else:
+                    unresolved += 1
+            if unresolved:
+                # The refs are story text (#77): only their count is logged.
+                logger.warning(f"[DIRECTOR] participant unresolved (count={unresolved})")
         logger.info(f"[DIRECTOR] Arc created: '{title}'")
 
     elif action == "update":

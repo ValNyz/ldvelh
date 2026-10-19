@@ -76,7 +76,8 @@ class CharactersExtractor(BaseExtractor):
         known_chars = [
             {
                 "name": c["name"],
-                "unknown_name": c.get("unknown_name"),
+                # A character known only by its descriptor is named by it already.
+                "descriptor": c.get("descriptor") if c.get("descriptor") != c["name"] else None,
                 "occupation": c.get("occupation"),
                 "known_by_protagonist": c.get("known_by_protagonist", True),
                 "mood": c.get("mood"),

@@ -51,7 +51,7 @@ async def test_c20_tooltips_annotations_and_entity(harness, world_game):
     assert_snapshot("c20_tooltips", {
         "annotations": [
             {"sequence_present": m["sequence"] is not None,
-             "annotations": [[a["start"], a["end"], a["canonical_name"], a["entity_type"]]
+             "annotations": [[a["start"], a["end"], a["name"], a["entity_type"]]
                              for a in m["annotations"]]}
             for m in ann["messages"]
         ],

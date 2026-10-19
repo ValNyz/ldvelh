@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from prompts.extraction import narrative_arcs_prompt
+from repos import entities as entity_repo
 from schema import RelationType
 from schema.extraction import (
     EventScheduledExtraction,
@@ -139,21 +140,23 @@ class NarrativeArcsExtractor(BaseExtractor):
 
     async def _update_relation(self, conn: Connection, ru_data: dict, cycle: int) -> bool:
         ru = RelationUpdate.model_validate(ru_data)
-        updated = await conn.fetchval(
+        source = await entity_repo.find_any(conn, self.game_id, ru.source_ref)
+        target = await entity_repo.find_any(conn, self.game_id, ru.target_ref)
+        updated = source and target and await conn.fetchval(
             """WITH upd AS (
                 UPDATE relations SET
                     level = COALESCE($5, level),
                     context = COALESCE($6, context),
                     known_by_protagonist = COALESCE($7, known_by_protagonist)
                 WHERE game_id = $1
-                  AND source_id = find_entity($1, $2)
-                  AND target_id = find_entity($1, $3)
+                  AND source_id = $2
+                  AND target_id = $3
                   AND type = $4::relation_type
                   AND end_cycle IS NULL
                 RETURNING 1)
             SELECT COUNT(*) FROM upd""",
             self.game_id,
-            ru.source_ref, ru.target_ref, ru.relation_type.value,
+            source[0], target[0], ru.relation_type.value,
             ru.new_level, ru.new_context, ru.now_known,
         )
         if not updated:

@@ -59,7 +59,7 @@ class EntityCreation(BaseModel):
     entity_type: EntityType
     name: Name  # 100 chars
     known_by_protagonist: bool = True
-    unknown_name: Name | None = None
+    descriptor: Name | None = None
     # Entity-specific fields (keys match the target table columns)
     data: dict = Field(
         default_factory=dict,
@@ -72,9 +72,9 @@ class EntityCreation(BaseModel):
         return normalize_entity_type(v)
 
     @model_validator(mode="after")
-    def _unknown_name_means_hidden(self):
-        """An unknown_name without an explicit flag describes someone not yet named (#87)."""
-        if "known_by_protagonist" not in self.model_fields_set and self.unknown_name:
+    def _descriptor_means_hidden(self):
+        """A descriptor without an explicit flag describes someone not yet named (#87)."""
+        if "known_by_protagonist" not in self.model_fields_set and self.descriptor:
             self.known_by_protagonist = False
         return self
 
@@ -121,11 +121,6 @@ class ObjectCreation(BaseModel):
     """A new object created from inventory acquisition"""
 
     name: Name  # 100 chars
-    canonical_name: str | None = Field(
-        default=None,
-        max_length=100,
-        description="Snake_case dedup key (e.g. 'cafe_au_lait')",
-    )
     category: ShortText | None = None
     description: Text | None = None
     transportable: bool = True

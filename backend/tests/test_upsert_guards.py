@@ -42,7 +42,7 @@ HIDDEN_NPC = {
     "entity_type": "character",
     "name": "Justine Lépicier",
     "known_by_protagonist": False,
-    "unknown_name": "la femme au manteau gris",
+    "descriptor": "la femme au manteau gris",
     "data": {"traits": ["méfiante", "loyale"], "description": "Manteau gris, regard vif",
              "species": "humaine", "mood": "sur ses gardes", "occupation": "pilote"},
 }
@@ -61,7 +61,7 @@ class TestCharacterUpsert:
                    {"entities_created": [{"name": "Justine Lépicier"}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["known_by_protagonist"] is False
-        assert row["unknown_name"] == "la femme au manteau gris"
+        assert row["descriptor"] == "la femme au manteau gris"
         assert row["traits"] == ["méfiante", "loyale"]
 
     async def test_explicit_known_true_in_creation_does_not_reveal(
@@ -83,10 +83,10 @@ class TestCharacterUpsert:
             {"name": "Marcus", "known_by_protagonist": True}]})
         await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
             {"name": "Marcus", "known_by_protagonist": False,
-             "unknown_name": "l'homme au bar"}]}, cycle=2)
+             "descriptor": "l'homme au bar"}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Marcus")
         assert row["known_by_protagonist"] is True
-        assert row["unknown_name"] is None
+        assert row["descriptor"] is None
 
     async def test_non_empty_traits_still_replace_stored_traits(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
@@ -97,15 +97,15 @@ class TestCharacterUpsert:
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["traits"] == ["rancunière"]
 
-    async def test_new_npc_with_unknown_name_and_no_flag_is_stored_hidden(
+    async def test_new_npc_with_descriptor_and_no_flag_is_stored_hidden(
         self, test_pool, test_user
     ):
         game_id = await _game(test_pool, test_user)
         await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Ossek", "unknown_name": "le type au bar"}]})
+            {"name": "Ossek", "descriptor": "le type au bar"}]})
         row = await _row(test_pool, "characters", game_id, "Ossek")
         assert row["known_by_protagonist"] is False
-        assert row["unknown_name"] == "le type au bar"
+        assert row["descriptor"] == "le type au bar"
 
     async def test_whitespace_strings_do_not_wipe_text_fields(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
@@ -306,15 +306,15 @@ class TestNarrativeTraitUpsert:
 
 
 class TestEntityCreationDefault:
-    def test_unknown_name_without_flag_means_hidden(self):
+    def test_descriptor_without_flag_means_hidden(self):
         ec = EntityCreation(entity_type="character", name="Justine",
-                            unknown_name="la femme au manteau gris")
+                            descriptor="la femme au manteau gris")
         assert ec.known_by_protagonist is False
 
-    def test_no_flag_and_no_unknown_name_stays_known(self):
+    def test_no_flag_and_no_descriptor_stays_known(self):
         assert EntityCreation(entity_type="character", name="Marcus").known_by_protagonist
 
-    def test_explicit_flag_wins_over_unknown_name(self):
+    def test_explicit_flag_wins_over_descriptor(self):
         ec = EntityCreation(entity_type="character", name="Justine",
-                            known_by_protagonist=True, unknown_name="la femme")
+                            known_by_protagonist=True, descriptor="la femme")
         assert ec.known_by_protagonist is True

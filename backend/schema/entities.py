@@ -10,13 +10,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from .columns import (
     CharacterAge,
+    CharacterDescriptor,
     CharacterGender,
     CharacterMood,
     CharacterOccupation,
     CharacterOrigin,
     CharacterPronouns,
     CharacterSpecies,
-    CharacterUnknownName,
     LocationAtmosphere,
     LocationOperatingHours,
     LocationPriceRange,
@@ -133,7 +133,7 @@ class CharacterData(BaseModel):
     name: Name
     # Identity
     known_by_protagonist: bool = False
-    unknown_name: CharacterUnknownName | None = None
+    descriptor: CharacterDescriptor | None = None
     species: CharacterSpecies | None = None
     gender: CharacterGender | None = None
     pronouns: CharacterPronouns | None = None
