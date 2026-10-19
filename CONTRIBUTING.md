@@ -22,7 +22,7 @@ backend/
 ├── kg/             # Knowledge graph (populator, reader)
 ├── pipeline/       # Turn pipeline: steps/{load,arbitrate,narrate,commit,respond,schedule}, init_flow, post_turn
 ├── workers/        # Per-game job supervisor and turn locks (in-process, imports no other layer)
-├── repos/          # SQL (games, turns, users, llm_models)
+├── repos/          # SQL (games, turns, uow, llm_calls, users, llm_models)
 ├── prompts/        # LLM prompt templates
 ├── schema/         # Pydantic models
 ├── services/       # Business logic (game, LLM, extraction, auth, post-turn hooks and subscribers, Director)
@@ -78,6 +78,8 @@ npm run dev
 ```bash
 psql -U your_user -d your_db -f schema.sql
 ```
+
+Turn journal (#105): every table holding world state must be attached to the journal in the migration that creates it, with `SELECT ldvelh_journal('<table>');` (optionally a second argument, the column list of `UPDATE OF`). Without it, the rollback of P5b cannot undo the writes to that table. Tables that are not world state (accounting such as `llm_calls`, users, catalog, the journal itself) go in `NOT_JOURNALED` of `tests/test_journal.py::test_journal_is_attached_to_every_world_table`, which fails for any table with a `game_id` that is neither attached nor excluded (world tables without a `game_id`, the pivots, go in `PIVOTS` of the same test). Writes that must be journaled run inside `repos.uow.uow(conn, turn_id)`, the outermost transaction of the connection.
 
 ## Environment variables
 
