@@ -7,16 +7,20 @@ Three ways to get the resolver's answers:
   CATALOG_KEYS_USER_EMAIL saved in the app;
 - `--emit-prompts DIR`: no call; writes `<scene id>.json` per resolver request (model,
   options, system, messages), exactly what the app would send;
-- `--import-responses DIR`: reads the raw model outputs `<scene id>.txt` answered to
-  those requests elsewhere, parses them with the app's code and scores them.
+- `--import-responses DIR --responder KIND:DETAIL`: reads the raw model outputs
+  `<scene id>.txt` answered to those requests elsewhere (by the responder, e.g.
+  `subagent:claude-sonnet`), parses them with the app's code and scores them.
 
-The report goes to `<out>/<date>-<split>-<provider>-<models>.md|json`. With `--gate`
-the exit code is 1 when a measured gate row fails.
+The report goes to `<out>/<date>-<split>-<provider>-<models>[-<responder kind>].md|json`:
+`<models>` names the app model the requests were built for, the responder kind marks
+answers that did not come from the API. With `--gate` the exit code is 1 when a
+measured gate row fails.
 
 Usage (from backend/, or through scripts/eval-identity.sh from the repo root):
   python -m scripts.eval_identity --adapter legacy --split test --runs 1 --provider anthropic
   python -m scripts.eval_identity --adapter legacy --split dev --sequences --emit-prompts DIR
-  python -m scripts.eval_identity --adapter legacy --split dev --sequences --import-responses DIR
+  python -m scripts.eval_identity --adapter legacy --split dev --sequences \
+      --import-responses DIR --responder subagent:claude-sonnet
 """
 
 from __future__ import annotations
@@ -32,18 +36,26 @@ from evals.identity.adapters.legacy_resolver import (
     LegacyResolverAdapter,
     build_request,
     dumps_request,
+    reference,
     replay_session,
 )
 from evals.identity.corpus import Category
 from llm.session import LLMSession, Purpose
-from services.llm_providers import _CLASSES, LLMProvider, get_provider
+from services.llm_providers import LLMProvider, get_provider, get_provider_catalog
 
 BACKEND = Path(__file__).resolve().parent.parent
 ROOT = BACKEND / "tests" / "fixtures" / "identity"
 OUT = BACKEND / "tests" / "reports" / "identity"
 ADAPTERS = {"legacy": LegacyResolverAdapter}
 OFFLINE_KEY = "offline"  # builds a provider client that never sends a request
-IMPORT_NOTE = "Source: subagent responses (not the API path)."
+PROVIDERS = sorted(get_provider_catalog()["providers"])
+
+
+def import_note(responder: str) -> str:
+    return (
+        f"Source: answers of {responder} to the emitted requests (not the API path: "
+        "no thinking budget, no temperature, model tier of the responder)."
+    )
 
 
 def _parse_models(text: str | None) -> dict[str, str]:
@@ -60,7 +72,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--adapter", choices=sorted(ADAPTERS), default="legacy")
     parser.add_argument("--split", choices=("dev", "test"), required=True)
     parser.add_argument("--runs", type=int, default=1)
-    parser.add_argument("--provider", choices=sorted(_CLASSES), default="anthropic")
+    parser.add_argument("--provider", choices=PROVIDERS, default="anthropic")
     parser.add_argument("--models", help="resolver=MODEL (default: the app's choice)")
     parser.add_argument("--category", choices=Category.__args__)
     parser.add_argument("--scene", help="one scene id")
@@ -72,6 +84,11 @@ def _parser() -> argparse.ArgumentParser:
     io = parser.add_mutually_exclusive_group()
     io.add_argument("--emit-prompts", type=Path, metavar="DIR")
     io.add_argument("--import-responses", type=Path, metavar="DIR")
+    parser.add_argument(
+        "--responder",
+        metavar="KIND:DETAIL",
+        help="who answered the imported requests (required with --import-responses)",
+    )
     return parser
 
 
@@ -96,16 +113,18 @@ async def _emit(selection: runner.Selection, like: LLMProvider, out: Path) -> in
     return 0
 
 
-def _import_sessions(selection: runner.Selection, like: LLMProvider, src: Path):
-    """Replay session per scene id; SystemExit if a request has no response file."""
-    expected = {p.stem for p in src.glob("*.json")}
-    missing = sorted(i for i in expected if not (src / f"{i}.txt").is_file())
-    if missing:
-        raise SystemExit(f"--import-responses: no response for {', '.join(missing)}")
-    wanted = {s.id for s in selection.requests}
-    absent = sorted(wanted - expected)
-    if absent:
-        print(f"[eval] no request emitted (no reference) for {len(absent)} scenes")
+async def _import_sessions(selection: runner.Selection, like: LLMProvider, src: Path):
+    """Replay session per selected scene; SystemExit if one that the app would resolve
+    has no emitted request or no response file."""
+    called = [s.id for s in selection.requests if (await reference(s)).text]
+    no_request = [i for i in called if not (src / f"{i}.json").is_file()]
+    if no_request:
+        raise SystemExit(f"--import-responses: no request for {', '.join(no_request)}")
+    no_response = [i for i in called if not (src / f"{i}.txt").is_file()]
+    if no_response:
+        raise SystemExit(
+            f"--import-responses: no response for {', '.join(no_response)}"
+        )
 
     def session_for(scene_id: str) -> LLMSession | None:
         path = src / f"{scene_id}.txt"
@@ -140,12 +159,14 @@ async def _run(args: argparse.Namespace) -> int:
     like = resolver_provider(args.provider, OFFLINE_KEY, models)
     if args.emit_prompts:
         return await _emit(selection, like, args.emit_prompts)
-    note = ""
+    notes = [adapter.sequence_note] if selection.sequences else []
     if args.import_responses:
         if args.runs != 1:
             raise SystemExit("--import-responses holds one run: use --runs 1")
-        session_for = _import_sessions(selection, like, args.import_responses)
-        note = IMPORT_NOTE
+        if not args.responder:
+            raise SystemExit("--import-responses needs --responder KIND:DETAIL")
+        session_for = await _import_sessions(selection, like, args.import_responses)
+        notes.insert(0, import_note(args.responder))
     else:
         session = await _live_session(args.provider, models)
 
@@ -166,13 +187,16 @@ async def _run(args: argparse.Namespace) -> int:
         provider=args.provider,
         models=models,
         split=args.split,
-        header_note=note,
+        header_note=" ".join(notes),
+        responder=args.responder if args.import_responses else None,
         sequence_results_by_run=sequences_by_run,
         c_at_10_scores=await runner.blocking_scores(adapter, args.root),
         iterations=args.iterations,
     )
     date = datetime.date.today().isoformat()
-    name = runner.report_name(date, args.split, args.provider, models)
+    name = runner.report_name(
+        date, args.split, args.provider, models, data.get("responder")
+    )
     path = runner.write_report(args.out, name, markdown, data)
     print(f"[eval] report written to {path}")
     return 1 if args.gate and not data["gate_passed"] else 0

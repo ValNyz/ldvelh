@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 class Adapter(Protocol):
     name: str
+    sequence_note: str  # caveat for the report header when sequences run ("" if none)
 
     async def run_scene(
         self, scene: Scene, *, session: LLMSession | None, pool

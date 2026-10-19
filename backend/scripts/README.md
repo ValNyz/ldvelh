@@ -129,23 +129,31 @@ are reused by the catalog refresh. See its docstring for usage.
 
 Scores a resolver against the identity gold corpus (`tests/fixtures/identity/`,
 rules in its `ANNOTATION.md`) and writes the report of spec § 3.5 to
-`tests/reports/identity/<date>-<split>-<provider>-<models>.md|json`. Run it through
-`scripts/eval-identity.sh ARGS...` from the repo root (Docker, throwaway Postgres, the
-host's provider keys passed through, report written to the host).
+`tests/reports/identity/<date>-<split>-<provider>-<models>[-<responder kind>].md|json`.
+Run it through `scripts/eval-identity.sh ARGS...` from the repo root (Docker, repo
+mounted read-only, runs as your user, provider keys given to the final command only,
+throwaway Postgres only for adapters that read the database).
 
 ```
 scripts/eval-identity.sh --adapter legacy --split test --runs 1 --provider anthropic
 python -m scripts.eval_identity --adapter legacy --split dev [--sequences] [--category C] [--scene ID]
 python -m scripts.eval_identity ... --emit-prompts DIR       # no call: one <scene id>.json per request
-python -m scripts.eval_identity ... --import-responses DIR   # score the raw outputs <scene id>.txt
+python -m scripts.eval_identity ... --import-responses DIR --responder subagent:claude-sonnet
 ```
 
 - `--adapter legacy`: the current resolver (`services/extraction/resolver.py`), driven as
   the extraction orchestrator drives it (`evals/identity/adapters/legacy_resolver.py`).
+  `--models resolver=MODEL` overrides its model (the v2 adapter will take
+  `identity=` / `identity_strong=`, `--tier` and `--annotate-blind`).
 - Live runs make real, paid calls; the key is the server's (`ANTHROPIC_API_KEY`...) or,
   with a real database, the one the player of `CATALOG_KEYS_USER_EMAIL` saved.
-- `--emit-prompts` / `--import-responses` produce the same report without an API key:
-  the requests are answered elsewhere, the raw answers are parsed by the app's own code,
-  and the report header says where the answers came from. With `eval-identity.sh`, pass
-  these directories as `/io/<path>` (`EVAL_IO` is the host directory mounted there).
+- `--emit-prompts` / `--import-responses` produce the report without an API key: the
+  requests are answered elsewhere, the raw answers `<scene id>.txt` are parsed by the
+  app's own code. `--responder KIND:DETAIL` (required) says who answered; it goes in the
+  report header and json, and its kind ends the file name, so the report names the app
+  model it emulates (`...-claude-sonnet-5-5-subagent`) without passing for an API run.
+  With `eval-identity.sh`, set `EVAL_IO` to the host directory and pass `/io/<path>`.
+- `--sequences` adds every sequence (B³, CEAF-e). With the legacy adapter, MESSAGE 1 of a
+  turn is its gold history, not the system's own previous annotations: the report
+  header says so.
 - `--gate`: exit code 1 when a measured gate row fails. C@10 is measured on dev + test.

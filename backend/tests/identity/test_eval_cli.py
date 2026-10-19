@@ -5,14 +5,16 @@ import math
 import shutil
 from pathlib import Path
 
+import pytest
 import yaml
 
-from evals.identity import runner
+from evals.identity import coref, runner
 from evals.identity.adapters import legacy_resolver
 from evals.identity.adapters.legacy_resolver import LegacyResolverAdapter
-from evals.identity.corpus import Scene, load_scenes
+from evals.identity.corpus import Scene, load_scenes, load_sequences
 from evals.identity.report import FAIL, OK
 from evals.identity.run import Decision, RunResult
+from evals.identity.scorer import score_scene
 from llm.session import LLMCall, LLMSession, Purpose
 from scripts import eval_identity
 from services.extraction.resolver import MentionMapping, ResolutionMap, resolve_entities
@@ -177,25 +179,30 @@ async def test_emitted_request_is_what_resolve_entities_sends(tmp_path, monkeypa
     monkeypatch.setattr(LLMSession, "complete_json", capture)
     (scene,) = _scenes(WITH_HISTORY)
     last = scene.history[-1]
-    labels = {e.id: e.label for e in scene.world}
+    world = {e.id: e for e in scene.world}
     annotations = [
-        [m.start, m.start + len(m.surface), labels[m.parsed.entity_id], "x"]
+        [m.start, m.start + len(m.surface), world[i].label, world[i].type]
         for m in last.mentions
-        if m.parsed.decision == "MATCH"
+        if m.parsed.decision == "MATCH" and (i := m.parsed.entity_id)
     ]
-    session = LLMSession.from_provider(legacy_resolver.OfflineProvider(
-        eval_identity.resolver_provider("anthropic", "offline", {})))  # fmt: skip
+    provider = eval_identity.resolver_provider("anthropic", "offline", {})
+    session = LLMSession.from_provider(legacy_resolver.OfflineProvider(provider))
     await resolve_entities(None, None, last.text, annotations, scene.narration, session)
 
     assert sent["purpose"] is Purpose.RESOLVER
     assert emitted["system"] == sent["system"]
     assert emitted["messages"] == [{"role": "user", "content": sent["user"]}]
     assert "Oskar Venn [= Oskar Venn]" in sent["user"]
-    assert emitted["model"] == "claude-sonnet-5-5"
-    assert emitted["max_tokens"] == sent["max_tokens"]
+    wire = provider._request_options(sent["max_tokens"], sent["temperature"])
+    options = {
+        k: v for k, v in emitted.items() if k not in ("scene_id", "system", "messages")
+    }
+    assert options == wire  # model, max_tokens, thinking; temperature only if sent
+    assert emitted["model"] == provider.model_name(Purpose.RESOLVER.value)
+    assert ("temperature" in emitted) == ("temperature" in wire)
 
 
-def test_emit_then_import_round_trips_on_two_scenes(tmp_path):
+def test_emit_then_import_round_trips_on_two_scenes(tmp_path, monkeypatch):
     root = _corpus(tmp_path, WITH_HISTORY, WITHOUT_HISTORY)
     prompts, out = tmp_path / "prompts", tmp_path / "out"
     base = ["--root", str(root), "--split", "test"]
@@ -208,12 +215,106 @@ def test_emit_then_import_round_trips_on_two_scenes(tmp_path):
     (prompts / f"{WITH_HISTORY}.txt").write_text(fenced, encoding="utf-8")
     (prompts / f"{WITHOUT_HISTORY}.txt").write_text("no json here", encoding="utf-8")
 
+    scored = []
+    real_score = runner.score
+
+    def spy(scenes, results):
+        scored.extend(results)
+        return real_score(scenes, results)
+
+    monkeypatch.setattr(runner, "score", spy)
     args = [*base, "--import-responses", str(prompts), "--out", str(out)]
-    assert eval_identity.main([*args, "--iterations", "20"]) == 0
+    responder = "subagent:claude-sonnet"
+    with pytest.raises(SystemExit, match="--responder"):
+        eval_identity.main(args)
+    assert (
+        eval_identity.main([*args, "--responder", responder, "--iterations", "20"]) == 0
+    )
     (report,) = out.glob("*.md")
-    assert report.name.endswith("-test-anthropic-claude-sonnet-5-5.md")
-    assert "subagent responses (not the API path)" in report.read_text("utf-8")
+    assert report.name.endswith("-test-anthropic-claude-sonnet-5-5-subagent.md")
+    assert f"answers of {responder}" in report.read_text("utf-8")
     data = json.loads(report.with_suffix(".json").read_text("utf-8"))
     assert data["scenes"] == 2 and data["models"] == {"resolver": "claude-sonnet-5-5"}
+    assert data["responder"] == responder
+
+    by_scene = {r.scene_id: r for r in scored}
+    assert by_scene[WITHOUT_HISTORY].decisions == []  # unparsable answer
+    decisions = {d.start: d for d in by_scene[WITH_HISTORY].decisions}
+    oskar, salle = decisions[0], decisions[44]
+    assert (oskar.decision, oskar.entity_id) == ("MATCH", "character_oskar_venn")
+    assert (salle.surface, salle.entity_id) == (
+        "la Salle des Cartes",
+        "location_salle_des_cartes",
+    )
+    pivert = decisions[450]
+    assert (pivert.decision, pivert.entity_id) == ("NEW", f"new:{WITH_HISTORY}:450")
     assert data["cost"]["calls"] == 2 and data["cost"]["failed_calls"] == 1
     assert data["c_at_10_source"] == "dev + test, 1 run"
+
+
+def test_spans_keep_the_longest_at_a_start_and_drop_nested_repeats():
+    text = "Le capitaine Abasi salue. Abasi sourit."
+    resolution = ResolutionMap([
+        MentionMapping("Le capitaine", "Capitaine", "character", False),
+        MentionMapping("le capitaine Abasi", "Jorund Abasi", "character", False),
+        MentionMapping("Abasi", "Jorund Abasi", "character", False),
+        MentionMapping("capitaine", "Capitaine", "character", False),
+    ])  # fmt: skip
+    found = [(s, e, m.canonical) for s, e, m in legacy_resolver.spans(text, resolution)]
+    assert found == [
+        (0, 18, "Jorund Abasi"),  # longest at start 0
+        (3, 12, "Capitaine"),  # nested, another canonical: kept
+        (26, 31, "Jorund Abasi"),  # the nested "Abasi" at 13 is dropped
+    ]
+
+
+def test_world_label_prefers_the_resolver_type_and_unknown_is_wrong():
+    label = "Bureau des Résidences"
+    world = [
+        {"id": "location_bureau", "type": "location", "label": label, "known": True},
+        {"id": "organization_bureau", "type": "organization", "label": label, "known": True},
+    ]  # fmt: skip
+    scene = Scene.model_validate({**_scene(), "world": [*_scene()["world"], *world]})
+    lexicon = legacy_resolver.load_lexicon(scene.language)
+    find = legacy_resolver._world_id
+    assert find(scene.world, lexicon, "le Bureau des Résidences", "organization") == (
+        "organization_bureau"
+    )
+    assert find(scene.world, lexicon, "Bureau des Résidences", "location") == (
+        "location_bureau"
+    )
+    assert find(scene.world, lexicon, "Bureau inconnu", "location") is None
+
+
+async def test_a_new_entity_chains_within_a_turn_and_across_turns(monkeypatch):
+    (sequence,) = [q for q in load_sequences(ROOT) if q.id == "seq-df-homonymes"]
+    first, second = sequence.turns[:2]
+    answers = {
+        first.narration: [MentionMapping(m, "Anneau sigillaire", "object", True)
+                          for m in ("un anneau sigillaire", "l'anneau")],
+        second.narration: [
+            MentionMapping("l'anneau", "Anneau sigillaire", "object", False)
+        ],
+    }  # fmt: skip
+
+    async def fake_resolve(pool, game_id, previous, annotations, current, session):
+        return ResolutionMap(answers[current]), {}
+
+    monkeypatch.setattr(legacy_resolver, "resolve_entities", fake_resolve)
+    two_turns = sequence.model_copy(update={"turns": [first, second]})
+    ((_, results),) = await runner.run_sequences(
+        LegacyResolverAdapter(), [two_turns], lambda _: None
+    )
+
+    born = f"new:{first.id}:89"
+    head, repeat = results[0].decisions
+    assert (head.start, head.decision, head.entity_id) == (89, "NEW", born)
+    assert (repeat.start, repeat.decision, repeat.entity_id) == (302, "MATCH", born)
+    outcomes = {
+        m.start: o for m, o in zip(first.gold, score_scene(first, results[0]).outcomes)
+    }
+    assert outcomes[89].correct and outcomes[302].correct  # NEW + its SAME repeat
+    (later,) = results[1].decisions  # the world label loses to the system's own entity
+    assert (later.start, later.entity_id) == (300, born)
+    clusters = coref.system_clusters(two_turns, results)
+    assert clusters[born] == {f"{first.id}:89", f"{first.id}:302", f"{second.id}:300"}

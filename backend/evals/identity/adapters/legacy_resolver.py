@@ -25,6 +25,14 @@ Its output is mapped to decisions:
 
 Candidates (C@10) are the entities annotated in MESSAGE 1: the current blocking, a
 horizon of one message.
+
+Sequences are an approximation of the app (`SEQUENCE_NOTE`, printed in the report
+header): MESSAGE 1 of each turn is the turn's gold history annotated with world labels,
+not the system's own annotations of its previous turn; only the names the system
+created in earlier turns carry over (above).
+
+Disposable code: `request_options` reads the provider's private `_request_options`
+(the exact wire options) and falls back to the bare model and sampling options.
 """
 
 from __future__ import annotations
@@ -53,6 +61,10 @@ GAME_ID = UUID(int=0)  # the resolver takes a game id it does not use
 REGISTRY_TYPES = ("character", "location", "organization")
 # World types the resolver's own type vocabulary calls `character`.
 CHARACTER_TYPES = ("protagonist", "companion")
+SEQUENCE_NOTE = (
+    "Sequences: MESSAGE 1 of each turn is the gold history annotated with world "
+    "labels, not the system's own annotations of its previous turn."
+)
 EMPTY_RESOLUTION = '{"existing": [], "new": []}'  # the capture's quiet reply
 USAGE_COUNTERS = (
     "cost_usd",
@@ -264,6 +276,7 @@ def _usage(cost: dict | None, failed: bool) -> dict:
 
 class LegacyResolverAdapter:
     name = "legacy"
+    sequence_note = SEQUENCE_NOTE
 
     def __init__(self) -> None:
         self._mapper = Mapper()

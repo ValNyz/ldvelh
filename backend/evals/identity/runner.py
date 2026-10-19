@@ -109,9 +109,19 @@ async def blocking_scores(adapter: Adapter, root: Path) -> list[SceneScore] | No
     return scores
 
 
-def report_name(date: str, split: str, provider: str, models: dict[str, str]) -> str:
-    joined = "+".join(models.values()) or "none"
-    return re.sub(r"[^\w.+-]", "_", f"{date}-{split}-{provider}-{joined}")
+def report_name(
+    date: str,
+    split: str,
+    provider: str,
+    models: dict[str, str],
+    responder: str | None = None,
+) -> str:
+    """`<date>-<split>-<provider>-<models>`, plus the responder kind (the text before
+    `:`) when the answers did not come from the API."""
+    name = f"{date}-{split}-{provider}-{'+'.join(models.values()) or 'none'}"
+    if responder:
+        name += f"-{responder.split(':', 1)[0]}"
+    return re.sub(r"[^\w.+-]", "_", name)
 
 
 def write_report(out: Path, name: str, markdown: str, data: dict) -> Path:
@@ -131,11 +141,13 @@ def build_report(
     models: dict[str, str],
     split: str,
     header_note: str = "",
+    responder: str | None = None,
     sequence_results_by_run=None,
     c_at_10_scores: list[SceneScore] | None = None,
     iterations: int = 2000,
 ) -> tuple[str, dict]:
-    return render(
+    """`report.render`, with `responder` (who answered, None for API calls) in the json."""
+    markdown, data = render(
         scores_by_run,
         provider=provider,
         models=models,
@@ -145,3 +157,4 @@ def build_report(
         c_at_10_scores=c_at_10_scores,
         iterations=iterations,
     )
+    return markdown, {**data, "responder": responder}
