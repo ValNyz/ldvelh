@@ -436,6 +436,103 @@ class TestMechanicRolls:
 
 
 # =============================================================================
+# adopt_halted_turn: the resuming turn takes over the halted one (#22)
+# =============================================================================
+
+
+async def _halted_then_resumed(test_pool, game_id):
+    """(halted, resuming, roll_id, commitment_id): the halted turn stored a pending roll and
+    a commitment; the resuming turn claims the roll and adopts the halted turn."""
+    from repos.uow import uow
+
+    halted = await _open_turn(test_pool, game_id)
+    resuming = await _open_turn(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        async with uow(conn, halted):
+            roll_id = await turns.store_pending_roll(
+                conn, game_id, make_roll([0], 0, "failure"), "Je saute.", 1, halted)
+            commitment = await conn.fetchval(
+                """INSERT INTO director_commitments (game_id, turn_id, kind, text)
+                   VALUES ($1, $2, 'secret', 'x') RETURNING id""", game_id, halted)
+        async with uow(conn, resuming):
+            assert await turns.pending_roll_turn(conn, roll_id) == halted
+            assert await turns.claim_pending_roll(conn, game_id, roll_id, {}, "success", None,
+                                                  1, resuming)
+            assert await turns.adopt_halted_turn(conn, game_id, halted, resuming) is True
+            await turns.mark_committed(conn, resuming)
+    return halted, resuming, roll_id, commitment
+
+
+async def test_adopt_moves_the_halted_turn_into_the_resuming_one(client, test_user, test_pool):
+    game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+    halted, resuming, roll_id, commitment = await _halted_then_resumed(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM turns WHERE id = $1", halted) == 0
+        assert await conn.fetchval(
+            "SELECT count(*) FROM world_changes WHERE turn_id = $1", halted) == 0
+        ops = [(r["table_name"], r["op"]) for r in await conn.fetch(
+            "SELECT table_name, op FROM world_changes WHERE turn_id = $1 ORDER BY id", resuming)]
+        refs = await conn.fetchval(
+            "SELECT turn_id FROM director_commitments WHERE id = $1", commitment)
+    # The halted turn's inserts come first, then the claim: the undo replays them last.
+    assert ops[:2] == [("mechanic_rolls", "I"), ("director_commitments", "I")]
+    assert ("mechanic_rolls", "U") in ops[2:]
+    assert refs == resuming
+
+
+async def test_undoing_the_resuming_turn_removes_what_the_halted_turn_wrote(
+        client, test_user, test_pool):
+    """The re-pointing is journaled under the resuming turn; undoing it restores the
+    halted turn's id for a moment, then the insert's undo removes the row: no dangling
+    reference reaches the deferred foreign key check."""
+    game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+    _, resuming, roll_id, commitment = await _halted_then_resumed(test_pool, game_id)
+    async with test_pool.acquire() as conn, conn.transaction():
+        await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [resuming])
+        assert await conn.fetchval(
+            "SELECT count(*) FROM mechanic_rolls WHERE id = $1", roll_id) == 0
+        assert await conn.fetchval(
+            "SELECT count(*) FROM director_commitments WHERE id = $1", commitment) == 0
+
+
+async def test_undoing_a_later_turn_keeps_the_adopted_rows(client, test_user, test_pool):
+    from repos.uow import uow
+
+    game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+    _, resuming, roll_id, commitment = await _halted_then_resumed(test_pool, game_id)
+    later = await _open_turn(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        async with uow(conn, later):
+            await conn.execute("UPDATE director_commitments SET progress = 2 WHERE id = $1",
+                               commitment)
+        async with conn.transaction():
+            await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [later])
+            await turns.delete_turns(conn, game_id, [later])
+        row = await conn.fetchrow(
+            "SELECT turn_id, progress FROM director_commitments WHERE id = $1", commitment)
+        roll = await conn.fetchrow(
+            "SELECT turn_id, status FROM mechanic_rolls WHERE id = $1", roll_id)
+    assert (row["turn_id"], row["progress"]) == (resuming, 0)
+    assert (roll["turn_id"], roll["status"]) == (resuming, "resolved")
+
+
+async def test_adopt_refuses_a_committed_or_foreign_turn(client, test_user, test_pool):
+    from uuid import uuid4
+
+    game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+    committed = await _open_turn(test_pool, game_id)
+    resuming = await _open_turn(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        await turns.mark_committed(conn, committed)
+        assert await turns.adopt_halted_turn(conn, game_id, committed, resuming) is False
+        assert await turns.adopt_halted_turn(conn, uuid4(), resuming, committed) is False
+        assert await turns.adopt_halted_turn(conn, game_id, None, resuming) is False
+        assert await turns.adopt_halted_turn(conn, game_id, resuming, resuming) is False
+        assert await conn.fetchval(
+            "SELECT count(*) FROM turns WHERE id = ANY($1::uuid[])", [committed, resuming]) == 2
+
+
+# =============================================================================
 # One transaction: the caller owns it
 # =============================================================================
 

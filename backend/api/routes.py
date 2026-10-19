@@ -23,7 +23,8 @@ from repos import llm_calls
 from repos import users as users_repo
 from repos.llm_models import load_catalog
 from schema import PROTAGONIST_REF, is_usable_protagonist_name
-from services.game_service import GameService, RollbackRejected
+from domain.errors import RollbackRejected
+from services.game_service import GameService
 from pipeline import init_flow, turn
 from pipeline.context import InitParams, TurnContext, TurnRequest
 from pipeline.errors import TurnError, report_error

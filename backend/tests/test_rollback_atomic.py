@@ -2,11 +2,11 @@
 
 import pytest
 
+from domain.errors import RollbackRejected
 from helpers import apply_deltas, apply_state, open_turn, save_pair
 from repos.uow import uow
 from schema import NarrationOutput
 from services import rollback
-from services.game_service import RollbackRejected
 from tests.test_game_and_populator import _make_narration_output, _setup_game_with_world
 
 

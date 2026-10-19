@@ -63,7 +63,7 @@ async def test_a_turn_commits_under_its_turn_id(harness, world_game):
     assert changes_after - changes_before == len(journal)
 
 
-async def test_a_halted_turn_stays_open_with_its_pending_roll_journaled(
+async def test_a_halted_turn_stays_open_until_its_resume_adopts_it(
     harness, fate_game, monkeypatch
 ):
     game_id = UUID(fate_game)
@@ -98,13 +98,17 @@ async def test_a_halted_turn_stays_open_with_its_pending_roll_journaled(
 
     async with harness.pool.acquire() as conn:
         after = (await _turns(conn, game_id))[turns_before:]
-        resume_journal = await _changes(conn, after[1]["id"])
+        resume_journal = await _changes(conn, after[0]["id"])
         roll_turn = await conn.fetchval(
             "SELECT turn_id FROM mechanic_rolls WHERE id = $1", roll_id
         )
-    assert [t["status"] for t in after] == ["open", "committed"]
+    # The resuming turn adopted the halted one (#22): its journal starts with the roll's
+    # insert, and the halted turn is gone.
+    assert [t["status"] for t in after] == ["committed"]
+    assert halted[0]["id"] not in {t["id"] for t in after}
     # The resumed roll belongs to the turn that resolves it.
-    assert roll_turn == after[1]["id"]
+    assert roll_turn == after[0]["id"]
+    assert resume_journal[0][:2] == ("mechanic_rolls", "I")
     roll_updates = [
         old for t, op, old in resume_journal if (t, op) == ("mechanic_rolls", "U")
     ]

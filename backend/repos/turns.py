@@ -273,6 +273,40 @@ async def claim_pending_roll(conn, game_id: UUID, roll_id: UUID, roll_details: d
     return claimed is not None
 
 
+async def pending_roll_turn(conn, roll_id: UUID) -> UUID | None:
+    """The turn a roll is stored under (the halted turn while it is pending)."""
+    return await conn.fetchval("SELECT turn_id FROM mechanic_rolls WHERE id = $1", roll_id)
+
+
+# Every column referencing turns(id), world_changes first: deleting the turn cascades to it.
+_TURN_REFERENCES = ("world_changes", "messages", "mechanic_rolls", "extraction_logs",
+                    "director_commitments", "llm_calls")
+
+
+async def adopt_halted_turn(conn, game_id: UUID, halted_turn_id: UUID | None,
+                            turn_id: UUID) -> bool:
+    """The turn resuming a pending roll takes over the halted turn that stored it (#22).
+
+    The halted turn's journal (the roll's insert) and every row pointing at it move to
+    `turn_id`, then the halted turn is deleted: undoing the resuming turn removes the roll
+    whole, and no later rollback purges the halted turn's journal as an abandoned open turn.
+    The moved journal rows keep their ids, older than the resuming turn's, so the undo still
+    replays them last. False when `halted_turn_id` is not another open turn of the game."""
+    if halted_turn_id is None or halted_turn_id == turn_id:
+        return False
+    halted = await conn.fetchval(
+        "SELECT id FROM turns WHERE id = $1 AND game_id = $2 AND status = 'open' FOR UPDATE",
+        halted_turn_id, game_id,
+    )
+    if halted is None:
+        return False
+    for table in _TURN_REFERENCES:
+        await conn.execute(f"UPDATE {table} SET turn_id = $2 WHERE turn_id = $1",
+                           halted_turn_id, turn_id)
+    await conn.execute("DELETE FROM turns WHERE id = $1", halted_turn_id)
+    return True
+
+
 async def expire_pending_rolls(conn, game_id: UUID) -> None:
     """A rollback discards the action a pending roll belongs to: it never comes back (#32)."""
     await conn.execute(

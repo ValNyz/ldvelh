@@ -7,6 +7,7 @@ import textwrap
 from pathlib import Path
 
 from config import get_settings
+from repos import turns
 from services import rollback
 from services.game_service import GameService
 from tests.characterization import payloads
@@ -226,18 +227,28 @@ async def test_cycle_engine_keeps_the_old_behaviour(harness, world_game, monkeyp
         )
 
 
-async def test_resumed_roll_rolls_back_with_its_halted_turn(harness, pending):
-    """W3: the resuming turn moved the roll to itself and pointed it at its message. The
-    undo puts it back on the halted turn while that turn still exists, then undoes the
-    halted turn too: the roll is gone, nothing dangles, both turns are deleted."""
-    game_id, event = pending
+async def _roll_state(harness, game_id, roll_id) -> dict:
+    """The pending roll's row (None once removed), the fate points, the game's turns."""
     async with harness.pool.acquire() as conn:
-        halted = await conn.fetchval(
-            "SELECT turn_id FROM mechanic_rolls WHERE id = $1::uuid", event["roll_id"]
+        roll = await conn.fetchrow(
+            "SELECT status, turn_id, message_id FROM mechanic_rolls WHERE id = $1::uuid",
+            roll_id,
         )
-        fate_points = await conn.fetchval(
-            "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id
-        )
+        return {
+            "roll": dict(roll) if roll else None,
+            "fate_points": await conn.fetchval(
+                "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id
+            ),
+            "turns": {
+                r["id"]
+                for r in await conn.fetch(
+                    "SELECT id FROM turns WHERE game_id = $1", game_id
+                )
+            },
+        }
+
+
+async def _resume(harness, game_id, event) -> None:
     await harness.chat(
         game_id,
         "Je tente un saut impossible.",
@@ -245,64 +256,129 @@ async def test_resumed_roll_rolls_back_with_its_halted_turn(harness, pending):
         invoked_aspects=["Pilote déchu en quête de rédemption"],
     )
     await harness.drain()
+
+
+async def _play_on(harness, game_id) -> None:
+    harness.llm._responses["mechanical"] = payloads.mechanical(requires_test=False)
+    await _turn(harness, game_id, payloads.NARRATION, "Je reprends mon souffle.")
+
+
+def _without_adoption(monkeypatch):
+    """Resumes committed as before the adoption (P5a games): returns the restore callable."""
+    original = turns.adopt_halted_turn
+
+    async def no_adoption(*args, **kwargs):
+        return False
+
+    monkeypatch.setattr(turns, "adopt_halted_turn", no_adoption)
+    return lambda: monkeypatch.setattr(turns, "adopt_halted_turn", original)
+
+
+async def test_resume_adopts_the_halted_turn(harness, pending):
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    halted = before["roll"]["turn_id"]
+    await _resume(harness, game_id, event)
+    during = await _roll_state(harness, game_id, event["roll_id"])
+    resuming = during["roll"]["turn_id"]
+    assert halted not in during["turns"] and resuming in during["turns"]
     async with harness.pool.acquire() as conn:
-        claimed = await conn.fetchrow(
-            "SELECT turn_id, message_id FROM mechanic_rolls WHERE id = $1::uuid",
+        insert_turn = await conn.fetchval(
+            """SELECT turn_id FROM world_changes
+               WHERE row_id = $1::uuid AND table_name = 'mechanic_rolls' AND op = 'I'""",
             event["roll_id"],
         )
-    assert claimed["turn_id"] != halted and claimed["message_id"] is not None
+    assert insert_turn == resuming
+
+
+async def test_resumed_roll_rolls_back_with_its_halted_turn(harness, pending):
+    """W3: the resuming turn moved the roll to itself and pointed it at its message. Its
+    undo removes the roll whole (the halted turn's insert is part of it): nothing
+    dangles, the fate point comes back, both turns are gone."""
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    await _resume(harness, game_id, event)
+    assert (await _roll_state(harness, game_id, event["roll_id"]))["roll"]["message_id"]
 
     await rollback_last_turn(harness, game_id)
-    async with harness.pool.acquire() as conn:
-        assert (
-            await conn.fetchval(
-                "SELECT count(*) FROM mechanic_rolls WHERE id = $1::uuid",
-                event["roll_id"],
-            )
-            == 0
-        )
-        assert (
-            await conn.fetchval(
-                "SELECT count(*) FROM turns WHERE id = ANY($1::uuid[])",
-                [halted, claimed["turn_id"]],
-            )
-            == 0
-        )
-        assert (
-            await conn.fetchval(
-                "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id
-            )
-            == fate_points
-        )
+    after = await _roll_state(harness, game_id, event["roll_id"])
+    assert after["roll"] is None
+    assert after["fate_points"] == before["fate_points"]
+    assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
 
 
 async def test_rollback_after_a_resumed_roll_keeps_the_roll(harness, pending):
     """The roll resolved by a kept turn stays resolved on that turn and its message."""
     game_id, event = pending
-    await harness.chat(
-        game_id,
-        "Je tente un saut impossible.",
-        roll_id=event["roll_id"],
-        invoked_aspects=["Pilote déchu en quête de rédemption"],
-    )
-    await harness.drain()
-    async with harness.pool.acquire() as conn:
-        resolved = dict(
-            await conn.fetchrow(
-                "SELECT status, turn_id, message_id FROM mechanic_rolls WHERE id = $1::uuid",
-                event["roll_id"],
-            )
-        )
-    harness.llm._responses["mechanical"] = payloads.mechanical(requires_test=False)
-    await _turn(harness, game_id, payloads.NARRATION, "Je reprends mon souffle.")
+    await _resume(harness, game_id, event)
+    resolved = await _roll_state(harness, game_id, event["roll_id"])
+    await _play_on(harness, game_id)
 
     await rollback_last_turn(harness, game_id)
-    async with harness.pool.acquire() as conn:
-        after = await conn.fetchrow(
-            "SELECT status, turn_id, message_id FROM mechanic_rolls WHERE id = $1::uuid",
-            event["roll_id"],
-        )
-    assert dict(after) == resolved
+    assert await _roll_state(harness, game_id, event["roll_id"]) == resolved
+
+
+async def test_resume_can_be_rolled_back_after_a_later_rollback(harness, pending):
+    """C1: rolling back the turn after a resume used to purge the halted turn (open), and
+    the resume's own rollback then restored a dangling turn_id (500)."""
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    await _resume(harness, game_id, event)
+    await _play_on(harness, game_id)
+
+    await rollback_last_turn(harness, game_id)
+    await rollback_last_turn(harness, game_id)
+    after = await _roll_state(harness, game_id, event["roll_id"])
+    assert after["roll"] is None
+    assert after["fate_points"] == before["fate_points"]
+    assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
+
+
+async def test_legacy_resume_with_its_halted_turn_still_open(
+    harness, pending, monkeypatch
+):
+    """A P5a resume whose halted turn is still open: the rollback adopts it first."""
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    restore = _without_adoption(monkeypatch)
+    await _resume(harness, game_id, event)
+    restore()
+    assert (
+        before["roll"]["turn_id"]
+        in (await _roll_state(harness, game_id, event["roll_id"]))["turns"]
+    )
+
+    await rollback_last_turn(harness, game_id)
+    after = await _roll_state(harness, game_id, event["roll_id"])
+    assert after["roll"] is None
+    assert after["fate_points"] == before["fate_points"]
+    assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
+
+
+async def test_legacy_resume_after_its_halted_turn_was_purged(
+    harness, pending, monkeypatch
+):
+    """A P5a resume whose halted turn an earlier rollback purged, with the roll's insert:
+    the dangling old turn_id is cleared and the roll removed after the undo."""
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    restore = _without_adoption(monkeypatch)
+    await _resume(harness, game_id, event)
+    await _play_on(harness, game_id)
+    restore()
+    await rollback_last_turn(
+        harness, game_id
+    )  # purges the open halted turn (P5a state)
+    assert (
+        before["roll"]["turn_id"]
+        not in (await _roll_state(harness, game_id, event["roll_id"]))["turns"]
+    )
+
+    await rollback_last_turn(harness, game_id)
+    after = await _roll_state(harness, game_id, event["roll_id"])
+    assert after["roll"] is None
+    assert after["fate_points"] == before["fate_points"]
+    assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
 
 
 def test_rollback_to_message_is_thin():

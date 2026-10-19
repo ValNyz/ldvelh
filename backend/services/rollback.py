@@ -8,6 +8,7 @@ extraction, Director) is put back exactly as it was before the turn.
 from dataclasses import dataclass
 from uuid import UUID
 
+from domain.errors import RollbackRejected
 from repos import turns
 
 
@@ -37,9 +38,6 @@ def plan_rollback(
 ) -> RollbackPlan | None:
     """The rollback of `messages` (ascending) from `message_id`, or from `keep_until_index`
     (legacy); None when there is nothing to delete."""
-    # Imported here: game_service imports this module.
-    from services.game_service import RollbackRejected
-
     keep_until_index = _cutoff(messages, message_id, keep_until_index)
     if keep_until_index is None or keep_until_index >= len(messages):
         return None
@@ -61,18 +59,41 @@ def plan_rollback(
     )
 
 
-async def _resumed_halted_turns(conn, turn_ids: list[UUID]) -> list[UUID]:
-    """Open turns whose pending roll one of `turn_ids` resumed (claim_pending_roll moved
-    the roll to the resuming turn). The halted turn holds the roll's insert: the action
-    began there, so undoing the resuming turn undoes it too (#32, #134)."""
+async def _adopt_legacy_halted_turns(
+    conn, game_id: UUID, turn_ids: list[UUID]
+) -> list[UUID]:
+    """Resumes committed before a resuming turn adopted its halted turn (P5a games).
+
+    Their claim is journaled as a mechanic_rolls U whose old turn_id is the halted turn:
+    - still there (open): adopted now, as the commit does today, so the undo removes the roll;
+    - already purged by an earlier rollback (with the roll's insert): the old turn_id is
+      cleared in the journal row, which goes with its turn in this transaction, so the
+      undo cannot restore a dangling reference. Returns those rolls: the undo leaves them
+      pending with no insert left to undo, the caller deletes them."""
     rows = await conn.fetch(
-        """SELECT DISTINCT t.id FROM world_changes wc
-           JOIN turns t ON t.id = (wc.old_row ->> 'turn_id')::uuid
-           WHERE wc.turn_id = ANY($1) AND wc.table_name = 'mechanic_rolls' AND wc.op = 'U'
-             AND t.status = 'open'""",
+        """SELECT DISTINCT turn_id, row_id, old_row ->> 'turn_id' AS halted
+           FROM world_changes
+           WHERE turn_id = ANY($1) AND table_name = 'mechanic_rolls' AND op = 'U'
+             AND old_row ->> 'turn_id' IS NOT NULL""",
         turn_ids,
     )
-    return [r["id"] for r in rows]
+    orphaned = []
+    for r in rows:
+        halted = UUID(r["halted"])
+        if await turns.adopt_halted_turn(conn, game_id, halted, r["turn_id"]):
+            continue
+        if await conn.fetchval("SELECT 1 FROM turns WHERE id = $1", halted):
+            continue
+        await conn.execute(
+            """UPDATE world_changes SET old_row = jsonb_set(old_row, '{turn_id}', 'null')
+               WHERE turn_id = $1 AND row_id = $2 AND table_name = 'mechanic_rolls'
+                 AND old_row ->> 'turn_id' = $3""",
+            r["turn_id"],
+            r["row_id"],
+            r["halted"],
+        )
+        orphaned.append(r["row_id"])
+    return orphaned
 
 
 async def _undo_changes(conn, turn_ids: list[UUID]) -> int:
@@ -82,9 +103,6 @@ async def _undo_changes(conn, turn_ids: list[UUID]) -> int:
 
 async def undo_turns(conn, game_id: UUID, plan: RollbackPlan) -> dict:
     """Delete the plan's messages and undo their turns' writes, all or nothing."""
-    # Imported here: game_service imports this module.
-    from services.game_service import RollbackRejected
-
     if plan.has_legacy_message:
         raise RollbackRejected(RollbackRejected.BEFORE_JOURNAL)
     async with conn.transaction():
@@ -95,12 +113,16 @@ async def undo_turns(conn, game_id: UUID, plan: RollbackPlan) -> dict:
             "DELETE FROM messages WHERE id = ANY($1)",
             [m["id"] for m in plan.messages_to_delete],
         )
-        undone = await _undo_changes(
-            conn, plan.turn_ids + await _resumed_halted_turns(conn, plan.turn_ids)
-        )
-        # After the undo: a restored row may point at a turn deleted here (a roll back on
-        # its halted turn); the undo checks its foreign keys while those turns still
-        # exist, then deleting them sets the references NULL.
+        orphaned_rolls = await _adopt_legacy_halted_turns(conn, game_id, plan.turn_ids)
+        undone = await _undo_changes(conn, plan.turn_ids)
+        if orphaned_rolls:
+            await conn.execute(
+                "DELETE FROM mechanic_rolls WHERE id = ANY($1) AND status = 'pending'",
+                orphaned_rolls,
+            )
+        # After the undo: a restored row may point at a turn deleted here; the undo checks
+        # its foreign keys while those turns still exist, then deleting them sets the
+        # references NULL.
         deleted = await turns.delete_turns(conn, game_id, plan.turn_ids)
         await turns.expire_pending_rolls(conn, game_id)
         await conn.execute("UPDATE games SET updated_at = now() WHERE id = $1", game_id)

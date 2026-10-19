@@ -1,5 +1,6 @@
-"""Rollback restores the state a turn's own transaction wrote (stress, wounds, fate/force
-points), never progression written by the extraction after the commit (#134)."""
+"""Rollback restores the engine state of the rolled-back turn (stress, wounds, fate/force
+points, #134). Progression written before that turn is kept; anything the turn's own
+extraction wrote would be undone with it (journal replay, #22)."""
 
 from types import SimpleNamespace
 

@@ -35,17 +35,6 @@ from schema.sse_payload import (
 logger = logging.getLogger(__name__)
 
 
-class RollbackRejected(ValueError):
-    """The requested rollback is refused; `reason` names why (player text lives in api/)."""
-
-    ARRIVAL_SCENE = "arrival_scene"  # would remove the arrival scene (#11)
-    BEFORE_JOURNAL = "before_journal"  # a message saved before the turn journal (#22)
-
-    def __init__(self, reason: str):
-        super().__init__(reason)
-        self.reason = reason
-
-
 class GameService:
     """Service principal pour la gestion des parties"""
 

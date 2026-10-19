@@ -1,4 +1,4 @@
-"""Domain failures: turn errors shown to the player, game access errors."""
+"""Domain failures: turn errors shown to the player, game access errors, refused rollbacks."""
 
 
 class TurnError(Exception):
@@ -20,6 +20,17 @@ class GameNotFound(Exception):
 
 class GameAccessDenied(Exception):
     """The game belongs to another user (HTTP 403 at the API edge)."""
+
+
+class RollbackRejected(ValueError):
+    """The requested rollback is refused; `reason` names why (player text lives in api/)."""
+
+    ARRIVAL_SCENE = "arrival_scene"  # would remove the arrival scene (#11)
+    BEFORE_JOURNAL = "before_journal"  # a message saved before the turn journal (#22)
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
 class RegistrationRejected(Exception):

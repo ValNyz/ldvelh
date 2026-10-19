@@ -94,7 +94,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SUPERVISOR_CANCEL_TIMEOUT", "supervisor_cancel_timeout"))
 
     # Rollback (#22): "journal" replays the turn journal; "cycle" is the legacy cycle-based
-    # rollback, kept one release.
+    # rollback, kept one release. A game rolled back under "cycle" should keep "cycle": the
+    # cycle path rewrites world rows outside the journal, so a later journal rollback of
+    # its kept turns can skip changes or re-insert rows the cycle rollback removed.
     rollback_engine: str = Field(
         "journal", validation_alias=AliasChoices("ROLLBACK_ENGINE", "rollback_engine"))
 

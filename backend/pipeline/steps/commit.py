@@ -81,12 +81,15 @@ async def _log_roll(conn, ctx: TurnContext, arbitration: Arbitration,
     """Log the roll with its message, or claim the resumed pending roll for it."""
     roll = arbitration.mechanical.roll
     if arbitration.resumed_roll_id:
+        halted_turn_id = await turns.pending_roll_turn(conn, arbitration.resumed_roll_id)
         claimed = await turns.claim_pending_roll(conn, ctx.request.game_id,
                                                  arbitration.resumed_roll_id, roll.model_dump(),
                                                  roll.outcome, assistant_msg_id, cycle,
                                                  ctx.turn_id)
         if not claimed:
             raise TurnError("roll_not_pending", "Ce jet n'est plus en attente.")
+        # The halted turn becomes part of this one: rolling it back removes the roll (#22).
+        await turns.adopt_halted_turn(conn, ctx.request.game_id, halted_turn_id, ctx.turn_id)
         return
     await turns.log_mechanic_roll(conn, ctx.request.game_id, message_id=assistant_msg_id,
                                   engine=ctx.snapshot.engine, roll=roll, cycle=cycle,
