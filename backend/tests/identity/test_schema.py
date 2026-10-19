@@ -201,6 +201,64 @@ async def test_every_entity_keeps_an_alias_of_its_current_name(test_pool, game):
     } <= kinds
 
 
+async def test_homonyms_differ_by_an_internal_label_suffix(test_pool, game):
+    """Two « Garde du sas »: the suffix keeps the labels unique, the player never sees it."""
+    async with test_pool.acquire() as conn:
+        first = await _character(conn, game, descriptor="Garde du sas")
+        second = await _character(
+            conn, game, descriptor="Garde du sas", label_suffix="Quai 9"
+        )
+        rows = {
+            r["id"]: r
+            for r in await conn.fetch(
+                "SELECT ch.id, ch.name, ch.descriptor, er.name_norm, er.handle"
+                " FROM characters ch JOIN entity_registry er ON er.id = ch.id"
+                " WHERE ch.id = ANY($1)",
+                [first, second],
+            )
+        }
+        shown = [
+            await conn.fetchval("SELECT display_for_player($1)", i)
+            for i in (first, second)
+        ]
+        shared = await _find(conn, game, "le garde du sas", "character")
+        by_label = await _find(conn, game, "Garde du sas (Quai 9)", "character")
+        by_handle = await _find(conn, game, f"E{rows[second]['handle']}", "character")
+        second_aliases = {
+            (r["alias"], r["kind"])
+            for r in await conn.fetch(
+                "SELECT alias, kind FROM entity_aliases WHERE entity_id = $1", second
+            )
+        }
+        turn_id = await turns.open_turn(conn, game)
+        async with uow(conn, turn_id):
+            await conn.execute("DELETE FROM characters WHERE id = $1", second)
+        await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [turn_id])
+        restored = await conn.fetchrow(
+            "SELECT ch.name, er.name_norm FROM characters ch"
+            " JOIN entity_registry er ON er.id = ch.id WHERE ch.id = $1",
+            second,
+        )
+        await conn.execute(
+            "UPDATE characters SET label_suffix = 'Quai 10' WHERE id = $1", second
+        )
+        renamed = await _registry(conn, second)
+    assert rows[first]["name"] == "Garde du sas"
+    assert rows[second]["name"] == "Garde du sas (Quai 9)"
+    assert rows[second]["descriptor"] == "Garde du sas"
+    assert rows[second]["name_norm"] == "garde du sas quai 9"
+    assert shown == ["Garde du sas", "Garde du sas"]
+    assert shared is None
+    assert by_label == second
+    assert by_handle == second
+    assert second_aliases == {
+        ("Garde du sas", "descriptor"),
+        ("Garde du sas (Quai 9)", "label"),
+    }
+    assert tuple(restored) == ("Garde du sas (Quai 9)", "garde du sas quai 9")
+    assert renamed["name"] == "Garde du sas (Quai 10)"
+
+
 async def test_check_requires_a_true_name_or_a_descriptor(test_pool, game):
     async with test_pool.acquire() as conn:
         with pytest.raises(asyncpg.CheckViolationError):

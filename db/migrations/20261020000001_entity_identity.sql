@@ -190,9 +190,14 @@ CREATE INDEX idx_entity_registry_created_turn ON public.entity_registry (created
 -- 2.2 Domain tables. The normalised uniqueness of the registry replaces their
 -- UNIQUE (game_id, name): one source of uniqueness.
 ALTER TABLE public.characters RENAME COLUMN unknown_name TO descriptor;
+-- label_suffix: internal only, it tells two homonyms apart in the label (name, registry,
+-- normalised uniqueness), never in what the player reads (true_name, descriptor). Only
+-- characters need it: their name is derived; another entity's name is its label, which
+-- takes a suffix directly.
 ALTER TABLE public.characters
     DROP CONSTRAINT characters_game_id_name_key,
-    ADD COLUMN true_name character varying(255);
+    ADD COLUMN true_name character varying(255),
+    ADD COLUMN label_suffix text;
 -- Until the data section classifies them, existing characters keep their label as their
 -- true name: always valid for the CHECK below.
 UPDATE public.characters SET true_name = name WHERE true_name IS NULL;
@@ -372,8 +377,9 @@ BEGIN
     RETURN NEW;
 END $$;
 
--- characters.name is the internal label: the true name, else the descriptor. A direct write
--- of name is overridden by that value: name never drifts from true_name/descriptor.
+-- characters.name is the internal label: the true name, else the descriptor, followed by
+-- " (<label_suffix>)" for a homonym. A direct write of name is overridden by that value:
+-- name never drifts from true_name/descriptor.
 CREATE FUNCTION public.identity_character_name() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -381,13 +387,18 @@ BEGIN
     IF current_setting('ldvelh.replay', true) = 'on' THEN
         RETURN NEW;
     END IF;
-    NEW.name := COALESCE(NEW.true_name, NEW.descriptor, NEW.name);
+    IF COALESCE(NEW.true_name, NEW.descriptor) IS NOT NULL THEN
+        NEW.name := COALESCE(NEW.true_name, NEW.descriptor)
+                    || COALESCE(' (' || NEW.label_suffix || ')', '');
+    END IF;
     RETURN NEW;
 END $$;
 
 -- The alias of each current name of an entity, made by the triggers (source 'system'): a
--- character's true name (known when the PC knows it) and descriptor (known), another
--- entity's label (its name). Invariant: every entity has an alias of its current name_norm.
+-- character's true name (known when the PC knows it) and descriptor (known), plus its
+-- suffixed label when it has a label_suffix (internal lookup); another entity's label (its
+-- name). True names and descriptors stay suffix-free: homonyms share them. Invariant:
+-- every entity has an alias of its current name_norm.
 -- The services add the derived aliases (short forms, titles).
 CREATE FUNCTION public.identity_name_aliases(p_type text, p_row jsonb, p_turn uuid)
         RETURNS void
@@ -404,7 +415,13 @@ CREATE FUNCTION public.identity_name_aliases(p_type text, p_row jsonb, p_turn uu
                p_type <> 'character'
                    OR COALESCE((p_row ->> 'known_by_protagonist')::boolean, false)),
               (CASE WHEN p_type = 'character' THEN p_row ->> 'descriptor' END,
-               'descriptor', true)) AS forms (alias, kind, known)
+               'descriptor', true),
+              (CASE WHEN p_type = 'character' AND p_row ->> 'label_suffix' IS NOT NULL
+                    THEN p_row ->> 'name' END,
+               'label',
+               p_row ->> 'true_name' IS NULL
+                   OR COALESCE((p_row ->> 'known_by_protagonist')::boolean, false))
+           ) AS forms (alias, kind, known)
      WHERE forms.alias IS NOT NULL
     ON CONFLICT DO NOTHING
 $$;
@@ -458,6 +475,12 @@ BEGIN
     UPDATE public.entity_aliases AS al SET kind = 'former_name'
      WHERE al.entity_id = NEW.id AND al.kind = v_kind
        AND (v_norm IS NULL OR al.alias_norm <> v_norm);
+    IF v_type = 'character' THEN
+        -- A suffixed label no longer the character's label.
+        UPDATE public.entity_aliases AS al SET kind = 'former_name'
+         WHERE al.entity_id = NEW.id AND al.kind = 'label'
+           AND al.alias_norm <> public.ldvelh_norm_for_game(NEW.game_id, NEW.name);
+    END IF;
     PERFORM public.identity_name_aliases(v_type, v_row, v_turn);
     RETURN NEW;
 END $$;
@@ -487,7 +510,7 @@ CREATE TRIGGER identity_handle BEFORE INSERT ON public.facts
 -- identity_character_name fires before register_character (alphabetical order): the
 -- registry gets the computed name.
 CREATE TRIGGER identity_character_name
-    BEFORE INSERT OR UPDATE OF name, true_name, descriptor ON public.characters
+    BEFORE INSERT OR UPDATE OF name, true_name, descriptor, label_suffix ON public.characters
     FOR EACH ROW EXECUTE FUNCTION public.identity_character_name();
 CREATE TRIGGER register_character BEFORE INSERT ON public.characters
     FOR EACH ROW EXECUTE FUNCTION public.identity_register('character');
@@ -504,7 +527,7 @@ CREATE TRIGGER register_companion BEFORE INSERT ON public.companions
 -- characters.name changes through true_name/descriptor (identity_character_name), which an
 -- UPDATE OF name trigger alone would not see.
 CREATE TRIGGER sync_registry_character
-    AFTER UPDATE OF name, true_name, descriptor ON public.characters
+    AFTER UPDATE OF name, true_name, descriptor, label_suffix ON public.characters
     FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('character');
 CREATE TRIGGER sync_registry_location AFTER UPDATE OF name ON public.locations
     FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('location');
@@ -576,9 +599,9 @@ END $$;
 
 -- The entity a reference names, the type being required: the reserved PROTAGONIST and
 -- COMPANION (only for their own type: another type looks them up as names), a handle E<n>
--- (any case), an id, then the normalised label, then the normalised aliases; merges
--- followed. Two distinct entities or more: NULL, never an arbitrary pick (the
--- caller records the ambiguity).
+-- (any case), an id, else the normalised labels and aliases together (a descriptor shared
+-- by two homonyms is ambiguous even if it is one's label); merges followed. Two distinct
+-- entities or more: NULL, never an arbitrary pick (the caller records the ambiguity).
 CREATE FUNCTION public.find_entity(p_game uuid, p_ref text, p_type text) RETURNS uuid
     LANGUAGE plpgsql STABLE
     AS $$
@@ -607,11 +630,9 @@ BEGIN
         v_norm := public.ldvelh_norm_for_game(p_game, v_ref);
         SELECT array_agg(er.id) INTO v_ids FROM public.entity_registry AS er
          WHERE er.game_id = p_game AND er.entity_type = p_type AND er.name_norm = v_norm;
-        IF v_ids IS NULL THEN
-            SELECT array_agg(al.entity_id) INTO v_ids FROM public.entity_aliases AS al
-             WHERE al.game_id = p_game AND al.entity_type = p_type
-               AND al.alias_norm = v_norm;
-        END IF;
+        SELECT COALESCE(v_ids, '{}') || COALESCE(array_agg(al.entity_id), '{}') INTO v_ids
+          FROM public.entity_aliases AS al
+         WHERE al.game_id = p_game AND al.entity_type = p_type AND al.alias_norm = v_norm;
     END IF;
     SELECT array_agg(DISTINCT public.entity_follow_merge(ref.id)) INTO v_ids
       FROM unnest(v_ids) AS ref (id);
@@ -809,8 +830,8 @@ BEGIN
            END), '{}'::jsonb)
       INTO v_merged
       FROM jsonb_each(v_drop_row) AS dropped
-     WHERE dropped.key <> ALL (ARRAY['id', 'game_id', 'name', 'created_at', 'updated_at',
-                                'created_cycle', 'removed_cycle'])
+     WHERE dropped.key <> ALL (ARRAY['id', 'game_id', 'name', 'label_suffix', 'created_at',
+                                'updated_at', 'created_cycle', 'removed_cycle'])
        AND dropped.value <> 'null'::jsonb;
     SELECT string_agg(quote_ident(att.attname), ', ' ORDER BY att.attnum),
            string_agg('(jsonb_populate_record(NULL::' || v_table || ', $2)).'
@@ -829,8 +850,8 @@ END $$;
 -- Every edge of drop goes to keep (spec §4.7 effect 1); returns the moved row ids by
 -- table.column. Relations: an open relation that keep already has (same other end, same
 -- type) is closed (end_cycle, the entity_merges row tells why) rather than duplicated, a
--- relation between keep and drop is closed and left on the tombstone. Pivots: a row keep already has is deleted. Inventory: quantities
--- of the same object and owner are added up.
+-- relation between keep and drop is closed and left on the tombstone. Pivots: a row keep
+-- already has is deleted. Inventory: quantities of the same object and owner are added up.
 CREATE FUNCTION public.identity_merge_edges(p_keep uuid, p_drop uuid, p_entity_type text)
         RETURNS jsonb
     LANGUAGE plpgsql
@@ -1466,6 +1487,7 @@ ALTER TABLE public.locations
     ADD CONSTRAINT locations_game_id_name_key UNIQUE (game_id, name);
 ALTER TABLE public.characters
     DROP CONSTRAINT characters_true_name_or_descriptor,
+    DROP COLUMN label_suffix,
     DROP COLUMN true_name,
     ADD CONSTRAINT characters_game_id_name_key UNIQUE (game_id, name);
 ALTER TABLE public.characters RENAME COLUMN descriptor TO unknown_name;
