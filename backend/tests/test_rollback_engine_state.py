@@ -125,19 +125,37 @@ async def test_narrative_rollback_leaves_traits_untouched(harness, caplog):
     assert "No engine snapshot" not in caplog.text  # an empty snapshot is not a legacy row
 
 
-async def test_rollback_without_engine_snapshot_keeps_the_engine_state(harness, caplog):
-    """Legacy messages saved before snapshots: the rollback works and warns, state is kept."""
+async def test_rollback_restores_engine_state_from_the_journal_without_a_snapshot(
+        harness, monkeypatch, caplog):
+    """The journal, not the message's engine snapshot, restores the turn's engine state:
+    with every snapshot gone, the wounds and Force points still come back (#22)."""
     game_id = await _engine_game(harness, "d6")
+    async with harness.pool.acquire() as conn:
+        sheet = await conn.fetchrow(
+            "SELECT wounds, force_points FROM character_d6 WHERE game_id = $1", game_id)
+    monkeypatch.setattr(d6, "random", SimpleNamespace(randint=lambda a, b: 4))
+    original = d6.D6Engine.roll_dice
+
+    def roll_with_wound(self, decision):
+        roll = original(self, decision)
+        roll.details.update({"wound_level": "wounded", "force_points_spent": 1})
+        return roll
+
+    monkeypatch.setattr(d6.D6Engine, "roll_dice", roll_with_wound)
+    harness.llm._responses["mechanical"] = payloads.mechanical(
+        requires_test=True, skill="Athlétisme", skill_value=2, difficulty=1)
+    await harness.chat(game_id, "Je force le passage.")
+    await harness.drain()
     async with harness.pool.acquire() as conn:
         await conn.execute("UPDATE messages SET engine_snapshot = NULL WHERE game_id = $1",
                            game_id)
-        sheet = await conn.fetchrow(
+        during = await conn.fetchrow(
             "SELECT wounds, force_points FROM character_d6 WHERE game_id = $1", game_id)
-    await harness.chat(game_id, "J'avance.")
-    await harness.drain()
+    assert dict(during) != dict(sheet)
+
     await rollback_last_turn(harness, game_id)
     async with harness.pool.acquire() as conn:
         after = await conn.fetchrow(
             "SELECT wounds, force_points FROM character_d6 WHERE game_id = $1", game_id)
     assert dict(after) == dict(sheet)
-    assert "No engine snapshot" in caplog.text
+    assert "No engine snapshot" not in caplog.text

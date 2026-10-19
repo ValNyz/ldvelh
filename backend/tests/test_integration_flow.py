@@ -8,7 +8,9 @@ import json
 
 import pytest
 
-from helpers import apply_deltas, apply_state, auth_headers, log_roll, make_roll, save_pair
+from helpers import (
+    apply_deltas, apply_state, auth_headers, log_roll, make_roll, open_turn, save_pair,
+)
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
@@ -239,7 +241,8 @@ async def test_rollback_deletes_messages(
     for i in range(2):
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await apply_state(test_pool, game_id, narration, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id=game_id,
             user_message=f"Action {i + 1}",
@@ -247,6 +250,7 @@ async def test_rollback_deletes_messages(
             cycle=1,
             time="09h15",
             location_ref=arrival_loc,
+            turn_id=turn,
         )
 
     messages_before = await service.load_chat_messages(game_id)
@@ -280,7 +284,8 @@ async def test_rollback_via_api(client, test_user, test_pool, world_gen_data):
     for i in range(2):
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await apply_state(test_pool, game_id, narration, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id=game_id,
             user_message=f"Action {i + 1}",
@@ -288,6 +293,7 @@ async def test_rollback_via_api(client, test_user, test_pool, world_gen_data):
             cycle=1,
             time="09h15",
             location_ref=arrival_loc,
+            turn_id=turn,
         )
 
     # Rollback second round via API (keep first 2 messages)
@@ -382,7 +388,8 @@ async def test_rollback_cleans_mechanic_rolls(
     for i in range(2):
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await apply_state(test_pool, game_id, narration, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         _, aid = await save_pair(
             test_pool, game_id=game_id,
             user_message=f"Action {i + 1}",
@@ -390,11 +397,12 @@ async def test_rollback_cleans_mechanic_rolls(
             cycle=1,
             time="09h15",
             location_ref=arrival_loc,
+            turn_id=turn,
         )
         assistant_ids.append(aid)
         await log_roll(test_pool, game_id,
                        make_roll([i + 1], i + 1, "success", skill=f"Skill{i}"),
-                       message_id=aid, engine="d6")
+                       message_id=aid, engine="d6", turn_id=turn)
 
     # Verify 2 rolls exist
     async with test_pool.acquire() as conn:
@@ -406,19 +414,15 @@ async def test_rollback_cleans_mechanic_rolls(
     # Rollback second round (keep first 2 messages)
     await service.rollback_to_message(game_id, keep_until_index=2)
 
-    # After rollback: second message and its roll should be gone
-    # (mechanic_rolls has ON DELETE SET NULL on message_id,
-    #  but the messages themselves are deleted, so the roll's message_id becomes NULL)
+    # After rollback: second message and its roll are gone (the roll's insert is undone
+    # with its turn, #22); the first roll stays linked to its message.
     async with test_pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT message_id FROM mechanic_rolls WHERE game_id = $1",
             game_id,
         )
-    # First roll still linked, second roll's message was deleted (SET NULL)
-    linked = [r for r in rows if r["message_id"] is not None]
-    orphaned = [r for r in rows if r["message_id"] is None]
-    assert len(linked) == 1
-    assert len(orphaned) == 1
+    assert len(rows) == 1
+    assert rows[0]["message_id"] == assistant_ids[0]
 
     # But load_chat_messages only shows rolls with linked messages
     messages = await service.load_chat_messages(game_id)

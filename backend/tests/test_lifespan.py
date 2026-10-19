@@ -134,3 +134,16 @@ async def test_multi_worker_start_is_refused_before_the_pool_exists(fake_pool, m
         async with main.lifespan(main.app):
             pass
     assert fake_pool == []  # no pool created, nothing to close
+
+
+@pytest.mark.parametrize("engine, warned", [("cycle", True), ("journal", False)])
+async def test_cycle_engine_warns_at_startup(fake_pool, monkeypatch, caplog, engine, warned):
+    async def no_drain(timeout):
+        return None
+
+    monkeypatch.setattr(supervisor, "drain", no_drain)
+    monkeypatch.setattr(get_settings(), "rollback_engine", engine)
+    caplog.set_level(logging.WARNING)
+    async with main.lifespan(main.app):
+        pass
+    assert ("ROLLBACK_ENGINE=cycle" in caplog.text) is warned

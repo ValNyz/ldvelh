@@ -259,6 +259,8 @@ async def list_providers(
 # Player text per RollbackRejected.reason: the exception text never reaches the player (#80).
 ROLLBACK_REJECTED_MESSAGES = {
     RollbackRejected.ARRIVAL_SCENE: "Impossible de revenir avant la scène d'arrivée.",
+    RollbackRejected.BEFORE_JOURNAL:
+        "Impossible de revenir sur un tour joué avant la mise en place du journal des tours.",
 }
 ROLLBACK_REJECTED_DEFAULT = "Ce retour en arrière est impossible."
 

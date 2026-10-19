@@ -17,7 +17,10 @@ import pytest
 
 from unittest.mock import MagicMock
 
-from helpers import apply_deltas, apply_state, auth_headers, save_pair, store_requests
+from helpers import (
+    apply_deltas, apply_state, auth_headers, open_turn, save_pair, store_requests,
+)
+from repos.uow import uow
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
@@ -109,7 +112,8 @@ class TestRollback:
         for i in range(3):
             narration_data = _make_narration_output(arrival_loc)
             narration = NarrationOutput.model_validate(narration_data)
-            await apply_state(test_pool, game_id, narration, 1)
+            turn = await open_turn(test_pool, game_id)
+            await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
             await save_pair(
                 test_pool, game_id=game_id,
                 user_message=f"Action {i + 1}",
@@ -118,6 +122,7 @@ class TestRollback:
                 time="09h15",
                 location_ref=arrival_loc,
                 game_date="Lundi 18 Juillet 2847",
+                turn_id=turn,
             )
 
         messages_before = await service.load_chat_messages(game_id)
@@ -144,7 +149,8 @@ class TestRollback:
         # First round: save with time/date/location
         narration_data = _make_narration_output(arrival_loc)
         narration = NarrationOutput.model_validate(narration_data)
-        await apply_state(test_pool, game_id, narration, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id=game_id,
             user_message="Premier tour",
@@ -153,6 +159,7 @@ class TestRollback:
             time="09h15",
             game_date="Lundi 18 Juillet 2847",
             location_ref=arrival_loc,
+            turn_id=turn,
         )
 
         # Second round: different time/location
@@ -161,7 +168,8 @@ class TestRollback:
             time={"new_time": "10h30", "ellipse": False},
         )
         narration2 = NarrationOutput.model_validate(narration_data2)
-        await apply_state(test_pool, game_id, narration2, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration2, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id=game_id,
             user_message="Deuxième tour",
@@ -170,6 +178,7 @@ class TestRollback:
             time="10h30",
             game_date="Lundi 18 Juillet 2847",
             location_ref="Le Quart de Cycle",
+            turn_id=turn,
         )
 
         # Rollback to first round
@@ -216,24 +225,28 @@ class TestRollback:
         narration1 = NarrationOutput.model_validate(_make_narration_output(
             arrival_loc, credit_delta={"amount": -50, "description": "achat"},
         ))
-        await apply_state(test_pool, game_id, narration1, 1)
-        await apply_deltas(test_pool, game_id, narration1, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration1, 1, turn_id=turn)
+        await apply_deltas(test_pool, game_id, narration1, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id, "action1", "response1", cycle=1,
             time="09h15", location_ref=arrival_loc,
             narrator_deltas={"credit_delta": {"amount": -50, "description": "achat"}},
+            turn_id=turn,
         )
 
         # Round 2: spend 30 credits
         narration2 = NarrationOutput.model_validate(_make_narration_output(
             arrival_loc, credit_delta={"amount": -30, "description": "repas"},
         ))
-        await apply_state(test_pool, game_id, narration2, 1)
-        await apply_deltas(test_pool, game_id, narration2, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration2, 1, turn_id=turn)
+        await apply_deltas(test_pool, game_id, narration2, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id, "action2", "response2", cycle=1,
             time="10h00", location_ref=arrival_loc,
             narrator_deltas={"credit_delta": {"amount": -30, "description": "repas"}},
+            turn_id=turn,
         )
 
         # Verify credits went down by 80 total
@@ -264,14 +277,16 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await apply_state(test_pool, game_id, narration, cycle)
+            turn = await open_turn(test_pool, game_id)
+            await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
                 test_pool, game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
                 time="09h00", location_ref=arrival_loc,
+                turn_id=turn,
             )
 
         # Create an object and add to inventory at cycle 2
-        async with test_pool.acquire() as conn:
+        async with test_pool.acquire() as conn, uow(conn, turn):  # under the last turn
             obj_id = await conn.fetchval(
                 "INSERT INTO objects (game_id, name, created_cycle)"
                 " VALUES ($1, 'Épée rouillée', 2) RETURNING id",
@@ -316,10 +331,12 @@ class TestRollback:
             narration = NarrationOutput.model_validate(_make_narration_output(
                 arrival_loc, time={"new_time": times[i], "ellipse": False},
             ))
-            await apply_state(test_pool, game_id, narration, cycle)
+            turn = await open_turn(test_pool, game_id)
+            await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
                 test_pool, game_id, f"Action cycle {cycle}", f"Response cycle {cycle}",
                 cycle=cycle, time=times[i], location_ref=arrival_loc,
+                turn_id=turn,
             )
 
         # Rollback to keep only first 2 rounds (4 messages)
@@ -362,10 +379,12 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await apply_state(test_pool, game_id, narration, cycle)
+            turn = await open_turn(test_pool, game_id)
+            await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
                 test_pool, game_id, f"Action {cycle}", f"Response {cycle}",
                 cycle=cycle, time="09h00", location_ref=arrival_loc,
+                turn_id=turn,
             )
 
         # Rollback to keep first round only
@@ -375,10 +394,12 @@ class TestRollback:
         narration = NarrationOutput.model_validate(
             _make_narration_output(arrival_loc)
         )
-        await apply_state(test_pool, game_id, narration, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id, "New action after rollback", "New response after rollback",
             cycle=1, time="09h30", location_ref=arrival_loc,
+            turn_id=turn,
         )
 
         messages = await service.load_chat_messages(game_id)
@@ -405,14 +426,16 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await apply_state(test_pool, game_id, narration, cycle)
+            turn = await open_turn(test_pool, game_id)
+            await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
                 test_pool, game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
                 time="09h00", location_ref=arrival_loc,
+                turn_id=turn,
             )
 
         # Insert a director plan at cycle 3
-        async with test_pool.acquire() as conn:
+        async with test_pool.acquire() as conn, uow(conn, turn):  # under the last turn
             await conn.execute(
                 """INSERT INTO director_plans
                    (game_id, cycle, ig_time, tension_level, narrator_guidance)
@@ -451,10 +474,12 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await apply_state(test_pool, game_id, narration, 1)
+            turn = await open_turn(test_pool, game_id)
+            await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
             await save_pair(
                 test_pool, game_id, f"Action {i + 1}", f"Response {i + 1}",
                 cycle=1, time="09h15", location_ref=arrival_loc,
+                turn_id=turn,
             )
 
         messages = await service.load_chat_messages(game_id)
@@ -500,10 +525,12 @@ class TestRollback:
             narration = NarrationOutput.model_validate(
                 _make_narration_output(arrival_loc)
             )
-            await apply_state(test_pool, game_id, narration, 1)
+            turn = await open_turn(test_pool, game_id)
+            await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
             await save_pair(
                 test_pool, game_id, f"Action {i + 1}", f"Response {i + 1}",
                 cycle=1, time="09h15", location_ref=arrival_loc,
+                turn_id=turn,
             )
 
         # Frontend sees 4 messages (protocol filtered out)
@@ -548,10 +575,12 @@ class TestRollback:
         narration = NarrationOutput.model_validate(
             _make_narration_output(arrival_loc)
         )
-        await apply_state(test_pool, game_id, narration, 1)
+        turn = await open_turn(test_pool, game_id)
+        await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
             test_pool, game_id, "Test", "Response", cycle=1,
             time="09h00", location_ref=arrival_loc,
+            turn_id=turn,
         )
 
         messages = await service.load_chat_messages(game_id)

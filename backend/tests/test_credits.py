@@ -73,18 +73,6 @@ def test_huge_credit_delta_is_clamped():
     assert CreditDelta(amount=-10**12, description="x").amount == -100_000
 
 
-async def test_rollback_of_a_legacy_debit_restores_the_balance(harness, game):
-    """Rows saved before the "applied" key existed count as applied: rollback reverses them."""
-    await _debit(harness, game, -10)
-    async with harness.pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE messages SET narrator_deltas = narrator_deltas #- '{credit_delta,applied}'"
-            " WHERE game_id = $1 AND role = 'assistant'", game)
-    assert "applied" not in await _last_credit_delta(harness, game)
-    await rollback_last_turn(harness, game)
-    assert await _balance(harness, game) == 50
-
-
 async def _narration_prompt(harness, game_id, monkeypatch) -> str:
     """Play one plain turn; the messages sent to the narrator, as text."""
     harness.llm._responses["narration"] = payloads.NARRATION

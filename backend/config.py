@@ -8,6 +8,8 @@ from functools import lru_cache
 from pydantic import AliasChoices, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+ROLLBACK_ENGINES = ("journal", "cycle")
+
 
 class Settings(BaseSettings):
     """Configuration de l'application"""
@@ -91,6 +93,11 @@ class Settings(BaseSettings):
         default=10.0,
         validation_alias=AliasChoices("SUPERVISOR_CANCEL_TIMEOUT", "supervisor_cancel_timeout"))
 
+    # Rollback (#22): "journal" replays the turn journal; "cycle" is the legacy cycle-based
+    # rollback, kept one release.
+    rollback_engine: str = Field(
+        "journal", validation_alias=AliasChoices("ROLLBACK_ENGINE", "rollback_engine"))
+
     # App
     debug: bool = os.getenv("DEBUG", "false").lower() == "true"
     # Dump the narrator prompts and generated JSON at DEBUG (story text: off by default).
@@ -112,6 +119,14 @@ class Settings(BaseSettings):
         if not value > 0:  # also rejects NaN
             env_var = info.field_name.upper()  # these env vars match their field names
             raise ValueError(f"{env_var} must be greater than 0, got {value}")
+        return value
+
+    @field_validator("rollback_engine")
+    @classmethod
+    def _known_rollback_engine(cls, value: str) -> str:
+        if value not in ROLLBACK_ENGINES:
+            raise ValueError(
+                f"ROLLBACK_ENGINE must be one of {', '.join(ROLLBACK_ENGINES)}, got {value!r}")
         return value
 
 

@@ -3,7 +3,8 @@ gone at C unless B asks again. The set is part of the turn's commit and of rollb
 
 import pytest
 
-from services.game_service import _stored_info_requests
+from config import get_settings
+from services.rollback_cycle import _stored_info_requests
 from tests.characterization.harness import spy_narration
 from tests.helpers import narration_with, rollback_last_turn
 
@@ -80,7 +81,11 @@ async def test_failed_turn_keeps_the_pending_requests(harness, world_game, monke
     assert await _stored(harness, world_game) == [PLACE]
 
 
-async def test_rollback_to_a_message_without_the_key_restores_nothing(harness, world_game):
+async def test_rollback_to_a_message_without_the_key_restores_nothing(harness, world_game,
+                                                                     monkeypatch):
+    """Legacy cycle rollback (ROLLBACK_ENGINE=cycle): it reads the requests back from the
+    kept message, so a message saved before #64 restores none."""
+    monkeypatch.setattr(get_settings(), "rollback_engine", "cycle")
     await _turn(harness, world_game, narration_with())                       # A
     await _turn(harness, world_game, narration_with(info_requests=[PLACE]))  # B asks
     async with harness.pool.acquire() as conn:
@@ -91,6 +96,18 @@ async def test_rollback_to_a_message_without_the_key_restores_nothing(harness, w
     assert await _stored(harness, world_game) == ["Ossek"]
     await rollback_last_turn(harness, world_game)                            # undo C: keep B
     assert await _stored(harness, world_game) == []
+
+
+async def test_rollback_restores_the_requests_from_the_journal(harness, world_game):
+    """The journal puts back the requests the kept turn stored, whatever its message holds."""
+    await _turn(harness, world_game, narration_with(info_requests=[PLACE]))  # B asks
+    async with harness.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE messages SET narrator_deltas = narrator_deltas - 'info_requests'"
+            " WHERE game_id = $1", world_game)
+    await _turn(harness, world_game, narration_with(info_requests=["Ossek"]))  # C asks
+    await rollback_last_turn(harness, world_game)                            # undo C: keep B
+    assert await _stored(harness, world_game) == [PLACE]
 
 
 @pytest.mark.parametrize("raw, expected", [

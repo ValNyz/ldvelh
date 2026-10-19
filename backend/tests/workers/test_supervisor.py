@@ -281,3 +281,21 @@ def test_supervisor_settings_are_read_at_construction(monkeypatch, env_var, fiel
     monkeypatch.delenv(env_var)
     with pytest.raises(ValidationError, match=message):
         Settings(_env_file=None, **{field: invalid})
+
+
+def test_rollback_engine_accepts_journal_and_cycle_only(monkeypatch):
+    from pydantic import ValidationError
+
+    from config import Settings
+
+    monkeypatch.delenv("ROLLBACK_ENGINE", raising=False)
+    assert Settings(_env_file=None).rollback_engine == "journal"
+    for engine in ("journal", "cycle"):
+        monkeypatch.setenv("ROLLBACK_ENGINE", engine)
+        assert Settings(_env_file=None).rollback_engine == engine
+    monkeypatch.setenv("ROLLBACK_ENGINE", "foo")
+    with pytest.raises(ValidationError, match="ROLLBACK_ENGINE"):
+        Settings(_env_file=None)
+    monkeypatch.delenv("ROLLBACK_ENGINE")
+    with pytest.raises(ValidationError, match="ROLLBACK_ENGINE"):
+        Settings(_env_file=None, rollback_engine="foo")

@@ -11,7 +11,7 @@ from uuid import UUID
 
 import asyncpg
 
-from config import DEFAULT_STATS
+from config import DEFAULT_STATS, get_settings
 from domain.errors import GameAccessDenied, GameNotFound
 from utils.json_utils import parse_json
 from llm.usage import cost_from_stored
@@ -22,7 +22,8 @@ from schema import DEFAULT_GAME_TIME, EngineType, WorldGeneration
 from services.engine import get_engine
 from services.pending_roll import load_pending_roll
 from repos import games as games_repo
-from repos import turns
+from services.rollback import plan_rollback, undo_turns
+from services.rollback_cycle import undo_by_cycle
 from schema.sse_payload import (
     AISummary,
     ArrivalSummary,
@@ -34,19 +35,11 @@ from schema.sse_payload import (
 logger = logging.getLogger(__name__)
 
 
-def _stored_info_requests(narrator_deltas) -> list[str]:
-    """The detail requests a stored turn left behind; none for messages saved before #64."""
-    if isinstance(narrator_deltas, str):
-        narrator_deltas = parse_json(narrator_deltas)
-    if not isinstance(narrator_deltas, dict):
-        return []
-    return [r for r in narrator_deltas.get("info_requests") or [] if isinstance(r, str)]
-
-
 class RollbackRejected(ValueError):
     """The requested rollback is refused; `reason` names why (player text lives in api/)."""
 
     ARRIVAL_SCENE = "arrival_scene"  # would remove the arrival scene (#11)
+    BEFORE_JOURNAL = "before_journal"  # a message saved before the turn journal (#22)
 
     def __init__(self, reason: str):
         super().__init__(reason)
@@ -608,131 +601,25 @@ class GameService:
     async def rollback_to_message(
         self, game_id: UUID, message_id: UUID | None = None, keep_until_index: int | None = None
     ) -> dict:
-        """
-        Rollback: delete a message and everything after it.
-        Accepts either message_id (preferred) or keep_until_index (legacy).
-        Also restores engine state from the last remaining message's snapshot.
+        """Rollback: delete a message and everything after it, and undo their turns.
+
+        Accepts either message_id (preferred) or keep_until_index (legacy). The journal
+        replay runs by default; ROLLBACK_ENGINE=cycle keeps the legacy cycle rollback (#22).
         """
         reader = self._get_reader(game_id)
-        populator = self._get_populator(game_id)
-
         async with self.pool.acquire() as conn:
             messages = await reader.get_messages(conn, order="asc")
-
-            if message_id:
-                # Find the index of the target message
-                msg_id_str = str(message_id)
-                cutoff = None
-                for i, m in enumerate(messages):
-                    if str(m["id"]) == msg_id_str:
-                        cutoff = i
-                        break
-                if cutoff is None:
-                    return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
-                keep_until_index = cutoff
-            elif keep_until_index is None:
+            plan = plan_rollback(messages, message_id, keep_until_index)
+            if plan is None:
                 return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
-
-            if keep_until_index >= len(messages):
-                return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
-
-            messages_to_delete = messages[keep_until_index:]
-            if not messages_to_delete:
-                return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
-
-            # The arrival pair (protocol token + first narration) is never rolled back:
-            # doing so would target cycle 0 and wipe the initial world (#11).
-            if keep_until_index < 2:
-                raise RollbackRejected(RollbackRejected.ARRIVAL_SCENE)
-
-            target_cycle = messages[keep_until_index - 1]["cycle"]
-
-            # Reverse credit deltas from messages being deleted
-            credit_reversal = 0
-            for m in messages_to_delete:
-                deltas = m.get("narrator_deltas")
-                if deltas:
-                    if isinstance(deltas, str):
-                        deltas = parse_json(deltas)
-                    if isinstance(deltas, dict):
-                        cd = deltas.get("credit_delta")
-                        # A refused debit never touched the balance; rows from before
-                        # the "applied" key existed count as applied.
-                        if cd and isinstance(cd, dict) and cd.get("applied") is not False:
-                            credit_reversal -= cd.get("amount", 0)
-
-            # Restore full game state from last remaining assistant message
-            restore_date = None
-            restore_time = None
-            restore_location_id = None
-            restore_requests: list[str] = []
-            engine_snapshot = None
-            for i in range(keep_until_index - 1, -1, -1):
-                m = messages[i]
-                if m["role"] == "assistant":
-                    restore_date = m.get("game_date")
-                    restore_time = m.get("time")
-                    restore_location_id = m.get("location_id")
-                    restore_requests = _stored_info_requests(m.get("narrator_deltas"))
-                    # Not part of get_messages (never sent to the client).
-                    engine_snapshot = await reader.get_message_engine_snapshot(conn, m["id"])
-                    break
-
-            # All-or-nothing: a failure part-way must not leave messages deleted
-            # and credits refunded while the KG still holds the later cycle (#11).
-            async with conn.transaction():
-                # First statement: waits for a background write holding a deleted message
-                # FOR SHARE (#23) before this transaction locks anything else.
-                ids_to_delete = [m["id"] for m in messages_to_delete]
-                await conn.execute(
-                    "DELETE FROM messages WHERE id = ANY($1)",
-                    ids_to_delete,
-                )
-
-                if credit_reversal != 0:
-                    await conn.execute(
-                        "UPDATE protagonists SET credits = credits + $1"
-                        " WHERE game_id = $2",
-                        credit_reversal, game_id,
-                    )
-
-                # Reset game state (current location included) before the KG delete,
-                # so the game no longer points at locations about to be removed.
-                await conn.execute(
-                    """UPDATE games
-                       SET current_cycle = $2,
-                           "current_date" = $3,
-                           "current_time" = $4,
-                           current_location_id = $5,
-                           detail_requests = $6,
-                           last_extraction_time = NULL,
-                           updated_at = NOW()
-                       WHERE id = $1""",
-                    game_id, target_cycle, restore_date,
-                    restore_time, restore_location_id, restore_requests,
-                )
-
-                rollback_result = await populator.rollback_to_cycle(conn, target_cycle)
-                # turn_id read before the DELETE above (it sets it NULL): the deleted
-                # turns' journal goes with them; abandoned open turns are purged too (#105).
-                await turns.delete_turns(
-                    conn, game_id,
-                    [m["turn_id"] for m in messages_to_delete if m["turn_id"]])
-                await turns.expire_pending_rolls(conn, game_id)
-
-                game = await reader.get_game(conn)
-                engine_type = EngineType(game["engine"]) if game else EngineType.NONE
-                if engine_type != "none":
-                    if engine_snapshot is not None:  # {} is a valid empty turn state
-                        engine = get_engine(engine_type)
-                        await engine.restore_turn_state(conn, game_id, engine_snapshot)
-                    else:  # legacy message saved before snapshots: engine state is kept
-                        logger.warning(f"[ROLLBACK] No engine snapshot for game {game_id}, "
-                                       "engine state kept")
-
+            if get_settings().rollback_engine == "cycle":
+                rollback_result = await undo_by_cycle(
+                    conn, game_id, plan, reader, self._get_populator(game_id))
+            else:
+                rollback_result = await undo_turns(conn, game_id, plan)
         return {
-            "deleted": len(messages_to_delete),
-            "target_cycle": target_cycle,
+            "deleted": len(plan.messages_to_delete),
+            "target_cycle": plan.target_cycle,
             "rollback_result": rollback_result,
         }
 

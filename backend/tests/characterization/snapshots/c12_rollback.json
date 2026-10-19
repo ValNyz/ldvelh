@@ -4,13 +4,13 @@
     "character_d6": 0,
     "character_fate": 0,
     "character_narrative": 0,
-    "characters": 4,
+    "characters": 3,
     "chronology": 1,
     "companions": 1,
     "conversations": 1,
     "director_commitments": 0,
     "director_plans": 1,
-    "entity_registry": 14,
+    "entity_registry": 13,
     "events": 1,
     "extraction_logs": 1,
     "facts": 5,
@@ -127,14 +127,6 @@
     }
   ],
   "not_restored_by_rollback": {
-    "characters": [
-      3,
-      4
-    ],
-    "entity_registry": [
-      13,
-      14
-    ],
     "llm_calls": [
       4,
       7
@@ -150,15 +142,20 @@
     "target_cycle"
   ],
   "response_rollback_result": {
-    "deleted_arcs": 0,
-    "deleted_events": 0,
-    "deleted_facts": 0,
-    "reverted_relations": 0,
-    "rolled_back_to_cycle": 1
+    "deleted_turns": 1,
+    "undone_changes": 3
   },
   "response_state_cycle": 1,
   "response_target_cycle": 1,
   "rollback_changed": {
+    "characters": [
+      4,
+      3
+    ],
+    "entity_registry": [
+      14,
+      13
+    ],
     "extraction_logs": [
       2,
       1

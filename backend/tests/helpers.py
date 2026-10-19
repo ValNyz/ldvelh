@@ -47,20 +47,30 @@ def make_roll(dice, total, outcome, *, skill=None, skill_total=None, shifts=None
                       details=details)
 
 
-async def apply_state(pool, game_id, narration, current_cycle):
-    """repos.turns.apply_narration_state on its own connection."""
+async def apply_state(pool, game_id, narration, current_cycle, *, turn_id=None):
+    """repos.turns.apply_narration_state on its own connection, journaled under `turn_id`."""
     from repos import turns
+    from repos.uow import uow
 
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, uow(conn, turn_id):
         return await turns.apply_narration_state(conn, game_id, narration, current_cycle)
 
 
-async def apply_deltas(pool, game_id, narration, cycle):
-    """repos.turns.apply_narrator_deltas on its own connection."""
+async def apply_deltas(pool, game_id, narration, cycle, *, turn_id=None):
+    """repos.turns.apply_narrator_deltas on its own connection, journaled under `turn_id`."""
+    from repos import turns
+    from repos.uow import uow
+
+    async with pool.acquire() as conn, uow(conn, turn_id):
+        return await turns.apply_narrator_deltas(conn, game_id, narration, cycle)
+
+
+async def open_turn(pool, game_id):
+    """A new open turn of the game (repos.turns.open_turn on its own connection)."""
     from repos import turns
 
     async with pool.acquire() as conn:
-        return await turns.apply_narrator_deltas(conn, game_id, narration, cycle)
+        return await turns.open_turn(conn, game_id)
 
 
 async def store_requests(pool, game_id, requests):
@@ -74,16 +84,18 @@ async def store_requests(pool, game_id, requests):
 async def save_pair(pool, game_id, user_message, assistant_message, *, cycle=1, time="",
                     game_date=None, location_ref=None, narrator_deltas=None,
                     engine_snapshot=None, turn_id=None):
-    """repos.turns.save_turn_messages with an explicit state; returns (user_id, assistant_id).
+    """repos.turns.save_turn_messages with an explicit state, journaled under `turn_id`;
+    returns (user_id, assistant_id).
 
     `time` defaults to "" like a narration without a time block (NarrationState.time is a str).
     """
     from domain.turn import NarrationState
     from repos import turns
+    from repos.uow import uow
 
     state = NarrationState(cycle=cycle, time=time, location=location_ref, npcs_present=[],
                            date=game_date)
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, uow(conn, turn_id):
         return await turns.save_turn_messages(
             conn, game_id, user_message=user_message, assistant_message=assistant_message,
             state=state, narrator_deltas=narrator_deltas or {}, engine_snapshot=engine_snapshot,
@@ -93,10 +105,12 @@ async def save_pair(pool, game_id, user_message, assistant_message, *, cycle=1, 
 
 async def log_roll(pool, game_id, roll, *, message_id=None, engine="fate_core", cycle=1,
                    turn_id=None):
-    """repos.turns.log_mechanic_roll on its own connection; returns the roll id."""
+    """repos.turns.log_mechanic_roll on its own connection, journaled under `turn_id`;
+    returns the roll id."""
     from repos import turns
+    from repos.uow import uow
 
-    async with pool.acquire() as conn:
+    async with pool.acquire() as conn, uow(conn, turn_id):
         return await turns.log_mechanic_roll(conn, game_id, message_id=message_id,
                                              engine=engine, roll=roll, cycle=cycle,
                                              turn_id=turn_id)

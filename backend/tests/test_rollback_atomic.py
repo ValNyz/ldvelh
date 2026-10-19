@@ -1,23 +1,29 @@
-"""Rollback is atomic and survives locations created after the target cycle (#11)."""
+"""Rollback is atomic and survives locations created after the target cycle (#11, #22)."""
 
 import pytest
 
-from helpers import apply_deltas, apply_state, save_pair
+from helpers import apply_deltas, apply_state, open_turn, save_pair
+from repos.uow import uow
 from schema import NarrationOutput
+from services import rollback
 from services.game_service import RollbackRejected
 from tests.test_game_and_populator import _make_narration_output, _setup_game_with_world
 
 
 async def _two_cycles_with_stub_location(client, test_user, test_pool):
-    """Cycle 1: one exchange. Cycle 2: the narrator moves the player to an unknown place."""
+    """Cycle 1: one exchange. Cycle 2: the narrator moves the player to an unknown place.
+
+    Each exchange is its own turn, its writes journaled under it (#105)."""
     game_id, service, world_gen = await _setup_game_with_world(client, test_user, test_pool)
     arrival_loc = world_gen.arrival_event.arrival_location_ref
 
     first = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
-    await apply_state(test_pool, game_id, first, 1)
+    first_turn = await open_turn(test_pool, game_id)
+    await apply_state(test_pool, game_id, first, 1, turn_id=first_turn)
     await save_pair(
         test_pool, game_id, "Je regarde autour.", "Rien de neuf.", cycle=1,
         time="09h15", location_ref=arrival_loc, game_date="Lundi 18 Juillet 2847",
+        turn_id=first_turn,
     )
 
     second = NarrationOutput.model_validate(_make_narration_output(
@@ -25,16 +31,19 @@ async def _two_cycles_with_stub_location(client, test_user, test_pool):
         day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"},
         credit_delta={"amount": -30, "description": "billet de navette"},
     ))
-    await apply_state(test_pool, game_id, second, 1)
-    await apply_deltas(test_pool, game_id, second, 2)
+    second_turn = await open_turn(test_pool, game_id)
+    await apply_state(test_pool, game_id, second, 1, turn_id=second_turn)
+    await apply_deltas(test_pool, game_id, second, 2, turn_id=second_turn)
     _, _ = await save_pair(
         test_pool, game_id, "Je prends la navette vers Dock 9.", "La navette arrive au Dock 9.",
         cycle=2, time="08h00", location_ref="Dock 9", game_date="Mardi 19 Juillet 2847",
         narrator_deltas={"credit_delta": {"amount": -30, "description": "billet de navette"}},
+        turn_id=second_turn,
     )
     # Extractors stamp facts with the cycle before the day transition, so a cycle-1
-    # fact can point at the cycle-2 stub location (second FK path of #11).
-    async with test_pool.acquire() as conn:
+    # fact can point at the cycle-2 stub location (second FK path of #11). The extraction
+    # runs under the turn it extracts.
+    async with test_pool.acquire() as conn, uow(conn, second_turn):
         fact_type = await conn.fetchval("SELECT type FROM facts WHERE game_id = $1 LIMIT 1", game_id)
         await conn.execute(
             """INSERT INTO facts (game_id, cycle, type, description, location_id)
@@ -76,20 +85,20 @@ class TestAtomicRollback:
         assert after["dock9"] == 0
         assert after["credits"] == before["credits"] + 30
         async with test_pool.acquire() as conn:
-            fact_location = await conn.fetchval(
-                "SELECT location_id FROM facts WHERE game_id = $1 AND description LIKE '%Dock 9%'", game_id)
-        assert fact_location is None  # fact kept, its deleted location cleared
+            facts = await conn.fetchval(
+                "SELECT count(*) FROM facts WHERE game_id = $1 AND description LIKE '%Dock 9%'",
+                game_id)
+        assert facts == 0  # the turn's extraction is undone with it, whatever its cycle
 
     @pytest.mark.asyncio
     async def test_failure_midway_leaves_everything_unchanged(self, client, test_user, test_pool, monkeypatch):
         game_id, service, _ = await _two_cycles_with_stub_location(client, test_user, test_pool)
         before = await _state(test_pool, game_id)
 
-        async def boom(self, conn, target_cycle):
+        async def boom(conn, turn_ids):
             raise RuntimeError("KG rollback failed")
 
-        from kg.populator import KnowledgeGraphPopulator
-        monkeypatch.setattr(KnowledgeGraphPopulator, "rollback_to_cycle", boom)
+        monkeypatch.setattr(rollback, "_undo_changes", boom)
         with pytest.raises(RuntimeError, match="KG rollback failed"):
             await service.rollback_to_message(game_id, keep_until_index=2)
 

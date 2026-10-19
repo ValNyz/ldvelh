@@ -61,6 +61,9 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     check_startup_config(settings)  # weak JWT_SECRET / missing ENCRYPTION_KEY: refuse to start
+    if settings.rollback_engine == "cycle":
+        logger.warning("[ROLLBACK] ROLLBACK_ENGINE=cycle: legacy cycle-based rollback, "
+                       "removed in the next release")
 
     # Startup: créer le pool de connexions
     print("[STARTUP] Connexion à la base de données...")
