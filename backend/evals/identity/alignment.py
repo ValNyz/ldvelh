@@ -5,11 +5,11 @@ determiner included, contracted preposition excluded), so a decision is aligned 
 gold mention in three passes, each over the decisions still unaligned:
 
 1. same `start`;
-2. same end offset, when exactly one gold mention ends there and it is still free
-   ("Kethari âgée" for gold "La Kethari âgée"; nested mentions can share an end, hence
-   the uniqueness check);
-3. a free gold span that contains the decision span and holds no other gold mention
-   overlapping it (the innermost mention that covers the decision).
+2. same end offset, when exactly one gold mention ends there, it is still free and the
+   spans really overlap ("Kethari âgée" for gold "La Kethari âgée"; nested mentions can
+   share an end, hence the uniqueness check; an empty surface never aligns here);
+3. a free gold span that contains the non-empty decision span and holds no other gold
+   mention overlapping it (the innermost mention that covers the decision).
 
 A gold mention takes at most one decision; the decisions left over are spurious.
 """
@@ -31,6 +31,11 @@ class Alignment(NamedTuple):
 
 def _end(m: GoldMention) -> int:
     return m.start + len(m.surface)
+
+
+def overlaps(m: GoldMention, d: Decision) -> bool:
+    """The spans share at least one character (an empty span overlaps nothing)."""
+    return max(m.start, d.start) < min(_end(m), d.end)
 
 
 def _check_unique_starts(decisions: list[Decision]) -> None:
@@ -57,6 +62,7 @@ def _container(
         g
         for g in mentions
         if g.start not in taken
+        and d.start < d.end
         and g.start <= d.start
         and d.end <= _end(g)
         and not holds_an_overlapping_mention(g)
@@ -76,7 +82,11 @@ def align(mentions: list[GoldMention], decisions: list[Decision]) -> Alignment:
     leftover = []
     for d in rest:
         same_end = by_end.get(d.end, [])
-        if len(same_end) == 1 and same_end[0].start not in by_gold:
+        if (
+            len(same_end) == 1
+            and same_end[0].start not in by_gold
+            and overlaps(same_end[0], d)
+        ):
             by_gold[same_end[0].start] = d
         else:
             leftover.append(d)

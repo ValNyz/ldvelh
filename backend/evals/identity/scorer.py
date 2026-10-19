@@ -16,14 +16,20 @@ What counts as correct, from ANNOTATION.md § 4.3 and § 5:
 - a linked gold (MATCH, ALIAS, NEW) with no decision is wrong;
 - UNSURE is wrong, except on a NEW trap (`trap: true`), where not merging is right.
 
-Decisions aligned to no gold mention are **spurious**: a spurious MATCH/ALIAS that names
-an id is a wrong merge (it links an unannotated span: scenery, a personal pronoun) and a
-spurious NEW is a junk creation; both are also reported per turn. SKIP and UNSURE left
-over are ignored (nothing linked, nothing created).
+Decisions aligned to no gold mention are **spurious**, reported per turn
+(`spurious_link_per_turn`, `spurious_new_per_turn`). A spurious MATCH/ALIAS is a wrong
+merge only when it **conflicts** with the gold: its span overlaps gold mentions and none
+of them accepts its id (the second half of a split name sent to another entity). A
+spurious link that overlaps nothing (a personal pronoun, which ANNOTATION § 13 does not
+count) or overlaps a mention of its own entity (a split name, or a nested mention of
+that entity inside an enclosing SKIP) is not. A spurious NEW is a false NEW, and a
+duplicate when it overlaps a gold MATCH/ALIAS. SKIP and UNSURE left over are ignored
+(nothing linked, nothing created).
 
 Rates: `W` = MATCH/ALIAS to an id that no accepted form names, on gold mentions plus the
-spurious links, over the gold mentions (a link on a NEW or SKIP gold is a wrong merge);
-`D` = NEW on a gold MATCH/ALIAS, over those golds; NEW precision over every NEW decision
+conflicting spurious links, over the gold mentions (a link on a NEW or SKIP gold is a
+wrong merge); `D` = NEW on a gold MATCH/ALIAS plus the spurious NEW overlapping one,
+over those golds; NEW precision over every NEW decision
 (aligned or spurious) and recall over gold NEW, both type-agnostic (NIL detection;
 UNSURE on a trap is right but is not a NEW); `C@10` = an accepted gold id among the
 first 10 candidates of the mention (looked up by gold start, then by the aligned
@@ -41,7 +47,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from evals.identity.alignment import align
+from evals.identity.alignment import align, overlaps
 from evals.identity.corpus import (
     HARD_CATEGORIES,
     Expected,
@@ -97,7 +103,8 @@ class SceneScore:
     usage: dict
     spurious_new: int = 0
     spurious_links: int = 0  # unaligned MATCH/ALIAS
-    spurious_wrong_merges: int = 0  # the spurious links that name an id
+    spurious_wrong_merges: int = 0  # spurious links conflicting with the gold
+    spurious_duplicates: int = 0  # spurious NEW overlapping a gold MATCH/ALIAS
 
 
 @dataclass
@@ -207,6 +214,7 @@ def score_scene(scene: Scene, result: RunResult) -> SceneScore:
         outcomes.append(_outcome(scene, m, d, _candidates(result, m, d)))
     aligned = list(by_gold.values())
     links = [d for d in alignment.spurious if d.decision in LINKS]
+    new = [d for d in alignment.spurious if d.decision == "NEW"]
     return SceneScore(
         scene_id=scene.id,
         outcomes=outcomes,
@@ -214,10 +222,22 @@ def score_scene(scene: Scene, result: RunResult) -> SceneScore:
         deterministic=sum(d.deterministic for d in aligned),
         escalated=any(d.escalated for d in result.decisions),
         usage=dict(result.usage),
-        spurious_new=sum(d.decision == "NEW" for d in alignment.spurious),
+        spurious_new=len(new),
         spurious_links=len(links),
-        spurious_wrong_merges=sum(d.entity_id is not None for d in links),
+        spurious_wrong_merges=sum(_conflicts(scene.gold, d) for d in links),
+        spurious_duplicates=sum(_on_existing_gold(scene.gold, d) for d in new),
     )
+
+
+def _conflicts(mentions: list[GoldMention], d: Decision) -> bool:
+    """A spurious link overlapping gold mentions, none of which accepts its id."""
+    hit = [m for m in mentions if overlaps(m, d)]
+    accepting = [m for m in hit if d.entity_id in {f.entity_id for f in _accepted(m)}]
+    return d.entity_id is not None and bool(hit) and not accepting
+
+
+def _on_existing_gold(mentions: list[GoldMention], d: Decision) -> bool:
+    return any(m.parsed.decision in LINKS and overlaps(m, d) for m in mentions)
 
 
 def _ratio(numerator: int, denominator: int) -> float:
@@ -273,7 +293,11 @@ def aggregate(scores: list[SceneScore]) -> Metrics:
         hard_pool=hard,
         easy_pool=easy,
         W=_ratio(wrong_merges, len(outcomes)),
-        D=_ratio(sum(o.duplicate for o in existing), len(existing)),
+        D=_ratio(
+            sum(o.duplicate for o in existing)
+            + sum(s.spurious_duplicates for s in scores),
+            len(existing),
+        ),
         new_precision=_ratio(
             sum(o.new_gold and o.new_decided for o in outcomes),
             sum(o.new_decided for o in outcomes) + spurious_new,

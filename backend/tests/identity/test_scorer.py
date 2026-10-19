@@ -373,7 +373,7 @@ def test_unaligned_decisions_are_counted_as_spurious():
     decisions = [
         _d(0, "MATCH", "character_tesk"),
         _d(50, "NEW", new_type="object"),  # junk entity on unannotated scenery
-        _d(80, "MATCH", "character_tesk"),  # a link on an unannotated span
+        _d(80, "MATCH", "character_nahle"),  # a link on an unannotated span
         _d(120, "SKIP"),  # not linked, not created: ignored
         _d(150, "UNSURE"),
     ]
@@ -381,8 +381,69 @@ def test_unaligned_decisions_are_counted_as_spurious():
     assert m.spurious_new_per_turn == 1.0
     assert m.spurious_link_per_turn == 1.0
     assert m.new_precision == 0.0  # the spurious NEW is a false NEW
-    assert m.W == 1.0  # 1 spurious link over 1 gold mention
+    assert m.W == 0.0  # it overlaps no gold mention: not a wrong merge
+    assert m.D == 0.0
     assert m.by_category["EASY"].value == 1.0
+
+
+def test_a_pronoun_linked_outside_the_gold_is_not_a_wrong_merge():
+    gold = [_mention(0, "DESC", "MATCH character_nahle", surface=KETHARI)]
+    decisions = [
+        _d(0, "MATCH", "character_nahle", surface=KETHARI),
+        _d(40, "MATCH", "character_nahle", surface="elle"),  # unannotated pronoun
+    ]
+    m = _metrics(gold, decisions)
+    assert m.W == 0.0
+    assert m.spurious_link_per_turn == 1.0
+
+
+NAHLE = "Nahle Irun-Sa"
+IRUN = NAHLE.index("Irun-Sa")
+
+
+def _split_name(second: Decision):
+    gold = [_mention(0, "DESC", "MATCH character_nahle", surface=NAHLE)]
+    first = _d(0, "MATCH", "character_nahle", surface="Nahle")
+    return _metrics(gold, [first, second])
+
+
+def test_a_split_name_on_the_same_entity_is_not_a_wrong_merge():
+    m = _split_name(_d(IRUN, "MATCH", "character_nahle", surface="Irun-Sa"))
+    assert m.W == 0.0
+    assert m.spurious_link_per_turn == 1.0
+    assert m.by_category["DESC"].value == 1.0
+
+
+def test_an_overlapping_spurious_link_to_another_id_is_a_wrong_merge():
+    m = _split_name(_d(IRUN, "MATCH", "character_tesk", surface="Irun-Sa"))
+    assert m.W == 1.0
+
+
+def test_a_nested_gold_that_accepts_the_id_absolves_a_spurious_link():
+    start = TERMINAL.index("tablier")
+    decisions = [
+        _d(NESTED, "MATCH", "character_tesk", surface="Kethari au tablier"),
+        _d(start, "MATCH", "character_tesk", surface="tablier"),  # spurious
+    ]
+    m = _metrics(_nested_gold(), decisions)
+    assert m.spurious_link_per_turn == 1.0
+    assert m.W == 0.0  # inside the enclosing SKIP, but on its own entity's mention
+
+
+def test_a_spurious_new_on_an_existing_gold_is_a_duplicate():
+    m = _split_name(_d(IRUN, "NEW", new_type="character", surface="Irun-Sa"))
+    assert m.D == 1.0
+    assert m.new_precision == 0.0
+    assert m.spurious_new_per_turn == 1.0
+
+
+def test_an_empty_surface_does_not_align_by_its_end():
+    gold = [_mention(0, "EASY", "MATCH character_tesk", surface="Tesk")]
+    empty = Decision("", 4, "MATCH", "character_tesk", None, None)
+    m = _metrics(gold, [empty])
+    assert m.by_category["EASY"].value == 0.0
+    assert m.spurious_link_per_turn == 1.0
+    assert m.W == 0.0  # an empty span overlaps nothing
 
 
 def _bootstrap_pattern():
