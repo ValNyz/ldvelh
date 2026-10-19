@@ -151,7 +151,11 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				if (!apply('done', { edit, gameState: data?.game_state ?? null })) return;
 				endTurn({ saving: true }); // until 'saved'
 				if (data?.game_state) gs.setGameState(data.game_state);
-				if (kind === TURN_KIND.ARRIVAL) phase.setGamePhase(phase.GAME_PHASE.PLAYING);
+				// The arrival scene is over: playing, unless the player went elsewhere (Paramètres).
+				if (kind === TURN_KIND.ARRIVAL) {
+					const { STARTING_ADVENTURE, PLAYING } = phase.GAME_PHASE;
+					phase.setGamePhase(current => (current === STARTING_ADVENTURE ? PLAYING : current));
+				}
 			},
 			onSaved: () => {
 				if (!apply('saved')) return;

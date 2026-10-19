@@ -147,20 +147,19 @@ export function withAnswer(messages, displayText, data) {
  * hold it yet:
  * - nothing for a dropped turn, except its action when it failed with an error (shown with
  *   the error, to retry it);
- * - nothing when the history holds the committed turn: by its answer's id, or, before its
- *   ids are known (extracting: committed or about to be), by the same action and answer at
- *   the end of the history.
+ * - nothing when the history holds the committed turn (never shown nor retried twice): by
+ *   its answer's id, or, before its ids are known (narration over: committed or about to
+ *   be), by the same action and answer at the end of the history.
  * An unsaved action at the end of the history (a pending roll's, #32) that the turn shows
  * too is not repeated.
  */
 export function withLiveTurn(history, turn) {
 	if (!turn || turn.messages.length === 0) return history;
+	if (holdsTurn(history, turn)) return history;
 	let shown = turn.messages;
 	if (turn.status === TURN_STATUS.DROPPED) {
 		if (!turn.error || turn.messages[0].role !== 'user') return history;
 		shown = turn.messages.slice(0, 1);
-	} else if (holdsTurn(history, turn)) {
-		return history;
 	}
 	const [first] = shown;
 	const last = history[history.length - 1];
@@ -168,10 +167,13 @@ export function withLiveTurn(history, turn) {
 	return [...(sameUnsavedAction ? history.slice(0, -1) : history), ...shown];
 }
 
+// The history holds the committed turn: by its answer's id, or, before the ids are known,
+// by the same action and final answer at its end (the narration is over: extracting, or
+// failed after it, so possibly committed).
 function holdsTurn(history, turn) {
 	const answer = turn.messages.find(m => m.role === 'assistant');
 	if (answer?.id) return history.some(m => m.id === answer.id);
-	if (turn.status !== TURN_STATUS.EXTRACTING || !answer) return false;
+	if (!answer?.extracting) return false;
 	const action = turn.messages.find(m => m.role === 'user');
 	const [before, last] = history.slice(-2);
 	return last?.role === 'assistant' && last.content === answer.content
@@ -183,6 +185,7 @@ function holdsTurn(history, turn) {
  * `worldCreated`: the loaded state says the world exists. Returns:
  * - messages: the chat to show (`withLiveTurn`);
  * - attached: the turn's events drive this game from now on (running, or newer than the load);
+ *   its flags are restored;
  * - activity: the turn flags to restore (`turnActivity`), idle when not attached;
  * - action: the player's action of the turn shown again (to retry it), or null;
  * - generating: { progress, director } of a world generation still running, or null;
@@ -195,12 +198,15 @@ function holdsTurn(history, turn) {
 export function reopenTurn(history, turn, { worldCreated = false } = {}) {
 	const messages = withLiveTurn(history, turn);
 	const merged = messages !== history;
+	const held = Boolean(turn) && holdsTurn(history, turn);
 	const running = isRunning(turn);
 	const kind = turn?.kind;
 	const committed = turn?.status === TURN_STATUS.SAVING || turn?.status === TURN_STATUS.ENDED;
 	// The load was read before the commit: the turn's results are newer than it.
 	const newer = committed && (kind === TURN_KIND.INIT ? !worldCreated : merged);
-	const attached = Boolean(turn) && (running ? (kind !== TURN_KIND.ACTION || merged) : newer);
+	// A running action held by the load (committed, done not received yet) stays attached:
+	// its flags keep a send from cutting it before done brings its state.
+	const attached = Boolean(turn) && (running ? (kind !== TURN_KIND.ACTION || merged || held) : newer);
 	const action = merged ? turn.messages.find(m => m.role === 'user')?.content ?? null : null;
 	return {
 		messages,
@@ -211,7 +217,7 @@ export function reopenTurn(history, turn, { worldCreated = false } = {}) {
 		starting: running && kind === TURN_KIND.ARRIVAL,
 		world: newer && kind === TURN_KIND.INIT && turn.world ? { info: turn.world, gameState: turn.gameState } : null,
 		gameState: newer && kind !== TURN_KIND.INIT ? turn.gameState : null,
-		error: turn?.error ?? null,
+		error: held ? null : turn?.error ?? null, // a committed turn is not a failure to retry
 		warning: attached || merged ? turn.warning : null,
 		refresh: newer && turn.status === TURN_STATUS.ENDED,
 	};

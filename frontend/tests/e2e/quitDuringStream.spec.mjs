@@ -287,7 +287,8 @@ test('Annuler after reopening cuts that game\'s turn only; the game can send aga
 	]);
 });
 
-test('leaving during the arrival scene and reopening: its narration goes on, no second arrival', async ({ page }, testInfo) => {
+// A game whose world exists and whose arrival scene starts streaming ('Bienvenue sur ').
+async function startArrival(page) {
 	const NEW_ID = '00000000-0000-0000-0000-0000000000ff';
 	const newGame = {
 		state: { game: { name: 'Partie Neuve' }, world_created: true },
@@ -303,6 +304,27 @@ test('leaving during the arrival scene and reopening: its narration goes on, no 
 	await expect.poll(async () => (await chat.bodies()).length).toBe(1);
 	await chat.push(0, { type: 'chunk', content: 'Bienvenue sur ' });
 	await expect(page.getByText('Bienvenue sur')).toBeVisible();
+	return chat;
+}
+
+test('the arrival ending while Paramètres is open leaves the player there', async ({ page }, testInfo) => {
+	const chat = await startArrival(page);
+	await page.getByTitle('Paramètres').click();
+	await expect(page.getByRole('heading', { name: 'Paramètres' })).toBeVisible();
+
+	await chat.push(0, { type: 'chunk', content: 'la station.' }, ...answer('Bienvenue sur la station.', LIVE_IDS).slice(1));
+	await chat.end(0);
+	await page.waitForTimeout(300); // let the done/saved events be handled
+	await expect(page.getByRole('heading', { name: 'Paramètres' })).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('quit-13-arrival-done-in-settings.png') });
+
+	await page.getByRole('heading', { name: 'Paramètres' }).locator('xpath=preceding-sibling::button').click();
+	await expect(page.getByText('Bienvenue sur la station.')).toBeVisible();
+	await expect(page.getByPlaceholder(/Ton action/)).toBeEnabled();
+});
+
+test('leaving during the arrival scene and reopening: its narration goes on, no second arrival', async ({ page }, testInfo) => {
+	const chat = await startArrival(page);
 	await page.getByTitle('Retour à la liste').click();
 
 	await page.getByText('Partie Neuve').click();

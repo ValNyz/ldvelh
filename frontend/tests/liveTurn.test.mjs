@@ -266,3 +266,23 @@ test('reopen while the arrival runs: starting, with its narration so far', () =>
 	assert.equal(chunked.messages[0].content, 'Bienvenue');
 	assert.equal(chunked.action, null);
 });
+
+test('a turn that failed after its commit (between extracting and done): never replayed nor offered for retry', () => {
+	const failed = withTurnEvent(extracted(action(), 'Il pleut.'), 'error', { error: { message: 'Connexion interrompue.' } });
+	assert.equal(failed.status, TURN_STATUS.DROPPED);
+	assert.equal(withLiveTurn(committed, failed), committed);
+	const plan = reopenTurn(committed, failed);
+	assert.equal(plan.messages, committed);
+	assert.equal(plan.action, null);
+	assert.equal(plan.error, null);
+	// Not committed (the load lacks it): the failed action comes back with its error.
+	assert.equal(reopenTurn(history, failed).error.message, 'Connexion interrompue.');
+});
+
+test('reopen while extracting, load already holding the commit: the turn stays attached until done', () => {
+	const plan = reopenTurn(committed, extracted(action(), 'Il pleut.'));
+	assert.equal(plan.messages, committed);
+	assert.equal(plan.attached, true);
+	assert.equal(plan.action, null);
+	assert.deepEqual(plan.activity, { loading: true, sending: true, extracting: true, saving: true });
+});
