@@ -9,7 +9,7 @@ mkdir -p "$OUT"
 rm -rf "$OUT/test-results"  # only the subdirectory this script owns
 
 docker run --rm --ipc=host -v "$REPO/frontend":/src:ro -v "$OUT":/out \
-  mcr.microsoft.com/playwright:v1.48.2-jammy bash -c '
+  mcr.microsoft.com/playwright:v1.63.0-noble bash -c '
 cp -r /src /w && cd /w && rm -rf node_modules
 npm ci --silent
 status=0
