@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
+from config import get_identity_config
+from packs.loader import load_lang
 from repos import entities as entity_repo
 from services.game_service import GameService
 
@@ -165,10 +167,16 @@ async def get_annotations(
         resolved = await _resolve_spans(
             conn, game_id, [(ann[2], ann[3]) for _, spans in parsed for ann in spans]
         )
+        language, _ = await entity_repo.game_language(conn, game_id)
+    unknown_label = load_lang(
+        language or get_identity_config().default_language
+    ).unknown_character_label
 
     messages = []
     for row, spans in parsed:
-        annotations = [_annotation(row["content"], ann, resolved) for ann in spans]
+        annotations = [
+            _annotation(row["content"], ann, resolved, unknown_label) for ann in spans
+        ]
         messages.append(MessageAnnotations(
             message_id=row["id"],
             sequence=row["sequence"],
@@ -178,15 +186,20 @@ async def get_annotations(
     return {"messages": [m.model_dump() for m in messages]}
 
 
-def _annotation(content: str, ann: list, resolved: dict) -> AnnotationEntry:
+def _annotation(
+    content: str, ann: list, resolved: dict, unknown_label: str
+) -> AnnotationEntry:
+    """One span. A character's stored label is never sent (it may be a hidden true name):
+    unresolved, it reads `unknown_label`."""
     start, end, ref, entity_type = ann[0], ann[1], ann[2], ann[3]
     found = resolved.get((ref, entity_type)) or {}
+    fallback = unknown_label if entity_type == "character" else ref
     surface = None
     if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(content):
         surface = content[start:end]
     return AnnotationEntry(
         start=start, end=end,
-        label=found.get("label") or ref, entity_type=entity_type,
+        label=found.get("label") or fallback, entity_type=entity_type,
         entity_id=found.get("entity_id"), handle=found.get("handle"), surface=surface,
     )
 
@@ -222,7 +235,10 @@ async def _resolve_spans(
 
 # Columns a tooltip reads, per entity type (the table is the type's).
 _TOOLTIP_COLUMNS = {
-    "character": ("characters", "occupation, species, mood, ambient, description"),
+    "character": (
+        "characters",
+        "occupation, species, mood, ambient, description, known_by_protagonist, true_name",
+    ),
     "location": ("locations", "location_type, sector, atmosphere, ambient, description"),
     "organization": ("organizations", "org_type, domain, description, ambient"),
     "object": ("objects", "category, description"),
@@ -259,6 +275,12 @@ async def get_entity_tooltip(
             if row:
                 details = dict(row)
                 display_name = await entity_repo.display_for_player(conn, entity_id)
+            if row and entity_type == "character":
+                # Free text that may name a character the PC has not identified (§4.9).
+                if not (details.pop("known_by_protagonist") and details.pop("true_name")):
+                    details.pop("occupation", None)
+                    details.pop("ambient", None)
+                details.pop("true_name", None)
             if row and entity_type == "character":
                 rel = await conn.fetchrow(
                     """SELECT r.type::text as relation_type

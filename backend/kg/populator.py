@@ -508,9 +508,14 @@ class KnowledgeGraphPopulator:
             target.entity_id,
         )
         if target.entity_id is None and extra_descriptor is not None:
+            # A learned alias carries the turn that wrote it (§4.3), like the trigger's.
+            turn_id = await conn.fetchval(
+                "SELECT nullif(current_setting('ldvelh.turn_id', true), '')::uuid"
+            )
             await entity_repo.insert_alias(
                 conn, self.game_id, character_id, EntityType.CHARACTER.value,
                 extra_descriptor, "descriptor", known=True, source="extractor",
+                turn_id=turn_id,
             )
         return character_id
 

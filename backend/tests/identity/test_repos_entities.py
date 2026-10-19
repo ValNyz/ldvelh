@@ -378,3 +378,23 @@ async def test_a_reveal_without_real_name_marks_the_true_name_alias_known(
             a.alias: a.known for a in await entities.list_aliases(conn, game, tesk)
         }
     assert kinds == {"Tesk": True, "Le Kethari au tablier": True}
+
+
+async def test_an_extractor_descriptor_alias_carries_its_turn(test_pool, game):
+    from kg.populator import KnowledgeGraphPopulator
+    from schema import CharacterData
+
+    async with test_pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game)
+        async with uow(conn, turn_id):
+            guard = await KnowledgeGraphPopulator(None, game).create_character(
+                conn, CharacterData(name="Le garde", descriptor="Garde en armure")
+            )
+        aliases = {
+            a.alias: (a.source, a.turn_id)
+            for a in await entities.list_aliases(conn, game, guard)
+        }
+    assert aliases == {
+        "Garde en armure": ("system", turn_id),
+        "Le garde": ("extractor", turn_id),
+    }

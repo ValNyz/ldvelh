@@ -192,3 +192,41 @@ async def test_a_known_npc_still_shows_its_true_name(client, test_user, test_poo
         "Ossek",
     )
     assert by_id["found"] is True and by_id["tooltip"]["name"] == "Ossek"
+    assert any(info.startswith("Métier") for info in by_id["tooltip"]["infos"])
+
+
+async def test_unknown_npc_tooltip_drops_free_text_that_may_name_it(
+    client, test_user, test_pool
+):
+    """Occupation and ambient are free text (extraction, Director): for an NPC the PC has
+    not identified they may hold its true name, so the tooltip leaves them out."""
+    game_id = await _world(client, test_user, test_pool)
+    await _hide_under_a_descriptor(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE characters SET ambient = $2, occupation = $3"
+            " WHERE game_id = $1 AND true_name = $4",
+            game_id,
+            f"{SECRET_NAME} fixe la porte",
+            f"assistante de {SECRET_NAME}",
+            SECRET_NAME,
+        )
+
+    payload = await _tooltip(client, test_user, game_id, DESCRIPTOR)
+
+    assert payload["found"] is True
+    assert (
+        SECRET_NAME.casefold() not in json.dumps(payload, ensure_ascii=False).casefold()
+    )
+    assert all(not info.startswith("Métier") for info in payload["tooltip"]["infos"])
+
+
+def test_an_unresolved_character_span_falls_back_to_the_unknown_label():
+    """Even when SQL gives no label, the stored label of a character is not sent."""
+    from api.tooltips import _annotation
+
+    content = "Elle lève les yeux."
+    span = _annotation(content, [0, 4, SECRET_NAME, "character"], {}, "?")
+    place = _annotation(content, [5, 9, "Quai 9", "location"], {}, "?")
+    assert (span.label, span.surface) == ("?", "Elle")
+    assert place.label == "Quai 9"
