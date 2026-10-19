@@ -154,8 +154,11 @@ async def store_info_requests(conn, game_id: UUID, requests: list[str]) -> None:
 
 async def save_turn_messages(conn, game_id: UUID, *, user_message: str, assistant_message: str,
                              state: NarrationState, narrator_deltas: dict,
-                             engine_snapshot: dict | None) -> tuple[UUID, UUID]:
-    """User + assistant message pair of the turn; returns (user_id, assistant_id)."""
+                             engine_snapshot: dict | None,
+                             turn_id: UUID | None) -> tuple[UUID, UUID]:
+    """User + assistant message pair of the turn; returns (user_id, assistant_id).
+
+    `turn_id`: the turn the pair belongs to (None outside a turn: tests, fixtures)."""
     populator = _populator(game_id)
     conv_id = await populator.get_active_conversation(conn)
     if not conv_id:
@@ -167,11 +170,11 @@ async def save_turn_messages(conn, game_id: UUID, *, user_message: str, assistan
     stamp = {"cycle": state.cycle, "time": state.time, "game_date": state.date,
              "location_ref": state.location}
     user_id = await populator.save_message(
-        conn, conv_id, "user", user_message, sequence=max_seq + 1, **stamp,
+        conn, conv_id, "user", user_message, sequence=max_seq + 1, turn_id=turn_id, **stamp,
     )
     assistant_id = await populator.save_message(
         conn, conv_id, "assistant", assistant_message, sequence=max_seq + 2, **stamp,
-        narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot,
+        narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot, turn_id=turn_id,
     )
     return user_id, assistant_id
 
@@ -211,26 +214,27 @@ async def lock_engine(conn, game_id: UUID) -> None:
 
 
 async def log_mechanic_roll(conn, game_id: UUID, *, message_id: UUID, engine: str,
-                            roll: RollResult, cycle: int | None) -> UUID:
-    """Log a resolved roll with the assistant message that narrated it."""
+                            roll: RollResult, cycle: int | None, turn_id: UUID | None) -> UUID:
+    """Log a resolved roll with the assistant message that narrated it, under its turn."""
     return await _populator(game_id).log_mechanic_roll(
         conn, game_id, message_id, engine, roll.details.get("skill_name"),
-        roll.model_dump(), roll.outcome, roll.complication, cycle,
+        roll.model_dump(), roll.outcome, roll.complication, cycle, turn_id,
     )
 
 
 async def store_pending_roll(conn, game_id: UUID, roll: RollResult, player_message: str,
-                             cycle: int) -> UUID:
-    """A failed Fate roll waiting for an aspect invocation (at most one per game)."""
+                             cycle: int, turn_id: UUID | None) -> UUID:
+    """A failed Fate roll waiting for an aspect invocation (at most one per game), stored
+    under the turn it halted."""
     # Only Fate Core pauses a roll for an invocation.
     return await conn.fetchval(
         """INSERT INTO mechanic_rolls
            (game_id, message_id, engine, skill_used, roll_details, outcome, complication,
-            cycle, status, player_message)
-           VALUES ($1, NULL, 'fate_core', $2, $3, $4, $5, $6, 'pending', $7)
+            cycle, status, player_message, turn_id)
+           VALUES ($1, NULL, 'fate_core', $2, $3, $4, $5, $6, 'pending', $7, $8)
            RETURNING id""",
         game_id, roll.details.get("skill_name"), roll.model_dump(), roll.outcome,
-        roll.complication, cycle, player_message,
+        roll.complication, cycle, player_message, turn_id,
     )
 
 
@@ -250,18 +254,21 @@ async def get_pending_roll(conn, game_id: UUID) -> dict | None:
 
 
 async def claim_pending_roll(conn, game_id: UUID, roll_id: UUID, roll_details: dict,
-                             outcome: str, message_id: UUID, cycle: int) -> bool:
+                             outcome: str, message_id: UUID, cycle: int,
+                             turn_id: UUID | None) -> bool:
     """Resolve the pending roll with its final details; False if it was no longer pending.
 
     The roll is stored pending at the cycle before its turn (the narration, hence a possible
     day change, does not exist yet): resolving re-stamps it with the turn's post-turn cycle,
-    like the turn's messages, so rolling the turn back removes it (#134)."""
+    like the turn's messages, so rolling the turn back removes it (#134). It also moves to
+    the resuming turn (#105)."""
     claimed = await conn.fetchval(
         """UPDATE mechanic_rolls
-        SET status = 'resolved', roll_details = $3, outcome = $4, message_id = $5, cycle = $6
+        SET status = 'resolved', roll_details = $3, outcome = $4, message_id = $5, cycle = $6,
+            turn_id = $7
         WHERE id = $1 AND game_id = $2 AND status = 'pending'
         RETURNING id""",
-        roll_id, game_id, roll_details, outcome, message_id, cycle,
+        roll_id, game_id, roll_details, outcome, message_id, cycle, turn_id,
     )
     return claimed is not None
 

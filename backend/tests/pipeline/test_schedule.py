@@ -21,9 +21,11 @@ def _ctx() -> TurnContext:
     game_id = uuid4()
     snapshot = GameSnapshot(id=game_id, world_created=True, current_cycle=1,
                             current_time="08h00", current_location_name="Bar")
-    return TurnContext(request=TurnRequest(game_id=game_id, user_id=uuid4(), message="Je regarde."),
-                       snapshot=snapshot, session=object(), sink=None, pool=object(),
-                       engine=None, ref="test")
+    ctx = TurnContext(request=TurnRequest(game_id=game_id, user_id=uuid4(), message="Je regarde."),
+                      snapshot=snapshot, session=object(), sink=None, pool=object(),
+                      engine=None, ref="test")
+    ctx.turn_id = uuid4()
+    return ctx
 
 
 async def test_schedule_enqueues_one_post_turn_job(monkeypatch):
@@ -57,6 +59,7 @@ async def test_schedule_enqueues_one_post_turn_job(monkeypatch):
     assert event.time == committed.state.time
     assert event.assistant_message_id == committed.assistant_message_id
     assert event.user_message_id == committed.user_message_id
+    assert event.turn_id == ctx.turn_id
     assert kwargs["triggers"] == (narrated.narration.extraction_triggers or None)
     assert kwargs["message_content"] == narrated.display_text
     assert kwargs["narrator_deltas"] == committed.narrator_deltas

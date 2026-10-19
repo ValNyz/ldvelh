@@ -25,14 +25,14 @@ def _no_hooks(monkeypatch):
 
 def _event(game_id, cycle: int) -> TurnCommitted:
     return TurnCommitted(game_id=game_id, previous_cycle=cycle, cycle=cycle, time="08h00",
-                         user_message_id=uuid4(), assistant_message_id=uuid4())
+                         user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
 
 
 def test_new_cycle_is_true_only_when_the_cycle_grows():
     game_id = uuid4()
     assert _event(game_id, 1).new_cycle is False
     later = TurnCommitted(game_id=game_id, previous_cycle=1, cycle=2, time="08h00",
-                          user_message_id=uuid4(), assistant_message_id=uuid4())
+                          user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
     assert later.new_cycle is True
 
 
@@ -79,7 +79,7 @@ async def test_run_post_turn_forwards_the_turn(monkeypatch):
     _no_hooks(monkeypatch)
     monkeypatch.setattr(post_turn, "run_resolve_and_extract", recorder)
     event = TurnCommitted(game_id=uuid4(), previous_cycle=1, cycle=2, time="09h00",
-                          user_message_id=uuid4(), assistant_message_id=uuid4())
+                          user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
     pool, session = object(), object()
 
     await post_turn.run_post_turn(pool, session, event, triggers=None, message_content="texte",
@@ -114,7 +114,7 @@ async def test_post_turn_runs_extraction_then_cycle_hooks_then_turn_hooks(
     monkeypatch.setattr(hooks, "run_new_cycle", new_cycle)
     monkeypatch.setattr(hooks, "run_turn_committed", turn_committed)
     event = TurnCommitted(game_id=uuid4(), previous_cycle=1, cycle=cycle, time="09h00",
-                          user_message_id=uuid4(), assistant_message_id=uuid4())
+                          user_message_id=uuid4(), assistant_message_id=uuid4(), turn_id=uuid4())
 
     await post_turn.run_post_turn(object(), object(), event, triggers=None,
                                   message_content="texte", narrator_deltas={})

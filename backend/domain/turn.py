@@ -68,6 +68,7 @@ class TurnCommitted:
     time: str
     user_message_id: UUID
     assistant_message_id: UUID
+    turn_id: UUID
 
     @property
     def new_cycle(self) -> bool:

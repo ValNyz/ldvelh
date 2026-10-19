@@ -648,7 +648,7 @@ class KnowledgeGraphReader:
         query = """
             SELECT m.id, m.role, m.content, m.cycle, m.game_date, m.time,
                    m.location_id, m.sequence, m.created_at,
-                   m.narrator_deltas,
+                   m.narrator_deltas, m.turn_id,
                    l.name as location_name,
                    mr.roll_details
             FROM messages m

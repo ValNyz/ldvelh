@@ -1,8 +1,10 @@
 """Commit step: every write of the turn in ONE transaction, dice effects included.
 
 Order: roll effects, narration state and deltas, engine snapshot and messages,
-roll log (or claim of the resumed pending roll), engine lock. A failure anywhere
-rolls the whole turn back (#16, #20); a pending roll claimed twice fails the turn (#32).
+roll log (or claim of the resumed pending roll), engine lock, turn committed. A failure
+anywhere rolls the whole turn back (#16, #20); a pending roll claimed twice fails the
+turn (#32). The transaction is the turn's unit of work: its world writes are journaled
+under ctx.turn_id (#105).
 """
 
 import json
@@ -17,6 +19,7 @@ from pipeline.steps.arbitrate import Arbitration
 from pipeline.steps.load import Prepared
 from pipeline.steps.narrate import Narrated
 from repos import turns
+from repos.uow import uow
 from schema.narration import NarrationOutput
 from schema.sse_payload import NarratorDeltasStored
 
@@ -80,12 +83,14 @@ async def _log_roll(conn, ctx: TurnContext, arbitration: Arbitration,
     if arbitration.resumed_roll_id:
         claimed = await turns.claim_pending_roll(conn, ctx.request.game_id,
                                                  arbitration.resumed_roll_id, roll.model_dump(),
-                                                 roll.outcome, assistant_msg_id, cycle)
+                                                 roll.outcome, assistant_msg_id, cycle,
+                                                 ctx.turn_id)
         if not claimed:
             raise TurnError("roll_not_pending", "Ce jet n'est plus en attente.")
         return
     await turns.log_mechanic_roll(conn, ctx.request.game_id, message_id=assistant_msg_id,
-                                  engine=ctx.snapshot.engine, roll=roll, cycle=cycle)
+                                  engine=ctx.snapshot.engine, roll=roll, cycle=cycle,
+                                  turn_id=ctx.turn_id)
 
 
 async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: Arbitration,
@@ -95,7 +100,7 @@ async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: A
     mechanical = arbitration.mechanical
     roll = mechanical.roll if mechanical else None
 
-    async with conn.transaction():
+    async with uow(conn, ctx.turn_id):
         if roll:
             await ctx.engine.apply_roll_result(conn, game_id, roll)
         state, applied = await _apply_narration(conn, game_id, narrated.narration,
@@ -111,11 +116,13 @@ async def commit_turn(ctx: TurnContext, conn, prepared: Prepared, arbitration: A
             user_message=prepared.player_message,
             assistant_message=narrated.display_text,
             state=state, narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot,
+            turn_id=ctx.turn_id,
         )
         if roll:
             await _log_roll(conn, ctx, arbitration, assistant_msg_id, state.cycle)
         if ctx.snapshot.engine != "none" and not ctx.snapshot.engine_locked:
             await turns.lock_engine(conn, game_id)
+        await turns.mark_committed(conn, ctx.turn_id)
 
     return Committed(state=state, user_message_id=user_msg_id, assistant_message_id=assistant_msg_id,
                      narrator_deltas=narrator_deltas)

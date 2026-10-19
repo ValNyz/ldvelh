@@ -221,6 +221,7 @@ async def test_deleting_the_turn_drops_its_journal_and_logs_and_keeps_its_rows(
             state=state,
             narrator_deltas={},
             engine_snapshot=None,
+            turn_id=None,
         )
         await conn.execute(
             "UPDATE messages SET turn_id = $1 WHERE id = $2", turn_id, user_id

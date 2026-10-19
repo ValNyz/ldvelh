@@ -80,7 +80,7 @@ async def replay_game_dump(
                 conn, game_id,
                 user_message=turn["user_message"],
                 assistant_message=narration.narrative_text,
-                state=result, narrator_deltas={}, engine_snapshot=None,
+                state=result, narrator_deltas={}, engine_snapshot=None, turn_id=None,
             )
 
         # Progress indicator every 10 turns

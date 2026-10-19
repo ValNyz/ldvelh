@@ -148,7 +148,7 @@ async def _assistant_message(test_pool, test_user):
     async with test_pool.acquire() as conn:
         _, assistant_id = await turns.save_turn_messages(
             conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
-            state=state, narrator_deltas={}, engine_snapshot=None)
+            state=state, narrator_deltas={}, engine_snapshot=None, turn_id=None)
     return game_id, assistant_id
 
 

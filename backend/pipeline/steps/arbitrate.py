@@ -20,6 +20,7 @@ from domain.turn import InvocationOffer, PendingRoll
 from pipeline.context import TurnContext
 from pipeline.steps.load import Prepared
 from repos import turns
+from repos.uow import uow
 from schema.engine import MechanicalDecision, MechanicalResult, RollResult
 from services.engine.mechanical_service import MechanicalStepUnavailable, run_mechanical_step
 from services.pending_roll import load_pending_roll
@@ -81,10 +82,12 @@ async def _store_or_existing_pending(ctx: TurnContext, prepared: Prepared,
     game_id = ctx.request.game_id
     async with ctx.pool.acquire() as conn:
         try:
-            roll_id = await turns.store_pending_roll(
-                conn, game_id, mechanical.roll, prepared.player_message,
-                ctx.snapshot.current_cycle,
-            )
+            # Journaled under the halted turn, which stays open (#105).
+            async with uow(conn, ctx.turn_id):
+                roll_id = await turns.store_pending_roll(
+                    conn, game_id, mechanical.roll, prepared.player_message,
+                    ctx.snapshot.current_cycle, ctx.turn_id,
+                )
         except asyncpg.UniqueViolationError as exc:
             if getattr(exc, "constraint_name", None) != ONE_PENDING_PER_GAME:
                 raise

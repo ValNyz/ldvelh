@@ -28,6 +28,7 @@ async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: C
         time=committed.state.time,
         user_message_id=committed.user_message_id,
         assistant_message_id=committed.assistant_message_id,
+        turn_id=ctx.turn_id,
     )
     supervisor.enqueue(ctx.request.game_id, "post_turn", run_post_turn(
         ctx.pool,

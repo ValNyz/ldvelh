@@ -387,7 +387,7 @@ class TestDirectorGuards:
             _, assistant_id = await turns.save_turn_messages(
                 conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
                 state=NarrationState(cycle=1, time="08h00", location=None, npcs_present=[], date=None),
-                narrator_deltas={}, engine_snapshot=None)
+                narrator_deltas={}, engine_snapshot=None, turn_id=None)
 
         from tests.test_llm_session import FakeProvider
 
@@ -401,7 +401,8 @@ class TestDirectorGuards:
         provider = GatedProvider(text=json.dumps({"tension_level": 3, "narrator_guidance": "g"}))
         session = LLMSession.from_provider(provider)
         event = TurnCommitted(game_id=game_id, previous_cycle=1, cycle=1, time="08h00",
-                              user_message_id=uuid4(), assistant_message_id=assistant_id)
+                              user_message_id=uuid4(), assistant_message_id=assistant_id,
+                              turn_id=uuid4())
         for _ in range(2):
             supervisor.enqueue(game_id, "post_turn", hooks.run_turn_committed(test_pool, session, event))
         with caplog.at_level(logging.ERROR, logger="services.hooks"):

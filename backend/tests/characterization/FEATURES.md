@@ -85,6 +85,7 @@ F-xx touched: in progress.
 - [ ] F-xx touched are listed above
 - [ ] Full suite green (`scripts/test-backend.sh`)
 - [x] Snapshots changed only by schema (#105): migration `20261019000000` adds the `turns` table (it has a `game_id`), so every `db_counts` / `db_*` summary gains the key `"turns": 0` while no turn is opened by the pipeline. `world_changes` has no `game_id` and does not appear. No other line changes.
+- [x] Snapshots changed only in the value of `turns` (#105): every narration request now opens a turn at load (committed with its messages, left open when halted on a pending roll or failed), so `turns` counts the requests played: 1 for the arrival, 2 after one more turn, 3 in C-05 (arrival, halted turn, resume). C-12: `db_after_rollback.turns` returns to its pre-turn value (the rollback deletes the turns of the deleted messages), so `turn_changed` / `rollback_changed` list `turns` next to `messages`; `response_rollback_result` unchanged. C-16: the failed request leaves its open turn, so `db_changed` is `{"turns": [1, 2]}` (0 message, 0 journal row).
 - [x] Legacy fixture (C-19) replayed: migration `20261019000000` (down then up over the legacy rows)
 - [ ] Manual smoke (F-27)
 

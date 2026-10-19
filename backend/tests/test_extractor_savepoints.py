@@ -203,7 +203,7 @@ async def test_cancel_inside_the_guarded_transaction_releases_the_message(test_p
         _, message_id = await turns.save_turn_messages(
             conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
             state=NarrationState(cycle=1, time="", location=None, npcs_present=[], date=None),
-            narrator_deltas={}, engine_snapshot=None)
+            narrator_deltas={}, engine_snapshot=None, turn_id=None)
     real_populate = extractor._populate
     inside = asyncio.Event()
 

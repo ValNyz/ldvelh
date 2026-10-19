@@ -713,6 +713,11 @@ class GameService:
                 )
 
                 rollback_result = await populator.rollback_to_cycle(conn, target_cycle)
+                # turn_id read before the DELETE above (it sets it NULL): the deleted
+                # turns' journal goes with them; abandoned open turns are purged too (#105).
+                await turns.delete_turns(
+                    conn, game_id,
+                    [m["turn_id"] for m in messages_to_delete if m["turn_id"]])
                 await turns.expire_pending_rolls(conn, game_id)
 
                 game = await reader.get_game(conn)

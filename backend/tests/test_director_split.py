@@ -151,7 +151,7 @@ async def test_apply_keeps_the_plan_when_the_source_message_exists(test_pool, te
     async with test_pool.acquire() as conn:
         _, message_id = await turns.save_turn_messages(
             conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
-            state=state, narrator_deltas={}, engine_snapshot=None,
+            state=state, narrator_deltas={}, engine_snapshot=None, turn_id=None,
         )
         done = await apply_director_plan(conn, game_id, _plan(), cycle=1, ig_time="08h00",
                                          source_message_id=message_id)

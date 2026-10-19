@@ -1118,6 +1118,7 @@ class KnowledgeGraphPopulator:
         narrator_deltas: dict | None = None,
         engine_snapshot: dict | None = None,
         narrator_context: list | None = None,
+        turn_id: UUID | None = None,
     ) -> UUID:
         """Save a message in a conversation."""
         location_id = await self._resolve_location_id(conn, location_ref)
@@ -1125,8 +1126,8 @@ class KnowledgeGraphPopulator:
             """INSERT INTO messages (
                 game_id, conversation_id, role, content,
                 cycle, game_date, time, location_id, sequence,
-                narrator_deltas, engine_snapshot, narrator_context
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id""",
+                narrator_deltas, engine_snapshot, narrator_context, turn_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id""",
             self.game_id,
             conversation_id,
             role,
@@ -1139,6 +1140,7 @@ class KnowledgeGraphPopulator:
             narrator_deltas,
             engine_snapshot,
             narrator_context,
+            turn_id,
         )
 
     # =========================================================================
@@ -1274,13 +1276,14 @@ class KnowledgeGraphPopulator:
         outcome: str,
         complication: bool,
         cycle: int | None,
+        turn_id: UUID | None = None,
     ) -> UUID:
         """Insert a mechanic roll log entry."""
         return await conn.fetchval(
             """INSERT INTO mechanic_rolls
                (game_id, message_id, engine, skill_used,
-                roll_details, outcome, complication, cycle)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                roll_details, outcome, complication, cycle, turn_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                RETURNING id""",
             game_id,
             message_id,
@@ -1290,4 +1293,5 @@ class KnowledgeGraphPopulator:
             outcome,
             complication,
             cycle,
+            turn_id,
         )

@@ -44,6 +44,8 @@ class TurnContext:
     pool: asyncpg.Pool
     engine: BaseEngine
     ref: str
+    # The turn this request opened (load step): its writes are journaled under it (#105).
+    turn_id: UUID | None = None
     # Built once per turn from the pool: game state and narrator history reads.
     games: GameService = field(init=False)
 

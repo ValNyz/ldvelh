@@ -9,6 +9,7 @@ from domain.turn import PendingRoll
 from pipeline import director_runs
 from pipeline.context import TurnContext
 from repos import games as games_repo
+from repos import turns
 from schema.narration import NarrationContext
 from services.context_builder import ContextBuilder
 from services.pending_roll import load_pending_roll
@@ -60,6 +61,9 @@ async def load_turn(ctx: TurnContext) -> Prepared:
     await director_runs.wait_for_initial(snapshot.id)
 
     async with ctx.pool.acquire() as conn:
+        # Every request opens a turn; it stays open until its commit (halted, failed or
+        # abandoned turns never commit) (#105).
+        ctx.turn_id = await turns.open_turn(conn, snapshot.id)
         pending_roll = await load_pending_roll(conn, snapshot.id, ctx.engine)
         # Resumed roll: the stored action is narrated and saved, whatever the request
         # carried (#32). Protocol token (__ARRIVEE__): narrate the genre's arrival text,

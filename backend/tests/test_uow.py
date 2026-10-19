@@ -38,6 +38,7 @@ async def _message(pool, game_id):
             state=state,
             narrator_deltas={},
             engine_snapshot=None,
+            turn_id=None,
         )
     return assistant_id
 

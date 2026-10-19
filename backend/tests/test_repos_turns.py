@@ -28,12 +28,18 @@ async def _save(pool, game_id, user_message, assistant_message, state=None,
         return await turns.save_turn_messages(
             conn, game_id, user_message=user_message, assistant_message=assistant_message,
             state=state or _state(), narrator_deltas=narrator_deltas or {}, engine_snapshot=None,
+            turn_id=None,
         )
 
 
-async def _store_pending(pool, game_id, roll, message="Je saute.", cycle=1):
+async def _store_pending(pool, game_id, roll, message="Je saute.", cycle=1, turn_id=None):
     async with pool.acquire() as conn:
-        return await turns.store_pending_roll(conn, game_id, roll, message, cycle)
+        return await turns.store_pending_roll(conn, game_id, roll, message, cycle, turn_id)
+
+
+async def _open_turn(pool, game_id):
+    async with pool.acquire() as conn:
+        return await turns.open_turn(conn, game_id)
 
 
 async def _get_pending(pool, game_id):
@@ -41,10 +47,10 @@ async def _get_pending(pool, game_id):
         return await turns.get_pending_roll(conn, game_id)
 
 
-async def _claim(pool, game_id, roll_id, roll_details, outcome, message_id):
+async def _claim(pool, game_id, roll_id, roll_details, outcome, message_id, turn_id=None):
     async with pool.acquire() as conn:
         return await turns.claim_pending_roll(conn, game_id, roll_id, roll_details, outcome,
-                                              message_id, 1)
+                                              message_id, 1, turn_id)
 
 
 # =============================================================================
@@ -299,11 +305,15 @@ class TestMechanicRolls:
         roll = make_roll([3, 5, 2, 6], 16, "success", skill="Blasters", skill_total=19,
                          shifts=4, details={"dice_code": "4D", "difficulty": 15})
 
-        await log_roll(test_pool, game_id, roll, message_id=assistant_id, engine="d6")
+        turn_id = await _open_turn(test_pool, game_id)
+
+        await log_roll(test_pool, game_id, roll, message_id=assistant_id, engine="d6",
+                       turn_id=turn_id)
 
         async with test_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id)
         assert row is not None
+        assert row["turn_id"] == turn_id
         assert row["engine"] == "d6"
         assert row["skill_used"] == "Blasters"
         assert row["outcome"] == "success"
@@ -368,7 +378,9 @@ class TestMechanicRolls:
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         roll = make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat", skill_total=1,
                          shifts=-3, details={"difficulty": 4})
-        roll_id = await _store_pending(test_pool, game_id, roll, message="Je frappe.", cycle=2)
+        turn_id = await _open_turn(test_pool, game_id)
+        roll_id = await _store_pending(test_pool, game_id, roll, message="Je frappe.", cycle=2,
+                                       turn_id=turn_id)
 
         pending = await _get_pending(test_pool, game_id)
         assert pending == {"id": roll_id, "roll": roll.model_dump(), "player_message": "Je frappe."}
@@ -377,6 +389,7 @@ class TestMechanicRolls:
         assert (row["status"], row["message_id"], row["engine"], row["skill_used"],
                 row["outcome"], row["cycle"]) == ("pending", None, "fate_core", "Combat",
                                                   "failure", 2)
+        assert row["turn_id"] == turn_id
 
     async def test_no_pending_roll(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
@@ -398,12 +411,16 @@ class TestMechanicRolls:
                                        make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat"))
         _, aid = await _save(test_pool, game_id, "test", "response")
         final = {"dice": [-1, 0, 0, -1], "total": -2, "details": {"invoked_aspects": ["A"]}}
+        resuming_turn = await _open_turn(test_pool, game_id)
 
-        assert await _claim(test_pool, game_id, roll_id, final, "success", aid) is True
+        assert await _claim(test_pool, game_id, roll_id, final, "success", aid,
+                            resuming_turn) is True
         assert await _get_pending(test_pool, game_id) is None
         async with test_pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE id = $1", roll_id)
         assert (row["status"], row["outcome"], row["message_id"]) == ("resolved", "success", aid)
+        # The resumed roll belongs to the turn that resolves it.
+        assert row["turn_id"] == resuming_turn
         assert row["roll_details"]["details"]["invoked_aspects"] == ["A"]
         # Second claim of the same roll: refused, nothing changes.
         assert await _claim(test_pool, game_id, roll_id, {"dice": []}, "tie", aid) is False
@@ -454,9 +471,10 @@ async def test_writes_share_the_callers_transaction(client, test_user, test_pool
         await turns.store_info_requests(conn, game_id, narration.info_requests)
         _, assistant_id = await turns.save_turn_messages(
             conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
-            state=state, narrator_deltas={}, engine_snapshot=None)
+            state=state, narrator_deltas={}, engine_snapshot=None, turn_id=None)
         await turns.log_mechanic_roll(conn, game_id, message_id=assistant_id, engine="fate_core",
-                                      roll=make_roll([1, 1, 1, 1], 4, "success"), cycle=2)
+                                      roll=make_roll([1, 1, 1, 1], 4, "success"), cycle=2,
+                                      turn_id=None)
         assert (await counts(conn))["messages"] == before["messages"] + 2
         await tx.rollback()
         after = await counts(conn)

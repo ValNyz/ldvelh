@@ -53,6 +53,8 @@ async def test_failure_mid_commit_rolls_back_everything(harness, fate_game, monk
         snapshot=snapshot, session=None, sink=_NullSink(), pool=pool,
         engine=get_engine("fate_core"), ref="test",
     )
+    async with pool.acquire() as conn:
+        ctx.turn_id = await turns.open_turn(conn, game_id)
 
     async def boom(*args, **kwargs):
         raise RuntimeError("disk full")
@@ -68,6 +70,12 @@ async def test_failure_mid_commit_rolls_back_everything(harness, fate_game, monk
                               arbitration, narrated)
 
     assert await engine_state(pool, game_id) == before
+    async with pool.acquire() as conn:
+        status = await conn.fetchval("SELECT status FROM turns WHERE id = $1", ctx.turn_id)
+        journaled = await conn.fetchval(
+            "SELECT count(*) FROM world_changes WHERE turn_id = $1", ctx.turn_id)
+    assert status == "open"
+    assert journaled == 0
 
 
 async def test_failed_narration_leaves_engine_state_untouched(harness, fate_game,

@@ -27,7 +27,7 @@
     "skills_d6": 0,
     "skills_fate": 0,
     "traits_narrative": 0,
-    "turns": 0
+    "turns": 1
   },
   "db_after_turn": {
     "aspects_fate": 0,
@@ -57,7 +57,7 @@
     "skills_d6": 0,
     "skills_fate": 0,
     "traits_narrative": 0,
-    "turns": 0
+    "turns": 2
   },
   "db_before_turn": {
     "aspects_fate": 0,
@@ -87,7 +87,7 @@
     "skills_d6": 0,
     "skills_fate": 0,
     "traits_narrative": 0,
-    "turns": 0
+    "turns": 1
   },
   "messages_after_rollback": [
     {
@@ -156,6 +156,10 @@
     "messages": [
       4,
       2
+    ],
+    "turns": [
+      2,
+      1
     ]
   },
   "turn_changed": {
@@ -174,6 +178,10 @@
     "messages": [
       2,
       4
+    ],
+    "turns": [
+      1,
+      2
     ]
   }
 }

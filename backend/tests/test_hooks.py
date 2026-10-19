@@ -12,7 +12,8 @@ from services import hooks, subscribers
 
 def _event(game_id, message_id, *, previous_cycle=1, cycle=2) -> TurnCommitted:
     return TurnCommitted(game_id=game_id, previous_cycle=previous_cycle, cycle=cycle,
-                         time="08h00", user_message_id=uuid4(), assistant_message_id=message_id)
+                         time="08h00", user_message_id=uuid4(), assistant_message_id=message_id,
+                         turn_id=uuid4())
 
 
 async def _game_with_message(pool, user):
@@ -23,7 +24,7 @@ async def _game_with_message(pool, user):
         _, assistant_id = await turns.save_turn_messages(
             conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
             state=NarrationState(cycle=1, time="", location=None, npcs_present=[], date=None),
-            narrator_deltas={}, engine_snapshot=None)
+            narrator_deltas={}, engine_snapshot=None, turn_id=None)
     return game_id, assistant_id
 
 

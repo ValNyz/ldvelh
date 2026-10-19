@@ -59,7 +59,7 @@ async def store_requests(pool, game_id, requests):
 
 async def save_pair(pool, game_id, user_message, assistant_message, *, cycle=1, time="",
                     game_date=None, location_ref=None, narrator_deltas=None,
-                    engine_snapshot=None):
+                    engine_snapshot=None, turn_id=None):
     """repos.turns.save_turn_messages with an explicit state; returns (user_id, assistant_id).
 
     `time` defaults to "" like a narration without a time block (NarrationState.time is a str).
@@ -73,16 +73,19 @@ async def save_pair(pool, game_id, user_message, assistant_message, *, cycle=1, 
         return await turns.save_turn_messages(
             conn, game_id, user_message=user_message, assistant_message=assistant_message,
             state=state, narrator_deltas=narrator_deltas or {}, engine_snapshot=engine_snapshot,
+            turn_id=turn_id,
         )
 
 
-async def log_roll(pool, game_id, roll, *, message_id=None, engine="fate_core", cycle=1):
+async def log_roll(pool, game_id, roll, *, message_id=None, engine="fate_core", cycle=1,
+                   turn_id=None):
     """repos.turns.log_mechanic_roll on its own connection; returns the roll id."""
     from repos import turns
 
     async with pool.acquire() as conn:
         return await turns.log_mechanic_roll(conn, game_id, message_id=message_id,
-                                             engine=engine, roll=roll, cycle=cycle)
+                                             engine=engine, roll=roll, cycle=cycle,
+                                             turn_id=turn_id)
 
 
 async def insert_llm_model(pool, model_id, **kw):
