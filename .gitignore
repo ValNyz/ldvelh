@@ -29,12 +29,17 @@ docs/
 # `dir/*` (not `dir/`) so that the identity corpus and its committed reports can be re-included.
 backend/tests/fixtures/*
 backend/tests/reports/*
-# The identity gold corpus (P6) is committed; of its reports, only baseline and gate ones.
+# The identity gold corpus (P6) is committed, except the derived surfaces-only/ export.
+# Of its reports, only the baseline and gate ones are committed:
+# <date>-baseline-<provider>-<models>.md|json and <date>-gate-<split>-<provider>-<models>.md|json.
 !backend/tests/fixtures/identity/
+backend/tests/fixtures/identity/surfaces-only/
 !backend/tests/reports/identity/
 backend/tests/reports/identity/*
 !backend/tests/reports/identity/*-baseline.*
 !backend/tests/reports/identity/*-gate.*
+!backend/tests/reports/identity/*-baseline-*
+!backend/tests/reports/identity/*-gate-*
 
 # Playwright e2e outputs
 frontend/test-results/

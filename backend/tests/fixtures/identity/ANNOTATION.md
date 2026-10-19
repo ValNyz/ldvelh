@@ -77,6 +77,8 @@ Tous les champs sont obligatoires sauf `turn` ; une clé inconnue (faute de frap
 - Lieux, organisations, objets : `label` est leur nom (« Cantine du Puits », « Terminal personnel »), avec un alias `label` `known: true` ; `true_name` n'est renseigné que si l'entité a un nom caché distinct (« la salle au bout du couloir » → `true_name: Serre Numéro Quatre`).
 - Protagoniste (`protagonist_<prénom>`) et compagnon (`companion_<nom>`) sont toujours présents dans le `world`, même quand la base réelle ne les a pas comme entités (la voix du terminal de f134, « Pervenche »).
 - Les objets d'inventaire du PJ sont des entités `object` ; un objet n'entre dans le `world` que s'il a un rôle (§ 5.3).
+- `occupation` (et tout autre attribut) est la valeur du graphe or, **sans état de connaissance** : le champ ne dit pas si le PJ la connaît. Un attribut inconnu du PJ ou secret (l'occupation d'Oriane, que le PJ n'a pas rencontrée ; le vrai employeur d'un espion) s'exprime dans `gold_knowledge` comme `kind: fact` (§ 7.2).
+- Pour un titre : si le titre fait partie du nom d'usage complet (« Pater Ondrev » est le nom du PNJ), il est dans `true_name` ; la forme « le Pater » est un alias `title`.
 
 ### 3.2 Corrections par rapport à la base réelle
 
@@ -117,7 +119,8 @@ Une mention est un **groupe nominal** du texte qui désigne (ou pourrait être p
 3. les **pièges SKIP** de la liste fermée du § 5.2.
 
 On n'annote **pas** :
-- les **pronoms** (il, elle, lui, toi, quelqu'un, personne, celui-ci…) : le resolver travaille sur les groupes nominaux ; un pronom n'est jamais une mention, ni liée ni SKIP ;
+- les **pronoms** (il, elle, lui, toi, quelqu'un, personne, celui-ci…) : le resolver travaille sur les groupes nominaux ; un pronom n'est jamais une mention, ni liée ni SKIP. **Écart assumé avec la spécification** (§ 3.2, ligne SKIP, qui cite les pronoms) : annoter chaque pronom en SKIP multiplierait les mentions faciles sans rien mesurer, et un pronom n'est jamais candidat à une création ; le scorer ignore les décisions du système sur une surface absente de l'or ;
+- les **groupes pluriels** qui désignent plusieurs entités du `world` à la fois (« les deux Kethari », « les Voss ») : non annotés, parce qu'aucune décision `MATCH` unique n'est juste. Des noms coordonnés sont annotés chacun (« Tesk et Nahle » → « Tesk », « Nahle ») ;
 - les objets et lieux de **décor** sans lien avec une entité du `world` et hors des cas SKIP (« le comptoir », « les bols sales », « une flaque ») ;
 - les noms communs non référentiels (« le reste », « les formulaires » au sens générique).
 
@@ -127,7 +130,8 @@ On n'annote **pas** :
 - Elle inclut les compléments qui identifient (« le Kethari au tablier », « la voix basse sur ton terminal », « la femme grise à la tablette »), et s'arrête avant une relative ou une incise qui raconte (« le Kethari au tablier » dans « le Kethari au tablier, qui empile les bols »).
 - Une préposition contractée (du, des, au, aux) reste hors de la surface, même si elle contient l'article : « du Bureau des Résidences » → « Bureau des Résidences » ; « au quai » → « quai » ; « cligne des yeux » → « yeux ». Une préposition non contractée aussi : « de mon ancien habitat » → « mon ancien habitat ».
 - La majuscule de début de phrase est recopiée telle quelle (« Sa poche de tablier »).
-- **Imbrication** : une mention peut en contenir une autre qui désigne une **autre** entité (« la voix basse sur ton terminal » → compagnon, et à l'intérieur « ton terminal » → objet ; « le terminal du Kethari au tablier » → SKIP, et à l'intérieur « Kethari au tablier » → le gérant). On n'imbrique jamais un SKIP dans un SKIP (« la poche de son tablier » est une seule mention SKIP). Deux mentions qui se chevauchent sans être imbriquées sont interdites.
+- **Partie ou accessoire d'une possession** : quand tout le groupe est un cas SKIP (§ 5.2), une construction « le/la N de son/sa N' » forme **une seule** mention SKIP qui commence au premier déterminant : « la poignée de sa valise », « la poche de son tablier ». On ne découpe pas « sa valise » à l'intérieur. Si le complément désigne une entité liée, elle est annotée à l'intérieur (« le terminal du Kethari au tablier » : SKIP, et « Kethari au tablier » lié). Si le nom de tête est du décor et le complément une entité, seul le complément est annoté (« la porte de la coursive » → « la coursive »).
+- **Imbrication** : une mention peut en contenir une autre qui désigne une **autre** entité (« la voix basse sur ton terminal » → compagnon, et à l'intérieur « ton terminal » → objet ; « le terminal du Kethari au tablier » → SKIP, et à l'intérieur « Kethari au tablier » → le gérant). On n'imbrique jamais un SKIP dans un SKIP (« la poche de son tablier » est une seule mention SKIP). Deux mentions qui se chevauchent sans être imbriquées sont interdites, et deux mentions ne commencent jamais au même caractère (une mention imbriquée qui commencerait au même endroit que l'englobante n'est pas annotée : on garde la plus longue).
 
 ### 4.3 Champs d'une mention or
 
@@ -138,6 +142,7 @@ On n'annote **pas** :
   expected: MATCH character_kethari_agee
   accept_also: []                      # équivalences légitimes, même syntaxe que expected
   trap: false                          # true seulement sur un NEW piège (§ 5.1, NEW)
+  pov_error: false                     # true seulement sur le REVEAL d'une narration réelle fautive (§ 7.4)
 ```
 
 `expected` prend l'une des quatre formes :
@@ -146,10 +151,10 @@ On n'annote **pas** :
 |---|---|
 | `MATCH <id>` | la mention désigne l'entité `<id>` par un nom, un alias ou une description qu'il n'est pas nécessaire d'enregistrer comme alias |
 | `ALIAS <id> <kind>` | la mention désigne `<id>` **et** apporte un alias nouveau de genre `<kind>` qui doit être enregistré (révélation de nom, forme courte d'un nom révélé, surnom, ancien nom) |
-| `NEW <type>` | entité réellement nouvelle de type `character`, `location`, `organization`, `object` ou `arc` |
+| `NEW <type>` | entité réellement nouvelle de type `character`, `location`, `organization` ou `object` (jamais `arc`, § 5.3) |
 | `SKIP` | à ne pas lier |
 
-Quand choisir `ALIAS` plutôt que `MATCH` : seulement pour une information **de nom** absente du `world` (vrai nom révélé, forme courte de ce nom, surnom, ancien nom). Une description nouvelle (« la cheffe de serre » pour Oriane) est un `MATCH <id>` avec `accept_also: [ALIAS <id> descriptor]` : le système peut, sans faute, l'enregistrer comme descripteur.
+Quand choisir `ALIAS` plutôt que `MATCH` : seulement pour une information **de nom** absente du `world` **ou inconnue du PJ** (`known: false`) avant le tour : vrai nom révélé (même s'il figure déjà comme alias `true_name` `known: false`, cas Tesk), forme courte de ce nom, surnom, ancien nom. Raison : la décision attendue du système est d'**enregistrer** que le PJ connaît désormais ce nom (alias `known: true`, révélation) ; un `MATCH` laisserait l'entité dans l'état inconnu, ce qui est précisément l'échec Kethari. Un nom que le PJ connaît déjà, répété, est un `MATCH <id>`. Une description nouvelle (« la cheffe de serre » pour Oriane) est un `MATCH <id>` avec `accept_also: [ALIAS <id> descriptor]` : le système peut, sans faute, l'enregistrer comme descripteur.
 
 `accept_also` ne sert qu'aux cas fixés par ces règles (descripteur nouveau, forme courte d'un nom révélé dans le tour, § 5.1). On ne l'utilise pas pour absoudre une hésitation : si l'on hésite entre deux entités, la scène est mal écrite ou le cas va au § 13.
 
@@ -173,19 +178,21 @@ Pour chaque mention, appliquer les questions **dans cet ordre** ; la première r
 1. **La mention doit-elle être liée ?** Non (cas du § 5.2) → **SKIP**, `expected: SKIP`.
 2. Désigne-t-elle le **protagoniste** ou le **compagnon** ? → **PC**, `MATCH protagonist_…` / `MATCH companion_…` (« l'IA », « ARIA-7 », le nom du PJ, « la voix basse sur ton terminal »).
 3. L'entité est-elle **absente du `world`** ? → **NEW**, `expected: NEW <type>`. Si une entité du `world` du **même type** pourrait être prise pour elle (même titre ou même nom partiel, même espèce et même rôle, même descripteur), c'est un **NEW piège** : `trap: true`. Preuve exigée dans le texte : la nouvelle entité **parle à** l'entité existante ou agit en même temps qu'elle dans la scène (`talks_to`), **ou** elle se trouve dans un **autre lieu** que celui de l'entité existante. Sans cette preuve, on ne peut pas affirmer que c'est une autre personne : on n'écrit pas la scène ainsi.
-4. La mention **révèle-t-elle un nom** que le PJ ne connaissait pas ? → **REVEAL**, `expected: ALIAS <id> true_name`. Cas : auto-présentation d'une entité présente (« Je m'appelle Nahle », « — Nahle Irun-Sa, dit-elle »), un tiers qui la nomme devant le PJ, une source du monde (badge, écriteau, document, terminal) qui donne le nom d'un PNJ, d'un lieu, d'une organisation ou d'un objet connus jusque-là par un descripteur. Seule la **première occurrence complète** du nom dans le tour est REVEAL ; une scène REVEAL a toujours une entrée `gold_effects.reveals` pour cette entité (§ 6). Le nom révélé peut être absent du `world` (`true_name: null`, cas Kethari) ou y figurer comme alias `known: false` (cas Tesk).
-5. La surface (normalisée : casse, accents, article de tête) est-elle un nom ou un alias porté par **au moins deux entités du `world`** ? → **XTYPE** (« Bureau des Résidences » lieu et organisation ; « Voss » pour Rizka Voss et Elara Voss). `expected` désigne celle que le contexte impose (le lieu si l'on y entre, l'organisation si elle agit ou décide).
-6. L'entité est-elle **absente de tout l'`history`** et `last_seen_turn ≤ turn − 5` ? → **GAP** (« Voss t'attend au labo » au tour 21, vue au tour 3).
-7. La surface **décrit**-elle l'entité sans employer son nom ? → **DESC**. Pour un personnage, tout ce qui n'est pas son vrai nom ou une partie de ce nom est une description, y compris son propre descripteur enregistré (« la Kethari âgée », « le Kethari au tablier », « le gérant », « la cheffe de serre »). Pour un lieu, une organisation, un objet : une désignation qui n'emploie aucun mot de son `label` (« la salle au bout du couloir », « l'administration »).
-8. La surface est-elle une **variante** du nom ou du libellé ? → **PART** : nom partiel (« Ondrev », « Nahle »), titre (« le Pater »), mot-tête du libellé avec un autre déterminant (« ton terminal » pour Terminal personnel, « la Coopérative » pour Coopérative Agronomique d'Ombelle), casse, accent, ponctuation, faute (« Eloise »/« Éloïse », « Quai n°9 »/« Quai 9 »), mots ajoutés ou retirés.
-9. Sinon : le nom complet ou le libellé exact (à l'article de tête près) d'une entité citée dans l'`history` → **EASY**.
+4. La mention **révèle-t-elle un nom** que le PJ ne connaissait pas (entité `known: false`) ? → **REVEAL**, `expected: ALIAS <id> true_name`. Cas : auto-présentation d'une entité présente (« Je m'appelle Nahle », « — Nahle Irun-Sa, dit-elle »), un tiers qui la nomme devant le PJ, une source du monde (badge, écriteau, document, terminal) qui donne le nom d'un PNJ, d'un lieu, d'une organisation ou d'un objet connus jusque-là par un descripteur, ou, dans une narration réelle seulement, la voix narrative qui le donne à tort (§ 7.4). Est REVEAL la **première occurrence du nom révélé dans le tour, quelle que soit sa forme** (« Nahle » seul dans « Je m'appelle Nahle ») ; le genre est toujours `true_name` (c'est le nom que le texte donne ; le `real_name` de `gold_effects.reveals` le recopie). Une mention REVEAL a toujours une entrée `gold_effects.reveals` pour cette entité (§ 6). Le nom révélé peut être absent du `world` (`true_name: null`, cas Kethari) ou y figurer comme alias `known: false` (cas Tesk).
+5. La surface (normalisée : casse, accents, déterminant de tête) est-elle un **nom** porté par **au moins deux entités du `world`** ? → **XTYPE**. Un nom, ici, c'est le `label` (pour un personnage, seulement s'il est son vrai nom), le `true_name` ou un alias de genre `true_name`, `label`, `short`, `title`, `nickname`, `former_name` ; jamais un descripteur (deux gardes « le garde » relèvent de DESC ou du NEW piège). Exemples : « Bureau des Résidences » (lieu et organisation) ; « Voss » (alias `short` de Rizka Voss et d'Elara Voss). « Rizka Voss » en entier n'est porté que par une entité : pas XTYPE. `expected` désigne celle que le contexte impose (le lieu si l'on y entre, l'organisation si elle agit ou décide).
+6. L'entité est-elle **absente de toutes les mentions de l'`history`**, avec `turn` renseigné, `last_seen_turn` renseigné et `last_seen_turn ≤ turn − 5` ? → **GAP** (« Voss t'attend au labo » au tour 21, vue au tour 3). GAP passe **avant** DESC, PART et EASY exprès : un descripteur, un nom partiel ou un nom complet après un long silence mesurent tous l'horizon du blocage. `last_seen_turn: null` (jamais vue) n'est jamais GAP.
+7. La surface **décrit**-elle l'entité sans employer son nom ? → **DESC**. Pour un personnage (ou le PJ, le compagnon : mais la question 2 les a déjà pris), tout ce qui n'est **ni son vrai nom, ni une partie de ce nom, ni un alias enregistré de genre `title`, `nickname` ou `former_name`** est une description, y compris son propre descripteur enregistré (« la Kethari âgée », « le Kethari au tablier », « la cheffe de serre ») et son métier (« le gérant » : une occupation n'est pas un alias de nom). Pour un lieu, une organisation, un objet : une désignation qui n'emploie aucun mot de son `label` ni de son `true_name` (« la salle au bout du couloir », « l'administration »).
+8. Sinon, la surface est-elle une **variante** du nom ou du libellé, et non sa forme exacte ? → **PART** : nom partiel (« Ondrev », « Nahle »), alias `title`/`nickname`/`former_name` (« le Pater », alias `title` de Pater Ondrev), mot-tête du libellé avec un autre mot ou sans ses compléments (« ton terminal » pour Terminal personnel, « la Coopérative » pour Coopérative Agronomique d'Ombelle), casse, accent, ponctuation, faute (« Eloise »/« Éloïse », « Quai n°9 »/« Quai 9 »), mots ajoutés ou retirés.
+9. Sinon → **EASY** : la surface est, à un déterminant de tête près, **exactement** (casse et accents compris) le vrai nom d'un personnage, ou le `label`/`true_name` d'un lieu, d'une organisation, d'un objet ; que l'entité figure ou non dans l'`history` (« Résidence Les Fougères » jamais vue, `last_seen_turn: null` : EASY).
 
-Formes d'un nom révélé dans le même tour : la première occurrence complète est REVEAL ; une forme courte qui suit (« Nahle suffit ») est **PART** avec `expected: ALIAS <id> short` et `accept_also: [MATCH <id>]` (les formes courtes sont dérivées automatiquement du vrai nom) ; une répétition de la forme complète est **EASY** avec `expected: ALIAS <id> true_name`.
+Les questions 7, 8 et 9 forment une **partition** des mentions liées restantes (description / variante / forme exacte) : toute mention reçoit exactement une catégorie. La frontière DESC/PART reste un jugement humain ; les autres catégories sont vérifiées par le code (§ 14).
+
+Formes d'un nom révélé dans le même tour : la première occurrence est REVEAL ; une forme courte qui suit (« Nahle suffit ») est **PART** avec `expected: ALIAS <id> short` et `accept_also: [MATCH <id>]` (les formes courtes sont dérivées automatiquement du vrai nom) ; une répétition de la forme complète est **EASY** avec `expected: ALIAS <id> true_name`.
 
 ### 5.2 Quand une mention est SKIP (liste fermée)
 
 On annote en SKIP, et seulement dans ces cas :
-1. **Partie du corps, vêtement, possession ou lieu d'origine** d'une entité du `world` : « sa paume », « sa mâchoire », « les doigts » (de la Kethari), « sa poche de tablier », « sa valise » (celle de la Kethari), « ton bol », « mon ancien habitat ». Exception : une possession du PJ qui est un objet d'inventaire du `world` est liée (« ton terminal » → `object_terminal_personnel`).
+1. **Partie du corps, vêtement, possession ou lieu d'origine** d'une entité du `world` : « sa paume », « sa mâchoire », « les doigts » (de la Kethari), « sa poche de tablier », « sa valise » (celle de la Kethari), « ton bol », « mon ancien habitat ». Exception : une possession qui est **elle-même une entité du `world`** est liée, que le possesseur soit le PJ ou un PNJ (« ton terminal » → `object_terminal_personnel` ; « son conteneur 47 » → l'objet conteneur 47).
 2. **Foule ou groupe générique** : « les clients », « trois clients », « des gardes », « les anciens ».
 3. **Descripteur indéfini sans rôle** : « un type », « une passante », « un client » quand la personne ne fait rien d'autre que d'être là. Dès qu'elle parle, agit sur l'intrigue, est décrite pour être retrouvée ou revient plus tard, ce n'est plus SKIP (NEW ou DESC selon le `world`).
 4. **Objet vu mais non acquis**, quand il partage un mot-tête avec une entité du `world` ou qu'il est l'objet d'une action passagère : « un couteau sur la table », « son terminal » (celui du gérant, pas celui du PJ).
@@ -206,9 +213,9 @@ Une entité nouvelle n'est un `NEW` que si elle a un **rôle** :
 
 | Code | Dure ? | `expected` habituel | Exemple |
 |---|---|---|---|
-| EASY | non | `MATCH <id>` | « Pater Ondrev » cité au tour précédent |
-| PART | oui | `MATCH <id>` | « la Coopérative », « Ondrev », « ton terminal » |
-| DESC | oui | `MATCH <id>` | « la Kethari âgée », « la cheffe de serre » → Oriane |
+| EASY | non | `MATCH <id>` | « Pater Ondrev » (son vrai nom), « la Serre Numéro Quatre » |
+| PART | oui | `MATCH <id>` | « la Coopérative », « Ondrev », « le Pater » (alias `title`), « ton terminal » |
+| DESC | oui | `MATCH <id>` | « la Kethari âgée », « le gérant », « la cheffe de serre » → Oriane |
 | GAP | oui | `MATCH <id>` | « Voss » au tour 21, vue au tour 3 |
 | REVEAL | oui | `ALIAS <id> true_name` | « Nahle Irun-Sa » dit par la Kethari âgée |
 | NEW | oui | `NEW <type>` (+ `trap: true`) | une seconde Kethari qui parle à la première |
@@ -267,9 +274,9 @@ gold_knowledge:
 ```
 
 - `ref` : id d'une entité du `world`.
-- `kind: name` : `text` est le nom inconnu, recopié exactement depuis le `true_name` ou un alias `known: false` de l'entité ; une seule entrée par nom (les formes courtes sont impliquées). `state` doit correspondre au drapeau `secret` de cet alias (ou de l'entité) : la validation le vérifie.
-- `kind: fact` : `text` est une phrase autonome qui énonce le fait (un attribut, une relation, le contenu d'un objet, le but d'un arc). L'or ne contient que des faits que la fiction établit (base réelle, scénario de l'issue, ou scène synthétique écrite pour cela).
-- Un élément révélé **dans** le tour reste listé avec son état d'avant le tour : le contrôle de révélation `R` le retrouve par `gold_effects.reveals`.
+- `kind: name` : `text` est le nom inconnu, recopié exactement depuis le `true_name` ou un alias `known: false` de l'entité ; **exactement une** entrée par nom (les formes courtes sont impliquées). Sont obligatoires : le `true_name` de toute entité `known: false`, et tout alias `true_name` ou `label` `known: false` (le `label` secret d'une entité secrète). `state` doit correspondre au drapeau `secret` de cet alias (ou de l'entité). La validation vérifie l'exhaustivité, l'unicité et l'état.
+- `kind: fact` : `text` est une phrase autonome qui énonce le fait (un attribut comme l'occupation, une relation, le contenu d'un objet, le but d'un arc). L'or ne contient que des faits que la fiction établit (base réelle, scénario de l'issue, ou scène synthétique écrite pour cela). L'exhaustivité des faits **ne peut pas** être vérifiée par le code (le `world` ne porte pas d'état sur ses attributs) : c'est à l'annotateur de lister tout attribut ou fait inconnu du PJ qu'il connaît.
+- Un élément révélé **dans** le tour reste listé avec son état d'avant le tour, **si le nom figure dans le `world`** (cas Tesk) : le contrôle de révélation `R` le retrouve par `gold_effects.reveals`. Un nom absent du `world` (cas Kethari, `true_name: null`) n'a pas d'entrée.
 
 ### 7.3 Point de vue, révélation diégétique, fuite
 
@@ -280,7 +287,16 @@ Ces définitions servent aux juges `P`, `R`, `L` (§ 3.4 bis de la spécificatio
 - **Révélation diégétique (`R`)** : un élément inconnu fait surface **dans la fiction** (réplique, présentation, badge, écriteau, document, terminal), **naturellement** (le PJ l'a demandé, la personne se présente, la logique de la scène l'amène), **et** il est enregistré sur la bonne entité ou le bon fait. Exemple : « Comment vous appelez-vous ? » → « — Nahle Irun-Sa, dit-elle. » Un secret n'est une révélation correcte que si une divulgation était ouverte (`scene.open_disclosures`).
 - **Fuite (`L`)** : un élément **secret** sans divulgation ouverte apparaît sous **quelque forme que ce soit** (voix narrative, dialogue, document, champ joueur, prompt narrateur). Doit être 0.
 
-Une scène synthétique qui teste `P` contient l'élément inconnu dans le `world` et dans `gold_knowledge`, et sa `narration` est **correcte** (descripteur dans la voix narrative ; le nom seulement en dialogue ou par une source) : le corpus contient l'or, pas des fautes à détecter. Les narrations fautives sont produites par l'évaluation live et jugées avec la grille `POV_GRID.md`.
+Une scène **synthétique** ou **issue** qui teste `P` contient l'élément inconnu dans le `world` et dans `gold_knowledge`, et sa `narration` est **correcte** (descripteur dans la voix narrative ; le nom seulement en dialogue ou par une source) : on n'écrit pas de fautes. Les narrations fautives sont produites par l'évaluation live et jugées avec la grille `POV_GRID.md`. Les narrations **réelles**, elles, ne sont pas corrigées (§ 7.4).
+
+### 7.4 Narration réelle qui nomme un inconnu dans la voix narrative
+
+Une scène `real` reprend le texte tel que le joueur l'a lu ; elle peut contenir une erreur de point de vue (le narrateur écrit « Tesk empile les bols » alors que le PJ ne connaît que « le Kethari au tablier »). Règle, cohérente avec la spécification (§ 4.8, `reveal_implicit` : un nom ordinaire lu par le joueur est enregistré comme révélé ; § 3.4 bis : le juge `P` dit s'il est apparu à tort) :
+- la **première** occurrence du nom inconnu dans la voix narrative est **REVEAL**, `expected: ALIAS <id> true_name`, avec une entrée `gold_effects.reveals` (le joueur l'a lu : l'état doit devenir connu) et **`pov_error: true`** ;
+- les occurrences suivantes du tour suivent la règle des formes d'un nom révélé (§ 5.1) ;
+- le `gold_knowledge` garde le nom avec son état d'avant le tour ; le texte n'est pas corrigé.
+
+`pov_error: true` n'est permis que sur une mention REVEAL de la narration d'une scène `real` (la validation le vérifie). Les scènes ainsi marquées servent d'or positif au juge `P` : il doit y signaler une erreur. Un nom **secret** donné ainsi serait en plus une fuite (`L`) ; f134 et 9f55 n'ont pas de secret, et un tel cas irait au § 13. Un **fait** inconnu énoncé dans la voix narrative n'est pas une mention : on le consigne au § 13 avec l'id de la scène.
 
 ---
 
@@ -303,7 +319,7 @@ gold_clusters:
   character_kethari_agee: [seq-f134-a-t1:0, seq-f134-a-t2:0, seq-f134-a-t3:83]
 ```
 
-Une clé de `gold_clusters` est un id d'entité (du `world` final, ou un id choisi pour une entité née dans la séquence) ; chaque valeur liste les mentions or de cette entité sous la forme `<id de scène du tour>:<start>`. Chaque mention liée (non SKIP) de la séquence apparaît dans exactement un cluster. Les ids de scène des tours sont uniques dans tout le corpus.
+Une clé de `gold_clusters` est un id d'entité (du `world` final, ou un id choisi pour une entité née dans la séquence) ; chaque valeur liste les mentions or de cette entité sous la forme `<id de scène du tour>:<start>`. Chaque mention liée (non SKIP) de la séquence apparaît dans exactement un cluster ; une mention `MATCH`/`ALIAS` est dans le cluster de son id `expected` ; une mention `NEW` est dans le cluster de l'id choisi pour l'entité née (celui que le `world` des tours suivants lui donne). Les ids de scène des tours sont uniques dans la séquence et dans tout le corpus (scènes comprises).
 
 ---
 
@@ -329,7 +345,7 @@ Une clé de `gold_clusters` est un id d'entité (du `world` final, ou un id choi
 
 ## 12. Relecture et gel
 
-Le split dev 60 % / test 40 % (stratifié par catégorie) est produit par `scripts/identity_corpus_split.py` ; le test est annoté avant tout réglage de prompt et gelé par `TEST_SHA256`. Toute correction d'or du test impose une PR qui l'explique. Le compte rendu de la seconde annotation à l'aveugle du split test (taux de désaccord, corrections) est ajouté ci-dessous dans une section « Relecture du <date> ».
+L'export « surfaces seules » de la relecture à l'aveugle s'écrit dans `fixtures/identity/surfaces-only/`, ignoré par git (fichiers dérivés). Le split dev 60 % / test 40 % (stratifié par catégorie) est produit par `scripts/identity_corpus_split.py` ; le test est annoté avant tout réglage de prompt et gelé par `TEST_SHA256`. Toute correction d'or du test impose une PR qui l'explique. Le compte rendu de la seconde annotation à l'aveugle du split test (taux de désaccord, corrections) est ajouté ci-dessous dans une section « Relecture du <date> ».
 
 ---
 
@@ -337,5 +353,21 @@ Le split dev 60 % / test 40 % (stratifié par catégorie) est produit par `scrip
 
 - **f134, tour 15 — « sa paume »** (`_example.yaml`, historique) : l'ancien resolver liait « sa paume », « sa mâchoire » et « son terminal » au gérant. Ce sont une partie du corps et une possession : SKIP (§ 5.2, cas 1 et 4).
 - **f134 — « la Kethari âgée »** : PNJ sans vrai nom, connu par son seul descripteur ; DESC, même quand la surface est exactement son descripteur enregistré (§ 5.1, question 7). « Nahle Irun-Sa » au tour 15 : REVEAL ; « Nahle » juste après : PART, `ALIAS … short`.
-- **f134 — « sa valise »** quand le PJ possède la Valise souple : désigne la valise de la Kethari, SKIP (§ 5.2, cas 1) ; « ta valise » désignerait l'objet d'inventaire (PART).
+- **f134 — « sa valise »** quand le PJ possède la Valise souple : désigne la valise de la Kethari, SKIP (§ 5.2, cas 1) ; « ta valise » désignerait l'objet d'inventaire (PART). **« la poignée de sa valise »** (tours 13 et 15) : une seule mention SKIP depuis « la » (§ 4.2, partie d'une possession), comme « la poche de son tablier » ; on ne découpe pas « sa valise ».
 - **f134 — la voix du terminal** (« la voix basse sur ton terminal », « ta compagne ») : le compagnon Pervenche, PC.
+
+---
+
+## 14. Contrôles mécaniques (`validate_scene`, `validate_sequence`)
+
+La CI refuse une scène qui enfreint l'une de ces règles ; chacune a son test dans `tests/identity/test_corpus.py`.
+
+- **Forme** (au chargement) : clé inconnue n'importe où (y compris dans `gold_effects`, `scene.reveals`, `open_disclosures`) ; catégorie manquante ou hors liste ; `start < 0` ; `expected`/`accept_also` mal formé, genre d'alias inconnu, `NEW arc`, `NEW protagonist`.
+- **Offsets** : surface absente à `start` (narration et historique) ; deux mentions au même `start` ; chevauchement sans imbrication.
+- **Ids** : tout id de `expected`, `accept_also`, `scene`, `gold_effects`, `gold_knowledge`, `location` d'une entité existe dans le `world` ; ids de `world` uniques ; entité `secret` présente dans `scene.secrets`.
+- **Catégories** (ordre du § 5.1) : SKIP ⇔ `expected: SKIP` ; NEW ⇔ `expected: NEW <type>` ; PC ⇔ cible protagoniste ou compagnon ; REVEAL ⇒ `ALIAS <id> true_name`, entrée `gold_effects.reveals` pour l'id, cible `known: false` ; XTYPE ⇔ nom porté par ≥ 2 entités (sauf REVEAL, NEW, PC, SKIP) ; GAP ⇔ conditions de la question 6 (une mention DESC, PART ou EASY qui les remplit doit être GAP) ; EASY ⇒ forme exacte (question 9) ; `trap` seulement sur NEW ; `pov_error` seulement sur un REVEAL de narration `real`.
+- **Historique** : `expected` vaut `MATCH` ou `SKIP` ; pas de catégorie GAP ni REVEAL.
+- **Connaissance** : chaque nom inconnu obligatoire (§ 7.2) a exactement une entrée `kind: name`, avec le bon état ; toute entrée `kind: name` est un nom inconnu de sa cible.
+- **Séquences** : ids de tour uniques ; chaque mention liée dans exactement un cluster ; clé de cluster = id `expected` pour MATCH/ALIAS.
+
+Ce que le code ne vérifie pas : la frontière DESC/PART, le choix entre lien et SKIP, la preuve d'un NEW piège, l'exhaustivité des faits de `gold_knowledge`. C'est l'objet de la relecture (§ 12).

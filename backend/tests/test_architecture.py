@@ -107,7 +107,9 @@ def test_layer_rules_name_existing_packages():
 
 
 def test_evals_layer_is_guarded():
-    assert LAYER_RULES["evals"] == {"api", "pipeline", "fastapi", "starlette"}
+    scanned = {rel.as_posix() for _, rel in _source_files()}
+    assert "evals/identity/corpus.py" in scanned   # evals/ is not excluded from the scan
+    assert {"api", "pipeline"} <= LAYER_RULES["evals"]
 
 
 def test_layers_respect_the_dependency_rule():

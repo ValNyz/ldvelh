@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from evals.identity.corpus import (
     Scene,
+    Sequence,
     load_scenes,
     load_sequences,
     parse_expected,
@@ -235,12 +236,399 @@ def test_parse_expected():
 
 def test_every_committed_scene_is_valid():
     scenes = load_scenes(ROOT, include_examples=True)
+    sequences = load_sequences(ROOT)
     assert scenes, "no scene found under fixtures/identity/scenes"
     errors = [f"{s.id}: {e}" for s in scenes for e in validate_scene(s)]
-    errors += [
-        f"{q.id}: {e}" for q in load_sequences(ROOT) for e in validate_sequence(q)
-    ]
-    ids = [s.id for s in scenes]
+    errors += [f"{q.id}: {e}" for q in sequences for e in validate_sequence(q)]
+    ids = [s.id for s in scenes] + [t.id for q in sequences for t in q.turns]
     duplicates = {i for i in ids if ids.count(i) > 1}
-    assert not duplicates, f"duplicate scene ids: {sorted(duplicates)}"
+    assert not duplicates, (
+        f"duplicate scene ids across the corpus: {sorted(duplicates)}"
+    )
     assert errors == []
+
+
+# --- fix round 1: mechanical category rules, knowledge completeness, typed effects ---
+
+
+def _entity(id_, type_, label, *, last_seen_turn=None, aliases=None, **extra):
+    return {
+        "id": id_,
+        "type": type_,
+        "label": label,
+        "known": True,
+        "last_seen_turn": last_seen_turn,
+        "aliases": aliases
+        if aliases is not None
+        else [{"text": label, "kind": "label", "known": True}],
+        **extra,
+    }
+
+
+def _custom(
+    narration, gold, *, world_extra=(), history=(), turn=None, **overrides
+) -> dict:
+    """A valid base scene with another narration and gold (spans located by surface)."""
+    data = _scene(
+        narration=narration,
+        gold=[
+            {**g, "start": g.get("start", narration.index(g["surface"]))} for g in gold
+        ],
+        gold_effects={"reveals": [], "merges": [], "forbidden_merges": []},
+        history=list(history),
+        turn=turn,
+    )
+    data["world"] += list(world_extra)
+    data.update(overrides)
+    return data
+
+
+def _custom_errors(*args, **kwargs) -> list[str]:
+    return validate_scene(Scene.model_validate(_custom(*args, **kwargs)))
+
+
+VOSS = _entity(
+    "character_elara_voss",
+    "character",
+    "Elara Voss",
+    last_seen_turn=3,
+    aliases=[
+        {"text": "Elara Voss", "kind": "true_name", "known": True},
+        {"text": "Voss", "kind": "short", "known": True},
+    ],
+    true_name="Elara Voss",
+)
+BUREAU_LOC = _entity(
+    "location_bureau_des_residences", "location", "Bureau des Résidences"
+)
+BUREAU_ORG = _entity(
+    "organization_bureau_des_residences", "organization", "Bureau des Résidences"
+)
+
+
+def test_missing_category_is_rejected_at_load():
+    gold = _scene()["gold"]
+    del gold[0]["category"]
+    with pytest.raises(ValidationError):
+        Scene.model_validate(_scene(gold=gold))
+
+
+def test_validation_rejects_a_new_decision_outside_the_new_category():
+    errors = _errors(gold=_with_gold(0, expected="NEW character"))
+    assert len(errors) == 1 and "NEW" in errors[0] and "DESC" in errors[0]
+
+
+def test_validation_requires_pc_on_the_protagonist():
+    errors = _errors(gold=_with_gold(0, expected="MATCH protagonist_valentin"))
+    assert len(errors) == 1 and "PC" in errors[0]
+
+
+def test_validation_rejects_pc_on_a_character():
+    errors = _errors(gold=_with_gold(0, category="PC"))
+    assert len(errors) == 1 and "PC" in errors[0]
+
+
+def test_validation_requires_the_true_name_kind_on_a_reveal():
+    errors = _errors(gold=_with_gold(1, expected="ALIAS character_kethari_agee short"))
+    assert len(errors) == 1 and "true_name" in errors[0]
+
+
+def test_validation_rejects_a_reveal_of_a_name_already_known():
+    scene = _scene()
+    scene["world"][1]["known"] = True
+    errors = validate_scene(Scene.model_validate(scene))
+    assert len(errors) == 1 and "known" in errors[0]
+
+
+def test_gap_needs_the_scene_turn():
+    errors = _custom_errors(
+        "Voss t'attend.",
+        [
+            {
+                "surface": "Voss",
+                "category": "GAP",
+                "expected": "MATCH character_elara_voss",
+            }
+        ],
+        world_extra=[VOSS],
+    )
+    assert len(errors) == 1 and "turn" in errors[0]
+
+
+def test_gap_needs_an_old_last_seen_turn():
+    errors = _custom_errors(
+        "Voss t'attend.",
+        [
+            {
+                "surface": "Voss",
+                "category": "GAP",
+                "expected": "MATCH character_elara_voss",
+            }
+        ],
+        world_extra=[VOSS],
+        turn=6,
+    )
+    assert len(errors) == 1 and "last_seen_turn" in errors[0]
+
+
+def test_gap_needs_absence_from_the_history():
+    history = [
+        {
+            "text": "Voss passe.",
+            "mentions": [
+                {
+                    "surface": "Voss",
+                    "start": 0,
+                    "category": "PART",
+                    "expected": "MATCH character_elara_voss",
+                }
+            ],
+        }
+    ]
+    errors = _custom_errors(
+        "Voss t'attend.",
+        [
+            {
+                "surface": "Voss",
+                "category": "GAP",
+                "expected": "MATCH character_elara_voss",
+            }
+        ],
+        world_extra=[VOSS],
+        turn=21,
+        history=history,
+    )
+    assert len(errors) == 1 and "history" in errors[0]
+
+
+def test_validation_forces_gap_when_its_conditions_hold():
+    errors = _custom_errors(
+        "Voss t'attend.",
+        [
+            {
+                "surface": "Voss",
+                "category": "PART",
+                "expected": "MATCH character_elara_voss",
+            }
+        ],
+        world_extra=[VOSS],
+        turn=21,
+    )
+    assert len(errors) == 1 and "GAP" in errors[0]
+
+
+def test_valid_gap_passes():
+    assert (
+        _custom_errors(
+            "Voss t'attend.",
+            [
+                {
+                    "surface": "Voss",
+                    "category": "GAP",
+                    "expected": "MATCH character_elara_voss",
+                }
+            ],
+            world_extra=[VOSS],
+            turn=21,
+        )
+        == []
+    )
+
+
+def test_validation_forces_xtype_on_a_shared_name():
+    errors = _custom_errors(
+        "Tu entres au Bureau des Résidences.",
+        [
+            {
+                "surface": "Bureau des Résidences",
+                "category": "EASY",
+                "expected": "MATCH location_bureau_des_residences",
+            }
+        ],
+        world_extra=[BUREAU_LOC, BUREAU_ORG],
+    )
+    assert len(errors) == 1 and "XTYPE" in errors[0]
+
+
+def test_validation_rejects_xtype_on_a_unique_name():
+    errors = _custom_errors(
+        "Tu entres au Bureau des Résidences.",
+        [
+            {
+                "surface": "Bureau des Résidences",
+                "category": "XTYPE",
+                "expected": "MATCH location_bureau_des_residences",
+            }
+        ],
+        world_extra=[BUREAU_LOC],
+    )
+    assert len(errors) == 1 and "XTYPE" in errors[0]
+
+
+def test_easy_requires_the_exact_name_or_label():
+    errors = _custom_errors(
+        "Tu entres au Bureau.",
+        [
+            {
+                "surface": "Bureau",
+                "category": "EASY",
+                "expected": "MATCH location_bureau_des_residences",
+            }
+        ],
+        world_extra=[BUREAU_LOC],
+    )
+    assert len(errors) == 1 and "EASY" in errors[0]
+
+
+def test_easy_accepts_the_label_with_a_determiner():
+    assert (
+        _custom_errors(
+            "Tu vois le Bureau des Résidences.",
+            [
+                {
+                    "surface": "le Bureau des Résidences",
+                    "category": "EASY",
+                    "expected": "MATCH location_bureau_des_residences",
+                }
+            ],
+            world_extra=[BUREAU_LOC],
+        )
+        == []
+    )
+
+
+def test_history_mentions_cannot_be_gap():
+    history = [
+        {
+            "text": "Le gérant attend.",
+            "mentions": [
+                {
+                    "surface": "Le gérant",
+                    "start": 0,
+                    "category": "GAP",
+                    "expected": "MATCH character_kethari_agee",
+                }
+            ],
+        }
+    ]
+    errors = _errors(history=history)
+    assert (
+        errors
+        and all("history" in e for e in errors)
+        and any("GAP" in e for e in errors)
+    )
+
+
+def _tesk(**changes):
+    return _entity(
+        "character_tesk",
+        "character",
+        "Tesk Vahrun-Oo",
+        true_name="Tesk Vahrun-Oo",
+        descriptor="Le Kethari au tablier",
+        known=False,
+        aliases=[
+            {"text": "Tesk Vahrun-Oo", "kind": "true_name", "known": False},
+            {"text": "Le Kethari au tablier", "kind": "descriptor", "known": True},
+        ],
+        **changes,
+    )
+
+
+TESK_NAME = {
+    "ref": "character_tesk",
+    "kind": "name",
+    "state": "unknown",
+    "text": "Tesk Vahrun-Oo",
+}
+
+
+def test_validation_requires_a_knowledge_item_per_unknown_name():
+    scene = _scene()
+    scene["world"].append(_tesk())
+    errors = validate_scene(Scene.model_validate(scene))
+    assert (
+        len(errors) == 1
+        and "Tesk Vahrun-Oo" in errors[0]
+        and "gold_knowledge" in errors[0]
+    )
+    scene["gold_knowledge"] = [TESK_NAME]
+    assert validate_scene(Scene.model_validate(scene)) == []
+
+
+def test_validation_rejects_a_duplicate_knowledge_item():
+    scene = _scene(gold_knowledge=[TESK_NAME, TESK_NAME])
+    scene["world"].append(_tesk())
+    errors = validate_scene(Scene.model_validate(scene))
+    assert len(errors) == 1 and "more than once" in errors[0]
+
+
+def test_pov_error_is_only_for_the_reveal_of_a_real_scene():
+    assert len(_errors(gold=_with_gold(1, pov_error=True))) == 1  # synthetic scene
+    assert _errors(gold=_with_gold(1, pov_error=True), source="real") == []
+    errors = _errors(gold=_with_gold(0, pov_error=True), source="real")
+    assert len(errors) == 1 and "pov_error" in errors[0]
+
+
+def test_unknown_key_in_effects_is_rejected_at_load():
+    effects = {
+        "reveals": [{"ref": "character_kethari_agee", "realname": "Nahle"}],
+        "merges": [],
+        "forbidden_merges": [],
+    }
+    with pytest.raises(ValidationError):
+        Scene.model_validate(_scene(gold_effects=effects))
+    with pytest.raises(ValidationError):
+        Scene.model_validate(
+            _scene(scene={**_scene()["scene"], "open_disclosures": [{"id": "x"}]})
+        )
+
+
+def test_negative_start_is_rejected_at_load():
+    with pytest.raises(ValidationError):
+        Scene.model_validate(_scene(gold=_with_gold(2, start=-9)))
+
+
+def test_validation_rejects_two_mentions_with_the_same_start():
+    gold = _scene()["gold"] + [_scene()["gold"][2]]
+    errors = _errors(gold=gold)
+    assert len(errors) == 1 and "same start" in errors[0]
+
+
+def test_new_arc_is_rejected_at_load():
+    with pytest.raises(ValidationError):
+        Scene.model_validate(
+            _scene(gold=_with_gold(0, category="NEW", expected="NEW arc"))
+        )
+
+
+def _sequence(**overrides) -> Sequence:
+    turn = _scene(id="seq-t1")
+    data = {
+        "id": "seq",
+        "turns": [turn],
+        "gold_clusters": {
+            "character_kethari_agee": ["seq-t1:0", f"seq-t1:{NARRATION.index('Nahle')}"]
+        },
+    }
+    data.update(overrides)
+    return Sequence.model_validate(data)
+
+
+def test_valid_sequence_passes():
+    assert validate_sequence(_sequence()) == []
+
+
+def test_sequence_cluster_key_must_be_the_gold_entity():
+    seq = _sequence(
+        gold_clusters={
+            "character_WRONG": ["seq-t1:0", f"seq-t1:{NARRATION.index('Nahle')}"]
+        }
+    )
+    errors = validate_sequence(seq)
+    assert len(errors) == 2 and all("character_WRONG" in e for e in errors)
+
+
+def test_sequence_rejects_duplicate_turn_ids():
+    seq = _sequence(turns=[_scene(id="seq-t1"), _scene(id="seq-t1")])
+    assert any("duplicate turn id" in e for e in validate_sequence(seq))

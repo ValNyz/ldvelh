@@ -518,8 +518,8 @@ history:
     start: 55
     category: SKIP
     expected: SKIP
-  - surface: sa valise
-    start: 88
+  - surface: la poignée de sa valise
+    start: 74
     category: SKIP
     expected: SKIP
   - surface: Mon habitat
@@ -664,8 +664,8 @@ gold:
   start: 246
   category: SKIP
   expected: SKIP
-- surface: sa valise
-  start: 275
+- surface: la poignée de sa valise
+  start: 261
   category: SKIP
   expected: SKIP
 - surface: le Kethari au tablier
