@@ -55,6 +55,7 @@ The world and narration payloads served by the scripted LLM are frozen under `te
 - [ ] Full suite green locally (Postgres with `fsync=off`) and CI green
 - [ ] Snapshots unchanged, or changed only for a fixed issue (see below)
 - [ ] Legacy fixture (C-19) replayed if the phase contains a migration
+- [ ] Backup taken before deploying a migration that changes data (see CONTRIBUTING.md, "Before a data migration")
 - [ ] Manual smoke (F-27) in phases P1, P3, P5, P7, P8
 
 ### Phase 3 (turn pipeline)

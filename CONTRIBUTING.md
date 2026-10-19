@@ -162,6 +162,22 @@ Coolify deploys `docker-compose.yml` alone (no override). Environment to set in 
 
 Images: both run as an unprivileged user (backend `app`, uid 10001; frontend `node`, uid 1000). dbmate is pinned in one place, `db/dbmate-release.env` (version and the SHA-256 of the linux amd64 and arm64 binaries, from the GitHub release asset digests), and installed by `db/install-dbmate.sh` (download + `sha256sum -c`) in the backend image (`TARGETARCH`), CI and `scripts/test-backend.sh`: to upgrade, change that file only. `serve` comes from its own minimal manifest, `frontend/runtime/package.json` + committed `package-lock.json` (`npm ci --omit=dev` in the runner stage: serve and all its dependencies lock-pinned, without next/react); that manifest is the image's source of truth, and `tests/runtimeServe.test.mjs` checks the main lockfile (used by e2e and `npm start`) resolves the same version. To upgrade serve: change `runtime/package.json`, run `npm install --package-lock-only` in `frontend/runtime/`, and update the main `package.json`/lockfile to match. The backend image is built from the repo root: `/.dockerignore` keeps `.env` files, `backend/tests`, caches and the frontend out of it; it sets `PYTHONDONTWRITEBYTECODE=1` (the code is read-only for `app`). The backend has a compose healthcheck on `GET /health` (`docker compose ps` shows `healthy`; 30 s start period for the migrations run at boot).
 
+### Before a data migration
+
+Take a backup before deploying a migration that changes data (not needed for one that only adds an empty table or column):
+
+```bash
+docker compose exec db pg_dump -U "$DB_USER" -Fc ldvelh > ldvelh-$(date +%F).dump
+```
+
+To go back, restore it over the database (the backend stopped):
+
+```bash
+docker compose exec -T db pg_restore -U "$DB_USER" -d ldvelh --clean --if-exists < ldvelh-<date>.dump
+```
+
+`*.dump` files are git-ignored: keep them out of the repository. dbmate never runs from the host against a real database; migrations run at backend boot inside the container.
+
 After the #83 deploy every player is logged out once (tokens without `ver`/`orig_iat` are refused).
 
 One-off check after this change (manual): debug mode used to seed `dev@ldvelh.local` with a known password. Make sure that account does not exist in the production database (`SELECT id FROM users WHERE email = 'dev@ldvelh.local';`) and delete it if it does.

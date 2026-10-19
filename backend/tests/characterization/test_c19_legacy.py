@@ -31,8 +31,8 @@ def legacy_schema_version() -> str:
     return FIXTURE.read_text(encoding="utf-8").splitlines()[1].split()[-1]
 
 
-def newer_migrations(version: str) -> list[tuple[str, str]]:
-    """(up, down) SQL of every dbmate migration newer than `version`, oldest first."""
+def newer_migrations(version: str, extra: tuple[tuple[str, str], ...] | list[tuple[str, str]] = ()) -> list[tuple[str, str]]:
+    """(up, down) SQL of every dbmate migration newer than `version`, oldest first, then `extra`."""
     sections = []
     for path in sorted(MIGRATIONS.glob("*.sql")):
         if path.name.split("_", 1)[0] <= version:
@@ -40,11 +40,14 @@ def newer_migrations(version: str) -> list[tuple[str, str]]:
         text = path.read_text(encoding="utf-8")
         up, down = text.split("-- migrate:down", 1)
         sections.append((up.split("-- migrate:up", 1)[1], down))
-    return sections
+    return sections + list(extra)
 
 
-async def load_legacy_game(pool) -> tuple[str, str]:
-    """Replace the test DB content with the legacy dump; return (game_id, user_email)."""
+async def load_legacy_game(pool, extra: tuple[tuple[str, str], ...] | list[tuple[str, str]] = ()) -> tuple[str, str]:
+    """Replace the test DB content with the legacy dump; return (game_id, user_email).
+
+    `extra` is a list of (up, down) migrations appended after the real ones (harness test only).
+    """
     sql = FIXTURE.read_text(encoding="utf-8")
     game_id = sql.splitlines()[0].split()[-1]
     async with pool.acquire() as conn:
@@ -53,10 +56,11 @@ async def load_legacy_game(pool) -> tuple[str, str]:
         # entity_registry triggers would create: load it as a replica (no FK checks, no
         # triggers), scoped to this transaction. Needs a superuser, as in the test DB.
         # The migrations newer than the dump go down first and up again over its rows.
-        migrations = newer_migrations(legacy_schema_version())
+        migrations = newer_migrations(legacy_schema_version(), extra)
         async with conn.transaction():
             for _, down in reversed(migrations):
-                await conn.execute(down)
+                if down.strip():  # asyncpg cannot execute an empty script
+                    await conn.execute(down)
             try:
                 await conn.execute("SET LOCAL session_replication_role = replica")
             except asyncpg.InsufficientPrivilegeError as exc:
@@ -69,6 +73,16 @@ async def load_legacy_game(pool) -> tuple[str, str]:
             "SELECT u.email FROM users u JOIN games g ON g.user_id = u.id WHERE g.id = $1::uuid",
             game_id)
     return game_id, email
+
+
+async def legacy_invariants(conn, game_id: str) -> None:
+    """Rows a migration must not damage: the legacy game keeps its messages, protagonist and rolls."""
+    messages = await conn.fetch("SELECT cycle FROM messages WHERE game_id = $1::uuid", game_id)
+    assert len(messages) >= 4, f"legacy messages lost: {len(messages)}"
+    assert all(m["cycle"] is not None for m in messages), "a legacy message lost its cycle"
+    assert await conn.fetchval("SELECT COUNT(*) FROM protagonists WHERE game_id = $1::uuid", game_id) == 1
+    assert await conn.fetchval("SELECT COUNT(*) FROM mechanic_rolls WHERE game_id = $1::uuid", game_id) == 2
+    assert await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1::uuid", game_id) >= 1
 
 
 @pytest_asyncio.fixture
@@ -88,6 +102,8 @@ async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, l
     """A legacy-shaped game loads with its Fate stats and accepts a new turn (see module docstring for scope)."""
     game_id, _ = legacy_game
     h = ChatHarness(client, test_pool, legacy_token, scripted_llm)
+    async with test_pool.acquire() as conn:
+        await legacy_invariants(conn, game_id)
 
     r = await client.get(f"/api/games/{game_id}", headers=h.headers)
     assert r.status_code == 200, r.text
@@ -115,6 +131,14 @@ async def test_c19_legacy_game_loads_and_plays(client, test_pool, legacy_game, l
 
     r = await client.get(f"/api/games/{game_id}", headers=h.headers)
     assert len(r.json()["messages"]) > before
+
+
+async def test_c19_harness_catches_a_data_breaking_migration(test_pool, scripted_llm):
+    """Meta-test: a migration that damages legacy rows must make the invariants fail."""
+    game_id, _ = await load_legacy_game(test_pool, extra=[("UPDATE messages SET cycle = NULL WHERE role = 'assistant';", "")])
+    async with test_pool.acquire() as conn:
+        with pytest.raises(AssertionError):
+            await legacy_invariants(conn, game_id)
 
 
 async def test_legacy_pending_rows_are_expired(test_pool, legacy_game):
