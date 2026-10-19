@@ -37,6 +37,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_TURN_FK = "extraction_logs_turn_id_fkey"
+
+
+def _turn_rolled_back(exc: Exception) -> bool:
+    """The audit insert failed only because its turn no longer exists (#105)."""
+    return isinstance(exc, ForeignKeyViolationError) and exc.constraint_name == _TURN_FK
+
 
 class BaseExtractor(ABC):
     """Base class for specialized extractors."""
@@ -152,12 +159,13 @@ class BaseExtractor(ABC):
             # Log extraction for auditing
             try:
                 await self.populator.log_extraction(conn, cycle, stats, turn_id)
-            except ForeignKeyViolationError:
-                # The turn was rolled back since the commit: its log would go with it.
-                logger.info(f"[{et}] Turn rolled back, extraction log dropped")
             except Exception as log_err:
-                log_cause(logger, logging.WARNING, f"[{et}] Log failed", log_err,
-                          debug_detail=get_settings().log_prompts)
+                if turn_id is not None and _turn_rolled_back(log_err):
+                    # The turn was deleted since the commit: its log would go with it.
+                    logger.info(f"[{et}] Turn rolled back, extraction log dropped")
+                else:
+                    log_cause(logger, logging.WARNING, f"[{et}] Log failed", log_err,
+                              debug_detail=get_settings().log_prompts)
         return stats, error
 
     async def _write_item(

@@ -255,3 +255,29 @@ async def test_extraction_log_of_a_turn_rolled_back_meanwhile_is_dropped(
     async with test_pool.acquire() as conn:
         assert await conn.fetchval(
             "SELECT count(*) FROM extraction_logs WHERE game_id = $1", game_id) == 0
+
+
+async def test_extraction_log_of_a_deleted_game_still_warns(test_pool, test_user, caplog):
+    """#105: only the turn foreign key means "turn rolled back"; the game's (checked
+    first) failing is a real error and keeps the WARNING."""
+    from repos import turns
+
+    extractor, game_id = await extractor_for(
+        test_pool, test_user, {"entities_created": [{"name": "Kappa"}]})
+    async with test_pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game_id)
+    real_log = extractor.populator.log_extraction
+
+    async def log_after_game_deleted(conn, cycle, stats, turn_id=None):
+        async with test_pool.acquire() as other:
+            await other.execute("DELETE FROM games WHERE id = $1", game_id)
+        return await real_log(conn, cycle, stats, turn_id)
+
+    extractor.populator.log_extraction = log_after_game_deleted
+    with caplog.at_level(logging.INFO, logger="services.extraction.base"):
+        await extractor.run("texte", {}, 1, turn_id=turn_id)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert not any("extraction log dropped" in m for m in messages)
+    assert any("Log failed" in r.getMessage() and "extraction_logs_game_id_fkey" in r.getMessage()
+               for r in caplog.records if r.levelno == logging.WARNING)
