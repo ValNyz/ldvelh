@@ -115,9 +115,16 @@ async def test_companion_is_registered(test_pool, game):
         reg = await _registry(conn, comp)
         found = await _find(conn, game, "COMPANION", "companion")
         pc = await _find(conn, game, " protagonist\n", "protagonist")
+        # Reserved references only for their own type.
+        wrong = [
+            await _find(conn, game, "PROTAGONIST", "location"),
+            await _find(conn, game, "COMPANION", "character"),
+            await _find(conn, game, "PROTAGONIST", "companion"),
+        ]
     assert (reg["entity_type"], reg["name"]) == ("companion", "Nyx")
     assert found == comp
     assert pc == prot
+    assert wrong == [None, None, None]
 
 
 async def test_name_follows_true_name_then_descriptor(test_pool, game):
@@ -136,6 +143,62 @@ async def test_name_follows_true_name_then_descriptor(test_pool, game):
     assert name_before == "Le garde du sas"
     assert tuple(row) == ("Tesk Vahrun-Oo", "Le garde du sas")
     assert (reg["name"], reg["name_norm"]) == ("Tesk Vahrun-Oo", "tesk vahrun-oo")
+
+
+async def test_a_direct_name_write_is_overridden(test_pool, game):
+    async with test_pool.acquire() as conn:
+        char = await _character(conn, game, true_name="Voss", descriptor="Le pilote")
+        await conn.execute("UPDATE characters SET name = 'Autre' WHERE id = $1", char)
+        name = await conn.fetchval("SELECT name FROM characters WHERE id = $1", char)
+        reg = await _registry(conn, char)
+    assert name == "Voss"
+    assert reg["name"] == "Voss"
+
+
+async def test_every_entity_keeps_an_alias_of_its_current_name(test_pool, game):
+    """Renames and late descriptors included (trigger aliases, source 'system')."""
+    async with test_pool.acquire() as conn:
+        late = await _character(conn, game, true_name="Tesk Vahrun-Oo")
+        await conn.execute(
+            "UPDATE characters SET descriptor = 'Le marchand' WHERE id = $1", late
+        )
+        revealed = await _character(conn, game, descriptor="La Kethari âgée")
+        await conn.execute(
+            "UPDATE characters SET true_name = 'Nahle Irun-Sa' WHERE id = $1", revealed
+        )
+        renamed = await _character(conn, game, true_name="Voss")
+        await conn.execute(
+            "UPDATE characters SET true_name = 'Elara Voss' WHERE id = $1", renamed
+        )
+        quai = await _named(conn, "locations", game, "Quai 9")
+        await conn.execute(
+            "UPDATE locations SET name = 'Quai neuf' WHERE id = $1", quai
+        )
+        missing = await conn.fetch(
+            """SELECT er.name FROM entity_registry er WHERE er.game_id = $1
+               AND NOT EXISTS (SELECT 1 FROM entity_aliases al
+                                WHERE al.entity_id = er.id AND al.alias_norm = er.name_norm)""",
+            game,
+        )
+        kinds = {
+            (r["alias"], r["kind"], r["source"])
+            for r in await conn.fetch(
+                "SELECT alias, kind, source FROM entity_aliases WHERE game_id = $1",
+                game,
+            )
+        }
+        found = await _find(conn, game, "le marchand", "character")
+    assert missing == []
+    assert found == late
+    assert {
+        ("Le marchand", "descriptor", "system"),
+        ("La Kethari âgée", "descriptor", "system"),
+        ("Nahle Irun-Sa", "true_name", "system"),
+        ("Voss", "former_name", "system"),
+        ("Elara Voss", "true_name", "system"),
+        ("Quai 9", "former_name", "system"),
+        ("Quai neuf", "label", "system"),
+    } <= kinds
 
 
 async def test_check_requires_a_true_name_or_a_descriptor(test_pool, game):
@@ -240,6 +303,7 @@ async def test_find_entity_requires_a_type_and_returns_null_on_ambiguity(
 
         assert await _find(conn, game, "Voss", "character") is None
         assert await _find(conn, game, "E2", "character") == marek
+        assert await _find(conn, game, "e2", "character") == marek
         assert await _find(conn, game, "E2", "location") is None
         assert await _find(conn, game, "Kethari âgée", "character") == kethari
         assert await _find(conn, game, "la kethari agee", "character") == kethari
@@ -266,6 +330,7 @@ async def test_find_fact_reads_a_handle_or_an_id(test_pool, game):
             await conn.fetchval("SELECT find_fact($1, $2)", game, f"F{handle}") == fact
         )
         assert await conn.fetchval("SELECT find_fact($1, $2)", game, str(fact)) == fact
+        assert await conn.fetchval("SELECT find_fact($1, 'f1')", game) == fact
         assert await conn.fetchval("SELECT find_fact($1, 'F999')", game) is None
 
 
@@ -276,7 +341,11 @@ async def test_create_fact_and_end_relation_take_ids(test_pool, game):
         fact = await conn.fetchval(
             "SELECT create_fact($1, 1, 'action', 'Un fait', p_participants => $2::jsonb)",
             game,
-            [{"entity_id": str(voss), "role": "actor"}],
+            [
+                {"entity_id": str(voss), "role": "actor"},
+                {"entity_id": "Voss", "role": "witness"},
+                {"entity_id": str(uuid4()), "role": "witness"},
+            ],
         )
         participants = await conn.fetch(
             "SELECT entity_id, role FROM fact_participants WHERE fact_id = $1", fact
@@ -359,6 +428,77 @@ async def test_v_active_arcs_shows_display_names_and_ids(test_pool, game):
     }
 
 
+def _json(value):
+    return value if isinstance(value, dict) else json.loads(value)
+
+
+async def test_fact_chronology_and_event_views_hide_an_unknown_true_name(
+    test_pool, game
+):
+    async with test_pool.acquire() as conn:
+        hidden = await _character(
+            conn, game, true_name="Nahle Irun-Sa", descriptor="La Kethari âgée"
+        )
+        fact = await conn.fetchval(
+            "SELECT create_fact($1, 1, 'action', 'Un fait', p_participants => $2::jsonb)",
+            game,
+            [{"entity_id": str(hidden), "role": "actor"}],
+        )
+        chrono = await conn.fetchval(
+            "INSERT INTO chronology (game_id, cycle, summary) VALUES ($1, 1, 'x') RETURNING id",
+            game,
+        )
+        await conn.execute(
+            "INSERT INTO chronology_participants (chronology_id, entity_id) VALUES ($1, $2)",
+            chrono,
+            hidden,
+        )
+        event = await conn.fetchval(
+            "INSERT INTO events (game_id, type, title, planned_cycle)"
+            " VALUES ($1, 'meeting', 'x', 2) RETURNING id",
+            game,
+        )
+        await conn.execute(
+            "INSERT INTO event_participants (event_id, entity_id) VALUES ($1, $2)",
+            event,
+            hidden,
+        )
+        facts = await conn.fetchval(
+            "SELECT participants FROM v_recent_facts WHERE id = $1", fact
+        )
+        chronology = await conn.fetchrow(
+            "SELECT npcs_present, npc_refs FROM v_chronology WHERE id = $1", chrono
+        )
+        events = await conn.fetchrow(
+            "SELECT participants, participant_refs FROM v_upcoming_events WHERE id = $1",
+            event,
+        )
+    ref = {"name": "La Kethari âgée", "entity_id": str(hidden), "handle": 1}
+    assert [_json(p) for p in facts] == [{**ref, "role": "actor"}]
+    assert chronology["npcs_present"] == ["La Kethari âgée"]
+    assert [_json(p) for p in chronology["npc_refs"]] == [ref]
+    assert events["participants"] == ["La Kethari âgée"]
+    assert [_json(p) for p in events["participant_refs"]] == [ref]
+
+
+async def test_every_identity_foreign_key_is_indexed(test_pool):
+    """A registry or turn delete looks each one up (cascade, SET NULL)."""
+    async with test_pool.acquire() as conn:
+        unindexed = await conn.fetch(
+            """SELECT c.conrelid::regclass::text AS t, a.attname AS col
+                 FROM pg_constraint c
+                 JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+                WHERE c.contype = 'f'
+                  AND c.conrelid::regclass::text IN ('entity_registry', 'entity_aliases',
+                      'entity_mentions', 'entity_merges', 'identity_events')
+                  AND a.attname <> 'game_id'
+                  AND NOT EXISTS (SELECT 1 FROM pg_index i
+                                   WHERE i.indrelid = c.conrelid
+                                     AND i.indkey[0] = c.conkey[1])"""
+        )
+    assert [tuple(r) for r in unindexed] == []
+
+
 async def _count(conn, sql: str, *args) -> int:
     return await conn.fetchval(sql, *args)
 
@@ -367,13 +507,23 @@ async def test_merge_entities_repoints_every_edge_and_leaves_a_tombstone(
     test_pool, game
 ):
     async with test_pool.acquire() as conn:
-        keep = await _character(conn, game, descriptor="La Kethari âgée", mood="calme")
+        keep = await _character(
+            conn,
+            game,
+            descriptor="La Kethari âgée",
+            mood="calme",
+            details={"a": 1, "c": 3},
+            traits=["x"],
+        )
         drop = await _character(
             conn,
             game,
             true_name="Nahle Irun-Sa",
             occupation="pilote",
             known_by_protagonist=True,
+            is_mandatory=True,
+            details={"a": 9, "b": 2},
+            traits=["x", "y"],
         )
         other = await _character(conn, game, true_name="Voss")
         quai = await _named(conn, "locations", game, "Quai 9")
@@ -381,6 +531,20 @@ async def test_merge_entities_repoints_every_edge_and_leaves_a_tombstone(
         obj = await _named(conn, "objects", game, "Clé")
         worker = await _character(conn, game, true_name="Docker", workplace_id=quai_bis)
         await _alias(conn, game, drop, "Nahle", "short")
+        # The same form on both sides: it stays on the tombstone.
+        await _alias(conn, game, keep, "Vieille", "nickname")
+        await _alias(conn, game, drop, "Vieille", "nickname")
+        commitment = await conn.fetchval(
+            "INSERT INTO director_commitments (game_id, kind, text, related_entities)"
+            " VALUES ($1, 'secret', 'x', $2) RETURNING id",
+            game,
+            [drop, other],
+        )
+        at_quai_bis = await conn.fetchval(
+            "SELECT create_fact($1, 1, 'action', 'Sur le quai', p_location_id => $2)",
+            game,
+            quai_bis,
+        )
         for source, target in ((drop, other), (keep, other), (other, drop)):
             await conn.fetchval(
                 "SELECT upsert_relation($1, $2, $3, 'knows'::relation_type, 1)",
@@ -480,6 +644,20 @@ async def test_merge_entities_repoints_every_edge_and_leaves_a_tombstone(
             "SELECT count(*) FROM identity_events WHERE game_id = $1 AND kind = 'merge'",
             game,
         )
+        nicknames = await conn.fetch(
+            "SELECT entity_id FROM entity_aliases WHERE alias = 'Vieille' ORDER BY entity_id",
+        )
+        related = await conn.fetchval(
+            "SELECT related_entities FROM director_commitments WHERE id = $1",
+            commitment,
+        )
+        fact_location = await conn.fetchval(
+            "SELECT location_id FROM facts WHERE id = $1", at_quai_bis
+        )
+        closed_reasons = await conn.fetch(
+            "SELECT end_reason FROM relations WHERE game_id = $1 AND end_cycle IS NOT NULL",
+            game,
+        )
 
     assert tombstone["merged_into"] == keep
     assert (kept_row["true_name"], kept_row["descriptor"]) == (
@@ -488,6 +666,13 @@ async def test_merge_entities_repoints_every_edge_and_leaves_a_tombstone(
     )
     assert kept_row["occupation"] == "pilote" and kept_row["mood"] == "calme"
     assert kept_row["known_by_protagonist"] is True
+    assert kept_row["is_mandatory"] is True
+    assert kept_row["details"] == {"a": 1, "b": 2, "c": 3}
+    assert kept_row["traits"] == ["x", "y"]
+    assert sorted(r["entity_id"] for r in nicknames) == sorted([keep, drop])
+    assert related == [keep, other]
+    assert fact_location == quai
+    assert [r["end_reason"] for r in closed_reasons] == [None]
     assert kept_reg["name"] == "Nahle Irun-Sa"
     # keep -> other existed: drop -> other is closed, not duplicated; other -> drop moves.
     assert sorted(map(tuple, open_rel)) == sorted([(keep, other), (other, keep)])
@@ -518,12 +703,42 @@ async def test_merge_entities_repoints_every_edge_and_leaves_a_tombstone(
     assert merge["moved_edges"]["arc_participants.entity_id"] == [str(arc_part)]
 
 
-async def test_merge_entities_refuses_two_types(test_pool, game):
+async def test_merge_entities_refuses_what_would_destroy_or_cross_data(
+    test_pool, test_user, game
+):
     async with test_pool.acquire() as conn:
         char = await _character(conn, game, true_name="Voss")
         org = await _named(conn, "organizations", game, "Voss")
-        with pytest.raises(asyncpg.RaiseError, match="type"):
-            await conn.fetchval("SELECT merge_entities($1, $2, 'x', NULL)", char, org)
+        other_game = await _game(conn, test_user["id"])
+        stranger = await _character(conn, other_game, true_name="Voss")
+        merged = await _character(conn, game, true_name="Marek")
+        target = await _character(conn, game, true_name="Elara")
+        await conn.fetchval("SELECT merge_entities($1, $2, 'x', NULL)", target, merged)
+        cases = [
+            ((char, org), "type"),
+            ((char, char), "keep = drop"),
+            ((char, stranger), "two games"),
+            ((char, merged), "already merged"),
+            ((merged, char), "already merged"),
+        ]
+        for (keep, drop), message in cases:
+            with pytest.raises(asyncpg.RaiseError, match=message):
+                await conn.fetchval(
+                    "SELECT merge_entities($1, $2, 'x', NULL)", keep, drop
+                )
+        assert (await _registry(conn, char))["merged_into"] is None
+
+
+async def test_deleting_a_merge_target_takes_its_tombstones(test_pool, game):
+    async with test_pool.acquire() as conn:
+        keep = await _character(conn, game, true_name="Elara")
+        first = await _character(conn, game, true_name="Marek")
+        await conn.fetchval("SELECT merge_entities($1, $2, 'x', NULL)", keep, first)
+        await conn.execute("DELETE FROM characters WHERE id = $1", keep)
+        left = await conn.fetchval(
+            "SELECT count(*) FROM entity_registry WHERE id = ANY($1)", [keep, first]
+        )
+    assert left == 0
 
 
 async def test_handle_is_kept_when_provided(test_pool, game):
@@ -577,6 +792,8 @@ async def test_undo_reinserts_a_registry_row_at_the_same_id(test_pool, game):
         char = await _character(
             conn, game, true_name="Nahle Irun-Sa", descriptor="La Kethari âgée"
         )
+        # A handle the trigger would not compute again (MAX + 1 would give 2).
+        await conn.execute("UPDATE entity_registry SET handle = 9 WHERE id = $1", char)
         before_reg = await _registry(conn, char)
         before_aliases = await conn.fetch(
             "SELECT * FROM entity_aliases WHERE entity_id = $1 ORDER BY id", char
@@ -592,7 +809,7 @@ async def test_undo_reinserts_a_registry_row_at_the_same_id(test_pool, game):
         )
         name = await conn.fetchval("SELECT name FROM characters WHERE id = $1", char)
     assert dict(after_reg) == dict(before_reg)
-    assert after_reg["handle"] == 2
+    assert after_reg["handle"] == 9
     assert [dict(r) for r in after_aliases] == [dict(r) for r in before_aliases]
     assert len(after_aliases) == 2
     assert name == "Nahle Irun-Sa"

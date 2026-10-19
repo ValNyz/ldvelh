@@ -279,7 +279,9 @@ async def pending_roll_turn(conn, roll_id: UUID) -> UUID | None:
 
 
 # Every (table, column) referencing turns(id), world_changes first: deleting the turn
-# cascades to it.
+# cascades to it. The identity columns are journaled: a halted turn writes no identity row
+# today, so their UPDATE matches nothing; if one ever did, undoing the resuming turn would
+# restore the deleted halted turn's id (a deferred FK error at the end of the replay).
 _TURN_REFERENCES = (
     ("world_changes", "turn_id"), ("messages", "turn_id"), ("mechanic_rolls", "turn_id"),
     ("extraction_logs", "turn_id"), ("director_commitments", "turn_id"),

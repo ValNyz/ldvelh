@@ -156,7 +156,8 @@ DROP FUNCTION public.update_entity_registry_name();
 -- 2.1 Registry. name_norm is filled by identity_norm_fill (not GENERATED: it reads the pack
 -- of the game's language); existing rows get it in the data section, and the column is set
 -- NOT NULL at the end of this migration when they all have one. handle (E<n> in prompts) is
--- a per-game sequence set by identity_assign_handle; merged_into marks a merge tombstone.
+-- a per-game sequence set by identity_assign_handle; merged_into marks a merge tombstone,
+-- deleted with the entity it points to (nothing is left for it to redirect to).
 ALTER TABLE public.entity_registry
     DROP CONSTRAINT entity_registry_game_id_entity_type_name_key,
     ADD COLUMN name_norm text,
@@ -164,7 +165,7 @@ ALTER TABLE public.entity_registry
     ADD COLUMN merged_into uuid,
     ADD COLUMN created_turn_id uuid,
     ADD CONSTRAINT entity_registry_merged_into_fkey FOREIGN KEY (merged_into)
-        REFERENCES public.entity_registry(id) DEFERRABLE INITIALLY IMMEDIATE,
+        REFERENCES public.entity_registry(id) ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE,
     ADD CONSTRAINT entity_registry_created_turn_id_fkey FOREIGN KEY (created_turn_id)
         REFERENCES public.turns(id) ON DELETE SET NULL DEFERRABLE INITIALLY IMMEDIATE,
     ADD CONSTRAINT entity_registry_entity_type_check CHECK (entity_type IN (
@@ -180,6 +181,11 @@ ALTER TABLE public.entity_registry
     ALTER COLUMN handle SET NOT NULL,
     ADD CONSTRAINT entity_registry_game_id_handle_key UNIQUE (game_id, handle);
 CREATE INDEX idx_entity_registry_norm ON public.entity_registry (game_id, entity_type, name_norm);
+-- Referencing columns: a registry or turn delete looks them up (cascade, SET NULL).
+CREATE INDEX idx_entity_registry_merged_into ON public.entity_registry (merged_into)
+    WHERE merged_into IS NOT NULL;
+CREATE INDEX idx_entity_registry_created_turn ON public.entity_registry (created_turn_id)
+    WHERE created_turn_id IS NOT NULL;
 
 -- 2.2 Domain tables. The normalised uniqueness of the registry replaces their
 -- UNIQUE (game_id, name): one source of uniqueness.
@@ -196,9 +202,8 @@ ALTER TABLE public.characters
 ALTER TABLE public.locations DROP CONSTRAINT locations_game_id_name_key;
 ALTER TABLE public.organizations DROP CONSTRAINT organizations_game_id_name_key;
 ALTER TABLE public.objects DROP CONSTRAINT objects_game_id_name_key;
--- The canonical key of an object becomes a 'label' alias (data section).
-DROP INDEX public.idx_objects_canonical;
-ALTER TABLE public.objects DROP COLUMN canonical_name;
+-- objects.canonical_name is dropped in section 4: the data section first turns it into a
+-- 'label' alias.
 
 -- Facts: the three-state knowledge model (§4.8) and F<n> handles, numbered by creation.
 ALTER TABLE public.facts
@@ -249,6 +254,8 @@ CREATE TABLE public.entity_aliases (
 CREATE INDEX idx_entity_aliases_norm_trgm ON public.entity_aliases
     USING gin (alias_norm public.gin_trgm_ops);
 CREATE INDEX idx_entity_aliases_game_norm ON public.entity_aliases (game_id, alias_norm);
+CREATE INDEX idx_entity_aliases_entity ON public.entity_aliases (entity_id);
+CREATE INDEX idx_entity_aliases_turn ON public.entity_aliases (turn_id) WHERE turn_id IS NOT NULL;
 
 -- Replaces messages.narrator_context: what each span of a narration was resolved to. The
 -- entity is the one of the decision; a read follows merged_into.
@@ -276,6 +283,9 @@ CREATE TABLE public.entity_mentions (
         REFERENCES public.entity_registry(id) ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE
 );
 CREATE INDEX idx_entity_mentions_game_message ON public.entity_mentions (game_id, message_id);
+CREATE INDEX idx_entity_mentions_entity ON public.entity_mentions (entity_id);
+CREATE INDEX idx_entity_mentions_turn ON public.entity_mentions (turn_id)
+    WHERE turn_id IS NOT NULL;
 
 -- Audit of merge_entities, with the snapshots of what the merge removed or moved.
 CREATE TABLE public.entity_merges (
@@ -299,6 +309,9 @@ CREATE TABLE public.entity_merges (
     CONSTRAINT entity_merges_turn_id_fkey FOREIGN KEY (turn_id)
         REFERENCES public.turns(id) ON DELETE SET NULL DEFERRABLE INITIALLY IMMEDIATE
 );
+CREATE INDEX idx_entity_merges_kept ON public.entity_merges (kept_id);
+CREATE INDEX idx_entity_merges_dropped ON public.entity_merges (dropped_id);
+CREATE INDEX idx_entity_merges_turn ON public.entity_merges (turn_id) WHERE turn_id IS NOT NULL;
 
 CREATE TABLE public.identity_events (
     id bigserial PRIMARY KEY,
@@ -310,6 +323,8 @@ CREATE TABLE public.identity_events (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_identity_events_game_created ON public.identity_events (game_id, created_at);
+CREATE INDEX idx_identity_events_turn ON public.identity_events (turn_id)
+    WHERE turn_id IS NOT NULL;
 
 SELECT public.ldvelh_journal('entity_aliases');
 SELECT public.ldvelh_journal('entity_mentions');
@@ -357,7 +372,8 @@ BEGIN
     RETURN NEW;
 END $$;
 
--- characters.name is the internal label: the true name, else the descriptor.
+-- characters.name is the internal label: the true name, else the descriptor. A direct write
+-- of name is overridden by that value: name never drifts from true_name/descriptor.
 CREATE FUNCTION public.identity_character_name() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -369,15 +385,36 @@ BEGIN
     RETURN NEW;
 END $$;
 
+-- The alias of each current name of an entity, made by the triggers (source 'system'): a
+-- character's true name (known when the PC knows it) and descriptor (known), another
+-- entity's label (its name). Invariant: every entity has an alias of its current name_norm.
+-- The services add the derived aliases (short forms, titles).
+CREATE FUNCTION public.identity_name_aliases(p_type text, p_row jsonb, p_turn uuid)
+        RETURNS void
+    LANGUAGE sql
+    AS $$
+    INSERT INTO public.entity_aliases
+           (game_id, entity_id, entity_type, alias, kind, known, source, turn_id)
+    SELECT (p_row ->> 'game_id')::uuid, (p_row ->> 'id')::uuid, p_type, forms.alias, forms.kind,
+           forms.known, 'system', p_turn
+      FROM (VALUES
+              (CASE WHEN p_type = 'character' THEN p_row ->> 'true_name'
+                    ELSE p_row ->> 'name' END,
+               CASE WHEN p_type = 'character' THEN 'true_name' ELSE 'label' END,
+               p_type <> 'character'
+                   OR COALESCE((p_row ->> 'known_by_protagonist')::boolean, false)),
+              (CASE WHEN p_type = 'character' THEN p_row ->> 'descriptor' END,
+               'descriptor', true)) AS forms (alias, kind, known)
+     WHERE forms.alias IS NOT NULL
+    ON CONFLICT DO NOTHING
+$$;
+
 -- BEFORE INSERT on a domain table: its registry row, at the same id, with the turn that
--- created it, and the alias of each name it starts with (a character: its true name, known
--- when the PC knows it, and its descriptor; another entity: its label). The services add
--- the derived aliases (short forms, titles).
+-- created it, and the aliases of its names.
 CREATE FUNCTION public.identity_register() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 DECLARE
-    v_type text := TG_ARGV[0];
     v_turn uuid := nullif(current_setting('ldvelh.turn_id', true), '')::uuid;
     v_id uuid;
 BEGIN
@@ -385,35 +422,28 @@ BEGIN
         RETURN NEW;
     END IF;
     INSERT INTO public.entity_registry (id, game_id, entity_type, name, created_turn_id)
-    VALUES (NEW.id, NEW.game_id, v_type, NEW.name, v_turn)
+    VALUES (NEW.id, NEW.game_id, TG_ARGV[0], NEW.name, v_turn)
     ON CONFLICT (id) DO NOTHING
     RETURNING id INTO v_id;
-    IF v_id IS NULL THEN
-        RETURN NEW;
-    END IF;
-    IF v_type = 'character' THEN
-        INSERT INTO public.entity_aliases
-               (game_id, entity_id, entity_type, alias, kind, known, source, turn_id)
-        SELECT NEW.game_id, v_id, v_type, forms.alias, forms.kind, forms.known, 'system', v_turn
-          FROM (VALUES (NEW.true_name::text, 'true_name',
-                        COALESCE(NEW.known_by_protagonist, false)),
-                       (NEW.descriptor::text, 'descriptor', true)) AS forms (alias, kind, known)
-         WHERE forms.alias IS NOT NULL
-        ON CONFLICT DO NOTHING;
-    ELSE
-        INSERT INTO public.entity_aliases
-               (game_id, entity_id, entity_type, alias, kind, known, source, turn_id)
-        VALUES (NEW.game_id, v_id, v_type, NEW.name, 'label', true, 'system', v_turn)
-        ON CONFLICT DO NOTHING;
+    IF v_id IS NOT NULL THEN
+        PERFORM public.identity_name_aliases(TG_ARGV[0], to_jsonb(NEW), v_turn);
     END IF;
     RETURN NEW;
 END $$;
 
--- AFTER UPDATE: the registry follows the domain name, by id. A normalised collision with
--- another entity of the type raises (never a silent second entry).
+-- AFTER UPDATE of a name: the registry follows the domain name, by id (a normalised
+-- collision with another entity of the type raises, never a silent second entry); a label
+-- or true name replaced becomes a former name, and the new names get their aliases.
 CREATE FUNCTION public.identity_sync_name() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
+DECLARE
+    v_type text := TG_ARGV[0];
+    v_turn uuid := nullif(current_setting('ldvelh.turn_id', true), '')::uuid;
+    v_row jsonb := to_jsonb(NEW);
+    v_kind text := CASE WHEN TG_ARGV[0] = 'character' THEN 'true_name' ELSE 'label' END;
+    v_current text;
+    v_norm text;
 BEGIN
     IF current_setting('ldvelh.replay', true) = 'on' THEN
         RETURN NEW;
@@ -421,6 +451,14 @@ BEGIN
     IF NEW.name IS DISTINCT FROM OLD.name THEN
         UPDATE public.entity_registry SET name = NEW.name WHERE id = NEW.id;
     END IF;
+    v_current := v_row ->> CASE WHEN v_type = 'character' THEN 'true_name' ELSE 'name' END;
+    IF v_current IS NOT NULL THEN
+        v_norm := public.ldvelh_norm_for_game(NEW.game_id, v_current);
+    END IF;
+    UPDATE public.entity_aliases AS al SET kind = 'former_name'
+     WHERE al.entity_id = NEW.id AND al.kind = v_kind
+       AND (v_norm IS NULL OR al.alias_norm <> v_norm);
+    PERFORM public.identity_name_aliases(v_type, v_row, v_turn);
     RETURN NEW;
 END $$;
 
@@ -449,7 +487,7 @@ CREATE TRIGGER identity_handle BEFORE INSERT ON public.facts
 -- identity_character_name fires before register_character (alphabetical order): the
 -- registry gets the computed name.
 CREATE TRIGGER identity_character_name
-    BEFORE INSERT OR UPDATE OF true_name, descriptor ON public.characters
+    BEFORE INSERT OR UPDATE OF name, true_name, descriptor ON public.characters
     FOR EACH ROW EXECUTE FUNCTION public.identity_character_name();
 CREATE TRIGGER register_character BEFORE INSERT ON public.characters
     FOR EACH ROW EXECUTE FUNCTION public.identity_register('character');
@@ -467,17 +505,17 @@ CREATE TRIGGER register_companion BEFORE INSERT ON public.companions
 -- UPDATE OF name trigger alone would not see.
 CREATE TRIGGER sync_registry_character
     AFTER UPDATE OF name, true_name, descriptor ON public.characters
-    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name();
+    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('character');
 CREATE TRIGGER sync_registry_location AFTER UPDATE OF name ON public.locations
-    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name();
+    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('location');
 CREATE TRIGGER sync_registry_organization AFTER UPDATE OF name ON public.organizations
-    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name();
+    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('organization');
 CREATE TRIGGER sync_registry_object AFTER UPDATE OF name ON public.objects
-    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name();
+    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('object');
 CREATE TRIGGER sync_registry_protagonist AFTER UPDATE OF name ON public.protagonists
-    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name();
+    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('protagonist');
 CREATE TRIGGER sync_registry_companion AFTER UPDATE OF name ON public.companions
-    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name();
+    FOR EACH ROW EXECUTE FUNCTION public.identity_sync_name('companion');
 CREATE TRIGGER unregister_character AFTER DELETE ON public.characters
     FOR EACH ROW EXECUTE FUNCTION public.identity_unregister();
 CREATE TRIGGER unregister_location AFTER DELETE ON public.locations
@@ -491,8 +529,9 @@ CREATE TRIGGER unregister_protagonist AFTER DELETE ON public.protagonists
 CREATE TRIGGER unregister_companion AFTER DELETE ON public.companions
     FOR EACH ROW EXECUTE FUNCTION public.identity_unregister();
 
--- Facts stay immutable, except their knowledge flags (a revealed fact becomes known) and
--- the location_id a deleted location's SET NULL clears (#22).
+-- Facts stay immutable, except their knowledge flags (a revealed fact becomes known), the
+-- location_id a deleted location's SET NULL clears (#22), and a location_id moved by a merge
+-- from the tombstone to the location it was merged into.
 CREATE OR REPLACE FUNCTION public.facts_immutable() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
@@ -504,8 +543,12 @@ BEGIN
     THEN
         RETURN NEW;
     END IF;
-    IF NEW.location_id IS NULL AND OLD.location_id IS NOT NULL
-       AND (to_jsonb(NEW) - 'location_id') = (to_jsonb(OLD) - 'location_id') THEN
+    IF (to_jsonb(NEW) - 'location_id') = (to_jsonb(OLD) - 'location_id')
+       AND OLD.location_id IS NOT NULL
+       AND (NEW.location_id IS NULL
+            OR EXISTS (SELECT 1 FROM public.entity_registry AS er
+                        WHERE er.id = OLD.location_id AND er.merged_into = NEW.location_id))
+    THEN
         RETURN NEW;
     END IF;
     RAISE EXCEPTION 'facts are immutable (known, secret aside)';
@@ -532,8 +575,9 @@ BEGIN
 END $$;
 
 -- The entity a reference names, the type being required: the reserved PROTAGONIST and
--- COMPANION, a handle E<n>, an id, then the normalised label, then the normalised aliases;
--- merges followed. Two distinct entities or more: NULL, never an arbitrary pick (the
+-- COMPANION (only for their own type: another type looks them up as names), a handle E<n>
+-- (any case), an id, then the normalised label, then the normalised aliases; merges
+-- followed. Two distinct entities or more: NULL, never an arbitrary pick (the
 -- caller records the ambiguity).
 CREATE FUNCTION public.find_entity(p_game uuid, p_ref text, p_type text) RETURNS uuid
     LANGUAGE plpgsql STABLE
@@ -549,11 +593,10 @@ BEGIN
     IF v_ref IS NULL OR v_ref = '' THEN
         RETURN NULL;
     END IF;
-    IF upper(v_ref) IN ('PROTAGONIST', 'COMPANION') THEN
+    IF upper(v_ref) IN ('PROTAGONIST', 'COMPANION') AND lower(v_ref) = p_type THEN
         SELECT array_agg(er.id) INTO v_ids FROM public.entity_registry AS er
-         WHERE er.game_id = p_game AND er.entity_type = lower(v_ref)
-           AND er.merged_into IS NULL;
-    ELSIF v_ref ~ '^E[0-9]{1,9}$' THEN
+         WHERE er.game_id = p_game AND er.entity_type = p_type AND er.merged_into IS NULL;
+    ELSIF v_ref ~* '^E[0-9]{1,9}$' THEN
         SELECT array_agg(er.id) INTO v_ids FROM public.entity_registry AS er
          WHERE er.game_id = p_game AND er.entity_type = p_type
            AND er.handle = substr(v_ref, 2)::integer;
@@ -578,7 +621,7 @@ BEGIN
     RETURN NULL;
 END $$;
 
--- The fact a reference names: a handle F<n> or an id of the game.
+-- The fact a reference names: a handle F<n> (any case) or an id of the game.
 CREATE FUNCTION public.find_fact(p_game uuid, p_ref text) RETURNS uuid
     LANGUAGE plpgsql STABLE
     AS $$
@@ -586,7 +629,7 @@ DECLARE
     v_ref text := btrim(p_ref, E' \t\r\n');
     v_id uuid;
 BEGIN
-    IF v_ref ~ '^F[0-9]{1,9}$' THEN
+    IF v_ref ~* '^F[0-9]{1,9}$' THEN
         SELECT ft.id INTO v_id FROM public.facts AS ft
          WHERE ft.game_id = p_game AND ft.handle = substr(v_ref, 2)::integer;
     ELSIF v_ref ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
@@ -630,7 +673,7 @@ BEGIN
 END $$;
 
 -- Participants are ids resolved by the caller: [{"entity_id": "<uuid>", "role": "actor"}];
--- an id outside the game is skipped, a merged one stands for its live entity.
+-- an id outside the game, or not an id, is skipped; a merged one stands for its live entity.
 CREATE OR REPLACE FUNCTION public.create_fact(p_game_id uuid, p_cycle integer,
         p_type character varying, p_description text, p_location_id uuid DEFAULT NULL::uuid,
         p_time character varying DEFAULT NULL::character varying, p_importance integer DEFAULT 3,
@@ -658,9 +701,13 @@ BEGIN
             p_semantic_key)
     RETURNING id INTO v_fact_id;
     FOR v_participant IN SELECT jsonb_array_elements(p_participants) LOOP
-        SELECT public.entity_follow_merge(er.id) INTO v_entity_id
-          FROM public.entity_registry AS er
-         WHERE er.game_id = p_game_id AND er.id = (v_participant ->> 'entity_id')::uuid;
+        v_entity_id := NULL;
+        IF v_participant ->> 'entity_id'
+           ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+            SELECT public.entity_follow_merge(er.id) INTO v_entity_id
+              FROM public.entity_registry AS er
+             WHERE er.game_id = p_game_id AND er.id = (v_participant ->> 'entity_id')::uuid;
+        END IF;
         IF v_entity_id IS NOT NULL THEN
             INSERT INTO public.fact_participants (fact_id, entity_id, role)
             VALUES (v_fact_id, v_entity_id, v_participant ->> 'role')
@@ -725,8 +772,9 @@ CREATE FUNCTION public.identity_domain_row(p_entity_type text, p_entity_id uuid)
     END
 $$;
 
--- keep's empty (NULL) columns take drop's values; a character known under either is known.
--- Only the columns that change are written.
+-- keep's fields completed from drop: a NULL takes drop's value; jsonb objects (details) are
+-- combined, keep's keys winning; arrays (traits) get drop's missing elements; known and
+-- mandatory flags are ORed. Only the columns that change are written.
 CREATE FUNCTION public.identity_merge_fields(p_keep uuid, p_drop uuid, p_entity_type text)
         RETURNS void
     LANGUAGE plpgsql
@@ -742,18 +790,28 @@ BEGIN
     IF v_keep_row IS NULL OR v_drop_row IS NULL THEN
         RETURN;
     END IF;
-    SELECT v_keep_row || COALESCE(jsonb_object_agg(dropped.key, dropped.value), '{}'::jsonb)
+    SELECT v_keep_row || COALESCE(jsonb_object_agg(dropped.key, CASE
+               WHEN COALESCE(v_keep_row -> dropped.key, 'null'::jsonb) = 'null'::jsonb
+                   THEN dropped.value
+               WHEN dropped.key IN ('known_by_protagonist', 'is_mandatory')
+                   THEN to_jsonb((v_keep_row ->> dropped.key)::boolean
+                                 OR (dropped.value #>> '{}')::boolean)
+               WHEN jsonb_typeof(dropped.value) = 'object'
+                    AND jsonb_typeof(v_keep_row -> dropped.key) = 'object'
+                   THEN dropped.value || (v_keep_row -> dropped.key)
+               WHEN jsonb_typeof(dropped.value) = 'array'
+                    AND jsonb_typeof(v_keep_row -> dropped.key) = 'array'
+                   THEN (v_keep_row -> dropped.key) || COALESCE(
+                       (SELECT jsonb_agg(elem) FROM jsonb_array_elements(dropped.value) AS elem
+                         WHERE NOT (v_keep_row -> dropped.key) @> jsonb_build_array(elem)),
+                       '[]'::jsonb)
+               ELSE v_keep_row -> dropped.key
+           END), '{}'::jsonb)
       INTO v_merged
       FROM jsonb_each(v_drop_row) AS dropped
      WHERE dropped.key <> ALL (ARRAY['id', 'game_id', 'name', 'created_at', 'updated_at',
                                 'created_cycle', 'removed_cycle'])
-       AND dropped.value <> 'null'::jsonb
-       AND COALESCE(v_keep_row -> dropped.key, 'null'::jsonb) = 'null'::jsonb;
-    IF p_entity_type = 'character' THEN
-        v_merged := v_merged || jsonb_build_object('known_by_protagonist',
-            COALESCE((v_keep_row ->> 'known_by_protagonist')::boolean, false)
-            OR COALESCE((v_drop_row ->> 'known_by_protagonist')::boolean, false));
-    END IF;
+       AND dropped.value <> 'null'::jsonb;
     SELECT string_agg(quote_ident(att.attname), ', ' ORDER BY att.attnum),
            string_agg('(jsonb_populate_record(NULL::' || v_table || ', $2)).'
                       || quote_ident(att.attname), ', ' ORDER BY att.attnum)
@@ -770,8 +828,8 @@ END $$;
 
 -- Every edge of drop goes to keep (spec §4.7 effect 1); returns the moved row ids by
 -- table.column. Relations: an open relation that keep already has (same other end, same
--- type) is closed rather than duplicated, a relation between keep and drop is closed and
--- left on the tombstone. Pivots: a row keep already has is deleted. Inventory: quantities
+-- type) is closed (end_cycle, the entity_merges row tells why) rather than duplicated, a
+-- relation between keep and drop is closed and left on the tombstone. Pivots: a row keep already has is deleted. Inventory: quantities
 -- of the same object and owner are added up.
 CREATE FUNCTION public.identity_merge_edges(p_keep uuid, p_drop uuid, p_entity_type text)
         RETURNS jsonb
@@ -786,7 +844,7 @@ BEGIN
      WHERE er.id = p_keep;
 
     WITH closed AS (
-        UPDATE public.relations AS rel SET end_cycle = v_cycle, end_reason = 'merge'
+        UPDATE public.relations AS rel SET end_cycle = v_cycle
          WHERE rel.end_cycle IS NULL AND p_drop IN (rel.source_id, rel.target_id)
            AND (p_keep IN (rel.source_id, rel.target_id)
                 OR EXISTS (
@@ -867,6 +925,16 @@ BEGIN
          WHERE na.owner_id = p_drop RETURNING na.id)
     SELECT v_edges || jsonb_build_object('narrative_arcs.owner_id', array_agg(moved.id))
       INTO v_edges FROM moved;
+    WITH moved AS (
+        UPDATE public.director_commitments AS dc
+           SET related_entities = CASE WHEN p_keep = ANY (dc.related_entities)
+                                       THEN array_remove(dc.related_entities, p_drop)
+                                       ELSE array_replace(dc.related_entities, p_drop, p_keep)
+                                  END
+         WHERE p_drop = ANY (dc.related_entities) RETURNING dc.id)
+    SELECT v_edges
+           || jsonb_build_object('director_commitments.related_entities', array_agg(moved.id))
+      INTO v_edges FROM moved;
 
     IF p_entity_type = 'character' THEN
         WITH moved AS (
@@ -882,7 +950,12 @@ BEGIN
         UPDATE public.npc_narrative SET character_id = p_keep WHERE character_id = p_drop
            AND NOT EXISTS (SELECT 1 FROM public.npc_narrative WHERE character_id = p_keep);
     ELSIF p_entity_type = 'location' THEN
-        -- facts.location_id is left to the SET NULL of the delete: facts are immutable.
+        -- facts_immutable lets a fact follow its location to the one it was merged into.
+        WITH moved AS (
+            UPDATE public.facts AS ft SET location_id = p_keep
+             WHERE ft.location_id = p_drop RETURNING ft.id)
+        SELECT v_edges || jsonb_build_object('facts.location_id', array_agg(moved.id))
+          INTO v_edges FROM moved;
         WITH moved AS (
             UPDATE public.characters AS ch SET workplace_id = p_keep
              WHERE ch.workplace_id = p_drop RETURNING ch.id)
@@ -993,6 +1066,17 @@ BEGIN
     IF v_keep.id IS NULL OR v_drop.id IS NULL THEN
         RAISE EXCEPTION 'merge_entities: entity missing (%, %)', p_keep, p_drop;
     END IF;
+    -- Integrity, not policy (the policy guards live in the identity service): one entity
+    -- with itself, two games, or a tombstone on either side would destroy or cross data.
+    IF p_keep = p_drop THEN
+        RAISE EXCEPTION 'merge_entities: keep = drop (%)', p_keep;
+    END IF;
+    IF v_keep.game_id <> v_drop.game_id THEN
+        RAISE EXCEPTION 'merge_entities: entities in two games (%, %)', p_keep, p_drop;
+    END IF;
+    IF v_keep.merged_into IS NOT NULL OR v_drop.merged_into IS NOT NULL THEN
+        RAISE EXCEPTION 'merge_entities: already merged (%, %)', p_keep, p_drop;
+    END IF;
     IF v_keep.entity_type <> v_drop.entity_type THEN
         RAISE EXCEPTION 'merge_entities: entity types differ (%, %)',
             v_keep.entity_type, v_drop.entity_type;
@@ -1048,7 +1132,9 @@ BEGIN
 END $$;
 
 -- 2.7 Views: participants by what the player may read (display_for_player), with their id
--- and handle.
+-- and handle. v_chronology and v_upcoming_events keep their name arrays (npcs_present,
+-- participants: their readers are unchanged) and gain the same jsonb records
+-- (npc_refs, participant_refs: name, entity_id, handle).
 CREATE OR REPLACE VIEW public.v_active_arcs AS
  SELECT na.id,
     na.game_id,
@@ -1092,12 +1178,15 @@ CREATE OR REPLACE VIEW public.v_chronology AS
     c."time",
     l.name AS location_name,
     c.summary,
-    array_agg(public.display_for_player(er.id)::character varying(255))
-        FILTER (WHERE er.id IS NOT NULL) AS npcs_present
+    array_agg(part.name::character varying(255)) FILTER (WHERE er.id IS NOT NULL)
+        AS npcs_present,
+    array_agg(to_jsonb(part.*)) FILTER (WHERE er.id IS NOT NULL) AS npc_refs
    FROM public.chronology c
      LEFT JOIN public.locations l ON c.location_id = l.id
      LEFT JOIN public.chronology_participants cp ON cp.chronology_id = c.id
      LEFT JOIN public.entity_registry er ON cp.entity_id = er.id
+     LEFT JOIN LATERAL (SELECT public.display_for_player(er.id) AS name,
+                               er.id AS entity_id, er.handle AS handle) part ON true
   GROUP BY c.id, l.name;
 
 CREATE OR REPLACE VIEW public.v_upcoming_events AS
@@ -1109,22 +1198,28 @@ CREATE OR REPLACE VIEW public.v_upcoming_events AS
     ev.planned_cycle,
     ev."time",
     l.name AS location_name,
-    array_agg(public.display_for_player(er.id)::character varying(255))
-        FILTER (WHERE er.id IS NOT NULL) AS participants
+    array_agg(part.name::character varying(255)) FILTER (WHERE er.id IS NOT NULL)
+        AS participants,
+    array_agg(to_jsonb(part.*)) FILTER (WHERE er.id IS NOT NULL) AS participant_refs
    FROM public.events ev
      LEFT JOIN public.locations l ON ev.location_id = l.id
      LEFT JOIN public.event_participants ep ON ev.id = ep.event_id
      LEFT JOIN public.entity_registry er ON ep.entity_id = er.id
+     LEFT JOIN LATERAL (SELECT public.display_for_player(er.id) AS name,
+                               er.id AS entity_id, er.handle AS handle) part ON true
   WHERE ev.completed = false AND ev.cancelled = false
   GROUP BY ev.id, l.name;
 
--- Section 3 (Task 9): transformations of the existing data (spec §5.2) go here, before the
--- constraints of section 4 that depend on them.
+-- Section 3 (Task 9): transformations of the existing data (spec §5.2) go here, before
+-- section 4: the constraints that depend on them, and the drop of objects.canonical_name
+-- (read by step 4 to make the objects' 'label' aliases).
 
 -- Section 4: constraints that need every existing row normalised. The normalised
 -- uniqueness of live entities replaces UNIQUE (game_id, entity_type, name); name_norm is
 -- set NOT NULL only when every row has one (games without a language are normalised by
 -- the backfill; the PR 1b migration then sets it NOT NULL).
+DROP INDEX public.idx_objects_canonical;
+ALTER TABLE public.objects DROP COLUMN canonical_name;
 CREATE UNIQUE INDEX entity_registry_game_type_norm_live_key
     ON public.entity_registry (game_id, entity_type, name_norm) WHERE merged_into IS NULL;
 DO $$
@@ -1139,6 +1234,10 @@ END $$;
 -- display_for_player. Aliases, mentions, merges and identity events are dropped with their
 -- tables; tombstones and companion registry rows, unknown to the previous schema, go.
 DROP INDEX public.entity_registry_game_type_norm_live_key;
+ALTER TABLE public.objects ADD COLUMN canonical_name character varying(100);
+CREATE UNIQUE INDEX idx_objects_canonical ON public.objects
+    USING btree (game_id, canonical_name)
+    WHERE ((canonical_name IS NOT NULL) AND (removed_cycle IS NULL));
 
 CREATE OR REPLACE VIEW public.v_active_arcs AS
  SELECT na.id,
@@ -1174,7 +1273,8 @@ CREATE OR REPLACE VIEW public.v_recent_facts AS
      LEFT JOIN public.entity_registry er ON fp.entity_id = er.id
   GROUP BY f.id, l.name;
 
-CREATE OR REPLACE VIEW public.v_chronology AS
+DROP VIEW public.v_chronology;
+CREATE VIEW public.v_chronology AS
  SELECT c.id,
     c.game_id,
     c.cycle,
@@ -1188,7 +1288,8 @@ CREATE OR REPLACE VIEW public.v_chronology AS
      LEFT JOIN public.entity_registry er ON cp.entity_id = er.id
   GROUP BY c.id, l.name;
 
-CREATE OR REPLACE VIEW public.v_upcoming_events AS
+DROP VIEW public.v_upcoming_events;
+CREATE VIEW public.v_upcoming_events AS
  SELECT ev.id,
     ev.game_id,
     ev.type,
@@ -1341,6 +1442,7 @@ DROP TRIGGER unregister_companion ON public.companions;
 DROP FUNCTION public.identity_unregister();
 DROP FUNCTION public.identity_sync_name();
 DROP FUNCTION public.identity_register();
+DROP FUNCTION public.identity_name_aliases(text, jsonb, uuid);
 DROP FUNCTION public.identity_character_name();
 DROP FUNCTION public.identity_assign_handle();
 
@@ -1356,10 +1458,6 @@ ALTER TABLE public.facts
     DROP COLUMN secret,
     DROP COLUMN known;
 
-ALTER TABLE public.objects ADD COLUMN canonical_name character varying(100);
-CREATE UNIQUE INDEX idx_objects_canonical ON public.objects
-    USING btree (game_id, canonical_name)
-    WHERE ((canonical_name IS NOT NULL) AND (removed_cycle IS NULL));
 ALTER TABLE public.objects
     ADD CONSTRAINT objects_game_id_name_key UNIQUE (game_id, name);
 ALTER TABLE public.organizations
