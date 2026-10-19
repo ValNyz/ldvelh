@@ -2,9 +2,18 @@
 
     python -m tests.benchmark.journal_overhead [--rounds 50]
 
-runs against TEST_DATABASE_URL. Each round is one transaction shaped like a narration
-commit, timed in three variants: journaled (under a unit of work), no_turn (triggers
-fire but find no turn), disabled (journal triggers off on the touched tables).
+runs against TEST_DATABASE_URL (refused unless the database name ends with '_test') and
+deletes the data it created. Do not kill it mid-run: it disables the journal triggers
+temporarily (restored in a finally, but not if the process is killed).
+
+`measure` times a micro transaction shaped like a narration commit in three variants:
+journaled (under a unit of work), no_turn (triggers fire but find no turn), disabled
+(journal triggers off, plain transaction: the pre-journal baseline, no set_config).
+`measure_commit` times the real `commit_turn`, journaled vs triggers disabled; there the
+disabled variant still runs under the unit of work, so it pays the `set_config` round trip
+(about 0.01 ms) and the figure understates the cost against a pre-journal baseline.
+Variants are not interleaved round by round: toggling triggers invalidates caches, so the
+disabled variant runs as a block after an untimed warm-up (see `_run_blocks`).
 """
 
 import argparse
@@ -13,21 +22,14 @@ import json
 import os
 import statistics
 import time
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import asyncpg
 
 from repos import turns
 from repos.uow import uow
 
-# Tables the commit shape writes and that carry the journal triggers.
-JOURNALED_TABLES = (
-    "character_fate",
-    "games",
-    "protagonists",
-    "locations",
-    "mechanic_rolls",
-)
+BLOCK = 10
 
 
 async def _commit_shaped_writes(
@@ -64,7 +66,7 @@ async def _commit_shaped_writes(
         )
 
 
-async def _timed(conn, fn) -> float:
+async def _timed(fn) -> float:
     start = time.perf_counter()
     await fn()
     return (time.perf_counter() - start) * 1000
@@ -97,13 +99,14 @@ async def _ensure_rows(conn, game_id: UUID) -> UUID:
 
 
 async def _set_journal(conn, enabled: bool) -> None:
+    """ENABLE/DISABLE every journal trigger of the schema (idempotent)."""
     action = "ENABLE" if enabled else "DISABLE"
-    for table in JOURNALED_TABLES:
-        await conn.execute(f"ALTER TABLE {table} {action} TRIGGER zz_journal_id")
-        await conn.execute(f"ALTER TABLE {table} {action} TRIGGER zz_journal_u")
-
-
-BLOCK = 10
+    rows = await conn.fetch(
+        """SELECT tgrelid::regclass::text AS tbl, tgname FROM pg_trigger
+        WHERE tgname IN ('zz_journal_id', 'zz_journal_u') AND NOT tgisinternal"""
+    )
+    for row in rows:
+        await conn.execute(f"ALTER TABLE {row['tbl']} {action} TRIGGER {row['tgname']}")
 
 
 async def _run_blocks(conn, rounds: int, on_variants, run) -> None:
@@ -111,7 +114,8 @@ async def _run_blocks(conn, rounds: int, on_variants, run) -> None:
 
     Toggling the triggers invalidates the table caches, so the first run after a toggle is
     slow: each switch is followed by an untimed warm-up, and the disabled variant runs as a
-    block instead of being interleaved round by round.
+    block instead of being interleaved round by round. `run(variant, timed)` is called with
+    timed=False for warm-ups.
     """
     done = 0
     while done < rounds:
@@ -119,8 +123,8 @@ async def _run_blocks(conn, rounds: int, on_variants, run) -> None:
         for _ in range(size):
             for variant in on_variants:
                 await run(variant, True)
-        await _set_journal(conn, False)
         try:
+            await _set_journal(conn, False)
             await run("disabled", False)
             for _ in range(size):
                 await run("disabled", True)
@@ -131,11 +135,12 @@ async def _run_blocks(conn, rounds: int, on_variants, run) -> None:
 
 
 async def measure(pool, game_id: UUID, *, rounds: int) -> dict:
-    """Median ms of one commit-shaped transaction per variant, interleaved round by round."""
+    """Median ms of one micro commit-shaped transaction per variant (blocks, not interleaved)."""
     times: dict[str, list[float]] = {"journaled": [], "no_turn": [], "disabled": []}
     async with pool.acquire() as conn:
         conversation_id = await _ensure_rows(conn, game_id)
         turn_id = await turns.open_turn(conn, game_id)
+        warmup_turn_id = await turns.open_turn(conn, game_id)  # kept out of the bytes
         base = await conn.fetchval(
             "SELECT coalesce(max(sequence), 0) + 1 FROM messages"
         )
@@ -148,13 +153,13 @@ async def measure(pool, game_id: UUID, *, rounds: int) -> dict:
 
             async def body():
                 if variant == "journaled":
-                    async with uow(conn, turn_id):
+                    async with uow(conn, turn_id if timed else warmup_turn_id):
                         await _commit_shaped_writes(conn, game_id, conversation_id, n)
                 else:
                     async with conn.transaction():
                         await _commit_shaped_writes(conn, game_id, conversation_id, n)
 
-            elapsed = await _timed(conn, body)
+            elapsed = await _timed(body)
             if timed:
                 times[variant].append(elapsed)
 
@@ -185,7 +190,8 @@ async def measure(pool, game_id: UUID, *, rounds: int) -> dict:
         "no_turn_ms": medians["no_turn"],
         "disabled_ms": medians["disabled"],
         "overhead": medians["journaled"] / medians["disabled"] - 1,
-        "journal_bytes_per_round": journal_bytes / rounds,
+        # Per micro transaction (not a real turn): see commit_journal_bytes_per_turn.
+        "micro_journal_bytes_per_round": journal_bytes / rounds,
     }
 
 
@@ -197,8 +203,6 @@ async def measure_commit(pool, game_id: UUID, *, rounds: int) -> dict:
     narration with a roll (state, deltas, messages, roll log, engine lock, mark_committed).
     """
     # Lazy: these pull test plugins and the pipeline.
-    from uuid import uuid4
-
     from pipeline.context import TurnContext, TurnRequest
     from pipeline.steps.arbitrate import Arbitration
     from pipeline.steps.commit import commit_turn
@@ -243,6 +247,7 @@ async def measure_commit(pool, game_id: UUID, *, rounds: int) -> dict:
         context=None,
     )
     times: dict[str, list[float]] = {"journaled": [], "disabled": []}
+    timed_turns: dict[str, list[UUID]] = {"journaled": [], "disabled": []}
     async with pool.acquire() as conn:
         await _ensure_rows(conn, game_id)
         snapshot = await get_snapshot(conn, game_id)
@@ -260,12 +265,23 @@ async def measure_commit(pool, game_id: UUID, *, rounds: int) -> dict:
                 ref="bench",
             )
             ctx.turn_id = await turns.open_turn(conn, game_id)
+            if timed:
+                timed_turns[variant].append(ctx.turn_id)
             start = time.perf_counter()
             await commit_turn(ctx, conn, prepared, arbitration, narrated)
             if timed:
                 times[variant].append((time.perf_counter() - start) * 1000)
 
         await _run_blocks(conn, rounds, ("journaled",), run)
+
+        stats = {}
+        for variant, ids in timed_turns.items():
+            stats[variant] = await conn.fetchrow(
+                """SELECT count(*) AS changes,
+                coalesce(sum(pg_column_size(w.*)), 0) AS bytes
+                FROM world_changes w WHERE turn_id = ANY($1)""",
+                ids,
+            )
 
     journaled = statistics.median(times["journaled"])
     disabled = statistics.median(times["disabled"])
@@ -275,39 +291,56 @@ async def measure_commit(pool, game_id: UUID, *, rounds: int) -> dict:
         "commit_disabled_ms": disabled,
         "commit_overhead_ms": journaled - disabled,
         "commit_overhead": journaled / disabled - 1,
+        # Proof that the journaled variant journaled and the disabled one did not.
+        "commit_journaled_changes": stats["journaled"]["changes"],
+        "commit_disabled_changes": stats["disabled"]["changes"],
+        "commit_journal_bytes_per_turn": stats["journaled"]["bytes"] / rounds,
     }
 
 
-async def _bench_game(conn) -> UUID:
+async def _bench_game(conn) -> tuple[UUID, UUID]:
+    """A user and an empty Fate game; returns (user_id, game_id)."""
     user_id = await conn.fetchval(
         "INSERT INTO users (email, password_hash) VALUES ($1, 'x') RETURNING id",
         f"bench-{time.time_ns()}@example.com",
     )
-    return await conn.fetchval(
+    game_id = await conn.fetchval(
         "INSERT INTO games (user_id, engine) VALUES ($1, 'fate_core') RETURNING id",
         user_id,
     )
+    return user_id, game_id
 
 
 async def _main(rounds: int) -> None:
+    from tests.conftest import assert_safe_test_db_url
+
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        raise SystemExit("TEST_DATABASE_URL is not set")
+    assert_safe_test_db_url(url)
+
     async def init(conn):
         await conn.set_type_codec(
             "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
         )
 
-    pool = await asyncpg.create_pool(os.environ["TEST_DATABASE_URL"], init=init)
+    pool = await asyncpg.create_pool(url, init=init)
+    user_id = None
     try:
         async with pool.acquire() as conn:
-            game_id = await _bench_game(conn)
-        result = await measure(pool, game_id, rounds=rounds)
-        result["micro_overhead"] = result.pop("overhead")
-        result.update(await measure_commit(pool, game_id, rounds=rounds))
+            user_id, game_id = await _bench_game(conn)
+        micro = await measure(pool, game_id, rounds=rounds)
+        commit = await measure_commit(pool, game_id, rounds=rounds)
     finally:
+        if user_id:
+            async with pool.acquire() as conn:  # games cascade to turns and journal
+                await conn.execute("DELETE FROM games WHERE user_id = $1", user_id)
+                await conn.execute("DELETE FROM users WHERE id = $1", user_id)
         await pool.close()
-    for key, value in result.items():
+    for key, value in {**micro, **commit}.items():
         print(f"{key}: {value:.3f}" if isinstance(value, float) else f"{key}: {value}")
-    print(f"micro overhead: {result['micro_overhead'] * 100:.1f} %")
-    print(f"commit overhead: {result['commit_overhead'] * 100:.1f} %")
+    print(f"micro overhead: {micro['overhead'] * 100:.1f} %")
+    print(f"commit overhead: {commit['commit_overhead'] * 100:.1f} %")
 
 
 if __name__ == "__main__":
