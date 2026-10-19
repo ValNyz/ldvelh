@@ -19,10 +19,11 @@ PRESENTATION = frozenset({"report.py"})
 CODE = [
     *sorted(
         p
-        for p in (BACKEND / "evals" / "identity").glob("*.py")
+        for p in (BACKEND / "evals" / "identity").rglob("*.py")
         if p.name not in PRESENTATION
     ),
     *sorted((BACKEND / "scripts").glob("identity_corpus_*.py")),
+    BACKEND / "scripts" / "eval_identity.py",
 ]
 
 

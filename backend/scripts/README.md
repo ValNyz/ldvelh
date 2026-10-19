@@ -124,3 +124,28 @@ If `services/pricing.py` does not know its price, set a manual price (SQL in
 
 Manual live check of each provider's chat models (real, paid calls). Its probes
 are reused by the catalog refresh. See its docstring for usage.
+
+## Identity evaluation (`eval_identity.py`)
+
+Scores a resolver against the identity gold corpus (`tests/fixtures/identity/`,
+rules in its `ANNOTATION.md`) and writes the report of spec § 3.5 to
+`tests/reports/identity/<date>-<split>-<provider>-<models>.md|json`. Run it through
+`scripts/eval-identity.sh ARGS...` from the repo root (Docker, throwaway Postgres, the
+host's provider keys passed through, report written to the host).
+
+```
+scripts/eval-identity.sh --adapter legacy --split test --runs 1 --provider anthropic
+python -m scripts.eval_identity --adapter legacy --split dev [--sequences] [--category C] [--scene ID]
+python -m scripts.eval_identity ... --emit-prompts DIR       # no call: one <scene id>.json per request
+python -m scripts.eval_identity ... --import-responses DIR   # score the raw outputs <scene id>.txt
+```
+
+- `--adapter legacy`: the current resolver (`services/extraction/resolver.py`), driven as
+  the extraction orchestrator drives it (`evals/identity/adapters/legacy_resolver.py`).
+- Live runs make real, paid calls; the key is the server's (`ANTHROPIC_API_KEY`...) or,
+  with a real database, the one the player of `CATALOG_KEYS_USER_EMAIL` saved.
+- `--emit-prompts` / `--import-responses` produce the same report without an API key:
+  the requests are answered elsewhere, the raw answers are parsed by the app's own code,
+  and the report header says where the answers came from. With `eval-identity.sh`, pass
+  these directories as `/io/<path>` (`EVAL_IO` is the host directory mounted there).
+- `--gate`: exit code 1 when a measured gate row fails. C@10 is measured on dev + test.
