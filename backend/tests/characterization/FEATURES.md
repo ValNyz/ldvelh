@@ -78,6 +78,16 @@ F-xx touched: F-18, F-19, F-20, F-21.
 - [x] Legacy fixture (C-19) replayed: no migration in this phase
 - [ ] Manual smoke: not required in P4 (roadmap 5.4), recommended: three quick turns then Regenerate, with the world panel open
 
+### Phase 5a (turn journal)
+
+F-xx touched: in progress.
+
+- [ ] F-xx touched are listed above
+- [ ] Full suite green (`scripts/test-backend.sh`)
+- [x] Snapshots changed only by schema (#105): migration `20261019000000` adds the `turns` table (it has a `game_id`), so every `db_counts` / `db_*` summary gains the key `"turns": 0` while no turn is opened by the pipeline. `world_changes` has no `game_id` and does not appear. No other line changes.
+- [x] Legacy fixture (C-19) replayed: migration `20261019000000` (down then up over the legacy rows)
+- [ ] Manual smoke (F-27)
+
 ## Comment mettre à jour un snapshot
 
 A behavior change is allowed only when it fixes an issue listed in the phase. Then:

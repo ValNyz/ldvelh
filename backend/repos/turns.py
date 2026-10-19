@@ -176,6 +176,28 @@ async def save_turn_messages(conn, game_id: UUID, *, user_message: str, assistan
     return user_id, assistant_id
 
 
+async def open_turn(conn, game_id: UUID) -> UUID:
+    """A new open turn of the game; its world writes are journaled under its id (#105)."""
+    return await conn.fetchval("INSERT INTO turns (game_id) VALUES ($1) RETURNING id", game_id)
+
+
+async def mark_committed(conn, turn_id: UUID) -> None:
+    """The turn's writes are saved: it becomes a rollback target."""
+    await conn.execute(
+        "UPDATE turns SET status = 'committed', committed_at = now() WHERE id = $1", turn_id)
+
+
+async def delete_turns(conn, game_id: UUID, turn_ids: list[UUID]) -> int:
+    """Delete the listed turns and every open turn of the game (abandoned ones), with their
+    journal and extraction logs; their messages and rolls are kept with turn_id NULL.
+    Returns the number of turns deleted."""
+    result = await conn.execute(
+        "DELETE FROM turns WHERE id = ANY($2) OR (game_id = $1 AND status = 'open')",
+        game_id, turn_ids,
+    )
+    return int(result.split()[-1])
+
+
 async def hold_source_message(conn, message_id: UUID) -> bool:
     """True if the message exists; it then stays share-locked until the transaction ends,
     so a rollback deleting it waits for the caller's writes (#23)."""

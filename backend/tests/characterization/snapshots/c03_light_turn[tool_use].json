@@ -26,7 +26,8 @@
     "skills": 2,
     "skills_d6": 0,
     "skills_fate": 0,
-    "traits_narrative": 0
+    "traits_narrative": 0,
+    "turns": 0
   },
   "done_display_text": "Le **Quart de Cycle** est à moitié vide à cette heure. Quelques habitués, le nez dans leur terminal. Personne ne lève la tête quand tu entres.\n\nOssek est au comptoir, occupé à nettoyer la machine à café avec une concentration excessive. Iel ne t'a pas vu, ou fait semblant.",
   "llm_calls": [

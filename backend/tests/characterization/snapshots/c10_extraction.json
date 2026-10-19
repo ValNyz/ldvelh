@@ -32,7 +32,8 @@
     "skills": 2,
     "skills_d6": 0,
     "skills_fate": 0,
-    "traits_narrative": 0
+    "traits_narrative": 0,
+    "turns": 0
   },
   "llm_calls": [
     "extract:extract_characters",
