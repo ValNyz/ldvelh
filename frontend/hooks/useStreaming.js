@@ -1,35 +1,44 @@
 'use client';
 
-import { useRef, useCallback, useState } from 'react';
+import { useRef, useCallback } from 'react';
 import { apiUrl, getAuthHeaders, refreshSession } from '../lib/api';
 import { runChatStream } from '../lib/chatStream.mjs';
 
 /**
- * /chat SSE stream for React: cancellation and dispatch of each event to its
+ * /chat SSE streams for React: cancellation and dispatch of each event to its
  * callback. The stream itself (HTTP errors, 401 refresh, terminal event
  * guarantee) lives in lib/chatStream.mjs.
+ *
+ * Streams are keyed (by game): one per key at a time, and streams of different
+ * keys run side by side, so leaving a game never cuts its turn (#143).
  */
-export function useStreaming({
-	onChunk, onProgress, onExtracting, onDone, onSaved, onSaveUnconfirmed, onError,
-	onRollResult, onRollPending, onStatus, onWarning,
-}) {
-	const abortControllerRef = useRef(null);
-	const [rawJson, setRawJson] = useState('');
+export function useStreaming() {
+	const controllersRef = useRef(new Map()); // key -> AbortController
 
-	const startStream = useCallback(async (url, body) => {
-		// Cancel any in-flight stream before starting a new one
-		abortControllerRef.current?.abort();
+	/**
+	 * @param {string} url
+	 * @param {Object} body
+	 * @param {Object} opts
+	 * @param {*} opts.key - starting a stream cancels the in-flight one of the same key only
+	 * @param {Object} opts.callbacks - { onChunk, onProgress, onExtracting, onDone, onSaved,
+	 *   onSaveUnconfirmed, onError, onRollResult, onRollPending, onStatus, onWarning }
+	 */
+	const startStream = useCallback(async (url, body, { key = null, callbacks = {} } = {}) => {
+		const controllers = controllersRef.current;
+		controllers.get(key)?.abort();
 		const controller = new AbortController();
-		abortControllerRef.current = controller;
+		controllers.set(key, controller);
 		let fullJson = '';
-		setRawJson('');
+		const {
+			onChunk, onProgress, onExtracting, onDone, onSaved, onSaveUnconfirmed, onError,
+			onRollResult, onRollPending, onStatus, onWarning,
+		} = callbacks;
 
 		const dispatch = (data) => {
 			switch (data.type) {
 				case 'chunk': onChunk?.(data.content); break;
 				case 'progress':
 					fullJson = data.rawJson || fullJson;
-					setRawJson(fullJson);
 					onProgress?.(fullJson);
 					break;
 				case 'extracting': onExtracting?.(data.displayText); break;
@@ -59,22 +68,20 @@ export function useStreaming({
 			});
 			return { ...result, fullJson };
 		} finally {
-			if (abortControllerRef.current === controller) abortControllerRef.current = null;
+			if (controllers.get(key) === controller) controllers.delete(key);
 		}
-	}, [onChunk, onProgress, onExtracting, onDone, onSaved, onSaveUnconfirmed, onError, onRollResult, onRollPending, onStatus, onWarning]);
-
-	const cancel = useCallback(() => {
-		if (abortControllerRef.current) {
-			abortControllerRef.current.abort();
-			abortControllerRef.current = null;
-			return true;
-		}
-		return false;
 	}, []);
 
-	const isStreaming = useCallback(() => {
-		return abortControllerRef.current !== null;
+	/** Cancels the in-flight stream of `key`; true when there was one. */
+	const cancel = useCallback((key = null) => {
+		const controller = controllersRef.current.get(key);
+		if (!controller) return false;
+		controller.abort();
+		controllersRef.current.delete(key);
+		return true;
 	}, []);
 
-	return { startStream, cancel, isStreaming, rawJson };
+	const isStreaming = useCallback((key = null) => controllersRef.current.has(key), []);
+
+	return { startStream, cancel, isStreaming };
 }

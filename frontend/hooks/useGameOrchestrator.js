@@ -6,7 +6,10 @@ import { stateApi } from '../lib/api';
 import { invocationFromState, toInvocationData, withPendingPlayerMessage } from '../lib/game/pendingRoll.mjs';
 import { paramsFromServer } from '../lib/game/wizardParams.mjs';
 import { buildChatPayload } from '../lib/game/chatRequest.mjs';
-import { findLastUserMessage, withTurnIds } from '../lib/game/chatHistory.mjs';
+import { findLastUserMessage } from '../lib/game/chatHistory.mjs';
+import {
+	startLiveTurn, nextTurnStatus, turnActivity, withChunk, withExtracting, withAnswer, withLiveTurn,
+} from '../lib/game/liveTurn.mjs';
 
 // Game content constants (French — the game is in French)
 const MESSAGES = {
@@ -47,7 +50,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	// Wizard parameters the server stored for the open game while its world is not created (#88).
 	const [storedInitParams, setStoredInitParams] = useState(null);
 	const sendingRef = useRef(false);
-	const pendingRollRef = useRef(null);
 
 	// The turn is over (answer, roll to invoke, error or cancel): the player can send again.
 	const endTurn = useCallback(({ saving = false } = {}) => {
@@ -58,126 +60,142 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	}, [gs]);
 
 	// =========================================================================
-	// STREAMING CALLBACKS
+	// LIVE TURNS (#143)
 	// =========================================================================
 
-	const { startStream, cancel, isStreaming } = useStreaming({
-		onRollResult: (roll) => {
-			// Store roll data in ref — will be attached to the assistant message on first chunk
-			pendingRollRef.current = roll;
-		},
-		onChunk: (content) => {
-			gs.setMessages(prev => {
-				const last = prev[prev.length - 1];
-				if (last?.role === 'assistant' && last.streaming) {
-					return [...prev.slice(0, -1), { ...last, content: last.content + content }];
+	// Leaving a game cuts nothing: its /chat stream runs on, its events update its live turn
+	// (lib/game/liveTurn.mjs) and reach the screen only while that game is open.
+	// The open game, set synchronously (stream events may come before the next render).
+	const openGameRef = useRef(null);
+	const turnsRef = useRef(new Map()); // gameId -> { turn }: the stream running for that game
+
+	const showGame = useCallback((id) => {
+		openGameRef.current = id;
+		gs.setGameId(id);
+	}, [gs]);
+
+	// Turn flags of the open game, from its live turn (none: the player can send).
+	const showTurnActivity = useCallback((turn) => {
+		const activity = turnActivity(turn);
+		sendingRef.current = activity.sending;
+		gs.setLoading(activity.loading);
+		gs.setSaving(activity.saving);
+		setIsExtracting(activity.extracting);
+	}, [gs]);
+
+	// Callbacks of the stream of `live`: each event updates the live turn first, then the
+	// screen only when the turn's game is the open one.
+	const turnCallbacks = useCallback((live) => {
+		const { gameId } = live.turn;
+		const shown = () => openGameRef.current === gameId && turnsRef.current.get(gameId) === live;
+		// Event `type` moves the turn status and, with `edit`, its messages (and the chat when shown).
+		const apply = (type, edit = null) => {
+			const { turn } = live;
+			live.turn = { ...turn, status: nextTurnStatus(turn.status, type), messages: edit ? edit(turn.messages) : turn.messages };
+			const visible = shown();
+			if (visible && edit) gs.setMessages(edit);
+			return visible;
+		};
+
+		return {
+			onRollResult: (roll) => {
+				// Attached to the answer on its first chunk
+				live.turn = { ...live.turn, roll };
+			},
+			onChunk: (content) => {
+				const { roll } = live.turn;
+				live.turn = { ...live.turn, roll: null };
+				apply('chunk', messages => withChunk(messages, content, roll));
+			},
+			onProgress: (rawJson) => {
+				if (shown()) phase.setWorldGenProgress(rawJson);
+			},
+			onStatus: (data) => {
+				if (shown() && data?.step === 'director') {
+					phase.setDirectorStatus('running');
+					phase.setDirectorLabel(data.label || 'Scénario');
 				}
-				// First chunk — attach any pending roll result
-				const roll = pendingRollRef.current;
-				pendingRollRef.current = null;
-				return [...prev, { role: 'assistant', content, streaming: true, ...(roll ? { roll } : {}) }];
-			});
-		},
-		onProgress: (rawJson) => {
-			phase.setWorldGenProgress(rawJson);
-		},
-		onStatus: (data) => {
-			if (data?.step === 'director') {
-				phase.setDirectorStatus('running');
-				phase.setDirectorLabel(data.label || 'Scénario');
-			}
-		},
-		onExtracting: (displayText) => {
-			setIsExtracting(true);
-			gs.setMessages(prev => {
-				const last = prev[prev.length - 1];
-				if (last?.role === 'assistant') {
-					return [...prev.slice(0, -1), {
-						...last,
-						content: displayText || last.content,
-						streaming: false,
-						extracting: true
-					}];
+			},
+			onExtracting: (displayText) => {
+				if (apply('extracting', messages => withExtracting(messages, displayText))) setIsExtracting(true);
+			},
+			onDone: (displayText, data) => {
+				// INIT mode: world_info present means world was just created
+				if (data?.world_info) {
+					if (!apply('done')) return;
+					endTurn({ saving: true }); // until 'saved'
+					phase.setDirectorStatus('done');
+					const worldInfo = {
+						...data.world_info,
+						generation_cost: data?.meta?.narration_cost || null,
+					};
+					phase.setWorldData(worldInfo);
+					phase.setGamePhase(phase.GAME_PHASE.WORLD_READY);
+					if (data.world_info.world?.name) gs.setGameName(data.world_info.world.name);
+					gs.setGameState(data.game_state);
+					return;
 				}
-				return prev;
-			});
-		},
-		onDone: (displayText, data) => {
-			endTurn({ saving: true }); // until 'saved'
 
-			// INIT mode: world_info present means world was just created
-			if (data?.world_info) {
-				phase.setDirectorStatus('done');
-				const worldInfo = {
-					...data.world_info,
-					generation_cost: data?.meta?.narration_cost || null,
-				};
-				phase.setWorldData(worldInfo);
-				phase.setGamePhase(phase.GAME_PHASE.WORLD_READY);
-				if (data.world_info.world?.name) gs.setGameName(data.world_info.world.name);
-				gs.setGameState(data.game_state);
-				return;
-			}
+				// LIGHT mode: display final narrative, with the ids the turn was saved with (#55)
+				if (!apply('done', messages => withAnswer(messages, displayText, data))) return;
+				endTurn({ saving: true }); // until 'saved'
+				if (data?.game_state) gs.setGameState(data.game_state);
 
-			// LIGHT mode: display final narrative, with the ids the turn was saved with (#55)
-			const gameData = data?.game_state?.game;
-			gs.setMessages(prev => {
-				const last = prev[prev.length - 1];
-				if (last?.role === 'assistant') {
-					return withTurnIds([...prev.slice(0, -1), {
-						...last,
-						content: displayText || last.content,
-						streaming: false,
-						extracting: false,
-						cost: data?.meta?.narration_cost || null,
-						cycle: gameData?.current_cycle || null,
-						time: gameData?.time || null,
-						game_date: gameData?.game_date || null,
-						location: gameData?.current_location || null,
-					}], data?.meta);
+				if (phase.gamePhase === phase.GAME_PHASE.STARTING_ADVENTURE) {
+					phase.setGamePhase(phase.GAME_PHASE.PLAYING);
 				}
-				return prev;
+			},
+			onSaved: () => {
+				if (!apply('saved')) return;
+				gs.setSaving(false);
+				tooltips.refresh();
+				world.refresh();
+			},
+			onSaveUnconfirmed: () => {
+				if (!apply('save_unconfirmed')) return;
+				gs.setSaving(false);
+				gs.setWarning(MESSAGES.SAVE_UNCONFIRMED);
+			},
+			onRollPending: (data) => {
+				// Fate Core: roll failed, player can invoke aspects. Not saved: a reopened game
+				// gets it back from its state (pending_roll).
+				if (!apply('roll_pending')) return;
+				endTurn();
+				// The roll may belong to an earlier action still waiting: show that one (#32).
+				if (data.player_message) {
+					gs.setMessages(prev => withPendingPlayerMessage(prev, data.player_message));
+					setLastUserMessage(data.player_message);
+				}
+				setInvocationData(toInvocationData(data));
+			},
+			onWarning: (message) => {
+				if (shown()) gs.setWarning(message);
+			},
+			onError: (err, details, meta = {}) => {
+				if (!apply('error')) return;
+				endTurn();
+				// Missing flag (client-side errors) means recoverable; the server says false when replaying would not help.
+				gs.setError({ message: err, details, recoverable: meta.recoverable !== false, code: meta.code });
+			},
+		};
+	}, [gs, phase, tooltips, world, endTurn]);
+
+	const { startStream, cancel } = useStreaming();
+
+	// The only /chat call: every body is built by buildChatPayload (#55). The turn of
+	// `gameId` shows `playerMessage` (none for protocol tokens) when that game is reopened.
+	const sendChat = useCallback(async (extra, { gameId = gs.gameId, playerMessage = null } = {}) => {
+		const live = { turn: startLiveTurn(gameId, playerMessage) };
+		turnsRef.current.set(gameId, live);
+		try {
+			return await startStream('/chat', buildChatPayload({ gameId, preferences }, extra), {
+				key: gameId,
+				callbacks: turnCallbacks(live),
 			});
-
-			if (data?.game_state) gs.setGameState(data.game_state);
-
-			if (phase.gamePhase === phase.GAME_PHASE.STARTING_ADVENTURE) {
-				phase.setGamePhase(phase.GAME_PHASE.PLAYING);
-			}
-		},
-		onSaved: () => {
-			gs.setSaving(false);
-			tooltips.refresh();
-			world.refresh();
-		},
-		onSaveUnconfirmed: () => {
-			gs.setSaving(false);
-			gs.setWarning(MESSAGES.SAVE_UNCONFIRMED);
-		},
-		onRollPending: (data) => {
-			// Fate Core: roll failed, player can invoke aspects
-			endTurn();
-			// The roll may belong to an earlier action still waiting: show that one (#32).
-			if (data.player_message) {
-				gs.setMessages(prev => withPendingPlayerMessage(prev, data.player_message));
-				setLastUserMessage(data.player_message);
-			}
-			setInvocationData(toInvocationData(data));
-		},
-		onWarning: (message) => {
-			gs.setWarning(message);
-		},
-		onError: (err, details, meta = {}) => {
-			endTurn();
-			// Missing flag (client-side errors) means recoverable; the server says false when replaying would not help.
-			gs.setError({ message: err, details, recoverable: meta.recoverable !== false, code: meta.code });
+		} finally {
+			if (turnsRef.current.get(gameId) === live) turnsRef.current.delete(gameId);
 		}
-	});
-
-	// The only /chat call: every body is built by buildChatPayload (#55).
-	const sendChat = useCallback((extra, gameId = gs.gameId) => (
-		startStream('/chat', buildChatPayload({ gameId, preferences }, extra))
-	), [startStream, gs.gameId, preferences]);
+	}, [startStream, turnCallbacks, gs.gameId, preferences]);
 
 	// =========================================================================
 	// WORLD GENERATION
@@ -200,7 +218,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				character_data: params.characterData,
 				manual_entities: params.manualEntities,
 			} : {}),
-		}, id);
+		}, { gameId: id });
 	}, [sendChat, gs, phase]);
 
 	/** Retry the world generation of the open game (after a failure, or on reopening it). */
@@ -243,7 +261,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		try {
 			const id = gameId || await games.createGame(params.engine);
 			onCreated?.(id);
-			gs.setGameId(id);
+			showGame(id);
 			if (!gameId) gs.setGameName(MESSAGES.NEW_GAME_NAME);
 
 			await games.loadGames();
@@ -253,7 +271,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			gs.setError({ message: e.message });
 			gs.setLoading(false);
 		}
-	}, [games, gs, generateWorld]);
+	}, [games, gs, generateWorld, showGame]);
 
 	const handleWizardCancel = useCallback(() => {
 		phase.setGamePhase(phase.GAME_PHASE.LIST);
@@ -263,9 +281,11 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		gs.setLoading(true);
 		gs.setError(null);
 		gs.setWarning(null);
+		// Taken before the load: the turn may end while the game loads (#143).
+		const live = turnsRef.current.get(id);
 		try {
 			const data = await games.loadGame(id);
-			gs.setGameId(id);
+			showGame(id);
 			gs.setGameName(data.state?.game?.name || MESSAGES.NEW_GAME_NAME);
 			setStoredInitParams(paramsFromServer(data.init_params));
 
@@ -278,15 +298,20 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			setInvocationData(invocationFromState(data.state));
 
 			const loadedMessages = data.messages || [];
-			if (pending?.player_message) {
-				gs.setMessages([...loadedMessages, { role: 'user', content: pending.player_message }]);
-				setLastUserMessage(pending.player_message);
-			} else {
-				gs.setMessages(loadedMessages);
-				setLastUserMessage('');
-			}
+			const savedMessages = pending?.player_message
+				? [...loadedMessages, { role: 'user', content: pending.player_message }]
+				: loadedMessages;
+			// The turn still running in this game (left during its narration) goes on at the
+			// end of the chat, unless the loaded history already holds it (#143).
+			const turn = live?.turn;
+			const shownMessages = withLiveTurn(savedMessages, turn);
+			const liveShown = shownMessages !== savedMessages;
+			gs.setMessages(shownMessages);
+			const liveAction = liveShown ? turn.messages.find(m => m.role === 'user')?.content : null;
+			setLastUserMessage(liveAction || pending?.player_message || '');
+			showTurnActivity(liveShown ? turn : null);
 
-			if (loadedMessages.length > 0) {
+			if (shownMessages.length > 0) {
 				phase.setGamePhase(phase.GAME_PHASE.PLAYING);
 			} else if (data.state?.world_created) {
 				if (data.world_info) {
@@ -300,16 +325,16 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			}
 		} catch (e) {
 			gs.setError({ message: e.message });
-		} finally {
 			gs.setLoading(false);
 		}
-	}, [games, gs, phase]);
+	}, [games, gs, phase, showGame, showTurnActivity]);
 
 	// True once the game is deleted.
 	const handleDeleteGame = useCallback(async (id) => {
 		try {
 			await games.deleteGame(id);
 			if (gs.gameId === id) {
+				openGameRef.current = null;
 				gs.resetGame();
 				phase.resetPhase();
 			}
@@ -328,12 +353,17 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		await games.loadGames();
 	}, [gs.gameId, games, gs]);
 
+	// Leaving cuts nothing: the game's stream runs on in the background, its events no
+	// longer reach the screen (#143).
 	const handleQuit = useCallback(() => {
+		openGameRef.current = null;
 		setStoredInitParams(null);
+		setInvocationData(null);
 		gs.resetGame();
+		showTurnActivity(null);
 		phase.resetPhase();
 		games.loadGames();
-	}, [gs, phase, games]);
+	}, [gs, phase, games, showTurnActivity]);
 
 	// =========================================================================
 	// MESSAGE HANDLERS
@@ -349,11 +379,13 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		gs.setLoading(true);
 		gs.setSaving(true);
 
-		await sendChat({ message: content });
+		await sendChat({ message: content }, { playerMessage: content });
 	}, [gs.gameId, isExtracting, sendChat, gs]);
 
 	const handleCancel = useCallback(() => {
-		if (cancel()) {
+		const live = turnsRef.current.get(gs.gameId);
+		if (cancel(gs.gameId)) {
+			if (live) live.turn = { ...live.turn, status: nextTurnStatus(live.turn.status, 'cancel') };
 			endTurn();
 			gs.setMessages(prev => {
 				const last = prev[prev.length - 1];
@@ -446,7 +478,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			message: lastUserMessage,
 			roll_id: invocationData.rollId,
 			invoked_aspects: invokedAspects,
-		});
+		}, { playerMessage: lastUserMessage });
 	}, [invocationData, gs, lastUserMessage, sendChat]);
 
 	const handleInvoke = useCallback((selectedAspects) => resumeRoll(selectedAspects), [resumeRoll]);
@@ -459,7 +491,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	return {
 		// State
 		isExtracting,
-		isStreaming,
 		editingIndex,
 		invocationData,
 		storedInitParams,
