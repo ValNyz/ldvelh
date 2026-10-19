@@ -5,10 +5,12 @@ import inspect
 import json
 import textwrap
 from pathlib import Path
+from types import SimpleNamespace
 
 from config import get_settings
 from repos import turns
 from services import rollback
+from services.engine import fate_core
 from services.game_service import GameService
 from tests.characterization import payloads
 from tests.helpers import last_user_message_id, narration_with, rollback_last_turn
@@ -377,6 +379,35 @@ async def test_legacy_resume_after_its_halted_turn_was_purged(
     await rollback_last_turn(harness, game_id)
     after = await _roll_state(harness, game_id, event["roll_id"])
     assert after["roll"] is None
+    assert after["fate_points"] == before["fate_points"]
+    assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
+
+
+async def test_rollback_of_a_resume_while_a_new_roll_is_pending(
+    harness, pending, monkeypatch
+):
+    """I1: the undo puts the resumed roll back to pending while the next action's roll is
+    pending (one pending roll per game, not deferrable): the latter is expired first."""
+    game_id, event = pending
+    before = await _roll_state(harness, game_id, event["roll_id"])
+    await _resume(harness, game_id, event)
+    harness.llm._responses["mechanical"] = payloads.mechanical(
+        requires_test=True, skill="Athlétisme", skill_value=0, difficulty=4
+    )
+    monkeypatch.setattr(fate_core, "random", SimpleNamespace(choice=lambda seq: -1))
+    events = await harness.chat(game_id, "Je saute encore.")
+    second = next(e for e in events if e["type"] == "roll_pending")
+
+    await rollback_last_turn(harness, game_id)
+    async with harness.pool.acquire() as conn:
+        rolls = {
+            str(r["id"]): r["status"]
+            for r in await conn.fetch(
+                "SELECT id, status FROM mechanic_rolls WHERE game_id = $1", game_id
+            )
+        }
+    assert rolls == {second["roll_id"]: "expired"}  # the resumed roll is gone
+    after = await _roll_state(harness, game_id, event["roll_id"])
     assert after["fate_points"] == before["fate_points"]
     assert after["turns"] == before["turns"] - {before["roll"]["turn_id"]}
 

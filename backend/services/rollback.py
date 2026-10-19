@@ -69,7 +69,9 @@ async def _adopt_legacy_halted_turns(
     - already purged by an earlier rollback (with the roll's insert): the old turn_id is
       cleared in the journal row, which goes with its turn in this transaction, so the
       undo cannot restore a dangling reference. Returns those rolls: the undo leaves them
-      pending with no insert left to undo, the caller deletes them."""
+      pending with no insert left to undo, the caller deletes them. A resume committed
+      with adoption also lands here (its halted turn is gone): the roll's insert, moved to
+      the resuming turn, removes the roll anyway and the caller's delete finds nothing."""
     rows = await conn.fetch(
         """SELECT DISTINCT turn_id, row_id, old_row ->> 'turn_id' AS halted
            FROM world_changes
@@ -113,6 +115,9 @@ async def undo_turns(conn, game_id: UUID, plan: RollbackPlan) -> dict:
             "DELETE FROM messages WHERE id = ANY($1)",
             [m["id"] for m in plan.messages_to_delete],
         )
+        # A roll pending now belongs to an open turn purged below: expire it (R12) before
+        # the undo, which may put an older roll back to pending (one per game).
+        await turns.expire_pending_rolls(conn, game_id)
         orphaned_rolls = await _adopt_legacy_halted_turns(conn, game_id, plan.turn_ids)
         undone = await _undo_changes(conn, plan.turn_ids)
         if orphaned_rolls:
