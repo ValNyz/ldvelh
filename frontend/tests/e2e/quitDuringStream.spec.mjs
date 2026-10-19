@@ -339,3 +339,120 @@ test('leaving during the arrival scene and reopening: its narration goes on, no 
 	await page.screenshot({ path: testInfo.outputPath('quit-12-arrival-done.png') });
 	expect(await chat.bodies()).toHaveLength(1);
 });
+
+// ---------------------------------------------------------------------------
+// Leaving the world generation and the arrival spinner
+// ---------------------------------------------------------------------------
+
+const PENDING_ID = '00000000-0000-0000-0000-000000000099';
+const PENDING_GAME = { state: { game: { name: 'Partie Kira', engine: 'd6' }, player: {}, world_created: false }, messages: [], init_params: null };
+const PROGRESS = { type: 'progress', rawJson: '{"world": {"name": "Station Kira", "type": "station"' };
+const WORLD_DONE = [
+	{ type: 'done', displayText: null, state: {
+		game_state: { game: { name: 'Station Kira', engine: 'd6' }, player: {}, world_created: true },
+		world_info: { world: { name: 'Station Kira' }, npc_count: 2, location_count: 3, org_count: 1 },
+	} },
+	{ type: 'saved' },
+];
+const back = (page) => page.getByRole('button', { name: 'Retour aux parties' });
+
+// A game whose world is not created yet; Réessayer starts its generation (stream 0).
+async function startGeneration(page) {
+	const chat = await setupStreamed(page, {
+		games: [{ id: PENDING_ID, name: 'Partie Kira', current_cycle: 0 }, GAMES[1]],
+		loads: { [`GET /games/${PENDING_ID}`]: () => PENDING_GAME },
+	});
+	await page.getByText('Partie Kira').click();
+	await page.getByRole('button', { name: 'Réessayer' }).click();
+	await expect(page.getByText('Création du monde...')).toBeVisible();
+	await expect.poll(async () => (await chat.bodies()).length).toBe(1);
+	return chat;
+}
+
+for (const when of ['before', 'after']) {
+	test(`leaving the world generation ${when} its progress and reopening: the generation goes on`, async ({ page }, testInfo) => {
+		const chat = await startGeneration(page);
+		if (when === 'after') {
+			await chat.push(0, PROGRESS);
+			await expect(page.getByText('Station Kira')).toBeVisible();
+		}
+		await expect(back(page)).toBeVisible();
+		await page.screenshot({ path: testInfo.outputPath(`quit-14-generation-${when}-progress.png`) });
+		await back(page).click();
+		await expect(page.getByText('Partie Neige')).toBeVisible();
+		if (when === 'before') await chat.push(0, PROGRESS); // arrives while away
+
+		await page.getByText('Partie Kira').click();
+		await expect(page.getByText('Création du monde...')).toBeVisible();
+		await expect(page.getByText('Station Kira')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Réessayer' })).toHaveCount(0);
+		await page.screenshot({ path: testInfo.outputPath(`quit-15-generation-reopened-${when}.png`) });
+
+		await chat.push(0, ...WORLD_DONE);
+		await chat.end(0);
+		await expect(page.getByText('✨ Monde créé')).toBeVisible();
+		await expect(page.getByRole('button', { name: /Commencer l'aventure/ })).toBeVisible();
+		expect(await chat.bodies()).toHaveLength(1);
+		expect(await chat.aborted(0)).toBe(false);
+	});
+}
+
+test('the world generation left for another game: nothing of it shows there', async ({ page }, testInfo) => {
+	const chat = await startGeneration(page);
+	await back(page).click();
+	await open(page, 'Partie Neige', 'Le froid te mord les doigts.');
+	await chat.push(0, PROGRESS, ...WORLD_DONE);
+	await chat.end(0);
+	await page.waitForTimeout(300); // let the events be handled
+	await expect(page.getByText('Le froid te mord les doigts.')).toBeVisible();
+	await expect(page.getByText('Station Kira')).toHaveCount(0);
+	await expect(page.getByText('✨ Monde créé')).toHaveCount(0);
+	await page.screenshot({ path: testInfo.outputPath('quit-16-generation-other-game.png') });
+});
+
+// Arrival started from a game whose world exists; leaves on the spinner, before any chunk.
+async function leaveArrivalSpinner(page, testInfo) {
+	const NEW_ID = '00000000-0000-0000-0000-0000000000ff';
+	const newGame = {
+		state: { game: { name: 'Partie Neuve' }, world_created: true },
+		world_info: { world: { name: 'Station Kira' }, npc_count: 2, location_count: 3, org_count: 1 },
+		messages: [],
+	};
+	const chat = await setupStreamed(page, {
+		games: [{ id: NEW_ID, name: 'Partie Neuve', current_cycle: 0 }, GAMES[1]],
+		loads: { [`GET /games/${NEW_ID}`]: () => newGame },
+	});
+	await page.getByText('Partie Neuve').click();
+	await page.getByRole('button', { name: /Commencer l'aventure/ }).click();
+	await expect(page.getByText("Début de l'aventure...")).toBeVisible();
+	await expect.poll(async () => (await chat.bodies()).length).toBe(1);
+	await page.screenshot({ path: testInfo.outputPath('quit-17-arrival-spinner.png') });
+	await back(page).click();
+	await expect(page.getByText('Partie Neige')).toBeVisible();
+	return chat;
+}
+
+test('leaving the arrival spinner before its first chunk and reopening: the arrival is reattached', async ({ page }, testInfo) => {
+	const chat = await leaveArrivalSpinner(page, testInfo);
+	await page.getByText('Partie Neuve').click();
+	await expect(page.getByText("Début de l'aventure...")).toBeVisible();
+	await expect(page.getByRole('button', { name: /Commencer l'aventure/ })).toHaveCount(0);
+
+	await chat.push(0, ...answer('Bienvenue sur la station.', LIVE_IDS));
+	await chat.end(0);
+	await expect(page.getByText('Bienvenue sur la station.')).toBeVisible();
+	await expect(page.getByPlaceholder(/Ton action/)).toBeEnabled();
+	await page.screenshot({ path: testInfo.outputPath('quit-18-arrival-reattached.png') });
+	expect(await chat.bodies()).toHaveLength(1);
+});
+
+test('the arrival left for another game: nothing of it shows there', async ({ page }, testInfo) => {
+	const chat = await leaveArrivalSpinner(page, testInfo);
+	await open(page, 'Partie Neige', 'Le froid te mord les doigts.');
+	await chat.push(0, ...answer('Bienvenue sur la station.', LIVE_IDS));
+	await chat.end(0);
+	await page.waitForTimeout(300); // let the events be handled
+	await expect(page.getByText('Bienvenue sur la station.')).toHaveCount(0);
+	await expect(page.getByText('Le froid te mord les doigts.')).toBeVisible();
+	await page.screenshot({ path: testInfo.outputPath('quit-19-arrival-other-game.png') });
+});

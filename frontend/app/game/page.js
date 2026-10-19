@@ -30,6 +30,7 @@ import WizardContainer from '../../components/game/wizard/WizardContainer';
 import { InventorySidebar, WorldSidebar } from '../../components/game/Sidebars';
 import CharacterSheet from '../../components/game/CharacterSheet';
 import AspectInvocationModal from '../../components/game/AspectInvocationModal';
+import BackToGamesButton from '../../components/game/BackToGamesButton';
 
 // Auth guard only: the game screen and its hooks render once the player is signed in (#53).
 export default function GamePage() {
@@ -244,6 +245,8 @@ function GameScreen({ user, logout }) {
 						<div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-16 border-4 border-primary rounded-full border-t-transparent animate-spin" />
 					</div>
 					<p className="text-gray-400">Début de l'aventure...</p>
+					{/* Leaving cuts nothing: the arrival goes on and is shown again on reopening (#143) */}
+					<BackToGamesButton onBack={orch.handleQuit} />
 				</div>
 			</div>
 		);

@@ -1,5 +1,7 @@
 'use client';
 
+import BackToGamesButton from './BackToGamesButton';
+
 /** A world generation that did not finish: retry it, edit its parameters first, or leave (#88). */
 export default function WorldRetryActions({ onRetry, onEdit, onBack }) {
 	return (
@@ -19,12 +21,7 @@ export default function WorldRetryActions({ onRetry, onEdit, onBack }) {
 						Modifier les paramètres
 					</button>
 				)}
-				<button
-					onClick={onBack}
-					className="flex-1 py-2.5 px-4 whitespace-nowrap text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
-				>
-					Retour aux parties
-				</button>
+				<BackToGamesButton onBack={onBack} className="flex-1" />
 			</div>
 		</div>
 	);

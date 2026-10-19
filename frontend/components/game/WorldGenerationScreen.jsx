@@ -8,6 +8,7 @@ import {
 	extractWorldName,
 } from '../../lib/game/progressUtils';
 import WorldRetryActions from './WorldRetryActions';
+import BackToGamesButton from './BackToGamesButton';
 
 export default function WorldGenerationScreen({
 	isGenerating,
@@ -235,6 +236,13 @@ export default function WorldGenerationScreen({
 						<br />
 						Cette étape peut prendre plusieurs minutes...
 					</p>
+				)}
+
+				{/* Leaving cuts nothing: the generation goes on and is shown again on reopening (#143) */}
+				{isGenerating && onBack && (
+					<div className="flex justify-center">
+						<BackToGamesButton onBack={onBack} />
+					</div>
 				)}
 			</div>
 		</div>
