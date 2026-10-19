@@ -19,7 +19,8 @@ export function useStreaming() {
 	 * @param {string} url
 	 * @param {Object} body
 	 * @param {Object} opts
-	 * @param {*} opts.key - starting a stream cancels the in-flight one of the same key only
+	 * @param {*} [opts.key] - starting a stream cancels the in-flight one of the same key only;
+	 *   callers without a key share the `null` slot (pass one to run streams side by side)
 	 * @param {Object} opts.callbacks - { onChunk, onProgress, onExtracting, onDone, onSaved,
 	 *   onSaveUnconfirmed, onError, onRollResult, onRollPending, onStatus, onWarning }
 	 */
@@ -81,7 +82,5 @@ export function useStreaming() {
 		return true;
 	}, []);
 
-	const isStreaming = useCallback((key = null) => controllersRef.current.has(key), []);
-
-	return { startStream, cancel, isStreaming };
+	return { startStream, cancel };
 }

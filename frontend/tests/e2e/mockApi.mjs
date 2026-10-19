@@ -64,3 +64,45 @@ export async function mockApi(page, handlers = {}) {
 	});
 	return { calls };
 }
+
+/**
+ * /chat answered by streams the test feeds event by event (a mocked route can only send a
+ * whole body at once): `fetch` is wrapped in the page for /api/chat only, and each request
+ * gets the next stream. Aborting the request (Annuler) errors its stream as fetch would.
+ * @param {import('@playwright/test').Page} page
+ */
+export async function streamedChat(page) {
+	await page.addInitScript(() => {
+		const original = window.fetch.bind(window);
+		const chat = { bodies: [], controllers: [], aborted: [] };
+		window.__chat = chat;
+		window.fetch = (input, init = {}) => {
+			const url = typeof input === 'string' ? input : input.url;
+			if (new URL(url, location.href).pathname.replace(/\/$/, '') !== '/api/chat') return original(input, init);
+			const index = chat.bodies.length;
+			chat.bodies.push(JSON.parse(init.body));
+			chat.aborted.push(false);
+			const body = new ReadableStream({ start(controller) { chat.controllers[index] = controller; } });
+			init.signal?.addEventListener('abort', () => {
+				chat.aborted[index] = true;
+				chat.controllers[index].error(new DOMException('The user aborted a request.', 'AbortError'));
+			});
+			return Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'text/event-stream' } }));
+		};
+	});
+	const state = () => page.evaluate(() => ({ bodies: window.__chat.bodies, aborted: window.__chat.aborted }));
+	return {
+		/** Bodies of the /chat requests sent so far. */
+		bodies: async () => (await state()).bodies,
+		/** Whether request `index` was aborted. */
+		aborted: async (index) => (await state()).aborted[index],
+		/** Sends `events` on stream `index` (dropped once it was aborted). */
+		push: (index, ...events) => page.evaluate(([i, text]) => {
+			if (!window.__chat.aborted[i]) window.__chat.controllers[i].enqueue(new TextEncoder().encode(text));
+		}, [index, events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('')]),
+		/** Ends stream `index`. */
+		end: (index) => page.evaluate((i) => {
+			if (!window.__chat.aborted[i]) window.__chat.controllers[i].close();
+		}, index),
+	};
+}

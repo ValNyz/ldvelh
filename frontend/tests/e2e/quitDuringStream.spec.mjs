@@ -1,7 +1,7 @@
 // Leaving a game while its narration streams cuts nothing (#143): the /chat request stays
 // open in the background, and its events only ever reach the game they belong to.
 import { test, expect } from '@playwright/test';
-import { mockApi } from './mockApi.mjs';
+import { mockApi, streamedChat } from './mockApi.mjs';
 
 const GAME_ID = '00000000-0000-0000-0000-0000000000dd';
 const OTHER_ID = '00000000-0000-0000-0000-0000000000ee';
@@ -49,23 +49,35 @@ test.beforeEach(({ page }) => {
 });
 test.afterEach(() => expect(crashes).toEqual([]));
 
-// Two games; the first /chat answer waits for `release()`, the next ones answer at once.
-// GET /games/{id} always returns the history without the turn played in the test.
-async function setup(page, chatAnswers) {
+const GAMES = [
+	{ id: GAME_ID, name: 'Partie Pluie', current_cycle: 1 },
+	{ id: OTHER_ID, name: 'Partie Neige', current_cycle: 1 },
+];
+const gate = () => {
 	let release;
-	const gate = new Promise(resolve => { release = resolve; });
+	const held = new Promise(resolve => { release = resolve; });
+	return { held, release };
+};
+
+// Two games; the first /chat answer waits for `releaseChat()`, the next ones answer at once.
+// GET /games/{id} always returns the history without the turn played in the test.
+// `holdReopen`: the second load of the first game (its reopening) waits for `releaseLoad()`.
+async function setup(page, chatAnswers, { holdReopen = false } = {}) {
+	const chatGate = gate();
+	const loadGate = gate();
 	let chatCount = 0;
+	let loads = 0;
 	const api = await mockApi(page, {
-		'GET /games': () => ({ games: [
-			{ id: GAME_ID, name: 'Partie Pluie', current_cycle: 1 },
-			{ id: OTHER_ID, name: 'Partie Neige', current_cycle: 1 },
-		] }),
-		[`GET /games/${GAME_ID}`]: () => GAME,
+		'GET /games': () => ({ games: GAMES }),
+		[`GET /games/${GAME_ID}`]: async () => {
+			if (++loads === 2 && holdReopen) await loadGate.held;
+			return GAME;
+		},
 		[`GET /games/${OTHER_ID}`]: () => OTHER_GAME,
 		[`POST /games/${GAME_ID}/rollback`]: () => ({ messages: HISTORY, state: GAME.state }),
 		'POST /chat': async () => {
 			const index = chatCount++;
-			if (index === 0) await gate;
+			if (index === 0) await chatGate.held;
 			return { __sse: chatAnswers[index] };
 		},
 	});
@@ -74,10 +86,10 @@ async function setup(page, chatAnswers) {
 	// Resolves once the held /chat answer has been delivered to the page.
 	const releaseChat = async () => {
 		const delivered = page.waitForEvent('requestfinished', r => r.url().includes('/api/chat'));
-		release();
+		chatGate.release();
 		await delivered;
 	};
-	return { requests, releaseChat };
+	return { api, requests, releaseChat, releaseLoad: loadGate.release };
 }
 
 async function open(page, name, lastMessage) {
@@ -105,7 +117,7 @@ test('reopening the game while its turn streams shows the action, then the reply
 
 	await open(page, 'Partie Pluie', 'Le hangar est désert.');
 	await expect(page.getByRole('button', { name: /Annuler/ })).toBeVisible();
-	await expect(page.getByText('Je sors.')).toBeVisible();
+	await expect(page.getByText('Je sors.')).toHaveCount(1);
 	await page.screenshot({ path: testInfo.outputPath('quit-1-reopened-in-flight.png') });
 
 	await releaseChat();
@@ -187,4 +199,121 @@ test('a pending roll arriving after the same game was reopened opens its modal t
 	await expect(page.getByRole('heading', { name: 'Invoquer un aspect ?' })).toBeVisible();
 	await expect(page.getByText('Je sors.')).toHaveCount(1);
 	await page.screenshot({ path: testInfo.outputPath('quit-7-roll-pending-reopened.png') });
+});
+
+test('a turn that failed after the player left: reopened, its action and error come back, Réessayer resends it', async ({ page }, testInfo) => {
+	const failure = { type: 'error', error: 'Le narrateur a échoué.', recoverable: true };
+	const { requests, releaseChat } = await setup(page, [[failure], answer('La porte grince.')]);
+	await sendThenLeave(page, requests);
+	await releaseChat();
+
+	await open(page, 'Partie Pluie', 'Le hangar est désert.');
+	await expect(page.getByText('Le narrateur a échoué.')).toBeVisible();
+	await expect(page.getByText('Je sors.')).toHaveCount(1);
+	await page.screenshot({ path: testInfo.outputPath('quit-8-failed-turn-reopened.png') });
+	await page.getByRole('button', { name: 'Réessayer' }).click();
+	await expect(page.getByText('La porte grince.')).toBeVisible();
+	expect(requests().map(c => c.body.message)).toEqual(['Je sors.', 'Je sors.']);
+});
+
+test('done and saved arriving while the game reopens: the turn and its state are not lost', async ({ page }, testInfo) => {
+	const { requests, releaseChat, releaseLoad } = await setup(page, [answer('La porte grince.', LIVE_IDS, GAME_STATE)], { holdReopen: true });
+	await sendThenLeave(page, requests);
+
+	await page.getByText('Partie Pluie').click(); // its load waits
+	await releaseChat(); // done + saved delivered while the game loads
+	releaseLoad(); // the load read before the commit: no turn, old state
+	await expect(page.getByText('La porte grince.')).toBeVisible();
+	await expect(page.getByText('Je sors.')).toHaveCount(1);
+	await expect(page.getByText('📍 Quai des brumes')).toBeVisible();
+	await expect(page.getByText(/4[\s\u202f]?242 cr/)).toBeVisible();
+	await expect(page.getByText('Sauvegarde...')).toHaveCount(0);
+	await expect(page.getByPlaceholder(/Ton action/)).toBeEnabled();
+	await page.screenshot({ path: testInfo.outputPath('quit-9-done-during-reopen.png') });
+});
+
+// ---------------------------------------------------------------------------
+// Streams fed event by event
+// ---------------------------------------------------------------------------
+
+async function setupStreamed(page, { games = GAMES, loads = {} } = {}) {
+	const chat = await streamedChat(page);
+	await mockApi(page, {
+		'GET /games': () => ({ games }),
+		[`GET /games/${GAME_ID}`]: () => GAME,
+		[`GET /games/${OTHER_ID}`]: () => OTHER_GAME,
+		...loads,
+	});
+	await page.goto('/game/');
+	return chat;
+}
+
+test('Annuler after reopening cuts that game\'s turn only; the game can send again', async ({ page }, testInfo) => {
+	const chat = await setupStreamed(page);
+	await open(page, 'Partie Pluie', 'Le hangar est désert.');
+	await send(page, 'Je sors.');
+	await expect.poll(async () => (await chat.bodies()).length).toBe(1);
+	await chat.push(0, { type: 'chunk', content: 'La porte ' });
+	await expect(page.getByText('La porte')).toBeVisible();
+	await page.getByTitle('Retour à la liste').click();
+
+	await open(page, 'Partie Neige', 'Le froid te mord les doigts.');
+	await send(page, 'Je fais un feu.');
+	await expect.poll(async () => (await chat.bodies()).length).toBe(2);
+	await page.getByTitle('Retour à la liste').click();
+
+	await open(page, 'Partie Pluie', 'Le hangar est désert.');
+	await expect(page.getByText('Je sors.')).toHaveCount(1);
+	await expect(page.getByText('La porte')).toBeVisible();
+	await page.getByRole('button', { name: /Annuler/ }).click();
+	await expect(page.getByText('(Annulé)')).toBeVisible();
+	expect(await chat.aborted(0)).toBe(true);
+	expect(await chat.aborted(1)).toBe(false);
+	await page.screenshot({ path: testInfo.outputPath('quit-10-cancel-after-reopen.png') });
+
+	// The other game's turn runs on and ends normally; nothing of it shows here.
+	await chat.push(1, ...answer('Tu te réchauffes.'));
+	await chat.end(1);
+	await expect(page.getByText('Tu te réchauffes.')).toHaveCount(0);
+
+	await send(page, 'Je reste.');
+	await expect.poll(async () => (await chat.bodies()).length).toBe(3);
+	await chat.push(2, ...answer('Tu restes au sec.'));
+	await chat.end(2);
+	await expect(page.getByText('Tu restes au sec.')).toBeVisible();
+	await expect(page.getByText('(Annulé)')).toBeVisible();
+	expect((await chat.bodies()).map(b => [b.gameId, b.message])).toEqual([
+		[GAME_ID, 'Je sors.'], [OTHER_ID, 'Je fais un feu.'], [GAME_ID, 'Je reste.'],
+	]);
+});
+
+test('leaving during the arrival scene and reopening: its narration goes on, no second arrival', async ({ page }, testInfo) => {
+	const NEW_ID = '00000000-0000-0000-0000-0000000000ff';
+	const newGame = {
+		state: { game: { name: 'Partie Neuve' }, world_created: true },
+		world_info: { world: { name: 'Station Kira' }, npc_count: 2, location_count: 3, org_count: 1 },
+		messages: [],
+	};
+	const chat = await setupStreamed(page, {
+		games: [{ id: NEW_ID, name: 'Partie Neuve', current_cycle: 0 }],
+		loads: { [`GET /games/${NEW_ID}`]: () => newGame },
+	});
+	await page.getByText('Partie Neuve').click();
+	await page.getByRole('button', { name: /Commencer l'aventure/ }).click();
+	await expect.poll(async () => (await chat.bodies()).length).toBe(1);
+	await chat.push(0, { type: 'chunk', content: 'Bienvenue sur ' });
+	await expect(page.getByText('Bienvenue sur')).toBeVisible();
+	await page.getByTitle('Retour à la liste').click();
+
+	await page.getByText('Partie Neuve').click();
+	await expect(page.getByText('Bienvenue sur')).toBeVisible();
+	await expect(page.getByRole('button', { name: /Commencer l'aventure/ })).toHaveCount(0);
+	await page.screenshot({ path: testInfo.outputPath('quit-11-arrival-reopened.png') });
+
+	await chat.push(0, { type: 'chunk', content: 'la station.' }, ...answer('Bienvenue sur la station.', LIVE_IDS).slice(1));
+	await chat.end(0);
+	await expect(page.getByText('Bienvenue sur la station.')).toBeVisible();
+	await expect(page.getByPlaceholder(/Ton action/)).toBeEnabled();
+	await page.screenshot({ path: testInfo.outputPath('quit-12-arrival-done.png') });
+	expect(await chat.bodies()).toHaveLength(1);
 });
