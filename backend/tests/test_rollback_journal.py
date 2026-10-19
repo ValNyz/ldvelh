@@ -423,6 +423,13 @@ async def _clock(harness, game_id) -> dict:
         )
 
 
+async def _fate_points(harness, game_id) -> int:
+    async with harness.pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id
+        )
+
+
 async def _seed_status(harness, game_id) -> str:
     async with harness.pool.acquire() as conn:
         return await conn.fetchval(
@@ -445,6 +452,7 @@ async def test_regenerate_after_a_day_change_restores_cycle_date_and_seeds(
             "UPDATE games SET current_cycle = 11 WHERE id = $1", fate_game
         )
     before = await _clock(harness, fate_game)
+    fate_points = await _fate_points(harness, fate_game)
     assert await _seed_status(harness, fate_game) == "active"
 
     harness.llm._responses["mechanical"] = payloads.mechanical(requires_test=True)
@@ -478,6 +486,7 @@ async def test_regenerate_after_a_day_change_restores_cycle_date_and_seeds(
 
     await rollback_last_turn(harness, fate_game)
     assert await _clock(harness, fate_game) == before
+    assert await _fate_points(harness, fate_game) == fate_points
     assert before["current_cycle"] == 11
     assert await _seed_status(harness, fate_game) == "active"
     async with harness.pool.acquire() as conn:
@@ -499,28 +508,30 @@ async def _turn_ids(harness, game_id) -> set:
         }
 
 
-async def test_rollback_of_three_turns_undoes_them_in_reverse_order(
-    harness, world_game
-):
-    """Turn 1 creates Mira, turn 2 renames her, turn 3 cites the new name in a fact: the
-    newest-first replay unwinds the fact, the rename, then the creation."""
-    turns_before = await _turn_ids(harness, world_game)
-    await _first_turn_creates_mira(harness, world_game)
-    first_user_msg = await last_user_message_id(harness, world_game)
+def _at(new_time: str) -> dict:
+    return {"new_time": new_time, "ellipse": False, "ellipse_summary": None}
+
+
+async def _rename_then_cite(harness, game_id):
+    """Turn 2 reveals Mira as Mira Vance at 11h00, turn 3 cites Mira Vance in a fact at
+    12h00; returns turn 2's user message id. Both turns move the clock: replayed in the
+    wrong order, the undo would leave it at 11h00 instead of turn 1's 10h15."""
     await _turn(
         harness,
-        world_game,
+        game_id,
         narration_with(
+            time=_at("11h00"),
             entity_reveals=[
                 {
                     "entity_type": "character",
                     "current_name": MIRA,
                     "real_name": "Mira Vance",
                 }
-            ]
+            ],
         ),
         "Je lui demande son vrai nom.",
     )
+    second_user_msg = await last_user_message_id(harness, game_id)
     harness.llm._responses["extract:extract_characters"] = {
         "facts": [
             {
@@ -535,40 +546,76 @@ async def test_rollback_of_three_turns_undoes_them_in_reverse_order(
     }
     await _turn(
         harness,
-        world_game,
-        narration_with(extraction_triggers=["characters"]),
+        game_id,
+        narration_with(time=_at("12h00"), extraction_triggers=["characters"]),
         "Je l'observe.",
     )
+    assert await _cited_facts(harness, game_id) == 1
+    return second_user_msg
+
+
+async def _cited_facts(harness, game_id) -> int:
+    """Facts of turn 3 (any participant name); 1 while Mira Vance is the participant."""
     async with harness.pool.acquire() as conn:
+        facts = await conn.fetchval(
+            """SELECT count(*) FROM facts
+               WHERE game_id = $1 AND semantic_key = 'mira:observe:foule'""",
+            game_id,
+        )
         cited = await conn.fetchval(
             """SELECT count(*) FROM facts f
                JOIN fact_participants p ON p.fact_id = f.id
                JOIN entity_registry e ON e.id = p.entity_id
                WHERE f.game_id = $1 AND f.semantic_key = 'mira:observe:foule'
                  AND e.name = 'Mira Vance'""",
-            world_game,
+            game_id,
         )
-    assert cited == 1
+    assert cited == facts
+    return facts
 
+
+async def _rollback_to(harness, game_id, message_id) -> dict:
     r = await harness.client.post(
-        f"/api/games/{world_game}/rollback",
-        json={"messageId": str(first_user_msg)},
+        f"/api/games/{game_id}/rollback",
+        json={"messageId": str(message_id)},
         headers=harness.headers,
     )
     assert r.status_code == 200, r.text
-    assert r.json()["rollback_result"]["deleted_turns"] == 3
+    return r.json()["rollback_result"]
+
+
+async def test_rollback_of_three_turns_undoes_them_in_reverse_order(
+    harness, world_game
+):
+    """Turn 1 creates Mira, turn 2 renames her, turn 3 cites the new name in a fact: the
+    newest-first replay unwinds the fact, the rename, then the creation."""
+    before = await _world(harness, world_game)
+    turns_before = await _turn_ids(harness, world_game)
+    await _first_turn_creates_mira(harness, world_game)
+    first_user_msg = await last_user_message_id(harness, world_game)
+    after_first = await _world(harness, world_game)
+    turns_after_first = await _turn_ids(harness, world_game)
+    assert after_first["current_time"] == "10h15"
+
+    # Partial: turns 3 then 2 undone; Mira is back under her turn-1 name, at 10h15.
+    second_user_msg = await _rename_then_cite(harness, world_game)
+    result = await _rollback_to(harness, world_game, second_user_msg)
+    assert result["deleted_turns"] == 2
+    assert await _world(harness, world_game) == after_first
+    assert MIRA in after_first["characters"] and MIRA in after_first["registry"]
+    assert "Mira Vance" not in after_first["characters"] + after_first["registry"]
+    assert await _cited_facts(harness, world_game) == 0
+    assert await _turn_ids(harness, world_game) == turns_after_first
+
+    # Full: the same two turns replayed, then all three undone.
+    await _rename_then_cite(harness, world_game)
+    result = await _rollback_to(harness, world_game, first_user_msg)
+    assert result["deleted_turns"] == 3
     world = await _world(harness, world_game)
+    assert world == before
     for name in (MIRA, "Mira Vance"):
         assert name not in world["characters"] and name not in world["registry"]
-    async with harness.pool.acquire() as conn:
-        assert (
-            await conn.fetchval(
-                """SELECT count(*) FROM facts
-                   WHERE game_id = $1 AND semantic_key = 'mira:observe:foule'""",
-                world_game,
-            )
-            == 0
-        )
+    assert await _cited_facts(harness, world_game) == 0
     assert await _turn_ids(harness, world_game) == turns_before
 
 

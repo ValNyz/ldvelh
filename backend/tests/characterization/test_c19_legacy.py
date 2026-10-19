@@ -268,6 +268,12 @@ async def test_legacy_game_new_turn_rolls_back_through_the_journal(
             game_id,
             payloads.NEW_CHARACTER_NAME,
         )
+        journaled = await conn.fetchval(
+            """SELECT count(*) FROM world_changes w JOIN turns t ON t.id = w.turn_id
+               WHERE t.game_id = $1::uuid""",
+            game_id,
+        )
+    assert journaled > 0  # the turn wrote through the journal
 
     await rollback_last_turn(h, game_id)
     after = {k: v for k, v in (await h.db_summary(game_id)).items() if k not in ignored}

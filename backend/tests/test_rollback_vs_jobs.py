@@ -176,6 +176,20 @@ async def test_rejected_rollback_still_returns_400(harness, world_game):
     assert _brief(await _messages(harness, world_game)) == _brief(msgs_before)
 
 
+async def _delete_waiting_on_a_lock(harness) -> None:
+    """Returns once a backend is blocked on a lock while deleting messages (the rollback's
+    first statement waiting for the FOR SHARE holder)."""
+    while True:
+        async with harness.pool.acquire() as conn:
+            if await conn.fetchval(
+                """SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+                   WHERE wait_event_type = 'Lock'
+                     AND query LIKE 'DELETE FROM messages WHERE id = ANY%')"""
+            ):
+                return
+        await asyncio.sleep(0.01)
+
+
 async def test_populate_that_wins_the_for_share_race_is_undone(harness, world_game):
     """A background write that share-locked the assistant message first commits before the
     rollback's DELETE goes through; journaled under the turn, the undo removes it too."""
@@ -214,8 +228,8 @@ async def test_populate_that_wins_the_for_share_race_is_undone(harness, world_ga
         )
     )
     try:
-        await asyncio.sleep(0.2)
-        assert not rollback.done()  # blocked on the DELETE by the FOR SHARE lock
+        await asyncio.wait_for(_delete_waiting_on_a_lock(harness), TIMEOUT)
+        assert not rollback.done()
     finally:
         release.set()
     await asyncio.wait_for(writer, TIMEOUT)
