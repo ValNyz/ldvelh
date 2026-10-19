@@ -299,12 +299,14 @@ async def test_undo_reverses_two_turns_in_order(test_pool, world):
     game_id, t1 = world
     populator = KnowledgeGraphPopulator(None, game_id)
     async with test_pool.acquire() as conn:
+        before = await _world(conn)
         t2 = await turns.open_turn(conn, game_id)
         async with uow(conn, t1):
             await _new_character(conn, game_id, "X")
         async with uow(conn, t2):
             await populator.mark_character_known(conn, "X", real_name="Y")
         await _undo(conn, t2, t1)
+        assert await _world(conn) == before
         names = await _registry_names(conn, game_id)
         chars = await conn.fetchval(
             "SELECT count(*) FROM characters WHERE game_id = $1 AND name IN ('X', 'Y')",
@@ -312,6 +314,28 @@ async def test_undo_reverses_two_turns_in_order(test_pool, world):
         )
     assert not names & {"X", "Y"}
     assert chars == 0
+
+
+async def test_undo_replays_newest_first_whatever_the_array_order(test_pool, world):
+    """The same column changed by two turns: only newest first ends on the value from
+    before both (oldest first would end on the middle one)."""
+    game_id, t1 = world
+    async with test_pool.acquire() as conn:
+        char_id = await _new_character(conn, game_id, "Lunatique")
+        before = await _world(conn)
+        t2 = await turns.open_turn(conn, game_id)
+        async with uow(conn, t1):
+            await conn.execute(
+                "UPDATE characters SET mood = 'gai' WHERE id = $1", char_id
+            )
+        async with uow(conn, t2):
+            await conn.execute(
+                "UPDATE characters SET mood = 'triste' WHERE id = $1", char_id
+            )
+        await _undo(conn, t1, t2)
+        mood = await conn.fetchval("SELECT mood FROM characters WHERE id = $1", char_id)
+        assert await _world(conn) == before
+    assert mood == "calme"
 
 
 async def test_undo_ignores_a_dropped_column(test_pool, world):
@@ -372,12 +396,92 @@ async def test_undo_still_enforces_foreign_keys(test_pool, world):
             await _undo(conn, turn_id)
 
 
+async def test_undo_skips_rows_of_a_dropped_table(test_pool, world):
+    """Whatever the op: the table's rows went with it."""
+    _, turn_id = world
+    async with test_pool.acquire() as conn:
+        for op, old_row in (("I", None), ("U", {"x": 1}), ("D", {"id": None, "x": 1})):
+            await conn.execute(
+                """INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row)
+                VALUES ($1, 'ghost_table', gen_random_uuid(), $2, $3::jsonb)""",
+                turn_id,
+                op,
+                old_row,
+            )
+        assert await _undo(conn, turn_id) == 3
+
+
+async def test_undo_refuses_a_table_that_is_not_journaled(test_pool, world):
+    _, turn_id = world
+    async with test_pool.acquire() as conn:
+        user = {"id": "00000000-0000-0000-0000-0000000000a1", "email": "x@y"}
+        await conn.execute(
+            """INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row)
+            VALUES ($1, 'users', $2, 'D', $3::jsonb)""",
+            turn_id,
+            UUID(user["id"]),
+            user,
+        )
+        with pytest.raises(asyncpg.RaiseError, match="users is not a journaled table"):
+            await _undo(conn, turn_id)
+        assert (
+            await conn.fetchval("SELECT count(*) FROM users WHERE email = 'x@y'") == 0
+        )
+
+
+async def _orphan_participant(conn) -> None:
+    await conn.execute(
+        "INSERT INTO fact_participants (fact_id, entity_id) "
+        "VALUES (gen_random_uuid(), gen_random_uuid())"
+    )
+
+
+async def test_foreign_keys_stay_immediate_outside_the_replay(test_pool):
+    """DEFERRABLE INITIALLY IMMEDIATE: an orphan still fails at its statement, inside a
+    transaction, not at COMMIT."""
+    async with test_pool.acquire() as conn, conn.transaction():
+        with pytest.raises(asyncpg.ForeignKeyViolationError):
+            async with conn.transaction():
+                await _orphan_participant(conn)
+
+
+async def test_a_failed_undo_leaves_triggers_and_foreign_keys_as_before(
+    test_pool, world
+):
+    """Caught by a savepoint, the failed replay leaves neither ldvelh.replay on (the
+    registry trigger fires again) nor the foreign keys deferred."""
+    game_id, turn_id = world
+    async with test_pool.acquire() as conn:
+        orphan = {
+            "id": "00000000-0000-0000-0000-0000000000f4",
+            "fact_id": "00000000-0000-0000-0000-0000000000f5",
+            "entity_id": "00000000-0000-0000-0000-0000000000f6",
+        }
+        await conn.execute(
+            """INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row)
+            VALUES ($1, 'fact_participants', $2, 'D', $3::jsonb)""",
+            turn_id,
+            UUID(orphan["id"]),
+            orphan,
+        )
+        async with conn.transaction():
+            with pytest.raises(asyncpg.ForeignKeyViolationError):
+                async with conn.transaction():
+                    await _undo(conn, turn_id)
+            await _new_character(conn, game_id, "Après")
+            assert "Après" in await _registry_names(conn, game_id)
+            with pytest.raises(asyncpg.ForeignKeyViolationError):
+                async with conn.transaction():
+                    await _orphan_participant(conn)
+
+
 async def test_every_foreign_key_the_replay_can_trip_is_deferrable(test_pool):
-    """Those of a journaled table, and the NO ACTION ones to a journaled table."""
+    """Those of a journaled table, and the NO ACTION ones to a journaled table; INITIALLY
+    IMMEDIATE, so normal writes still fail at the statement, not at COMMIT."""
     async with test_pool.acquire() as conn:
         rigid = await conn.fetch(
             """SELECT c.conname FROM pg_constraint c
-            WHERE c.contype = 'f' AND NOT c.condeferrable
+            WHERE c.contype = 'f' AND (NOT c.condeferrable OR c.condeferred)
               AND EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgname = 'zz_journal_id'
                             AND (t.tgrelid = c.conrelid
                                  OR (t.tgrelid = c.confrelid AND c.confdeltype = 'a')))"""
@@ -388,13 +492,15 @@ async def test_every_foreign_key_the_replay_can_trip_is_deferrable(test_pool):
 async def test_every_side_effect_trigger_of_a_journaled_table_skips_the_replay(
     test_pool,
 ):
-    """Their effects are journaled: the replay restores them from the journal."""
+    """Their effects are journaled: the replay restores them from the journal. Each one
+    starts by returning when ldvelh.replay is on."""
     async with test_pool.acquire() as conn:
         loud = await conn.fetch(
             """SELECT t.tgname FROM pg_trigger t JOIN pg_proc p ON p.oid = t.tgfoid
             WHERE NOT t.tgisinternal AND t.tgname NOT LIKE 'zz_journal_%'
               AND t.tgrelid IN (SELECT tgrelid FROM pg_trigger
                                  WHERE tgname = 'zz_journal_id')
-              AND p.prosrc NOT LIKE '%ldvelh.replay%'"""
+              AND p.prosrc !~ $1""",
+            r"IF current_setting\('ldvelh\.replay', true\) = 'on' THEN\s+RETURN NEW;",
         )
     assert [r["tgname"] for r in loud] == []
