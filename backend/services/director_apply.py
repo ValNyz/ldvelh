@@ -9,8 +9,9 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from domain.errors import SourceMessageGone
 from kg.item_writes import write_item
-from repos import turns as turns_repo
+from repos.uow import uow
 from schema.director import DirectorOutput
 
 if TYPE_CHECKING:
@@ -21,28 +22,30 @@ logger = logging.getLogger(__name__)
 
 async def apply_director_plan(
     conn: Connection, game_id: UUID, plan: DirectorOutput, *,
-    cycle: int, ig_time: str, source_message_id: UUID | None,
+    cycle: int, ig_time: str, source_message_id: UUID | None, turn_id: UUID | None,
 ) -> bool:
-    """Store the plan, last_director_time and arc updates in one transaction.
+    """Store the plan, last_director_time and arc updates in the turn's unit of work.
 
+    The writes are journaled under `turn_id` when given (#105); the initial Director has none.
     With `source_message_id`, the message is share-locked first (a rollback deleting it
     waits for the commit); if it is gone, nothing is written and False is returned.
     Each arc update runs in its own savepoint: a failed one is recorded and logged alone.
     """
-    async with conn.transaction():
-        if source_message_id is not None and not await \
-                turns_repo.hold_source_message(conn, source_message_id):
-            logger.warning(f"[DIRECTOR] Source message gone, plan dropped game={game_id}")
-            return False
-        await _insert_plan(conn, game_id, plan, cycle, ig_time)
-        await _update_last_director_time(conn, game_id, ig_time)
-        errors: list[str] = []
-        for arc_update in plan.arc_updates:
-            await write_item(
-                conn, errors, "arc",
-                lambda arc_update=arc_update: _apply_arc_update(conn, game_id, arc_update, cycle),
-                "[DIRECTOR] ",
-            )
+    try:
+        async with uow(conn, turn_id, source_message_id=source_message_id):
+            await _insert_plan(conn, game_id, plan, cycle, ig_time)
+            await _update_last_director_time(conn, game_id, ig_time)
+            errors: list[str] = []
+            for arc_update in plan.arc_updates:
+                await write_item(
+                    conn, errors, "arc",
+                    lambda arc_update=arc_update: _apply_arc_update(
+                        conn, game_id, arc_update, cycle),
+                    "[DIRECTOR] ",
+                )
+    except SourceMessageGone:
+        logger.warning(f"[DIRECTOR] Source message gone, plan dropped game={game_id}")
+        return False
     return True
 
 

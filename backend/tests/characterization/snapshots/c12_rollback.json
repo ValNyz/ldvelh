@@ -11,7 +11,7 @@
     "director_plans": 1,
     "entity_registry": 14,
     "events": 1,
-    "extraction_logs": 2,
+    "extraction_logs": 1,
     "facts": 5,
     "inventory": 2,
     "locations": 6,
@@ -128,10 +128,6 @@
     "entity_registry": [
       13,
       14
-    ],
-    "extraction_logs": [
-      1,
-      2
     ]
   },
   "response_deleted": 2,
@@ -153,6 +149,10 @@
   "response_state_cycle": 1,
   "response_target_cycle": 1,
   "rollback_changed": {
+    "extraction_logs": [
+      2,
+      1
+    ],
     "messages": [
       4,
       2

@@ -1241,17 +1241,19 @@ class KnowledgeGraphPopulator:
     # =========================================================================
 
     async def log_extraction(
-        self, conn: Connection, cycle: int, stats: dict
+        self, conn: Connection, cycle: int, stats: dict, turn_id: UUID | None = None
     ) -> UUID:
+        """Audit row of one extraction; `turn_id` ties it to its turn (deleted with it)."""
         return await conn.fetchval(
             """INSERT INTO extraction_logs
-               (game_id, cycle, facts_created, entities_modified, errors)
-               VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+               (game_id, cycle, facts_created, entities_modified, errors, turn_id)
+               VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
             self.game_id,
             cycle,
             stats.get("facts_created", 0),
             stats.get("entities_created", 0) + stats.get("entities_updated", 0),
             stats.get("errors"),
+            turn_id,
         )
 
     # =========================================================================

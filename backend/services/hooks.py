@@ -2,11 +2,13 @@
 
 `on_turn_committed` subscribers run after every turn, each on its own: a failure is logged
 and the next one still runs. They run outside any guard: a subscriber that writes must
-share-lock `event.assistant_message_id` itself (repos.turns.hold_source_message, in its
-own transaction, as services/director_apply.py does) and skip its writes when it is gone.
-`on_new_cycle` subscribers run when the turn started a new in-game day, all in one
-transaction that holds the turn's assistant message (a rollback deleting it waits for the
-commit; a turn already rolled back runs nothing); only they are guarded by this runner.
+open the turn's unit of work itself (repos.uow.uow with `event.turn_id` and
+`event.assistant_message_id`, as services/director_apply.py does) and skip its writes when
+the message is gone (SourceMessageGone).
+`on_new_cycle` subscribers run when the turn started a new in-game day, all in the turn's
+unit of work (journaled under `event.turn_id`, #105), which holds the turn's assistant
+message (a rollback deleting it waits for the commit; a turn already rolled back runs
+nothing); only they are guarded by this runner.
 Subscribers are registered once by services/subscribers.py, in registration order.
 """
 
@@ -17,9 +19,10 @@ from uuid import UUID
 import asyncpg
 
 from config import get_settings
+from domain.errors import SourceMessageGone
 from domain.turn import TurnCommitted
 from llm.session import LLMSession
-from repos import turns as turns_repo
+from repos.uow import uow
 from utils.log_safe import log_exception
 
 logger = logging.getLogger(__name__)
@@ -68,19 +71,18 @@ async def run_turn_committed(pool: asyncpg.Pool, session: LLMSession,
 
 
 async def run_new_cycle(pool: asyncpg.Pool, event: TurnCommitted) -> None:
-    """The new-cycle subscribers in one transaction: one failure rolls them all back."""
+    """The new-cycle subscribers in the turn's unit of work: one failure rolls them all back."""
     current: CycleHook | None = None
-    phase = "hold_source_message"  # what failed when no subscriber is running
+    phase = "unit of work"  # what failed when no subscriber is running
     async with pool.acquire() as conn:
         try:
-            async with conn.transaction():
-                if not await turns_repo.hold_source_message(conn, event.assistant_message_id):
-                    logger.info(f"[HOOKS] Turn rolled back, new_cycle skipped "
-                                f"game={event.game_id} cycle={event.cycle}")
-                    return
+            async with uow(conn, event.turn_id, source_message_id=event.assistant_message_id):
                 for current in list(_cycle_hooks):
                     await current(conn, event.game_id, event.cycle)
                 current, phase = None, "commit"  # every subscriber succeeded
+        except SourceMessageGone:
+            logger.info(f"[HOOKS] Turn rolled back, new_cycle skipped "
+                        f"game={event.game_id} cycle={event.cycle}")
         except Exception as exc:
             what = f"subscriber {_name(current)}" if current is not None else phase
             log_exception(logger, logging.ERROR,

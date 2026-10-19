@@ -177,7 +177,7 @@ async def test_populate_skips_when_the_source_message_is_gone(test_pool, test_us
     """#23: the source message was rolled back: nothing is written, the run is skipped."""
     extractor, game_id = await extractor_for(
         test_pool, test_user, {"entities_created": [{"name": "Zeta"}]})
-    result = await extractor.run("texte", {}, 1, source_message_id=uuid4())
+    result = await extractor.run("texte", {}, 1, source_message_id=uuid4(), turn_id=uuid4())
 
     assert result["success"] is False and result["skipped"] is True
     assert result["error"] == "source_message_gone"

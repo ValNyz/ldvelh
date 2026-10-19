@@ -32,6 +32,7 @@ async def run_post_turn(
         assistant_message_id=event.assistant_message_id,
         message_content=message_content,
         narrator_deltas=narrator_deltas,
+        turn_id=event.turn_id,
     )
     if event.new_cycle:
         await hooks.run_new_cycle(pool, event)

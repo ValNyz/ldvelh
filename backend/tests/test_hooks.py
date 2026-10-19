@@ -7,25 +7,29 @@ import pytest
 
 from domain.turn import NarrationState, TurnCommitted
 from repos import turns
+from repos import uow as uow_module
 from services import hooks, subscribers
 
 
-def _event(game_id, message_id, *, previous_cycle=1, cycle=2) -> TurnCommitted:
+def _event(game_id, message_id, *, previous_cycle=1, cycle=2, turn_id=None) -> TurnCommitted:
     return TurnCommitted(game_id=game_id, previous_cycle=previous_cycle, cycle=cycle,
                          time="08h00", user_message_id=uuid4(), assistant_message_id=message_id,
-                         turn_id=uuid4())
+                         turn_id=turn_id or uuid4())
 
 
 async def _game_with_message(pool, user):
+    """A game with one committed turn: (game id, its assistant message id, its turn id)."""
     from services.game_service import GameService
 
     game_id = await GameService(pool).create_game(user["id"])
     async with pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game_id)
         _, assistant_id = await turns.save_turn_messages(
             conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
             state=NarrationState(cycle=1, time="", location=None, npcs_present=[], date=None),
-            narrator_deltas={}, engine_snapshot=None, turn_id=None)
-    return game_id, assistant_id
+            narrator_deltas={}, engine_snapshot=None, turn_id=turn_id)
+        await turns.mark_committed(conn, turn_id)
+    return game_id, assistant_id, turn_id
 
 
 async def test_turn_hooks_run_in_order_and_survive_a_failure(caplog):
@@ -56,7 +60,7 @@ async def test_turn_hooks_run_in_order_and_survive_a_failure(caplog):
 
 @pytest.mark.integration
 async def test_new_cycle_hooks_share_one_transaction(test_pool, test_user):
-    game_id, message_id = await _game_with_message(test_pool, test_user)
+    game_id, message_id, turn_id = await _game_with_message(test_pool, test_user)
     hooks.reset()
 
     @hooks.on_new_cycle
@@ -68,7 +72,7 @@ async def test_new_cycle_hooks_share_one_transaction(test_pool, test_user):
     async def boom(conn, gid, cycle):
         raise RuntimeError("subscriber exploded")
 
-    await hooks.run_new_cycle(test_pool, _event(game_id, message_id))
+    await hooks.run_new_cycle(test_pool, _event(game_id, message_id, turn_id=turn_id))
 
     async with test_pool.acquire() as conn:
         seeds = await conn.fetchval("SELECT count(*) FROM narrative_seeds WHERE game_id = $1",
@@ -77,8 +81,8 @@ async def test_new_cycle_hooks_share_one_transaction(test_pool, test_user):
 
 
 @pytest.mark.integration
-async def test_new_cycle_hooks_skip_a_rolled_back_turn(test_pool, test_user):
-    game_id, _ = await _game_with_message(test_pool, test_user)
+async def test_new_cycle_hooks_skip_a_rolled_back_turn(test_pool, test_user, caplog):
+    game_id, _, turn_id = await _game_with_message(test_pool, test_user)
     hooks.reset()
     calls = []
 
@@ -86,9 +90,13 @@ async def test_new_cycle_hooks_skip_a_rolled_back_turn(test_pool, test_user):
     async def spy(conn, gid, cycle):
         calls.append(cycle)
 
-    await hooks.run_new_cycle(test_pool, _event(game_id, uuid4()))
+    with caplog.at_level(logging.INFO, logger="services.hooks"):
+        await hooks.run_new_cycle(test_pool, _event(game_id, uuid4(), turn_id=turn_id))
 
     assert calls == []
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("Turn rolled back, new_cycle skipped" in m for m in messages)
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
 
 
 async def test_new_cycle_commit_failure_blames_the_commit(monkeypatch, caplog):
@@ -104,8 +112,14 @@ async def test_new_cycle_commit_failure_blames_the_commit(monkeypatch, caplog):
             return False
 
     class FakeConn:
+        def is_in_transaction(self):
+            return False
+
         def transaction(self):
             return CommitFails()
+
+        async def execute(self, *args):
+            return None
 
     class FakePool:
         @asynccontextmanager
@@ -115,7 +129,7 @@ async def test_new_cycle_commit_failure_blames_the_commit(monkeypatch, caplog):
     async def held(conn, message_id):
         return True
 
-    monkeypatch.setattr(turns, "hold_source_message", held)
+    monkeypatch.setattr(uow_module, "hold_source_message", held)
     hooks.reset()
     calls = []
 
@@ -146,14 +160,15 @@ def test_register_defaults_wires_director_engine_and_seeds():
 
 @pytest.mark.integration
 async def test_archive_seeds_at_new_cycle(test_pool, test_user):
-    game_id, message_id = await _game_with_message(test_pool, test_user)
+    game_id, message_id, turn_id = await _game_with_message(test_pool, test_user)
     async with test_pool.acquire() as conn:
         for cycle in (1, 5):
             await conn.execute(
                 "INSERT INTO narrative_seeds (game_id, cycle, text) VALUES ($1, $2, $3)",
                 game_id, cycle, f"graine {cycle}")
 
-    await hooks.run_new_cycle(test_pool, _event(game_id, message_id, previous_cycle=11, cycle=12))
+    await hooks.run_new_cycle(test_pool, _event(game_id, message_id, previous_cycle=11, cycle=12,
+                                                turn_id=turn_id))
 
     async with test_pool.acquire() as conn:
         rows = await conn.fetch(

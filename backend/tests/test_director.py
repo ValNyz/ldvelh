@@ -384,10 +384,11 @@ class TestDirectorGuards:
         game_id = await service.create_game(test_user["id"])
         await service.process_init(game_id, WorldGeneration.model_validate(json.loads(WORLD_GENERATION_EXAMPLE)))
         async with test_pool.acquire() as conn:
+            turn_id = await turns.open_turn(conn, game_id)  # the plan is journaled under it
             _, assistant_id = await turns.save_turn_messages(
                 conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
                 state=NarrationState(cycle=1, time="08h00", location=None, npcs_present=[], date=None),
-                narrator_deltas={}, engine_snapshot=None, turn_id=None)
+                narrator_deltas={}, engine_snapshot=None, turn_id=turn_id)
 
         from tests.test_llm_session import FakeProvider
 
@@ -402,7 +403,7 @@ class TestDirectorGuards:
         session = LLMSession.from_provider(provider)
         event = TurnCommitted(game_id=game_id, previous_cycle=1, cycle=1, time="08h00",
                               user_message_id=uuid4(), assistant_message_id=assistant_id,
-                              turn_id=uuid4())
+                              turn_id=turn_id)
         for _ in range(2):
             supervisor.enqueue(game_id, "post_turn", hooks.run_turn_committed(test_pool, session, event))
         with caplog.at_level(logging.ERROR, logger="services.hooks"):

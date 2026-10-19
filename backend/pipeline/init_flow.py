@@ -139,8 +139,10 @@ async def _run_initial_director(ctx: TurnContext) -> None:
             logger.warning("[DIRECTOR] No snapshot for the initial run, using cycle 1 at "
                            f"{DEFAULT_GAME_TIME}")
         await asyncio.wait_for(
+            # world generation and the initial Director are never rolled back: not journaled
             run_director(pool=ctx.pool, game_id=ctx.request.game_id, current_cycle=cycle,
-                         current_time=game_time, session=ctx.session, sse_writer=ctx.sink),
+                         current_time=game_time, session=ctx.session, sse_writer=ctx.sink,
+                         turn_id=None),
             timeout=DIRECTOR_INIT_TIMEOUT,
         )
         logger.info("[CHAT] Initial Director run completed")

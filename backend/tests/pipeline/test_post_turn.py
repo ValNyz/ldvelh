@@ -41,7 +41,7 @@ async def test_two_post_turn_jobs_run_in_order_and_both_extract(monkeypatch):
     calls, results = [], []
 
     async def recorder(pool, game_id, *, trigger_cycle, triggers, session,
-                       assistant_message_id, message_content, narrator_deltas):
+                       assistant_message_id, message_content, narrator_deltas, turn_id):
         calls.append(assistant_message_id)
         if len(calls) == 1:
             started.set()
@@ -88,7 +88,8 @@ async def test_run_post_turn_forwards_the_turn(monkeypatch):
     assert seen == {"pool": pool, "game_id": event.game_id, "trigger_cycle": 2,
                     "triggers": None, "session": session,
                     "assistant_message_id": event.assistant_message_id,
-                    "message_content": "texte", "narrator_deltas": {"a": 1}}
+                    "message_content": "texte", "narrator_deltas": {"a": 1},
+                    "turn_id": event.turn_id}
 
 
 @pytest.mark.parametrize(("cycle", "expected"), [

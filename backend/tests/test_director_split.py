@@ -95,7 +95,7 @@ async def test_apply_is_one_transaction(test_pool, test_user, monkeypatch):
     async with test_pool.acquire() as conn:
         with pytest.raises(RuntimeError):
             await director_apply.apply_director_plan(conn, game_id, plan, cycle=1, ig_time="08h00",
-                                                     source_message_id=None)
+                                                     source_message_id=None, turn_id=None)
     assert await _counts(test_pool, game_id) == before
 
 
@@ -112,7 +112,7 @@ async def test_failed_arc_update_is_recorded_alone(test_pool, test_user, caplog)
     caplog.set_level(logging.WARNING)
     async with test_pool.acquire() as conn:
         done = await apply_director_plan(conn, game_id, plan, cycle=1, ig_time="10h00",
-                                         source_message_id=None)
+                                         source_message_id=None, turn_id=None)
         last = await conn.fetchval("SELECT last_director_time FROM games WHERE id = $1", game_id)
 
     assert done is True
@@ -132,7 +132,8 @@ async def test_apply_drops_the_plan_when_the_source_message_is_gone(test_pool, t
     caplog.set_level(logging.WARNING)
     async with test_pool.acquire() as conn:
         done = await apply_director_plan(conn, game_id, _plan(ArcUpdate(action="create", title="A")),
-                                         cycle=1, ig_time="08h00", source_message_id=uuid4())
+                                         cycle=1, ig_time="08h00", source_message_id=uuid4(),
+                                         turn_id=uuid4())
     assert done is False
     assert await _counts(test_pool, game_id) == before
     assert any(f"[DIRECTOR] Source message gone, plan dropped game={game_id}" in r.getMessage()
@@ -154,7 +155,7 @@ async def test_apply_keeps_the_plan_when_the_source_message_exists(test_pool, te
             state=state, narrator_deltas={}, engine_snapshot=None, turn_id=None,
         )
         done = await apply_director_plan(conn, game_id, _plan(), cycle=1, ig_time="08h00",
-                                         source_message_id=message_id)
+                                         source_message_id=message_id, turn_id=None)
     assert done is True
     plans_after, _ = await _counts(test_pool, game_id)
     assert plans_after == plans_before + 1

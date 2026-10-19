@@ -5,7 +5,7 @@ Post-turn background job, queued per game by the supervisor (pipeline/post_turn.
 1. Resolver: entity annotations (for tooltips)
 2. Extractors: entity/relation extraction (phase a: entities, phase b: arcs)
 3. Re-apply entity_reveals (fix race condition with the narrator deltas applied at turn commit),
-   share-locking the source message like the extractors (#23)
+   in the turn's unit of work, share-locking the source message like the extractors (#23, #105)
 """
 
 import asyncio
@@ -16,11 +16,12 @@ from uuid import UUID
 import asyncpg
 
 from config import get_settings
+from domain.errors import SourceMessageGone
 from llm.session import LLMSession
 
 from kg.item_writes import write_item
 from kg.populator import KnowledgeGraphPopulator
-from repos import turns as turns_repo
+from repos.uow import uow
 from utils.log_safe import log_exception, safe_repr, safe_text
 
 from .characters import CharactersExtractor
@@ -125,12 +126,14 @@ async def run_resolve_and_extract(
     assistant_message_id: UUID | None = None,
     message_content: str | None = None,
     narrator_deltas: dict | None = None,
+    turn_id: UUID | None = None,
 ) -> dict:
     """Background task: resolver → extractors → re-apply entity_reveals.
 
     Always runs the resolver (for tooltip annotations).
     Only runs extractors if triggers is non-empty.
     Re-applies entity_reveals after extraction to fix race condition.
+    World writes are journaled under `turn_id` when given (#105).
     """
     try:
         result = {"resolver": None, "extractors": {}}
@@ -208,6 +211,7 @@ async def run_resolve_and_extract(
                         trigger_cycle=trigger_cycle,
                         resolution_map=resolution_map,
                         source_message_id=assistant_message_id,
+                        turn_id=turn_id,
                     )
                     for t in trigger_names
                 ]
@@ -251,13 +255,13 @@ async def run_resolve_and_extract(
             entity_reveals = narrator_deltas.get("entity_reveals", [])
             if entity_reveals:
                 populator = KnowledgeGraphPopulator(pool, game_id)
-                async with pool.acquire() as conn, conn.transaction():
+                async with pool.acquire() as conn:
                     # Share-lock the source message: a rollback deleting it waits for
                     # these writes, and reveals of an already-deleted turn are skipped.
-                    if assistant_message_id is None or \
-                            await turns_repo.hold_source_message(conn, assistant_message_id):
-                        await _apply_entity_reveals(conn, populator, entity_reveals)
-                    else:
+                    try:
+                        async with uow(conn, turn_id, source_message_id=assistant_message_id):
+                            await _apply_entity_reveals(conn, populator, entity_reveals)
+                    except SourceMessageGone:
                         logger.info("[EXTRACTION] Source message gone, entity_reveals skipped")
         except Exception as e:
             logger.warning(f"[EXTRACTION] Re-apply entity_reveals failed: {safe_repr(e)}")

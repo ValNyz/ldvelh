@@ -18,7 +18,7 @@ from uuid import UUID
 from kg.item_writes import write_item, write_items
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
-from repos import turns as turns_repo
+from repos.uow import uow
 from config import get_settings
 from domain.errors import SourceMessageGone
 from prompts.extraction.shared import protagonist_section
@@ -59,11 +59,13 @@ class BaseExtractor(ABC):
         resolution_map: "ResolutionMap | None" = None,
         *,
         source_message_id: UUID | None = None,
+        turn_id: UUID | None = None,
     ) -> dict:
         """Extract entities from a single message.
 
         With `source_message_id`, nothing is written if that message was deleted meanwhile
-        (rolled back): the run is then reported as skipped.
+        (rolled back): the run is then reported as skipped. With `turn_id`, the writes are
+        journaled under that turn (#105); without it (unit tests), they are not.
         """
         t0 = time.perf_counter()
         et = self.extraction_type
@@ -95,7 +97,7 @@ class BaseExtractor(ABC):
 
             # 5. Populate DB (new connection + transaction, one savepoint per item)
             stats, populate_error = await self._populate_committed(
-                raw_result, trigger_cycle, source_message_id)
+                raw_result, trigger_cycle, source_message_id, turn_id)
             elapsed = (time.perf_counter() - t0) * 1000
             result = {"type": et, "stats": stats, "ms": int(elapsed), "cost": call_cost}
             if populate_error:
@@ -119,9 +121,10 @@ class BaseExtractor(ABC):
             return {"type": et, "success": False, "error": safe_text(e), "cost": call_cost}
 
     async def _populate_committed(
-        self, raw_result: dict, cycle: int, source_message_id: UUID | None = None
+        self, raw_result: dict, cycle: int, source_message_id: UUID | None = None,
+        turn_id: UUID | None = None,
     ) -> tuple[dict, str | None]:
-        """Run `_populate` in one transaction and log the outcome to extraction_logs.
+        """Run `_populate` in the turn's unit of work and log the outcome to extraction_logs.
 
         Returns (stats, error). On error the whole transaction was rolled back: stats then
         only carry that error, since none of the counted writes were committed.
@@ -133,10 +136,7 @@ class BaseExtractor(ABC):
         error = None
         async with self.pool.acquire() as conn:
             try:
-                async with conn.transaction():
-                    if source_message_id is not None and not await \
-                            turns_repo.hold_source_message(conn, source_message_id):
-                        raise SourceMessageGone(source_message_id)
+                async with uow(conn, turn_id, source_message_id=source_message_id):
                     await self.populator.load_registry(conn)
                     stats = await self._populate(conn, raw_result, cycle)
             except SourceMessageGone:
@@ -149,7 +149,7 @@ class BaseExtractor(ABC):
 
             # Log extraction for auditing
             try:
-                await self.populator.log_extraction(conn, cycle, stats)
+                await self.populator.log_extraction(conn, cycle, stats, turn_id)
             except Exception as log_err:
                 log_cause(logger, logging.WARNING, f"[{et}] Log failed", log_err,
                           debug_detail=get_settings().log_prompts)

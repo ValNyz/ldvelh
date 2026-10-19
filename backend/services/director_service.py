@@ -123,11 +123,13 @@ async def run_director(
     sse_writer=None,
     *,
     source_message_id: UUID | None = None,
+    turn_id: UUID | None = None,
 ) -> dict | None:
     """Run the Director and store its plan: collect, call, apply (#96).
 
     No connection is held during the LLM call. With `source_message_id`, the plan is
-    dropped if that message was deleted (rolled back) meanwhile.
+    dropped if that message was deleted (rolled back) meanwhile. With `turn_id`, its writes
+    are journaled under that turn (#105).
     One run per game at a time: every run is a supervisor job of the game (workers/supervisor).
     """
     logger.info(f"[DIRECTOR] Starting for game {game_id} at cycle {current_cycle} {current_time}")
@@ -147,7 +149,7 @@ async def run_director(
         async with pool.acquire() as conn:
             stored = await apply_director_plan(
                 conn, game_id, plan, cycle=current_cycle, ig_time=current_time,
-                source_message_id=source_message_id,
+                source_message_id=source_message_id, turn_id=turn_id,
             )
         if not stored:
             return None
@@ -178,4 +180,4 @@ async def on_turn_committed(pool: asyncpg.Pool, session: LLMSession, event: Turn
         return
     logger.info(f"[DIRECTOR] Triggered game={event.game_id} at {event.time}")
     await run_director(pool, event.game_id, event.cycle, event.time, session,
-                       source_message_id=event.assistant_message_id)
+                       source_message_id=event.assistant_message_id, turn_id=event.turn_id)
