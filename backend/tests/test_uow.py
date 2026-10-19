@@ -112,3 +112,11 @@ async def test_uow_rolls_back_on_error(test_pool, game, turn):
             )
             == 0
         )
+
+
+async def test_uow_refuses_to_nest_in_an_open_transaction(test_pool, turn):
+    async with test_pool.acquire() as conn, conn.transaction():
+        with pytest.raises(RuntimeError, match="top-level transaction"):
+            async with uow(conn, turn):
+                pass
+        assert await current_turn_id(conn) is None

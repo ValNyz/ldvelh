@@ -4,9 +4,11 @@ Inside it, every world write is recorded in world_changes by the zz_journal_* tr
 which read the turn id from the transaction-local setting ldvelh.turn_id.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from uuid import UUID
+
+from asyncpg import Connection
 
 from domain.errors import SourceMessageGone
 from repos.turns import hold_source_message
@@ -15,13 +17,19 @@ from repos.turns import hold_source_message
 @asynccontextmanager
 async def uow(
     conn, turn_id: UUID | None, *, source_message_id: UUID | None = None
-) -> AsyncIterator:
+) -> AsyncGenerator[Connection, None]:
     """Transaction on `conn`; writes are journaled under `turn_id` when given.
 
     With `source_message_id`, the message is share-locked first: a rollback deleting it
     waits for this transaction, and a message already gone raises SourceMessageGone
     before any write (#23).
+
+    It must open the top-level transaction: nested, it would be a savepoint and the
+    transaction-local turn id would outlive it. Raises RuntimeError if `conn` is already
+    in a transaction.
     """
+    if conn.is_in_transaction():
+        raise RuntimeError("uow must open the top-level transaction, not a nested one")
     async with conn.transaction():
         if source_message_id and not await hold_source_message(conn, source_message_id):
             raise SourceMessageGone(source_message_id)

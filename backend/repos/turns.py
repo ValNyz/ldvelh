@@ -188,11 +188,11 @@ async def mark_committed(conn, turn_id: UUID) -> None:
 
 
 async def delete_turns(conn, game_id: UUID, turn_ids: list[UUID]) -> int:
-    """Delete the listed turns and every open turn of the game (abandoned ones), with their
+    """Delete the game's listed turns and its open turns (abandoned ones), with their
     journal and extraction logs; their messages and rolls are kept with turn_id NULL.
     Returns the number of turns deleted."""
     result = await conn.execute(
-        "DELETE FROM turns WHERE id = ANY($2) OR (game_id = $1 AND status = 'open')",
+        "DELETE FROM turns WHERE game_id = $1 AND (id = ANY($2) OR status = 'open')",
         game_id, turn_ids,
     )
     return int(result.split()[-1])

@@ -205,9 +205,11 @@ async def test_journal_is_attached_to_every_world_table(test_pool):
         assert triggers[table] == {"zz_journal_id", "zz_journal_u"}, table
 
 
-async def test_deleting_the_turn_drops_its_journal_and_nulls_the_message(
+async def test_deleting_the_turn_drops_its_journal_and_logs_and_keeps_its_rows(
     test_pool, world
 ):
+    """Journal and extraction logs go with the turn (CASCADE); the message and the roll
+    stay, with turn_id NULL (SET NULL)."""
     game_id, turn_id = world
     state = NarrationState(cycle=1, time="", location=None, npcs_present=[], date=None)
     async with test_pool.acquire() as conn:
@@ -223,6 +225,18 @@ async def test_deleting_the_turn_drops_its_journal_and_nulls_the_message(
         await conn.execute(
             "UPDATE messages SET turn_id = $1 WHERE id = $2", turn_id, user_id
         )
+        log_id = await conn.fetchval(
+            """INSERT INTO extraction_logs (game_id, type, turn_id)
+            VALUES ($1, 'extraction', $2) RETURNING id""",
+            game_id,
+            turn_id,
+        )
+        roll_id = await conn.fetchval(
+            """INSERT INTO mechanic_rolls (game_id, engine, roll_details, outcome, turn_id)
+            VALUES ($1, 'fate_core', '{}'::jsonb, 'success', $2) RETURNING id""",
+            game_id,
+            turn_id,
+        )
         async with uow(conn, turn_id):
             await conn.execute(
                 "INSERT INTO characters (game_id, name) VALUES ($1, 'Effacé')", game_id
@@ -237,23 +251,44 @@ async def test_deleting_the_turn_drops_its_journal_and_nulls_the_message(
             is None
         )
         assert await conn.fetchval("SELECT 1 FROM messages WHERE id = $1", user_id) == 1
+        assert (
+            await conn.fetchval("SELECT 1 FROM extraction_logs WHERE id = $1", log_id)
+            is None
+        )
+        roll = await conn.fetchrow(
+            "SELECT turn_id FROM mechanic_rolls WHERE id = $1", roll_id
+        )
+        assert roll is not None
+        assert roll["turn_id"] is None
 
 
-async def test_delete_turns_purges_open_turns_of_the_game(test_pool, world):
+async def test_delete_turns_purges_open_turns_of_the_game(test_pool, test_user, world):
+    from services.game_service import GameService
+
     game_id, listed = world
+    other_game = await GameService(test_pool).create_game(test_user["id"])
     async with test_pool.acquire() as conn:
         stale_open = await turns.open_turn(conn, game_id)
         committed = await turns.open_turn(conn, game_id)
         await turns.mark_committed(conn, committed)
         await turns.mark_committed(conn, listed)
+        other_open = await turns.open_turn(conn, other_game)
+        other_listed = await turns.open_turn(conn, other_game)
+        await turns.mark_committed(conn, other_listed)
 
-        assert await turns.delete_turns(conn, game_id, [listed]) == 2
+        # Another game's turns survive, even when listed by mistake.
+        assert await turns.delete_turns(conn, game_id, [listed, other_listed]) == 2
 
         remaining = {
             r["id"]: r["status"]
             for r in await conn.fetch(
-                "SELECT id, status FROM turns WHERE game_id = $1", game_id
+                "SELECT id, status FROM turns WHERE game_id = ANY($1)",
+                [game_id, other_game],
             )
         }
-    assert remaining == {committed: "committed"}
+    assert remaining == {
+        committed: "committed",
+        other_open: "open",
+        other_listed: "committed",
+    }
     assert stale_open not in remaining
