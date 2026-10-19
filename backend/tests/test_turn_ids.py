@@ -144,9 +144,13 @@ async def test_rollback_deletes_the_turns_of_the_deleted_messages(harness, world
     await harness.drain()
     async with harness.pool.acquire() as conn:
         played = await _turns(conn, game_id)
+        journal_before = await conn.fetchval(
+            "SELECT count(*) FROM world_changes WHERE turn_id = $1", played[1]["id"]
+        )
         # An abandoned turn (client gone before the commit) is purged too.
         await turns.open_turn(conn, game_id)
     assert [t["status"] for t in played] == ["committed", "committed"]
+    assert journal_before > 0
 
     await rollback_last_turn(harness, game_id)
 

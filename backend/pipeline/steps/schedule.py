@@ -21,6 +21,8 @@ async def schedule_background(ctx: TurnContext, narrated: Narrated, committed: C
     triggers = narrated.narration.extraction_triggers
     if triggers:
         logger.info(f"[CHAT] Extraction triggers: {triggers}")
+    if ctx.turn_id is None:  # set by the load step: a committed turn always has one
+        raise RuntimeError("committed turn without a turn id")
     event = TurnCommitted(
         game_id=ctx.request.game_id,
         previous_cycle=ctx.snapshot.current_cycle,
