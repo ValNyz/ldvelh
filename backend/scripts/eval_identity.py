@@ -81,6 +81,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--root", type=Path, default=ROOT, help="corpus directory")
     parser.add_argument("--out", type=Path, default=OUT, help="report directory")
     parser.add_argument("--iterations", type=int, default=2000, help="bootstrap draws")
+    parser.add_argument(
+        "--needs-db",
+        action="store_true",
+        help="only print 1 if the adapter reads the database, else 0 (eval-identity.sh)",
+    )
     io = parser.add_mutually_exclusive_group()
     io.add_argument("--emit-prompts", type=Path, metavar="DIR")
     io.add_argument("--import-responses", type=Path, metavar="DIR")
@@ -145,6 +150,9 @@ async def _live_session(provider: str, models: dict[str, str]) -> LLMSession:
 
 
 async def _run(args: argparse.Namespace) -> int:
+    if args.needs_db:
+        print(int(ADAPTERS[args.adapter].needs_db))
+        return 0
     models = _parse_models(args.models)
     selection = runner.select(
         args.root,

@@ -277,6 +277,7 @@ def _usage(cost: dict | None, failed: bool) -> dict:
 class LegacyResolverAdapter:
     name = "legacy"
     sequence_note = SEQUENCE_NOTE
+    needs_db = False  # everything comes from the scene; the pool is never read
 
     def __init__(self) -> None:
         self._mapper = Mapper()

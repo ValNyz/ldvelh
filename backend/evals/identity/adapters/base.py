@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class Adapter(Protocol):
     name: str
     sequence_note: str  # caveat for the report header when sequences run ("" if none)
+    needs_db: bool  # reads the database (TEST_DATABASE_URL): scripts/eval-identity.sh
 
     async def run_scene(
         self, scene: Scene, *, session: LLMSession | None, pool

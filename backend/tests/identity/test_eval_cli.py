@@ -318,3 +318,8 @@ async def test_a_new_entity_chains_within_a_turn_and_across_turns(monkeypatch):
     assert (later.start, later.entity_id) == (300, born)
     clusters = coref.system_clusters(two_turns, results)
     assert clusters[born] == {f"{first.id}:89", f"{first.id}:302", f"{second.id}:300"}
+
+
+def test_needs_db_reports_the_adapter_attribute(capsys):
+    assert eval_identity.main(["--split", "test", "--needs-db"]) == 0
+    assert capsys.readouterr().out.strip() == str(int(LegacyResolverAdapter.needs_db))
