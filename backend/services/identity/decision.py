@@ -229,6 +229,7 @@ def _check_one(
 ) -> MentionDecision:
     if d.ignored:
         return d
+    d = _trim_context(d, normalizer)
     if not _occurs(normalizer.fold(d.surface), folded_text):
         return replace(
             d,
@@ -439,6 +440,19 @@ class _Runs:
             and self.folded(before) not in self.titles
         )
 
+    def common_use(self, surface: str, c: Candidate, norm: str) -> bool:
+        """A short form written as a common noun: in a language that capitalises proper
+        names, a capitalised stored short form (a word of a name or of a label) the text
+        writes in lower case is not used as a name."""
+        alias = next((a for a in c.aliases if a.alias_norm == norm), None)
+        if not self.capitals or alias is None or alias.kind != SHORT:
+            return False
+        stored, written = alias.alias.split(), surface.split()
+        return any(
+            _capitalised(a) and b[:1].islower()
+            for a, b in zip(reversed(stored), reversed(written))
+        )
+
     def announced_other(self, first: int) -> bool:
         """One of the `reach` words before the run announces another entity of its kind."""
         reach = range(max(0, first - self.reach), first)
@@ -493,6 +507,19 @@ def _exact(
     return replace(base, decision=ALIAS, alias_kind=kind, revealed_name=name)
 
 
+def _trim_context(d: MentionDecision, normalizer: Normalizer) -> MentionDecision:
+    """A surface that repeats the words given as `before` at its head (a model that
+    copied its context into the mention) keeps only the mention."""
+    context, words = d.before.split(), d.surface.split()
+    n = len(context)
+    if not n or len(words) <= n:
+        return d
+    fold = normalizer.fold
+    if [fold(w) for w in words[:n]] != [fold(w) for w in context]:
+        return d
+    return replace(d, surface=" ".join(words[n:]))
+
+
 def prepass(
     text: str,
     candidates: CandidateSet,
@@ -529,7 +556,11 @@ def prepass(
             i += 1
             continue
         end, surface, c, norm = hit
-        if not runs.continued(i, end) and not runs.announced_other(i):
+        if not (
+            runs.continued(i, end)
+            or runs.announced_other(i)
+            or runs.common_use(surface, c, norm)
+        ):
             start = max(0, i - config.before_words)
             before = " ".join(w.group() for w in words[start:i])
             found.append(_exact(surface, before, c, norm, revealed))

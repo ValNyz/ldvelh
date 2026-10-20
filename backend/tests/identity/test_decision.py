@@ -438,6 +438,41 @@ def test_prepass_leaves_a_name_the_text_continues_or_announces_as_another():
     ]
 
 
+def test_prepass_leaves_a_short_form_written_as_a_common_noun():
+    case = _candidate(6, "Valise souple", "object", aliases=[_alias("Valise", "short")])
+    house = _candidate(
+        7,
+        "Maison Ardoise",
+        "organization",
+        aliases=[
+            _alias("Maison Ardoise", known=False),
+            _alias("Maison", "short", known=False),
+        ],
+    )
+    exact = {NORMALIZER.norm(f): c for f, c in (("Valise", case), ("Maison", house))}
+    candidates = _set(case, house, exact=exact)
+    text = "Il pose sa valise devant la maison de commerce."
+    assert (
+        decision.prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG) == []
+    )
+    named = "Il pose la Valise. La Maison paiera."
+    found = decision.prepass(named, candidates, normalizer=NORMALIZER, config=CONFIG)
+    assert [(d.entity_id, d.decision) for d in found] == [
+        (case.entity_id, "MATCH"),
+        (house.entity_id, "ALIAS"),
+    ]
+
+
+def test_a_surface_that_repeats_its_context_keeps_only_the_mention():
+    voss = _candidate(4, "Rizka Voss", aliases=[_alias("Voss", "short")])
+    text = "Si tu cherches Voss, va au sas."
+    d = _d("Si tu cherches Voss", "MATCH", "E4", before="Si tu cherches")
+    [checked] = _verify([d], _set(voss), text)
+    assert (checked.surface, checked.entity_id) == ("Voss", voss.entity_id)
+    plain = _d("Voss", "MATCH", "E4", before="Si tu cherches")
+    assert _verify([plain], _set(voss), text)[0].surface == "Voss"
+
+
 def test_a_homonym_link_is_not_a_merge_and_an_abstention_shows_every_card():
     shop = _candidate(
         3, "Échoppe d'Olbert", "location", aliases=[_alias("Olbert", "short")]

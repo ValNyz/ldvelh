@@ -504,7 +504,7 @@ async def test_pipeline_is_parametrizable_with_the_en_stub_pack(test_pool, test_
     from services.identity.service import IdentityService
     from tests.characterization.scripted_llm import ScriptedLLMProvider
 
-    text = "Reyes walks to the mill."
+    text = "Reyes walks to the Mill."
     async with test_pool.acquire() as conn:
         game = await conn.fetchval(
             "INSERT INTO games (user_id, language) VALUES ($1, 'en') RETURNING id",
@@ -563,7 +563,7 @@ async def test_pipeline_is_parametrizable_with_the_en_stub_pack(test_pool, test_
     assert "Reyes" in reyes_aliases
     assert [(m.surface, m.entity_id, m.decision) for m in resolution.mentions] == [
         ("Reyes", made["Captain Reyes"], "deterministic"),
-        ("the mill", made["The Old Mill"], "deterministic"),
+        ("the Mill", made["The Old Mill"], "deterministic"),
     ]
     assert made["The Old Mill"] in {c.entity_id for c in decided.candidates.ranked()}
     assert not decided.decisions.fallback
