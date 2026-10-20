@@ -126,9 +126,8 @@ def trigram_similarity(a: str, b: str) -> float:
 
 
 def word_run_similarity(a: str, b: str) -> float:
-    """The best similarity() of a with a run of whole consecutive words of b (close to
-    pg_trgm's strict_word_similarity): the best similarity of a with a
-    run of consecutive words of b (« Coopérative » in « Coopérative Agronomique »: 1)."""
+    """The best similarity() of a with a run of whole consecutive words of b, close to
+    pg_trgm's strict_word_similarity (« Coopérative » in « Coopérative Agronomique »: 1)."""
     words = _WORDS.findall(b.lower())
     return max(
         (

@@ -322,6 +322,11 @@ CREATE INDEX idx_entity_merges_kept ON public.entity_merges (kept_id);
 CREATE INDEX idx_entity_merges_dropped ON public.entity_merges (dropped_id);
 CREATE INDEX idx_entity_merges_turn ON public.entity_merges (turn_id) WHERE turn_id IS NOT NULL;
 
+-- Telemetry, except three kinds that are durable state (identity_event_is_state): the
+-- marks of the identity backfill ('identity_backfill': a game done, never classified
+-- again; 'identity_exception': a correction applied, never applied again) and the handles
+-- the journal of a pre-migration turn holds ('handle_reserved', read by
+-- identity_assign_handle). Any purge of identity_events must keep them.
 CREATE TABLE public.identity_events (
     id bigserial PRIMARY KEY,
     game_id uuid NOT NULL REFERENCES public.games(id) ON DELETE CASCADE,
@@ -334,6 +339,14 @@ CREATE TABLE public.identity_events (
 CREATE INDEX idx_identity_events_game_created ON public.identity_events (game_id, created_at);
 CREATE INDEX idx_identity_events_turn ON public.identity_events (turn_id)
     WHERE turn_id IS NOT NULL;
+-- identity_assign_handle reads the reservations of a game on every entity or fact insert.
+CREATE INDEX idx_identity_events_handle_reserved ON public.identity_events (game_id)
+    WHERE kind = 'handle_reserved';
+
+-- True for the kinds of identity_events that are state, not telemetry: a purge keeps them.
+CREATE FUNCTION public.identity_event_is_state(p_kind text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$ SELECT p_kind IN ('identity_backfill', 'identity_exception', 'handle_reserved') $$;
 
 SELECT public.ldvelh_journal('entity_aliases');
 SELECT public.ldvelh_journal('entity_mentions');
@@ -1308,6 +1321,42 @@ BEGIN
     RETURN v_count;
 END $$;
 
+-- The alias D rows 3.3 and the backfill add to the journal (source 'migration') must
+-- replay without a conflict on UNIQUE (game_id, entity_id, alias_norm), which the replay's
+-- ON CONFLICT (id) does not cover: one row per norm in a turn for an entity, and none a
+-- live alias of the entity already has. Run by step d and again at the end of each
+-- backfill run (classification, exceptions and derived aliases add live aliases). Returns
+-- the rows removed.
+CREATE OR REPLACE FUNCTION public.identity_journal_alias_conflicts(p_game uuid)
+        RETURNS integer
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_count integer;
+    v_total integer;
+BEGIN
+    WITH ranked AS (
+        SELECT wc.id, row_number() OVER (
+                   PARTITION BY wc.turn_id, wc.old_row ->> 'entity_id',
+                                wc.old_row ->> 'alias_norm'
+                   ORDER BY array_position(ARRAY['true_name', 'label', 'descriptor'],
+                                           wc.old_row ->> 'kind'), wc.id) AS rank
+          FROM public.world_changes AS wc JOIN public.turns AS tn ON tn.id = wc.turn_id
+         WHERE tn.game_id = p_game AND wc.table_name = 'entity_aliases' AND wc.op = 'D'
+           AND wc.old_row ->> 'source' = 'migration')
+    DELETE FROM public.world_changes AS wc USING ranked
+     WHERE wc.id = ranked.id AND ranked.rank > 1;
+    GET DIAGNOSTICS v_total = ROW_COUNT;
+    DELETE FROM public.world_changes AS wc USING public.turns AS tn
+     WHERE tn.id = wc.turn_id AND tn.game_id = p_game AND wc.table_name = 'entity_aliases'
+       AND wc.op = 'D' AND wc.old_row ->> 'source' = 'migration'
+       AND EXISTS (SELECT 1 FROM public.entity_aliases AS al
+                    WHERE al.entity_id::text = wc.old_row ->> 'entity_id'
+                      AND al.alias_norm = wc.old_row ->> 'alias_norm');
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    RETURN v_total + v_count;
+END $$;
+
 -- A director_commitments journal row without p_id among its related entities.
 CREATE OR REPLACE FUNCTION public.identity_drop_related(p_row jsonb, p_id uuid)
         RETURNS jsonb
@@ -1333,8 +1382,9 @@ $$;
 --    then the orphan is deleted; without such an entity its edges go with it (counted)
 --    and its id leaves the director's commitments. The journal follows, so that undoing a
 --    turn played before the migration still commits: the orphan's id becomes the entity's
---    in the rows of its edges, or those rows go when the edges went; its own registry
---    rows go (an undo must not bring back a row the model no longer has);
+--    in the rows of its edges and of the alias rows 3.3 added for it, or those rows go
+--    when the edges went; its own registry rows go (an undo must not bring back a row the
+--    model no longer has);
 -- c. normalised collisions (step 6): of the live entities of a type sharing a norm, the
 --    oldest keeps its name, the others get the suffix " (2)", " (3)"...: a character in its
 --    internal label_suffix (never shown, ruling R9), another entity in its name;
@@ -1362,7 +1412,7 @@ DECLARE
     v_commitments integer := 0;
     v_edge_tables text[] := ARRAY['relations', 'fact_participants', 'arc_participants',
                                   'chronology_participants', 'event_participants',
-                                  'inventory', 'narrative_arcs'];
+                                  'inventory', 'narrative_arcs', 'entity_aliases'];
 BEGIN
     -- a.
     WITH ranked AS (
@@ -1520,24 +1570,7 @@ BEGIN
       FROM public.turns AS tn
      WHERE tn.id = wc.turn_id AND tn.game_id = p_game AND wc.table_name = 'entity_aliases'
        AND wc.old_row ? 'alias' AND (wc.old_row ->> 'alias_norm') IS NULL;
-    WITH ranked AS (
-        SELECT wc.id, row_number() OVER (
-                   PARTITION BY wc.turn_id, wc.old_row ->> 'entity_id',
-                                wc.old_row ->> 'alias_norm'
-                   ORDER BY array_position(ARRAY['true_name', 'label', 'descriptor'],
-                                           wc.old_row ->> 'kind'), wc.id) AS rank
-          FROM public.world_changes AS wc JOIN public.turns AS tn ON tn.id = wc.turn_id
-         WHERE tn.game_id = p_game AND wc.table_name = 'entity_aliases' AND wc.op = 'D'
-           AND wc.old_row ->> 'source' = 'migration')
-    DELETE FROM public.world_changes AS wc USING ranked
-     WHERE wc.id = ranked.id AND ranked.rank > 1;
-    -- ... and none an alias the live entity already has (the undo would duplicate it).
-    DELETE FROM public.world_changes AS wc USING public.turns AS tn
-     WHERE tn.id = wc.turn_id AND tn.game_id = p_game AND wc.table_name = 'entity_aliases'
-       AND wc.op = 'D' AND wc.old_row ->> 'source' = 'migration'
-       AND EXISTS (SELECT 1 FROM public.entity_aliases AS al
-                    WHERE al.entity_id::text = wc.old_row ->> 'entity_id'
-                      AND al.alias_norm = wc.old_row ->> 'alias_norm');
+    PERFORM public.identity_journal_alias_conflicts(p_game);
 
     -- e.
     WITH spans AS (
@@ -1945,14 +1978,15 @@ SELECT public.identity_journal_aliases(
                     WHERE al.turn_id = reg.turn_id AND al.table_name = 'entity_aliases'
                       AND al.old_row ->> 'entity_id' = reg.row_id::text);
 
--- A rename such a turn made: the alias of the former name comes back with the undo.
+-- A rename such a turn made: the alias of the former name comes back with the undo. Never
+-- secret: the old schema shows nothing about it (the player may have read it); the
+-- backfill turns it into a descriptor when the classification says so.
 SELECT public.identity_journal_aliases(
            reg.turn_id, er.entity_type,
            CASE WHEN er.entity_type = 'character'
                 THEN jsonb_build_object('id', reg.row_id, 'game_id', er.game_id,
                                         'true_name', reg.old_row ->> 'name',
-                                        'known_by_protagonist', ch.known_by_protagonist,
-                                        'is_mandatory', ch.is_mandatory)
+                                        'known_by_protagonist', ch.known_by_protagonist)
                 ELSE jsonb_build_object('id', reg.row_id, 'game_id', er.game_id,
                                         'name', reg.old_row ->> 'name') END)
   FROM public.world_changes AS reg
@@ -2075,6 +2109,7 @@ CREATE VIEW public.v_upcoming_events AS
 
 DROP FUNCTION public.identity_legacy_normalise(uuid);
 DROP FUNCTION public.identity_drop_related(jsonb, uuid);
+DROP FUNCTION public.identity_journal_alias_conflicts(uuid);
 DROP FUNCTION public.identity_journal_aliases(uuid, text, jsonb);
 DROP FUNCTION public.merge_entities(uuid, uuid, text, text);
 DROP FUNCTION public.identity_merge_edges(uuid, uuid, text);
@@ -2216,6 +2251,7 @@ DROP FUNCTION public.identity_name_aliases(text, jsonb, uuid);
 DROP FUNCTION public.identity_character_name();
 DROP FUNCTION public.identity_assign_handle();
 
+DROP FUNCTION public.identity_event_is_state(text);
 DROP TABLE public.identity_events;
 DROP TABLE public.entity_merges;
 DROP TABLE public.entity_mentions;

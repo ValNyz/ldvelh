@@ -455,6 +455,12 @@ async def test_orphans_are_repointed_or_dropped_with_their_journal(test_pool):
                     INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row)
                     VALUES ('{turn}', 'relations', (v_rel ->> 'id')::uuid, 'D', v_rel);
                 END LOOP;
+                -- ... and renamed both orphans (3.3 adds former-name alias rows: N3).
+                INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row, new_row)
+                VALUES ('{turn}', 'entity_registry', '{kept}', 'U',
+                        '{{"name": "Vieille gardienne"}}', '{{"name": "Gardienne du quai"}}'),
+                       ('{turn}', 'entity_registry', '{lost}', 'U',
+                        '{{"name": "Spectre"}}', '{{"name": "Fantôme"}}');
             END $$;"""
         )
         reports.extend(await build_report(conn))
@@ -480,7 +486,16 @@ async def test_orphans_are_repointed_or_dropped_with_their_journal(test_pool):
             r["src"]
             for r in await conn.fetch(
                 "SELECT old_row ->> 'source_id' AS src FROM world_changes"
-                " WHERE turn_id = $1::uuid ORDER BY id",
+                " WHERE turn_id = $1::uuid AND table_name = 'relations' ORDER BY id",
+                UUID(turn),
+            )
+        ]
+        former = [
+            (r["entity"], r["alias"])
+            for r in await conn.fetch(
+                "SELECT old_row ->> 'entity_id' AS entity, old_row ->> 'alias' AS alias"
+                " FROM world_changes WHERE turn_id = $1::uuid"
+                " AND table_name = 'entity_aliases'",
                 UUID(turn),
             )
         ]
@@ -492,15 +507,18 @@ async def test_orphans_are_repointed_or_dropped_with_their_journal(test_pool):
             MIRA,
         )
     assert (counts["orphans_repointed"], counts["orphans_deleted"]) == (1, 1)
-    assert counts["orphan_journal_rows_repointed"] == 1
+    assert (
+        counts["orphan_journal_rows_repointed"] == 2
+    )  # the relation and the alias row
     assert counts["orphan_commitments_purged"] == 1
     assert [e["id"] for e in edges] == [MIRA] and participants == 1
     assert related == [MIRA]  # the lost orphan purged, the kept one re-pointed
     assert journal == [MIRA] and restored == 1
+    assert former == [(MIRA, "Vieille gardienne")]  # the lost orphan's row dropped
     orphans = {(o[1], o[2], o[3], o[4]) for o in reports[0].orphans}
     assert orphans == {
-        ("Gardienne du quai", 2, 1, "Mira Sol"),
-        ("Fantôme", 2, 1, None),
+        ("Gardienne du quai", 2, 2, "Mira Sol"),  # the deleted relation, the rename
+        ("Fantôme", 2, 2, None),
     }
 
 
@@ -617,3 +635,188 @@ async def test_startup_refuses_to_serve_before_the_backfill(test_pool):
         ]
         await identity_backfill(conn, UUID(game_id))
         assert await identity_backfill_errors(conn) == []
+
+
+async def test_backfill_marks_every_game_done_and_never_reclassifies_a_new_one(
+    test_pool,
+):
+    """N1: a game created after the migration and touched by the backfill is marked done
+    and never taken for a legacy game, though the run gives it 'migration' aliases; the
+    marks are durable state (identity_event_is_state)."""
+    from scripts.identity_backfill import NEEDING_BACKFILL_SQL, is_legacy
+    from scripts.identity_backfill import run as identity_backfill
+
+    legacy_id, _ = await load_legacy_game(test_pool)
+    async with test_pool.acquire() as conn:
+        new_game = await conn.fetchval(
+            """INSERT INTO games (user_id, name, language)
+               SELECT user_id, 'Nouvelle', 'fr' FROM games WHERE id = $1::uuid
+               RETURNING id""",
+            legacy_id,
+        )
+        await conn.execute(
+            """INSERT INTO characters (game_id, true_name, descriptor, known_by_protagonist)
+               VALUES ($1, 'Kethari âgée', NULL, false)""",
+            new_game,
+        )
+        await identity_backfill(conn, new_game)
+        assert not await is_legacy(conn, new_game)
+        assert new_game not in [r["id"] for r in await conn.fetch(NEEDING_BACKFILL_SQL)]
+        await identity_backfill(conn, new_game)
+        kept = await conn.fetchval(
+            "SELECT true_name FROM characters WHERE game_id = $1", new_game
+        )
+        marks = await conn.fetch(
+            "SELECT game_id FROM identity_events WHERE kind = 'identity_backfill'"
+        )
+        state = await conn.fetch(
+            "SELECT kind, identity_event_is_state(kind) AS kept FROM unnest($1::text[])"
+            " AS k (kind)",
+            [
+                "identity_backfill",
+                "identity_exception",
+                "handle_reserved",
+                "ambiguous_ref",
+            ],
+        )
+        index = await conn.fetchval(
+            "SELECT indexdef FROM pg_indexes"
+            " WHERE indexname = 'idx_identity_events_handle_reserved'"
+        )
+    assert kept == "Kethari âgée"
+    assert sorted(str(m["game_id"]) for m in marks) == sorted(
+        [legacy_id, str(new_game)]
+    )
+    assert {r["kind"]: r["kept"] for r in state} == {
+        "identity_backfill": True,
+        "identity_exception": True,
+        "handle_reserved": True,
+        "ambiguous_ref": False,
+    }
+    assert "WHERE (kind = 'handle_reserved'::text)" in index
+
+
+TANAKA = "7c178413-2abc-4841-bc29-59fd2da9924a"
+TANAKA_OLD_REGISTRY = "2cf61d7d-0d5e-405a-ae6a-697d62289c95"
+
+
+async def test_a_former_name_that_became_a_derived_alias_still_undoes(test_pool):
+    """N2: a pre-migration turn renamed « Tanaka » → « Dr. Yuki Tanaka »; the backfill
+    derives the short alias « Tanaka », so the journal's former-name alias row would clash
+    on undo: it is dropped at the end of the run, and the undo commits."""
+    turn = "93041526-d7e8-4f96-8a01-233445566778"
+
+    async def hook(conn):
+        await conn.execute(
+            f"""INSERT INTO turns (id, game_id, status)
+                VALUES ('{turn}', '{legacy_game_id()}', 'committed');
+                INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row, new_row)
+                VALUES ('{turn}', 'entity_registry', '{TANAKA_OLD_REGISTRY}', 'U',
+                        '{{"name": "Tanaka"}}', '{{"name": "Dr. Yuki Tanaka"}}'),
+                       ('{turn}', 'characters', '{TANAKA}', 'U',
+                        '{{"name": "Tanaka"}}', '{{"name": "Dr. Yuki Tanaka"}}')"""
+        )
+
+    game_id, _ = await load_legacy_game(test_pool, before={IDENTITY_MIGRATION: hook})
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetchval(
+            "SELECT count(*) FROM world_changes WHERE turn_id = $1::uuid"
+            " AND table_name = 'entity_aliases'",
+            turn,
+        )
+        async with conn.transaction():
+            await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [UUID(turn)])
+        name = await conn.fetchval(
+            "SELECT name FROM characters WHERE id = $1::uuid", TANAKA
+        )
+        await identity_invariants(conn, game_id)
+    assert rows == 0 and name == "Tanaka"
+
+
+async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
+    """N5: a correction that arrives after play is skipped for a character the player
+    knows under another true name, and rewrites only the journal of the turns played
+    before the migration."""
+    from scripts.identity_backfill import run as identity_backfill
+    from scripts.identity_exceptions import load_exceptions
+
+    game_id, _ = await load_legacy_game(
+        test_pool, before={IDENTITY_MIGRATION: _exception_npcs}
+    )
+    async with test_pool.acquire() as conn:
+        # Play since: Sela revealed, a turn touches Marn under his descriptor label.
+        await conn.execute(
+            "UPDATE characters SET known_by_protagonist = true WHERE id = $1::uuid",
+            SELA,
+        )
+        await conn.execute(
+            """WITH t AS (INSERT INTO turns (game_id, status, created_at)
+                          VALUES ($1::uuid, 'committed', now() + interval '1 minute')
+                          RETURNING id)
+               INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row, new_row)
+               SELECT t.id, 'characters', $2::uuid, 'U', '{"name": "Le vieil homme"}',
+                      '{"mood": "y"}' FROM t""",
+            game_id,
+            MARN,
+        )
+        path = tmp_path / "late.yaml"
+        path.write_text(
+            f"{SELA}: {{true_name: Autre Nom}}\n{MARN}: {{true_name: Vieux Marn}}\n",
+            encoding="utf-8",
+        )
+        counts = await identity_backfill(conn, UUID(game_id), load_exceptions(path))
+        sela = await conn.fetchval(
+            "SELECT true_name FROM characters WHERE id = $1::uuid", SELA
+        )
+        journal = sorted(
+            r["row"]
+            for r in await conn.fetch(
+                "SELECT old_row::text AS row FROM world_changes WHERE row_id = $1::uuid",
+                UUID(MARN),
+            )
+        )
+    assert (counts["exceptions"], counts["exceptions_skipped"]) == (1, 1)
+    assert sela == "Sela Voor"
+    assert journal == sorted(
+        [
+            '{"name": "Le vieil homme"}',  # played after the migration: untouched
+            (
+                '{"name": "Vieux Marn", "true_name": "Vieux Marn", "descriptor": "Le vieil'
+                ' homme", "label_suffix": null}'
+            ),
+        ]
+    )
+
+
+async def test_a_former_descriptor_is_never_a_secret_alias(test_pool):
+    """N6: a pre-migration rename of a mandatory unknown NPC from a name the classification
+    reads as a descriptor: its former-name alias row is a known descriptor, not a secret
+    true name."""
+    arda = "a4152637-e8f9-4a07-9b12-344556677889"
+    turn = "b5263748-f90a-4b18-8c23-455667788990"
+
+    async def hook(conn):
+        await add_legacy_character(
+            conn, "Arda Senn", "La vieille au châle", arda, mandatory=True
+        )
+        await conn.execute(
+            f"""INSERT INTO turns (id, game_id, status)
+                VALUES ('{turn}', '{legacy_game_id()}', 'committed');
+                INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row, new_row)
+                SELECT '{turn}', 'entity_registry', er.id, 'U',
+                       '{{"name": "Vieille Arda"}}', '{{"name": "Arda Senn"}}'
+                  FROM entity_registry er WHERE er.name = 'Arda Senn';
+                INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row, new_row)
+                VALUES ('{turn}', 'characters', '{arda}', 'U',
+                        '{{"name": "Vieille Arda"}}', '{{"name": "Arda Senn"}}')"""
+        )
+
+    await load_legacy_game(test_pool, before={IDENTITY_MIGRATION: hook})
+    async with test_pool.acquire() as conn:
+        alias = await conn.fetchrow(
+            "SELECT old_row ->> 'kind' AS kind, (old_row ->> 'known')::boolean AS known,"
+            " (old_row ->> 'secret')::boolean AS secret FROM world_changes"
+            " WHERE turn_id = $1::uuid AND table_name = 'entity_aliases'",
+            turn,
+        )
+    assert dict(alias) == {"kind": "descriptor", "known": True, "secret": False}

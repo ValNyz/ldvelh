@@ -10,7 +10,10 @@ rules of the classification itself:
 - the new label takes a homonym suffix when another character already holds it (R9);
 - the journal of the turns played before the migration follows (identity_journal).
 Each correction is applied once: an `identity_events` row ('identity_exception', with the
-correction) records it, so a later boot never undoes what the game did since (a reveal).
+correction; durable state) records it, so a later boot never undoes what the game did
+since. A correction that arrives after play is skipped (and reported) when the player
+knows the character under another true name: it would overwrite a reveal. Only the
+journal of turns played before the migration follows a correction.
 """
 
 from __future__ import annotations
@@ -83,12 +86,13 @@ async def _suffix(conn, game_id: UUID, character_id: UUID, base: str, normalizer
 
 async def apply_exceptions(
     conn, game_id: UUID, exceptions: Mapping[UUID, Mapping[str, str]], normalizer
-) -> int:
-    """The corrections for the characters of this game not applied yet; the number
-    applied (an id of another game is left to that game's run)."""
+) -> tuple[int, list[UUID]]:
+    """The corrections for the characters of this game not applied yet: (the number
+    applied, the characters skipped because the player knows another true name). An id
+    of another game is left to that game's run."""
     from scripts.identity_journal import follow_model
 
-    applied = 0
+    applied, skipped = 0, []
     for character_id, correction in exceptions.items():
         payload = json.dumps(dict(correction), sort_keys=True)
         pending = await conn.fetchval(
@@ -104,6 +108,12 @@ async def apply_exceptions(
         if not pending:
             continue
         before = await _model(conn, character_id)
+        revealed = await conn.fetchval(
+            "SELECT known_by_protagonist FROM characters WHERE id = $1", character_id
+        )
+        if revealed and before["true_name"] != correction.get("true_name"):
+            skipped.append(character_id)
+            continue
         if "true_name" in correction:
             name = correction["true_name"]
             await conn.execute(
@@ -151,4 +161,4 @@ async def apply_exceptions(
             payload,
         )
         applied += 1
-    return applied
+    return applied, skipped

@@ -13,7 +13,8 @@ here, per game, in one transaction (`run`):
 3. the exceptions the user wrote after reading the report (scripts/identity_exceptions.py);
 4. the derived aliases (short forms, titles: services/identity/aliases.derive) of every
    entity, once (ON CONFLICT DO NOTHING), corrected names included.
-An `identity_events` row ('identity_backfill') marks the game done. Idempotent: a second
+An `identity_events` row ('identity_backfill') marks every game a run touched as done
+(durable state, see identity_event_is_state in the migration). Idempotent: a second
 run changes nothing. Run by backend/entrypoint.sh after `dbmate up`, with the exceptions
 of IDENTITY_BACKFILL_EXCEPTIONS (games that need it only); the startup check refuses to
 serve while one does. CONTRIBUTING, "Deploying the identity migration", has the procedure.
@@ -109,20 +110,32 @@ async def run(
             counts["characters_reclassified"] = await _classify(
                 conn, game_id, normalizer, lexicon
             )
-        counts["exceptions"] = await apply_exceptions(
+        counts["exceptions"], skipped = await apply_exceptions(
             conn, game_id, exceptions or {}, normalizer
         )
+        counts["exceptions_skipped"] = len(skipped)
+        for character_id in skipped:
+            print(
+                f"[IDENTITY_BACKFILL] game={game_id} exception skipped for {character_id}:"
+                " the player knows another true name since"
+            )
         counts["derived_aliases"] = await _derive_aliases(
             conn, game_id, normalizer, lexicon
         )
-        if legacy:
-            await conn.execute(
-                """INSERT INTO identity_events (game_id, kind, payload)
-                   VALUES ($1, $2, $3::text::jsonb)""",
-                game_id,
-                DONE_EVENT,
-                json.dumps(counts, sort_keys=True),
-            )
+        # The live aliases added above may clash with the alias rows of the journal.
+        counts["journal_alias_conflicts"] = await conn.fetchval(
+            "SELECT identity_journal_alias_conflicts($1)", game_id
+        )
+        # Every game the backfill touched is done, legacy or not: never classified again.
+        await conn.execute(
+            """INSERT INTO identity_events (game_id, kind, payload)
+               SELECT $1, $2, $3::text::jsonb
+                WHERE NOT EXISTS (SELECT 1 FROM identity_events
+                                   WHERE game_id = $1 AND kind = $2)""",
+            game_id,
+            DONE_EVENT,
+            json.dumps(counts, sort_keys=True),
+        )
     return counts
 
 

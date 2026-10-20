@@ -26,12 +26,18 @@ def _dump(value: dict | None) -> str | None:
 
 
 async def _character_rows(conn, game_id: UUID, row_id: UUID | None = None):
+    """The characters rows of the turns played before the migration: those created before
+    the game's first backfill (all of them during that run)."""
     return await conn.fetch(
         """SELECT wc.id, wc.turn_id, wc.op, wc.row_id, wc.old_row::text AS old_row,
                   wc.new_row::text AS new_row
              FROM world_changes AS wc JOIN turns AS tn ON tn.id = wc.turn_id
             WHERE tn.game_id = $1 AND wc.table_name = 'characters'
               AND ($2::uuid IS NULL OR wc.row_id = $2)
+              AND tn.created_at < COALESCE(
+                      (SELECT min(ev.created_at) FROM identity_events AS ev
+                        WHERE ev.game_id = $1 AND ev.kind = 'identity_backfill'),
+                      'infinity')
             ORDER BY wc.id""",
         game_id,
         row_id,
@@ -56,11 +62,34 @@ async def _rewrite(conn, game_id: UUID, row, before: list, after: list) -> None:
     gone = not await conn.fetchval(
         "SELECT 1 FROM characters WHERE id = $1", row["row_id"]
     )
+    for old, new in zip(before, after, strict=True):
+        if (
+            not gone
+            and old
+            and new
+            and new.get("true_name") is None
+            and old.get("name")
+        ):
+            # A former name the classification reads as a descriptor: its alias row (the
+            # rename case of 3.3) is a seen descriptor, neither a true name nor a secret.
+            await conn.execute(
+                """UPDATE world_changes
+                      SET old_row = old_row || '{"kind": "descriptor", "known": true,
+                                                  "secret": false}'::jsonb
+                    WHERE turn_id = $1 AND table_name = 'entity_aliases'
+                      AND old_row ->> 'entity_id' = $2::uuid::text
+                      AND old_row ->> 'source' = 'migration'
+                      AND old_row ->> 'kind' = 'true_name'
+                      AND old_row ->> 'alias' = $3""",
+                row["turn_id"],
+                row["row_id"],
+                old["name"],
+            )
     if row["op"] == "D" and gone:
         await conn.execute(
             """DELETE FROM world_changes
                 WHERE turn_id = $1 AND table_name = 'entity_aliases'
-                  AND old_row ->> 'entity_id' = $2::text
+                  AND old_row ->> 'entity_id' = $2::uuid::text
                   AND old_row ->> 'source' = 'migration'""",
             row["turn_id"],
             row["row_id"],
