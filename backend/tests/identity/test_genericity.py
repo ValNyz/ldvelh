@@ -334,3 +334,146 @@ def test_identity_config_has_no_duplicate_literal_in_candidates_or_decision():
     code = sorted((BACKEND / "services" / "identity").glob("*.py"))
     assert code
     assert [n for path in code for n in _numbers(path)] == []
+
+
+# --- candidate blocking (#154): thresholds from IdentityConfig, words from the pack ---
+
+_BLOCKING_SQL = ("_BLOCKING_ALIASES", "NAME_ALIAS_KINDS")
+_SQL_NUMBER = re.compile(r"(?<![\w$.])\d+(?:\.\d+)?(?![\w.])")
+
+
+def _blocking_sql_texts() -> list[str]:
+    """String constants of the blocking queries of repos/entities.py: the module constants
+    they share and the bodies of the `candidates_*`/`candidate_*` functions."""
+    tree = ast.parse((BACKEND / "repos" / "entities.py").read_text(encoding="utf-8"))
+    nodes = []
+    for node in tree.body:
+        if isinstance(node, ast.AsyncFunctionDef) and node.name.startswith(
+            ("candidates_", "candidate_", "alias_max_words", "norm_for_game")
+        ):
+            nodes.append(node)
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id in _BLOCKING_SQL for t in node.targets
+        ):
+            nodes.append(node)
+    skipped = {
+        id(n.body[0].value)
+        for n in nodes
+        if isinstance(n, ast.AsyncFunctionDef) and isinstance(n.body[0], ast.Expr)
+    }
+    return [
+        c.value
+        for n in nodes
+        for c in ast.walk(n)
+        if isinstance(c, ast.Constant)
+        and isinstance(c.value, str)
+        and id(c) not in skipped
+    ]
+
+
+def test_blocking_sql_has_no_threshold_literal_nor_pack_word():
+    texts = _blocking_sql_texts()
+    assert any("word_similarity" in t for t in texts)
+    assert any("levenshtein_less_equal" in t for t in texts)
+    numbers = sorted(
+        {n for t in texts for n in _SQL_NUMBER.findall(t) if float(n) not in (0, 1)}
+    )
+    assert numbers == []
+    words = _pack_words()
+    found = set()
+    for text in texts:
+        unquoted = _SQL_QUOTED.sub(" ", text)
+        tokens = set(_WORD.findall(unquoted.casefold())) - SQL_KEYWORDS
+        found |= (tokens | _sql_literal_words(text)) & words
+    assert found == set()
+
+
+async def _ondrev_game(test_pool, test_user, monkeypatch, s_word: str):
+    from config import IdentityConfig
+    from domain.identity import NewEntitySpec, SceneContext
+    from repos import entities
+    from services.identity.service import IdentityService
+
+    monkeypatch.setenv("IDENTITY_S_WORD", s_word)
+    config = IdentityConfig()
+    async with test_pool.acquire() as conn:
+        game = await conn.fetchval(
+            "INSERT INTO games (user_id, language) VALUES ($1, 'fr') RETURNING id",
+            test_user["id"],
+        )
+        service = IdentityService(game, lang="fr", config=config)
+        ondrev = await service.create_entity(
+            conn,
+            NewEntitySpec("character", "Pater Ondrev Kasso", "proper_name"),
+            turn_id=None,
+            source="world_gen",
+        )
+        protagonist = await entities.insert_domain_row(
+            conn, game, "protagonist", {"name": "Rafe"}, label_suffix=None
+        )
+    scene = SceneContext(None, [], [], [], [], [], protagonist, None, None)
+    return service, scene, ondrev
+
+
+async def _sources(
+    test_pool, service, scene, entity_id, text, lexicon=None
+) -> set[str]:
+    from services.identity import candidates
+
+    async with test_pool.acquire() as conn:
+        found = await candidates.block(
+            conn,
+            service.game_id,
+            text,
+            scene,
+            config=service.config,
+            normalizer=service.normalizer,
+            lexicon=lexicon or service.lexicon,
+        )
+    return next((c.sources for c in found.ranked() if c.entity_id == entity_id), set())
+
+
+@pytest.mark.integration
+async def test_thresholds_come_from_config(test_pool, test_user, monkeypatch):
+    """IDENTITY_S_WORD changes what pg_trgm finds; the token generator does not read it."""
+    from services.identity import candidates
+
+    text = "Ondrev Kaso referme le registre."
+    loose = await _ondrev_game(test_pool, test_user, monkeypatch, "0.3")
+    strict = await _ondrev_game(test_pool, test_user, monkeypatch, "0.99")
+    assert loose[0].config.s_word == 0.3 and strict[0].config.s_word == 0.99
+    assert {candidates.TRGM, candidates.TOKENS} <= await _sources(
+        test_pool, *loose, text
+    )
+    found = await _sources(test_pool, *strict, text)
+    assert candidates.TRGM not in found
+    assert candidates.TOKENS in found
+
+
+@pytest.mark.integration
+async def test_stop_words_and_titles_come_from_the_pack(
+    test_pool, test_user, monkeypatch
+):
+    """A pack whose stop words hold the name: no candidate by shared words any more."""
+    from packs.loader import load_genre, load_lang
+    from services.identity import candidates
+    from services.identity.lexicon import Lexicon
+
+    service, scene, ondrev = await _ondrev_game(
+        test_pool, test_user, monkeypatch, "0.99"
+    )
+    text = "Ondrev referme le registre."
+    assert candidates.TOKENS in await _sources(test_pool, service, scene, ondrev, text)
+    lang = load_lang("fr")
+    stub = Lexicon(
+        lang.model_copy(update={"stop_words": [*lang.stop_words, "ondrev"]}),
+        load_genre(None),
+    )
+    found = await _sources(test_pool, service, scene, ondrev, text, stub)
+    assert candidates.TOKENS not in found
+    titled = Lexicon(
+        lang.model_copy(update={"titles": [*lang.titles, "ondrev"]}), load_genre(None)
+    )
+    assert candidates.TOKENS not in await _sources(
+        test_pool, service, scene, ondrev, text, titled
+    )

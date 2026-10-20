@@ -90,6 +90,70 @@ class ResolvedRef:
     entity_type: str | None = field(default=None, compare=False)
 
 
+@dataclass(frozen=True)
+class SceneContext:
+    """What the resolver knows of the scene of a turn (spec §4.5.1): the context generator
+    of the blocking reads it. `reveal_refs` and `planned_npc_handles` are references as
+    the narrator and the Director give them (handle, id or name); `open_disclosure_ids`
+    are the entities whose secret aliases an open disclosure lets through."""
+
+    location_id: UUID | None
+    present_ids: list[UUID]
+    recent_message_ids: list[UUID]
+    reveal_refs: list[str]
+    planned_npc_handles: list[str]
+    open_disclosure_ids: list[UUID]
+    protagonist_id: UUID
+    companion_id: UUID | None
+    genre: str | None
+
+
+@dataclass(frozen=True)
+class CandidateAlias:
+    """An alias as a candidate card shows it (never a secret one without an open
+    disclosure)."""
+
+    alias: str
+    alias_norm: str
+    kind: str
+    known: bool
+    secret: bool
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """A candidate entity and its card (spec §4.5.2). `score`: the best similarity of a
+    lexical generator (0 for a context-only candidate); `sources`: the generators that
+    found it."""
+
+    entity_id: UUID
+    handle: int
+    entity_type: str
+    label: str
+    aliases: list[CandidateAlias]
+    occupation: str | None
+    usual_location: str | None
+    last_seen_turn: int | None
+    description_line: str | None
+    score: float
+    sources: set[str] = field(compare=False)
+
+
+@dataclass(frozen=True)
+class CandidateSet:
+    """Candidates of a turn: `turn`, found in the text (at most `max_candidates`, best
+    score first); `context`, the scene's entities not already in `turn`; `exact`, the
+    normalised forms of the text that name exactly one entity."""
+
+    turn: list[Candidate]
+    context: list[Candidate]
+    exact: dict[str, Candidate]
+
+    def ranked(self) -> list[Candidate]:
+        """Every candidate once: the turn's, then the context's."""
+        return [*self.turn, *self.context]
+
+
 class IdentityFailure(Exception):
     """An identity write refused or impossible; `write_item` counts it under `code`."""
 
