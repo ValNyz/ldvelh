@@ -250,6 +250,16 @@ async def follow_merge(conn, entity_id: UUID) -> UUID:
     return await conn.fetchval("SELECT entity_follow_merge($1)", entity_id)
 
 
+async def follow_merges(conn, entity_ids: list[UUID]) -> dict[UUID, UUID]:
+    """The live entity behind each merge tombstone of `entity_ids` (live ids left out)."""
+    rows = await conn.fetch(
+        """SELECT id, entity_follow_merge(id) AS live
+             FROM unnest($1::uuid[]) AS ids(id)""",
+        list(entity_ids),
+    )
+    return {r["id"]: r["live"] for r in rows if r["live"] != r["id"]}
+
+
 async def insert_alias(
     conn,
     game_id: UUID,

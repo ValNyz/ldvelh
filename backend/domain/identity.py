@@ -154,6 +154,107 @@ class CandidateSet:
         return [*self.turn, *self.context]
 
 
+# The listwise decision of the resolver v2 (spec §4.5.3): its verdicts, the mention
+# categories of the gold corpus (§3.2), the alias kinds of entity_aliases, the types a
+# mention may create and the kinds of a new label.
+DECISIONS = ("MATCH", "ALIAS", "NEW", "UNSURE", "SKIP")
+MENTION_CATEGORIES = (
+    "EASY",
+    "PART",
+    "DESC",
+    "GAP",
+    "REVEAL",
+    "NEW",
+    "XTYPE",
+    "SKIP",
+    "PC",
+)
+ALIAS_KINDS = (
+    "true_name",
+    "descriptor",
+    "short",
+    "title",
+    "former_name",
+    "nickname",
+    "label",
+)
+NEW_ENTITY_TYPES = ("character", "location", "organization", "object")
+NEW_KINDS = ("proper_name", "descriptor")
+
+
+@dataclass(frozen=True)
+class MentionDecision:
+    """One mention of a turn and what the resolver decided for it (spec §4.5.3-§4.5.4).
+
+    The first fields are the model's output (`handle`: an E<n> of the turn's candidates);
+    the code fills the others. `entity_id`: the linked entity (MATCH, ALIAS), merges
+    followed (`redirected_from`: the tombstone the handle named). `verified`: every check
+    passed unchanged; `rejection`: the code of the check that downgraded it (also its
+    identity_events kind). `ignored`: its surface is not in the text, nothing applies.
+    `same_as`: index, in the turn's list, of the NEW this one repeats. `probable_duplicate`:
+    a candidate of the same type with a close name (the NEW is still created).
+    `deterministic`: decided by the prepass; `escalated`: decided by the strong model."""
+
+    surface: str
+    decision: str
+    before: str = ""
+    category: str | None = None
+    handle: str | None = None
+    alias_kind: str | None = None
+    new_type: str | None = None
+    new_kind: str | None = None
+    evidence: str = ""
+    talks_to: tuple[str, ...] = ()
+    entity_id: UUID | None = None
+    verified: bool = False
+    rejection: str | None = None
+    ignored: bool = False
+    same_as: int | None = None
+    probable_duplicate: UUID | None = None
+    redirected_from: UUID | None = None
+    deterministic: bool = False
+    escalated: bool = False
+
+
+@dataclass(frozen=True)
+class TurnDecisions:
+    """The decisions of a turn. `escalated`: the strong model was called; `fallback`: the
+    model failed, only the prepass applies. `usage`: per purpose, calls, tokens and cost."""
+
+    decisions: list[MentionDecision]
+    escalated: bool
+    fallback: bool
+    usage: dict
+
+    def events(self) -> list[tuple[str, UUID | None, dict]]:
+        """identity_events rows to record, as (kind, entity_id, payload): codes, handles
+        and counts only, never story text."""
+        rows = []
+        for d in self.decisions:
+            payload = {"decision": d.decision, "handle": d.handle}
+            if d.rejection is not None:
+                rows.append((d.rejection, d.entity_id, payload))
+            if d.probable_duplicate is not None:
+                rows.append(
+                    (
+                        "probable_duplicate",
+                        d.probable_duplicate,
+                        {"new_type": d.new_type},
+                    )
+                )
+            if d.redirected_from is not None:
+                rows.append(
+                    (
+                        "tombstone_redirected",
+                        d.entity_id,
+                        {"from": str(d.redirected_from)},
+                    )
+                )
+        if self.fallback:
+            rows.append(("resolver_fallback", None, {"prepass": len(self.decisions)}))
+        return rows
+
+
 class IdentityFailure(Exception):
     """An identity write refused or impossible; `write_item` counts it under `code`."""
 

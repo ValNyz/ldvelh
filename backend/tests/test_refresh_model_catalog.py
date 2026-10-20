@@ -375,6 +375,11 @@ async def test_manual_actions(conn, monkeypatch):
     assert (await _row(conn, "mistral", "b"))["status"] == "retired"
     assert await refresh.main(["--disable", "mistral", "missing"]) == 1
     assert await refresh.main(["--set-role", "mistral", "a", "bogus"]) == 1
+    # Optional roles (no automatic holder): the identity resolver's models.
+    assert await refresh.main(["--set-role", "mistral", "a", "identity"]) == 0
+    assert await refresh.main(["--set-role", "mistral", "b", "identity_strong"]) == 0
+    a, b = await _row(conn, "mistral", "a"), await _row(conn, "mistral", "b")
+    assert a["roles"] == ["identity"] and b["roles"] == ["narration", "identity_strong"]
 
 
 # --- Fix round 1: transient failures never drop a working model -------------

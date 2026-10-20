@@ -65,7 +65,7 @@ async def test_complete_json_returns_value_and_its_own_cost():
 
 async def test_failed_call_has_no_cost():
     call = await LLMSession.from_provider(FakeProvider(fail=RuntimeError("down"))).complete_json(
-        Purpose.RESOLVER, "sys", "user", 0.3, 100)
+        Purpose.IDENTITY, "sys", "user", 0.3, 100)
     assert call == LLMCall(value=None, cost=None)
 
 
@@ -122,7 +122,7 @@ def test_model_per_purpose_matches_before_p2():
     session = LLMSession("anthropic", api_key="k", user_model="claude-sonnet-5-5", user_id=USER)
     assert session.model_for(Purpose.NARRATION) == "claude-sonnet-5-5"
     assert session.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
-    assert session.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"  # provider default
+    assert session.model_for(Purpose.IDENTITY) == "claude-sonnet-5-5"  # provider default
     mistral = LLMSession("mistral", api_key="k", user_model="mistral-small-latest", user_id=USER)
     assert mistral.model_for(Purpose.MECHANICAL) == "mistral-small-latest"
     assert mistral.model_for(Purpose.DIRECTOR) == "mistral-large-latest"  # provider default
@@ -266,13 +266,13 @@ async def test_calls_are_buffered_until_the_phase_flushes():
     pool = _CapturingPool()
     session = _logged_session(pool)
     await session.complete_json(Purpose.MECHANICAL, "sys", "user", 0.2, 100)
-    await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    await session.complete_json(Purpose.IDENTITY, "sys", "user", 0.3, 100)
     assert pool.acquired == 0 and session.calls.pending == 2  # no pool access per call
     await session.flush_calls()
     await session.flush_calls()  # nothing left: no second insert
     assert pool.acquired == 1 and len(pool.inserts) == 1
     assert [(r["purpose"], r["provider"], r["model"]) for r in pool.inserts[0]] == [
-        ("mechanical", "fake", "fake-main"), ("resolver", "fake", "fake-main")]
+        ("mechanical", "fake", "fake-main"), ("identity", "fake", "fake-main")]
     row = pool.inserts[0][0]
     assert (row["game_id"], row["user_id"], row["turn_id"]) == (GAME, USER, None)
     assert row["usage"] == {"input_tokens": 10, "output_tokens": 5,
@@ -302,17 +302,17 @@ async def test_a_background_session_keeps_the_turn_with_its_own_buffer():
     session.bind_turn(turn_id)
     await session.complete_json(Purpose.NARRATION, "sys", "user", 0.7, 100)
     job = session.for_background()
-    await job.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    await job.complete_json(Purpose.IDENTITY, "sys", "user", 0.3, 100)
     assert (session.calls.pending, job.calls.pending) == (1, 1)
     await job.flush_calls()
     await session.flush_calls()
     assert [[(r["purpose"], r["turn_id"]) for r in rows] for rows in pool.inserts] == [
-        [("resolver", turn_id)], [("narration", turn_id)]]
+        [("identity", turn_id)], [("narration", turn_id)]]
 
 
 async def test_a_session_without_pool_buffers_nothing():
     session = LLMSession.from_provider(FakeProvider())
-    call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    call = await session.complete_json(Purpose.IDENTITY, "sys", "user", 0.3, 100)
     assert call.cost["input_tokens"] == 10
     assert session.calls.pending == 0
     await session.flush_calls()  # no pool: a no-op
@@ -321,7 +321,7 @@ async def test_a_session_without_pool_buffers_nothing():
 async def test_flush_failure_is_logged_not_raised_and_not_retried(caplog):
     pool = _CapturingPool(fail=ConnectionError("pool closed"))
     session = _logged_session(pool)
-    call = await session.complete_json(Purpose.RESOLVER, "sys", "user", 0.3, 100)
+    call = await session.complete_json(Purpose.IDENTITY, "sys", "user", 0.3, 100)
     with caplog.at_level(logging.ERROR, logger="llm.call_log"):
         await session.flush_calls()
         await session.flush_calls()

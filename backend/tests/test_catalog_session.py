@@ -53,7 +53,7 @@ def test_empty_catalog_falls_back_to_provider_constants(catalog):
     s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=catalog, user_id=USER)
     assert s.model_for(Purpose.NARRATION) == "claude-sonnet-5-5"
     assert s.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
-    assert s.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"
+    assert s.model_for(Purpose.IDENTITY) == "claude-sonnet-5-5"
     m = LLMSession("mistral", "k", user_model="mistral-small-latest", catalog=catalog, user_id=USER)
     assert m.model_for(Purpose.MECHANICAL) == "mistral-small-latest"
     assert m.model_for(Purpose.DIRECTOR) == "mistral-large-latest"
@@ -108,7 +108,7 @@ def test_other_provider_only_catalog_keeps_old_path():
     cat = ModelCatalog([_e("big")])  # mistral rows only
     s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat, user_id=USER)
     assert s.model_for(Purpose.MECHANICAL) == "claude-haiku-5-5"
-    assert s.model_for(Purpose.RESOLVER) == "claude-sonnet-5-5"
+    assert s.model_for(Purpose.IDENTITY) == "claude-sonnet-5-5"
 
 
 def _a(model_id, profile=None, roles=("narration",), status="enabled", rank=1):
@@ -120,7 +120,7 @@ def test_admin_profile_reaches_default_model_purposes():
     cat = ModelCatalog([_a("claude-sonnet-5-5", prof)])
     s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat, user_id=USER)
     assert s.provider_for(Purpose.EXTRACTION).profile == prof
-    assert s.provider_for(Purpose.RESOLVER).profile == prof
+    assert s.provider_for(Purpose.IDENTITY).profile == prof
 
 
 def test_enabled_entry_without_profile_passes_none(monkeypatch):
@@ -172,3 +172,19 @@ def test_anthropic_mechanical_follows_catalog_model():
                                      ("narration", "mechanical"), 1, None, prof)])
     s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat, user_id=USER)
     assert s.model_for(Purpose.MECHANICAL) == "claude-sonnet-5-5"
+
+
+def test_identity_purposes_pick_catalog_roles_then_fall_back_to_narration():
+    cat = ModelCatalog([
+        _a("claude-sonnet-5-5", roles=("narration", "identity_strong")),
+        _a("claude-haiku-5-5", roles=("mechanical", "identity"), rank=2),
+    ])
+    s = LLMSession("anthropic", "k", user_model="claude-sonnet-5-5", catalog=cat, user_id=USER)
+    assert s.model_for(Purpose.IDENTITY) == "claude-haiku-5-5"
+    assert s.model_for(Purpose.IDENTITY_STRONG) == "claude-sonnet-5-5"
+    # No holder (or a holder not enabled): the narration default.
+    bare = ModelCatalog([_e("big"), _e("small", roles=("mechanical", "identity"), rank=2,
+                                       status="pending")])
+    m = LLMSession("mistral", "k", user_model="big", catalog=bare, user_id=USER)
+    assert m.model_for(Purpose.IDENTITY) == "big"
+    assert m.model_for(Purpose.IDENTITY_STRONG) == "big"

@@ -199,4 +199,4 @@ async def test_every_llm_call_of_a_turn_is_linked_to_it(harness, world_game, tes
     assert {r["turn_id"] for r in world_calls} == {None}
     assert {r["user_id"] for r in world_calls} == {test_user["id"]}
     assert {r["turn_id"] for r in calls} == {turn_id}
-    assert {"narration", "resolver", "extraction", "director"} <= {r["purpose"] for r in calls}
+    assert {"narration", "identity", "extraction", "director"} <= {r["purpose"] for r in calls}

@@ -172,6 +172,11 @@ class IdentityConfig(BaseSettings):
     context_messages: int = 6
     # Candidates sent to the resolver per turn.
     max_candidates: int = 25
+    # Words of context a decision quotes before its mention, and the longest evidence.
+    before_words: int = 3
+    evidence_max_words: int = 20
+    # Output budget of one identity decision call (§4.5.3).
+    decision_max_tokens: int = 4096
     # Share of turns escalated to the strong model: target and alert level (D29).
     escalation_target_rate: float = 0.20
     escalation_alert_rate: float = 0.25
@@ -186,7 +191,8 @@ class IdentityConfig(BaseSettings):
         return value
 
     @field_validator("rich_min_chars", "token_min_len", "lev_min_chars", "context_messages",
-                     "max_candidates")
+                     "max_candidates", "before_words", "evidence_max_words",
+                     "decision_max_tokens")
     @classmethod
     def _at_least_one(cls, value: int, info: ValidationInfo) -> int:
         if value < 1:

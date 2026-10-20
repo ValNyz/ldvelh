@@ -48,7 +48,7 @@ from typing import Awaitable, Callable
 
 from config import get_settings
 from llm.profile import DEFAULT_PROFILE, ModelProfile
-from repos.llm_models import invalidate_catalog_cache
+from repos.llm_models import CORE_ROLES, OPTIONAL_ROLES, invalidate_catalog_cache
 from scripts.smoke_providers import (
     KEY_FIELDS,
     ProbeResult,
@@ -62,7 +62,9 @@ from services.pricing import ModelPricing, lookup_pricing
 
 logger = logging.getLogger(__name__)
 
-ROLES = ("narration", "mechanical")
+ROLES = CORE_ROLES
+# --set-role also accepts the optional roles, which the refresh never moves.
+SETTABLE_ROLES = CORE_ROLES + OPTIONAL_ROLES
 MODELS_DEV_URL = "https://models.dev/api.json"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/models"
 PRICE_FETCH_TIMEOUT_S = 20.0
@@ -629,8 +631,8 @@ async def manual_action(conn, action: str, provider: str, model_id: str, role: s
             "UPDATE llm_models SET status = 'retired', source = 'manual', updated_at = now() "
             "WHERE provider = $1 AND model_id = $2", provider, model_id)
         return None
-    if role not in ROLES:
-        return f"unknown role {role!r} (expected one of {', '.join(ROLES)})"
+    if role not in SETTABLE_ROLES:
+        return f"unknown role {role!r} (expected one of {', '.join(SETTABLE_ROLES)})"
     async with conn.transaction():
         await conn.execute(
             "UPDATE llm_models SET roles = array_remove(roles, $2), updated_at = now() "

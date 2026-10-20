@@ -24,13 +24,14 @@ import argparse
 import asyncio
 import json
 import os
-import re
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
+
+from utils.trigrams import name_similarity, word_run_similarity
 
 SECTIONS = (
     "Ré-identification",
@@ -65,7 +66,6 @@ RESERVED_REFS = ("PROTAGONIST", "COMPANION")
 # The types a 'character' span of the legacy resolver may stand for when no character
 # matches it (identity_find_span_entity in the migration).
 SPAN_FALLBACK_TYPES = ("companion", "protagonist")
-_WORDS = re.compile(r"[^\W_]+")
 
 
 @dataclass
@@ -109,38 +109,6 @@ class GameReport:
     mentions_dropped: Counter = field(default_factory=Counter)
     duplicates: list[tuple[str, str, str, str]] = field(default_factory=list)
     collisions: list[tuple[str, str, str, str]] = field(default_factory=list)
-
-
-def _trigrams(text: str) -> set[str]:
-    grams = set()
-    for word in _WORDS.findall(text.lower()):
-        padded = f"  {word} "
-        grams |= {padded[i : i + 3] for i in range(len(padded) - 2)}
-    return grams
-
-
-def trigram_similarity(a: str, b: str) -> float:
-    """pg_trgm's similarity(): shared trigrams over all trigrams of the words of a and b
-    (each word padded with two spaces before and one after)."""
-    left, right = _trigrams(a), _trigrams(b)
-    if not left or not right:
-        return 0.0
-    shared = len(left & right)
-    return shared / (len(left) + len(right) - shared)
-
-
-def word_run_similarity(a: str, b: str) -> float:
-    """The best similarity() of a with a run of whole consecutive words of b, close to
-    pg_trgm's strict_word_similarity (« Coopérative » in « Coopérative Agronomique »: 1)."""
-    words = _WORDS.findall(b.lower())
-    return max(
-        (
-            trigram_similarity(a, " ".join(words[i:j]))
-            for i in range(len(words))
-            for j in range(i + 1, len(words) + 1)
-        ),
-        default=0.0,
-    )
 
 
 async def _columns(conn, table: str) -> set[str]:
@@ -431,9 +399,7 @@ def _duplicate_reason(
     (similarity, or one name inside the other), the same occupation at the same place, or
     a character's descriptor that names the other's occupation."""
     a, b = norm(left.name), norm(right.name)
-    score = max(
-        trigram_similarity(a, b), word_run_similarity(a, b), word_run_similarity(b, a)
-    )
+    score = name_similarity(a, b)
     if score >= threshold:
         return f"noms proches ({score:.2f})"
     if left.type != "character":

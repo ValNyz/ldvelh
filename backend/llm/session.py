@@ -27,7 +27,13 @@ from services.llm_providers import (
     _CLASSES,
     get_provider,
 )
-from repos.llm_models import ModelCatalog
+from repos.llm_models import (
+    IDENTITY_ROLE,
+    IDENTITY_STRONG_ROLE,
+    MECHANICAL_ROLE,
+    NARRATION_ROLE,
+    ModelCatalog,
+)
 from utils import parse_json_response, replace_lone_surrogates
 from utils.log_safe import safe_repr, safe_text
 
@@ -38,10 +44,18 @@ class Purpose(str, Enum):
     NARRATION = "narration"
     WORLD_GEN = "world_gen"
     MECHANICAL = "mechanical"
-    RESOLVER = "resolver"
+    IDENTITY = "identity"
+    IDENTITY_STRONG = "identity_strong"
     EXTRACTION = "extraction"
     DIRECTOR = "director"
     SUMMARY = "summary"
+
+
+# Purposes with a catalog role of their own (no holder: the narration default).
+_CATALOG_ROLES = {
+    Purpose.IDENTITY: IDENTITY_ROLE,
+    Purpose.IDENTITY_STRONG: IDENTITY_STRONG_ROLE,
+}
 
 
 @dataclass(frozen=True)
@@ -144,9 +158,13 @@ class LLMSession:
             if entry is None or entry.status != "enabled":
                 user_model = None
             if purpose in (Purpose.NARRATION, Purpose.WORLD_GEN):
-                return user_model or cat.default_model(name, "narration")
+                return user_model or cat.default_model(name, NARRATION_ROLE)
+            if purpose in _CATALOG_ROLES:
+                # The identity resolver's own models (Haiku, Sonnet), else the narration one.
+                return (cat.default_model(name, _CATALOG_ROLES[purpose])
+                        or cat.default_model(name, NARRATION_ROLE))
             if purpose is Purpose.MECHANICAL:
-                chosen = cat.default_model(name, "mechanical")
+                chosen = cat.default_model(name, MECHANICAL_ROLE)
                 if chosen:
                     return chosen
                 return get_provider(name, api_key=self._api_key,
@@ -157,7 +175,7 @@ class LLMSession:
             main_entry = cat.entry(name, main)
             if main_entry is not None and main_entry.status == "enabled":
                 return main
-            return cat.default_model(name, "narration")
+            return cat.default_model(name, NARRATION_ROLE)
         if purpose in (Purpose.NARRATION, Purpose.WORLD_GEN):
             return self.user_model
         if purpose is Purpose.MECHANICAL:
@@ -165,7 +183,7 @@ class LLMSession:
             # mechanical model (Haiku on Anthropic, the same model elsewhere).
             return get_provider(self.provider_name, api_key=self._api_key,
                                 model=self.user_model).model_name("mechanical")
-        return None  # resolver, extraction, director, summary: provider default
+        return None  # identity, extraction, director, summary: provider default
 
     def provider_for(self, purpose: Purpose) -> LLMProvider:
         if purpose not in self._providers:
@@ -248,9 +266,9 @@ class LLMSession:
 
     async def extract_structured(self, system_prompt: str, user_message: str, tool_name: str,
                                  tool_description: str, schema: dict, temperature: float,
-                                 max_tokens: int) -> LLMCall:
+                                 max_tokens: int, *,
+                                 purpose: Purpose = Purpose.EXTRACTION) -> LLMCall:
         """Structured extraction dispatched on the provider's mode, with a text fallback."""
-        purpose = Purpose.EXTRACTION
         provider = self.provider_for(purpose)
         messages = [{"role": "user", "content": user_message}]
         mode = provider.structured_output_mode

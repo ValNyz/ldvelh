@@ -102,7 +102,7 @@ def resolver_provider(name: str, api_key: str, models: dict[str, str]) -> LLMPro
     if "resolver" in models:
         return get_provider(name, api_key=api_key, model=models["resolver"])
     session = LLMSession(name, api_key, user_id=None)
-    return session.provider_for(Purpose.RESOLVER)
+    return session.provider_for(Purpose.IDENTITY)
 
 
 async def _emit(selection: runner.Selection, like: LLMProvider, out: Path) -> int:
@@ -191,7 +191,7 @@ async def _run(args: argparse.Namespace) -> int:
             sequences_by_run.append(
                 await runner.run_sequences(adapter, selection.sequences, session_for)
             )
-    models = {"resolver": like.model_name(Purpose.RESOLVER.value), **models}
+    models = {"resolver": like.model_name(Purpose.IDENTITY.value), **models}
     markdown, data = runner.build_report(
         scores_by_run,
         provider=args.provider,

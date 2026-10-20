@@ -16,6 +16,7 @@ from prompts.extraction import (
     narrative_arcs_prompt,
     organizations_prompt,
 )
+from prompts.identity_prompt import IDENTITY_PROMPT_MARKER, IDENTITY_STRONG_MARKER
 from services.extraction.resolver import RESOLVER_SYSTEM_PROMPT
 from services.llm_providers import (
     CompletionResult,
@@ -49,6 +50,10 @@ _EXTRACTOR_PROMPTS = {
 
 def classify_call(system_prompt: str, tool_name: str | None = None) -> str:
     """Map an LLM call to a stable purpose label."""
+    # The identity decision is told by its prompt, whatever its tool (or schema) name.
+    if system_prompt.startswith(IDENTITY_PROMPT_MARKER):
+        strong = IDENTITY_STRONG_MARKER in system_prompt
+        return "identity_strong" if strong else "identity"
     if tool_name:
         return f"extract:{tool_name}"
     if system_prompt == RESOLVER_SYSTEM_PROMPT:

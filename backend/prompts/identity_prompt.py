@@ -1,0 +1,236 @@
+"""Prompt of the resolver v2's listwise identity decision (spec §4.5.2-§4.5.3, §4.12).
+
+The rules are generic: no word of a language and no name of a universe here. The lists
+the rules cite (pronouns, phrases that introduce a name, in-world sources of a name) and
+the examples come from the game's packs (`prompt_examples.identity` of the genre, else of
+the language). The model writes no label and no confidence: it picks a handle among the
+candidates' (an enum of the schema) or abstains with UNSURE.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Protocol
+
+from config import get_identity_config
+from domain.identity import (
+    ALIAS_KINDS,
+    DECISIONS,
+    MENTION_CATEGORIES,
+    NEW_ENTITY_TYPES,
+    NEW_KINDS,
+    Candidate,
+)
+from packs.loader import Example, LangPack
+
+# Neutral markers: the head of every identity prompt, and of the strong model's.
+IDENTITY_PROMPT_MARKER = "## IDENTITY RESOLUTION"
+IDENTITY_STRONG_MARKER = "## SECOND OPINION"
+# Tool (or JSON schema) name of the decision output.
+DECISION_TOOL = "identity_decisions"
+SEPARATOR = " · "
+
+
+class IdentityLexicon(Protocol):
+    """What the prompt reads of a game's lexicon (services.identity.lexicon.Lexicon)."""
+
+    lang: LangPack
+    prompt_examples: list[Example]
+
+
+def format_handle(handle: int) -> str:
+    return f"E{handle}"
+
+
+def _listed(entries: list[str]) -> str:
+    """Pack entries as the prompt cites them: in pack order, once each, quoted."""
+    return ", ".join(f'"{e}"' for e in dict.fromkeys(entries))
+
+
+def _examples(examples: list[Example]) -> str:
+    return "\n".join(f"- {e.input}\n  -> {e.output}" for e in examples)
+
+
+_RULES = """\
+You link the mentions of a story passage to the entities of a game.
+
+Find every mention in the NARRATION that names or describes a character, a location, an \
+organization or an object, and decide for each one:
+- MATCH: it names a candidate; give that candidate's handle.
+- ALIAS: it names a candidate by a form its card does not list yet; give the handle and \
+the alias_kind.
+- NEW: a really new entity; give new_type and new_kind (proper_name or descriptor). Never \
+write a label: the code takes the surface.
+- UNSURE: you cannot tell. An abstention is always better than a guess.
+- SKIP: nothing to link.
+
+Rules:
+1. A title alone is not enough when several candidates hold it.
+2. The same name held by cards of different kinds (a place and an organization, say) \
+names distinct entities, unless the text says they are one.
+3. Two people who talk to each other in the scene are distinct: list each one in the \
+other's talks_to.
+4. A self-introduction by an entity whose name is still unknown and who is present in the \
+scene is ALIAS with alias_kind true_name for that entity. Phrases that introduce a name: \
+{reveal_cues}.
+5. A name read in the world ({source_cues}) reveals the name of what bears it, like a \
+self-introduction.
+6. Pronouns ({pronouns}), body parts and anonymous crowds are SKIP.
+7. Objects only seen, never named nor handled, are SKIP.
+8. The PROTAGONIST card is the player's character, the COMPANION card its companion: \
+MATCH them, never create them.
+9. The mentions under ALREADY RESOLVED are decided: do not repeat them.
+
+For each mention give: surface (the exact text of the narration), before (the \
+{before_words} words just before it), category, decision, handle (a handle of the \
+CANDIDATES, or null), alias_kind, new_type, new_kind, evidence (at most \
+{evidence_max_words} words) and talks_to (the surfaces it speaks with), when relevant."""
+
+_STRONG = """\
+A first pass left the mentions under MENTIONS TO DECIDE undecided or risky (a revealed \
+name, a link that would merge two entities). Decide only the mentions listed there; leave \
+out every other mention."""
+
+
+def build_identity_system_prompt(
+    lexicon: IdentityLexicon, *, strong: bool = False
+) -> str:
+    """The system prompt of the identity decision; `strong`: the escalation's, which
+    decides only the mentions it lists."""
+    config = get_identity_config()
+    pack = lexicon.lang
+    pronouns = [
+        *pack.pronouns.personal,
+        *pack.pronouns.demonstrative,
+        *pack.pronouns.indefinite,
+    ]
+    rules = _RULES.format(
+        reveal_cues=_listed(pack.reveal_cues),
+        source_cues=_listed(pack.source_cues),
+        pronouns=_listed(pronouns),
+        before_words=config.before_words,
+        evidence_max_words=config.evidence_max_words,
+    )
+    parts = [IDENTITY_PROMPT_MARKER]
+    if strong:
+        parts += [IDENTITY_STRONG_MARKER, _STRONG]
+    parts.append(rules)
+    if lexicon.prompt_examples:
+        parts.append("Examples:\n" + _examples(lexicon.prompt_examples))
+    return "\n\n".join(parts)
+
+
+def _section(title: str, lines: list[str]) -> str:
+    return f"## {title}\n" + ("\n".join(lines) if lines else "(none)")
+
+
+def build_identity_user_prompt(
+    text: str,
+    cards: list[str],
+    resolved: list[str],
+    scene_lines: list[str],
+    *,
+    mentions: list[str] | None = None,
+    schema: dict | None = None,
+) -> str:
+    """The user message: the narration, the candidate cards, the mentions the prepass
+    already resolved and the scene. `mentions`: the only ones to decide (escalation);
+    `schema`: the output schema, written out when the provider cannot enforce it."""
+    sections = [
+        _section("NARRATION", [text]),
+        _section("CANDIDATES", cards),
+        _section("ALREADY RESOLVED", resolved),
+        _section("SCENE", scene_lines),
+    ]
+    if mentions is not None:
+        sections.append(_section("MENTIONS TO DECIDE", mentions))
+    if schema is not None:
+        sections.append(
+            _section(
+                "OUTPUT",
+                ["One JSON object matching this schema:", json.dumps(schema)],
+            )
+        )
+    return "\n\n".join(sections)
+
+
+def _quoted(text: str) -> str:
+    return f'"{text}"'
+
+
+def render_card(c: Candidate, *, protagonist: bool, companion: bool) -> str:
+    """One candidate as the model sees it (§4.5.2): handle, type, role, the label the
+    player may read, a true name the protagonist does not know yet, the other aliases
+    and descriptors, occupation, usual place, last turn seen and one line of
+    description."""
+    parts = [format_handle(c.handle), c.entity_type]
+    if protagonist:
+        parts.append("PROTAGONIST")
+    if companion:
+        parts.append("COMPANION")
+    label = _quoted(c.label)
+    shown = {c.label.casefold()}
+    names, descriptors = [], []
+    for a in c.aliases:
+        if a.alias.casefold() in shown:
+            continue
+        shown.add(a.alias.casefold())
+        if a.kind == "true_name" and not a.known:
+            label += f" (name {_quoted(a.alias)} unknown to the PC)"
+            continue
+        form = _quoted(a.alias) + ("" if a.known else " (unknown to the PC)")
+        (descriptors if a.kind == "descriptor" else names).append(form)
+    parts.append(label)
+    if names:
+        parts.append("aliases: " + ", ".join(names))
+    if descriptors:
+        parts.append("descriptors: " + ", ".join(descriptors))
+    if c.occupation:
+        parts.append(f"occupation: {c.occupation}")
+    if c.usual_location:
+        parts.append(f"usual place: {c.usual_location}")
+    if c.last_seen_turn is not None:
+        parts.append(f"seen at turn {c.last_seen_turn}")
+    if c.description_line:
+        parts.append(c.description_line)
+    return SEPARATOR.join(parts)
+
+
+def _optional(values: tuple[str, ...]) -> dict:
+    return {"type": ["string", "null"], "enum": [*values, None]}
+
+
+def decision_schema(handles: list[str]) -> dict:
+    """JSON schema of the decision output: `handle` can only be one of `handles` (or
+    null), so the model cannot invent an id; no confidence field (UNSURE abstains)."""
+    config = get_identity_config()
+    item = {
+        "type": "object",
+        "properties": {
+            "surface": {
+                "type": "string",
+                "description": "the mention, exactly as the narration writes it",
+            },
+            "before": {
+                "type": "string",
+                "description": f"the {config.before_words} words just before it",
+            },
+            "category": _optional(MENTION_CATEGORIES),
+            "decision": {"type": "string", "enum": list(DECISIONS)},
+            "handle": _optional(tuple(handles)),
+            "alias_kind": _optional(ALIAS_KINDS),
+            "new_type": _optional(NEW_ENTITY_TYPES),
+            "new_kind": _optional(NEW_KINDS),
+            "evidence": {
+                "type": "string",
+                "description": f"at most {config.evidence_max_words} words",
+            },
+            "talks_to": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["surface", "before", "decision", "handle", "evidence"],
+    }
+    return {
+        "type": "object",
+        "properties": {"mentions": {"type": "array", "items": item}},
+        "required": ["mentions"],
+    }

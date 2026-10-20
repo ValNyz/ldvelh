@@ -197,7 +197,7 @@ async def test_emitted_request_is_what_resolve_entities_sends(tmp_path, monkeypa
     session = LLMSession.from_provider(legacy_resolver.OfflineProvider(provider))
     await resolve_entities(None, None, last.text, annotations, scene.narration, session)
 
-    assert sent["purpose"] is Purpose.RESOLVER
+    assert sent["purpose"] is Purpose.IDENTITY
     assert emitted["system"] == sent["system"]
     assert emitted["messages"] == [{"role": "user", "content": sent["user"]}]
     assert "Oskar Venn [= Oskar Venn]" in sent["user"]
@@ -206,7 +206,7 @@ async def test_emitted_request_is_what_resolve_entities_sends(tmp_path, monkeypa
         k: v for k, v in emitted.items() if k not in ("scene_id", "system", "messages")
     }
     assert options == wire  # model, max_tokens, thinking; temperature only if sent
-    assert emitted["model"] == provider.model_name(Purpose.RESOLVER.value)
+    assert emitted["model"] == provider.model_name(Purpose.IDENTITY.value)
     assert ("temperature" in emitted) == ("temperature" in wire)
 
 

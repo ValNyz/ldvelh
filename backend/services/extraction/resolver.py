@@ -254,7 +254,7 @@ async def resolve_entities(
     # Call LLM with 2 messages — use the provider's default model
     settings = get_settings()
     call = await session.complete_json(
-        Purpose.RESOLVER,
+        Purpose.IDENTITY,
         RESOLVER_SYSTEM_PROMPT,
         f"MESSAGE 1 (previous, annotated):\n{annotated_prev}\n\n"
         f"MESSAGE 2 (current, to resolve):\n{current_response}",

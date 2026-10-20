@@ -13,6 +13,16 @@ from utils.log_safe import log_cause
 logger = logging.getLogger(__name__)
 
 
+NARRATION_ROLE = "narration"
+MECHANICAL_ROLE = "mechanical"
+IDENTITY_ROLE = "identity"
+IDENTITY_STRONG_ROLE = "identity_strong"
+# Roles every provider keeps a holder for: the catalog refresh moves them when needed.
+CORE_ROLES = (NARRATION_ROLE, MECHANICAL_ROLE)
+# Roles an operator sets (--set-role); without a holder, the narration model serves them.
+OPTIONAL_ROLES = (IDENTITY_ROLE, IDENTITY_STRONG_ROLE)
+
+
 @dataclass(frozen=True)
 class CatalogEntry:
     provider: str
