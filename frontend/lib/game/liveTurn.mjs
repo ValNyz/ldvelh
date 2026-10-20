@@ -152,9 +152,8 @@ export function withLiveTurn(history, turn) {
 
 // The history holds the committed turn: by its answer's id.
 function holdsTurn(history, turn) {
-	const answer = turn.messages.find(m => m.role === 'assistant');
-	if (answer?.id) return history.some(m => m.id === answer.id);
-	return false;
+	const answerId = turn.messages.find(m => m.role === 'assistant')?.id;
+	return Boolean(answerId) && history.some(m => m.id === answerId);
 }
 
 /**

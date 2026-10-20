@@ -161,6 +161,14 @@ F-xx touched: F-15, F-18, F-20 (columns updated above). Tasks 12-15 (#153). Task
 - [x] #108 slice: `repos/entities.py` holds the entity SQL and the writes are by id; the rest of the split of `kg/` stays open (not closed).
 - [x] Final review fixes (#153): a removed entity is never a creation or refill target (an extractor re-listing a removed NPC's name creates a fresh live one, internal suffix; `tests/identity/test_kg_by_id.py::test_an_extractor_recreating_a_removed_character_gets_a_fresh_live_one`); updates, removals, ambient updates and location reveals resolve live first (the live homonym of a removed entity is reachable by its name; removing an entity already removed is a counted no-op, event `remove_noop`); a merge moves or audits the engine rows (migration `20261020000004_identity_merge_engine_rows.sql`: drop's stat block moves when keep has none, else keep's wins and drop's is listed under `<table>.dropped` and copied into `entity_merges.dropped_row.engine`; the operator preview lists both; a duplicate open skill is closed, `skills.closed`; `tests/identity/test_undo_identity.py`, `tests/identity/test_merge_script.py`); the `_create_character` reuse through the extracted name records `create_reused` (`via: name`); the Director logs its dropped items as counts per code; a `ref_dropped` of a write target carries `removed` (count of removed entities the name holds). Re-review: untyped references (fact participants, relation ends, arc/event/chronology participants, world-gen references) resolve live first (`require_any_live_ref`, a removed entity as a fallback only; `test_kg_by_id.py::test_untyped_references_reach_the_live_homonym_of_a_removed_character`), and the extracted-name reuse of `_create_character` ignores removed characters (`::test_a_removed_character_named_by_the_extracted_name_is_not_reused`). No snapshot changed.
 
+### Hygiene lot H (#168)
+
+No F-xx changes behaviour and no snapshot changed. The lot moves code and adds guards:
+- Guards: `ruff.toml` (C901, F401, F841 on the whole backend, tests excluded), `KNOWN_VIOLATIONS` and `SQL_IN_API_ALLOWED` in `tests/test_architecture.py` (may only shrink), coverage floor 91 in CI.
+- Moves: the commit's effects went from `repos/turns` to `services/turn_effects.py` (F-18 and F-20 keep their tests); `hold_source_message` to `repos/uow.py`; reveals to `services/identity/reveals.py` (`apply_entity_reveals`, `reveal_location`); identity types to `domain/identity.py`; JSON coercion to `schema/coerce.py`; the pool is on `app.state` (`get_pool`).
+- Removals: dead code; the rollback by index (F-20: `messageId` is required, 422 without it); the unreachable `extracting` turn status.
+- Import cycle `repos` / `kg` / `services.identity` broken: `tests/test_import_order.py`.
+
 ## Comment mettre à jour un snapshot
 
 A behavior change is allowed only when it fixes an issue listed in the phase. Then:

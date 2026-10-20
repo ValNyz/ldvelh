@@ -18,7 +18,7 @@ Frontend (Next.js)  ←→  Backend (FastAPI)  ←→  PostgreSQL
 ```
 backend/
 ├── api/            # FastAPI routes (auth, game, chat), SSEWriter
-├── domain/         # Pure types (turn, errors, game), no I/O
+├── domain/         # Pure types (turn, errors, game, identity), no I/O
 ├── kg/             # Knowledge graph (populator by entity id, reader, refs)
 ├── pipeline/       # Turn pipeline: steps/{load,arbitrate,narrate,commit,respond,schedule}, init_flow, post_turn
 ├── workers/        # Per-game job supervisor and turn locks (in-process, imports no other layer)
@@ -165,12 +165,16 @@ The reference numbers are the baseline of the legacy resolver: `tests/reports/id
 
 Every route that takes a game id (any spelling of `game_id`/`gameId` in path, query, header or body, nested fields included, or any path parameter right under `/games/`) must call `GameService.verify_ownership` before touching the game, and take the id from one place only. `backend/tests/test_game_ownership_guard.py` discovers these routes from the OpenAPI schema and fails until a new one is added to its `GAME_SCOPED_CALLS` table, which then checks that another user gets a 403 and that the game (existence, name, messages) is unchanged. Routes must not use `include_in_schema=False` (the same test fails on a hidden route).
 
-`pipeline/`, `api/routes.py` and `workers/` are also linted for complexity (McCabe 15 at most) and unused imports, with the same command as CI (ruff 0.8.4):
+A violation is judged against two frozen lists in that file, which may only shrink: `KNOWN_VIOLATIONS` (pairs of file and full imported module that still break a layer rule; a new import in a listed file is a new violation, and a fixed entry must be removed, the suite fails otherwise) and `SQL_IN_API_ALLOWED` (the `api/` files that still hold SQL; no SQL is allowed in any other `api/` file). The architecture tests also forbid `repos/turns.py` from importing `kg` or `services`, and the layer rules forbid `api/` from importing `main`: the pool is read with `api.dependencies.get_pool`. Turn effects live in `services/turn_effects.py`, identity value types in `domain/identity.py` and the JSON coercion validators in `schema/coerce.py`.
+
+The whole backend (tests excluded, see #75) is linted for complexity (McCabe 15 at most), unused imports and unused variables (C901, F401, F841). `backend/ruff.toml` is the reference and CI runs `ruff check .` from `backend/` (ruff 0.8.4). Its `per-file-ignores` list the functions whose complexity is frozen debt: it may only shrink, remove an entry once its function is down to 15, never add one.
 
 ```bash
 cd backend && pip install ruff==0.8.4
-ruff check --select C901,F401 --config "lint.mccabe.max-complexity = 15" pipeline/ api/routes.py workers/
+ruff check .
 ```
+
+The CI test step fails under 91% coverage (`--cov-fail-under=91`); raise the floor when coverage rises, never lower it to get a change through.
 
 Errors reaching the player come from `pipeline/errors.py` (one French message, a `code`, a `ref`); never send raw exception text, and use `logger.exception` rather than `traceback.print_exc`. Prompts are logged only with `LOG_PROMPTS=true`.
 
@@ -243,6 +247,6 @@ To undo a merge, restore the backup.
 GitHub Actions runs on every push to `main`/`dev`/`test`:
 - **Unit tests** with coverage (uploaded to Codecov)
 - **Integration tests** against a Postgres service container
-- **Lint** of `pipeline/`, `api/routes.py` and `workers/` (ruff C901, F401)
+- **Lint** of the backend with `ruff check .` (C901, F401, F841; config in `backend/ruff.toml`)
 - **Frontend**: lint, unit tests, build, then the Playwright e2e tests (results uploaded as the `e2e-results` artifact)
 - **Docker images**: `docker build` of the backend (repo root context) and the frontend, run as non-root

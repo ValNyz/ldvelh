@@ -59,18 +59,18 @@ ldvelh/
 │   │   ├── post_turn.py       # run_post_turn: resolver, extraction, then the post-turn hooks (one supervisor job per turn)
 │   │   ├── director_runs.py   # Initial Director run (a supervisor job the first turn waits for)
 │   │   └── steps/             # load, arbitrate, narrate, commit, respond, schedule
-│   ├── domain/                # Pure types: turn.py (PendingRoll, AppliedDeltas, NarrationState), errors.py (TurnError), game.py
+│   ├── domain/                # Pure types: turn.py (PendingRoll, AppliedDeltas, NarrationState), errors.py (TurnError), game.py, identity.py (identity value types and failures: NewEntitySpec, AliasSpec, EntityRef, FactRef, RevealOutcome, MergeOutcome, ResolvedRef, IdentityFailure and subclasses)
 │   ├── workers/               # Process-level concurrency, imports no other layer
 │   │   ├── supervisor.py      # Per-game background job queue (enqueue, wait_idle, cancel_game, drain)
 │   │   └── game_locks.py      # Per-game turn lock (hold, is_held), idle entries purged
 │   ├── llm/                   # LLMSession, usage, call_log.py (CallLog: buffered llm_calls rows, flushed once per phase, #106)
-│   ├── repos/                 # SQL: games.py, turns.py (SQL of the turn's own rows: messages, rolls, turns), uow.py (unit of work: transaction journaled under a turn), llm_calls.py (call log), users.py, llm_models.py
+│   ├── repos/                 # SQL: games.py, turns.py (SQL of the turn's own rows: messages, rolls, turns), uow.py (unit of work: transaction journaled under a turn, `hold_source_message`), llm_calls.py (call log), users.py, llm_models.py
 │   ├── services/
 │   │   ├── game_service.py    # Game CRUD, state loading, messages, rollback
 │   │   ├── context_builder.py # Builds NarrationContext from DB
 │   │   ├── state_normalizer.py# Normalizes game state for frontend
 │   │   ├── hooks.py           # Post-turn hooks: on_turn_committed, on_new_cycle (registry, runners)
-│   │   ├── turn_effects.py    # What a narration changes at commit: state, location, stub events, credit, reveals, compel
+│   │   ├── turn_effects.py    # What a narration changes at commit: `apply_narration_state`, `apply_narrator_deltas` (credit, reveals, compel), `resolve_place`
 │   │   ├── subscribers.py     # Default subscribers: scheduled Director, engine new-cycle work, seed archiving
 │   │   ├── director_service.py# Director run: collect, LLM call, apply
 │   │   ├── director_context.py# Director run, collect step (reads, no connection kept during the call)
@@ -97,7 +97,7 @@ ldvelh/
 │   │       └── progression.py # Engine progression extraction
 │   ├── repos/
 │   │   └── entities.py        # Entity identity SQL: find_entity, registry, aliases, domain rows, merges
-│   ├── services/identity/     # IdentityService: create_entity, resolve_ref, update_entity, reveal, merge
+│   ├── services/identity/     # IdentityService: create_entity, resolve_ref, update_entity, reveal, merge; reveals.py: `apply_entity_reveals`, `reveal_location`
 │   ├── kg/                    # Knowledge Graph layer
 │   │   ├── reader.py          # KnowledgeGraphReader (SELECT queries)
 │   │   ├── populator.py       # KnowledgeGraphPopulator (writes by entity id; creates no entity)
@@ -113,6 +113,7 @@ ldvelh/
 │   │   └── extraction/        # Per-extractor prompt modules
 │   ├── schema/                # Pydantic models
 │   │   ├── core.py            # Base types (Name, ShortText, GameTime, PROTAGONIST_REF, etc.)
+│   │   ├── coerce.py          # coerce_json_list, coerce_json_dict (shared validators for JSON-encoded fields)
 │   │   ├── columns.py         # Entity field bounds: min(product limit, column width)
 │   │   ├── entity_changes.py  # EntityUpdate.changes typed per column (bound_changes)
 │   │   ├── narration.py       # NarrationOutput, NarrationContext, lenient parsing (parse_narration)
@@ -123,7 +124,7 @@ ldvelh/
 │   │   ├── entities.py        # Entity models (Character, Location, etc.)
 │   │   ├── relations.py       # Relation models
 │   │   └── narrative.py       # Narrative arc models
-│   └── tests/                 # 840+ tests, 94% coverage
+│   └── tests/                 # 2500+ tests, CI coverage floor 91%
 ├── frontend/
 │   ├── app/
 │   │   ├── page.js            # Main page, phase routing
@@ -373,7 +374,7 @@ User types message
 
 LIGHT mode is the default when `world_created == True` (the first turn after world generation is a FIRST_LIGHT turn through the same pipeline).
 
-**Layers.** `api/` (routes, `SSEWriter`) talks HTTP and SSE only. `pipeline/` orchestrates a turn and knows nothing of FastAPI or SQL: it sends events through the `EventSink` port (`pipeline/ports.py`) that `SSEWriter` satisfies (same method shapes, checked by `tests/test_event_sink_contract.py`; `send_done(display_text, state=None, *, world=False)`, `world=True` for the world generation's done, #80). SQL lives in `repos/` (`games.py`, `turns.py`, `uow.py`, `llm_calls.py`, `users.py`); pure types in `domain/`. Only `api/` imports FastAPI: services raise domain errors (`GameNotFound`, `GameAccessDenied`) that `api/http_errors.py` answers with 404 / 403. `tests/test_architecture.py` enforces these dependency rules and that `_handle_chat` stays under 80 lines.
+**Layers.** `api/` (routes, `SSEWriter`) talks HTTP and SSE only. `pipeline/` orchestrates a turn and knows nothing of FastAPI or SQL: it sends events through the `EventSink` port (`pipeline/ports.py`) that `SSEWriter` satisfies (same method shapes, checked by `tests/test_event_sink_contract.py`; `send_done(display_text, state=None, *, world=False)`, `world=True` for the world generation's done, #80). SQL lives in `repos/` (`games.py`, `turns.py`, `uow.py`, `llm_calls.py`, `users.py`); pure types in `domain/`. The connection pool is created by the lifespan in `main.py` and kept on `app.state.pool` (set to `None` once closed); routes get it through `api.dependencies.get_pool(request)`, which raises `RuntimeError` when it is missing, and `api/` never imports `main`. Only `api/` imports FastAPI: services raise domain errors (`GameNotFound`, `GameAccessDenied`) that `api/http_errors.py` answers with 404 / 403. `tests/test_architecture.py` enforces these dependency rules (existing breaches are frozen in `KNOWN_VIOLATIONS`, see CONTRIBUTING) and that `_handle_chat` stays under 80 lines.
 
 **Turn journal (P5a, #105).** `load` opens a turn (`repos.turns.open_turn`: a `turns` row in status `open`, `ctx.turn_id`) and binds it to the `LLMSession`, so every LLM call of the request is logged under it. The commit runs under `repos.uow.uow(conn, ctx.turn_id)`: the transaction sets `ldvelh.turn_id` locally and the world writes of the turn are recorded in `world_changes` by the database triggers (§7). `mark_committed` is the last statement of the commit transaction. A turn halted on a pending roll, failed or disconnected stays `open` (its journal rows, if any, were written in the transaction that stored the pending roll); open turns are purged by the next rollback. A turn resuming a pending roll adopts its halted turn at commit (§7).
 
