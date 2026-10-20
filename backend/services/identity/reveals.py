@@ -24,9 +24,9 @@ row by row:
 Nothing is deleted: every write goes through the domain row's triggers and the aliases,
 journaled under the turn, so undoing the turn restores the entity as it was. A reveal is
 idempotent: applied twice, the second one finds nothing left to do and records no
-event (the counted no-ops and refusals are recorded once per reveal and turn). Locations, organizations and objects follow the same table (their
-"true name" is their name, their knowledge the flags of its aliases); objects are never
-merged automatically.
+event (the counted no-ops and refusals are recorded once per reveal and turn).
+Locations, organizations and objects follow the same table (their "true name" is their
+name, their knowledge the flags of its aliases); objects are never merged automatically.
 """
 
 from __future__ import annotations
@@ -292,13 +292,13 @@ class _Reveal:
             drop = other if keep == entity_id else entity_id
             refused = await merges.refusal(self.service, self.conn, keep, drop)
         if refused is None:
-            await merges.merge(
+            # The guards just passed: the merge itself, without running them again.
+            await merges.apply(
                 self.service,
                 self.conn,
                 keep,
                 drop,
                 reason="reveal",
-                turn_id=self.turn_id,
                 evidence=self.evidence,
             )
             # The survivor holds both records' names, a true name among them (a

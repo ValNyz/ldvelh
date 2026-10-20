@@ -65,6 +65,15 @@ class MentionRow:
 
 
 @dataclass(frozen=True)
+class SuffixChange:
+    """A label suffix to write with a rename: `suffix` (None clears it) and where it comes
+    from (`origin`: scene_location or counter, for the label_suffixed event)."""
+
+    suffix: str | None
+    origin: str | None
+
+
+@dataclass(frozen=True)
 class UpsertTarget:
     """The live entity a write by name lands on (None: a new one), and whether the name
     was ambiguous (then nothing must be created under it).
@@ -393,14 +402,6 @@ async def label_holders(
     return holders
 
 
-async def clear_label_suffix(conn, entity_type: str, entity_id: UUID) -> None:
-    """Drop an entity's internal label suffix (its triggers update the registry label)."""
-    table, _ = await domain_table(conn, entity_type)
-    await conn.execute(
-        f"UPDATE {table} SET label_suffix = NULL WHERE id = $1", entity_id
-    )
-
-
 async def set_created_turn(conn, entity_id: UUID, turn_id: UUID) -> None:
     """The turn that created an entity, when the transaction's own turn did not set it."""
     await conn.execute(
@@ -486,11 +487,11 @@ async def update_domain_row(
     entity_id: UUID,
     values: dict,
     *,
-    label_suffix: str | None = None,
+    label_suffix: SuffixChange | None = None,
 ) -> tuple[str, dict | None]:
     """(table, the row after the update as a dict, None when no row of the game has this
-    id in the type's table). `label_suffix`: an internal suffix set in the same statement
-    (a rename onto a label another entity holds, R14)."""
+    id in the type's table). `label_suffix`: the internal suffix written in the same
+    statement (R14), set or cleared; None leaves it as it is."""
     table, columns = await domain_table(conn, entity_type)
     names = _checked(columns, values, table)
     if not names:
@@ -498,7 +499,7 @@ async def update_domain_row(
     values = dict(values)
     if label_suffix is not None:
         names.append("label_suffix")
-        values["label_suffix"] = label_suffix
+        values["label_suffix"] = label_suffix.suffix
     sets = ", ".join(f'"{c}" = ${i}' for i, c in enumerate(names, start=3))
     row = await conn.fetchrow(
         f"UPDATE {table} AS dom SET {sets} WHERE dom.id = $1 AND dom.game_id = $2"
@@ -657,13 +658,13 @@ async def event_recorded(
     turn_id: UUID | None,
     payload: dict,
 ) -> bool:
-    """An identity_events row of this kind, entity and payload exists already in this turn
+    """An identity_events row of this kind, entity and payload (jsonb equality) exists in this turn
     (without a turn: in this transaction)."""
     return await conn.fetchval(
         """SELECT EXISTS (SELECT 1 FROM identity_events
                            WHERE game_id = $1 AND kind = $2
                              AND entity_id IS NOT DISTINCT FROM $3
-                             AND payload @> $5::jsonb
+                             AND payload = $5::jsonb
                              AND CASE WHEN $4::uuid IS NULL
                                       THEN turn_id IS NULL AND created_at = now()
                                       ELSE turn_id = $4 END)""",

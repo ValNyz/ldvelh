@@ -169,7 +169,6 @@ async def apply_narrator_deltas(
         )
 
     identity = None
-    errors: list[str | dict] = []
     for reveal in narration.entity_reveals:
         if reveal.entity_type == "character":
             identity = identity or await IdentityService.for_game(conn, game_id)
@@ -177,7 +176,9 @@ async def apply_narrator_deltas(
             # turn commits (spec §4.11).
             await write_item(
                 conn,
-                errors,
+                # No list kept: write_item logs a failure (without story text) and an
+                # IdentityFailure is also an identity_events row; the commit goes on.
+                [],
                 "entity_reveal character",
                 lambda reveal=reveal, identity=identity: identity.reveal(
                     conn,

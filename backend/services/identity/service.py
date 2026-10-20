@@ -355,7 +355,8 @@ class IdentityService:
         """Write `fields` on the entity's domain row, by id (merges followed). No row:
         IdentityWriteMiss. A new name keeps the old one as a former name (the triggers) and
         gets its derived aliases (a former name it takes back is its name again); an
-        internal label suffix no homonym needs any more goes. With `suffix_if_held`, a new
+        internal label suffix no homonym needs any more goes, in the same write. With
+        `suffix_if_held`, a new
         name that another entity of the type holds as its registry label without being
         the same entity (an unnamed character's descriptor) gets an internal label suffix
         in the same write (R14, event 'label_suffixed'), never shown to the player.
@@ -364,31 +365,27 @@ class IdentityService:
             raise ValueError(f"{_KNOWN_FLAG} is written by a reveal, not update_entity")
         live_id = await entities.follow_merge(conn, entity_id) or entity_id
         renamed = "true_name" if entity_type == CHARACTER else "name"
-        suffix, suffix_from = None, None
-        if (
-            suffix_if_held
-            and fields.get(renamed)
-            and await entities.label_held_by_other(
-                conn, self.game_id, entity_type, fields[renamed], live_id
-            )
-        ):
-            suffix, suffix_from = await self._free_suffix(
-                conn, entity_type, fields[renamed], None
-            )
+        suffix_change = await self._suffix_for_rename(
+            conn, entity_type, live_id, fields, suffix_if_held
+        )
         table, row = await entities.update_domain_row(
-            conn, self.game_id, entity_type, live_id, fields, label_suffix=suffix
+            conn,
+            self.game_id,
+            entity_type,
+            live_id,
+            fields,
+            label_suffix=suffix_change,
         )
         if row is None:
             raise IdentityWriteMiss(table, entity_id, self.game_id)
-        if suffix is not None:
+        if suffix_change is not None and suffix_change.suffix is not None:
             await self.record_event(
                 conn,
                 "label_suffixed",
                 turn_id,
                 live_id,
-                {"entity_type": entity_type, "suffix_from": suffix_from},
+                {"entity_type": entity_type, "suffix_from": suffix_change.origin},
             )
-        await self._drop_needless_suffix(conn, entity_type, live_id, fields, row)
         if fields.get(renamed):
             known = entity_type != CHARACTER or bool(row.get("known_by_protagonist"))
             kind = "true_name" if entity_type == CHARACTER else "label"
@@ -413,18 +410,36 @@ class IdentityService:
                     entity_type=entity_type,
                 )
 
-    async def _drop_needless_suffix(
-        self, conn, entity_type: str, entity_id: UUID, fields: dict, row: dict
-    ) -> None:
-        """A renamed entity keeps its label suffix only while its new bare label is held."""
+    async def _suffix_for_rename(
+        self,
+        conn,
+        entity_type: str,
+        entity_id: UUID,
+        fields: dict,
+        suffix_if_held: bool,
+    ) -> entities.SuffixChange | None:
+        """The label suffix a rename writes in the same statement as the name (None: left
+        as it is). One write, so no alias of an intermediate label is ever made: a new
+        bare label another entity holds gets a fresh suffix (with `suffix_if_held`), a
+        free one drops the suffix the entity had."""
         names = _CHARACTER_NAMES if entity_type == CHARACTER else _OTHER_NAMES
-        if not row.get("label_suffix") or not set(fields).intersection(names):
-            return
-        bare = next((row[n] for n in names if row.get(n)), None)
-        if bare and not await entities.label_taken(
-            conn, self.game_id, entity_type, bare
+        if not set(fields).intersection(names):
+            return None
+        current = await entities.domain_row(conn, entity_type, entity_id) or {}
+        merged = {**current, **fields}
+        bare = next((merged[n] for n in names if merged.get(n)), None)
+        if not bare:
+            return None
+        if await entities.label_held_by_other(
+            conn, self.game_id, entity_type, bare, entity_id
         ):
-            await entities.clear_label_suffix(conn, entity_type, entity_id)
+            if not suffix_if_held:
+                return None
+            suffix, origin = await self._free_suffix(conn, entity_type, bare, None)
+            return entities.SuffixChange(suffix, origin)
+        if current.get("label_suffix"):
+            return entities.SuffixChange(None, None)
+        return None
 
     # --- reveals and merges (spec §4.7) -------------------------------------------------
 

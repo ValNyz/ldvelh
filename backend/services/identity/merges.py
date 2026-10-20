@@ -78,9 +78,26 @@ async def merge(
             f" drop={drop_id} refused={refused}"
         )
         return MergeOutcome(None, refused)
+    return MergeOutcome(
+        await apply(service, conn, keep_id, drop_id, reason=reason, evidence=evidence),
+        None,
+    )
+
+
+async def apply(
+    service: IdentityService,
+    conn,
+    keep_id: UUID,
+    drop_id: UUID,
+    *,
+    reason: str | None,
+    evidence: str | None,
+) -> UUID:
+    """The SQL merge, for a caller that already ran `refusal` (no guard run twice);
+    returns the entity_merges id."""
     merge_id = await entities.merge_entities(conn, keep_id, drop_id, reason, evidence)
     logger.info(
         f"[IDENTITY] merged game={service.game_id} keep={keep_id} drop={drop_id}"
         f" merge={merge_id}"
     )
-    return MergeOutcome(merge_id, None)
+    return merge_id

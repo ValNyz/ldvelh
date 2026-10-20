@@ -1,6 +1,7 @@
 """Reveals and merges (#153, spec §4.7): the table of reveals row by row, the guarded
 merge that keeps every edge on the older entity, and the cases of #25 (orphans)."""
 
+import hashlib
 from uuid import UUID, uuid4
 
 import pytest
@@ -606,6 +607,14 @@ async def test_a_revealed_descriptor_of_an_unnamed_character_never_merges(
         bare = await conn.fetchval("SELECT identity_bare_label($1)", elder)
         apron_after = await _character_row(conn, apron)
         suffixed = await _events(conn, game, "label_suffixed")
+        elder_aliases = await _aliases(conn, game, elder)
+        by_bare_name = await entities.find_entity(
+            conn, game, "Le Kethari au tablier", "character"
+        )
+        apron_handle = await entities.handle_of(conn, apron)
+        by_handle = await entities.find_entity(
+            conn, game, f"E{apron_handle}", "character"
+        )
         await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [turn_id])
         after = await _game_state(conn, game)
     assert (outcome.kind, outcome.entity_id, merges) == ("applied", elder, 0)
@@ -619,6 +628,17 @@ async def test_a_revealed_descriptor_of_an_unnamed_character_never_merges(
     assert bare == "Le Kethari au tablier"
     assert apron_after == apron_before
     assert [e["entity_id"] for e in suffixed] == [elder]
+    # The suffixed label is an internal alias (never known), no stray former name.
+    assert elder_aliases == {
+        "La Kethari âgée": ("descriptor", True),
+        "Le Kethari au tablier": ("true_name", True),
+        f"Le Kethari au tablier ({suffix})": ("label", False),
+        "tablier": ("short", True),
+    }
+    # Two homonyms now share the bare name: it is ambiguous, nothing is guessed; the
+    # unnamed holder stays reachable by its handle.
+    assert by_bare_name is None
+    assert by_handle == apron
     assert after == before
 
 
@@ -811,20 +831,94 @@ async def test_dedup_keeps_two_different_reveals_and_drops_the_same_one_twice(
     test_pool, game, service
 ):
     """In one turn (the commit then the extraction's re-apply): the same no-op twice is
-    one event, two different unresolved reveals are two (keyed on a hash of the
-    normalised reference, never its text)."""
+    one event, even under another spelling of the same reference; two different
+    unresolved reveals are two (keyed on a hash of the normalised reference)."""
     async with test_pool.acquire() as conn:
         turn_id = await turns.open_turn(conn, game)
         async with uow(conn, turn_id):
-            for ref in ("Personne", "Quelqu'un d'autre", "Personne"):
+            for ref in ("Personne", "Quelqu'un d'autre", "la personne"):
                 await service.reveal(
                     conn, _ref(ref), "Tom", turn_id=turn_id, source="reveal"
                 )
         noops = await _events(conn, game, "reveal_noop")
-    assert len(noops) == 2
-    keys = [e["payload"]["ref_key"] for e in noops]
-    assert len(set(keys)) == 2
-    assert all("Personne" not in k and "Quelqu" not in k for k in keys)
+    assert [e["payload"]["ref_key"] for e in noops] == [
+        hashlib.sha256(service.normalizer.norm(ref).encode()).hexdigest()
+        for ref in ("Personne", "Quelqu'un d'autre")
+    ]
+
+
+async def test_dedup_keeps_a_refusal_against_other_holders(test_pool, game, service):
+    """The dedup compares payloads by equality: a refusal against fewer holders in the
+    same turn is another event, not absorbed by the first one."""
+    async with test_pool.acquire() as conn:
+        await _character(conn, game, descriptor="La Kethari âgée")
+        holders = [
+            await _character(conn, game, true_name=name)
+            for name in ("Ilsa Morn", "Ilsa Morn-Vey", "Ilsa Morn-Sel")
+        ]
+        for holder in holders[1:]:
+            await service.add_alias(
+                conn, holder, "Ilsa Morn", "true_name", known=False, source="world_gen"
+            )
+        turn_id = await turns.open_turn(conn, game)
+        async with uow(conn, turn_id):
+            await service.reveal(
+                conn,
+                _ref("la Kethari âgée"),
+                "Ilsa Morn",
+                turn_id=turn_id,
+                source="reveal",
+            )
+        await conn.execute(
+            "DELETE FROM entity_aliases WHERE entity_id = $1 AND alias = 'Ilsa Morn'",
+            holders[2],
+        )
+        async with uow(conn, turn_id):
+            await service.reveal(
+                conn,
+                _ref("la Kethari âgée"),
+                "Ilsa Morn",
+                turn_id=turn_id,
+                source="reveal",
+            )
+        refused = await _events(conn, game, "merge_refused")
+    assert [len(e["payload"]["holder_ids"]) for e in refused] == [3, 2]
+
+
+async def test_renaming_a_suffixed_character_onto_a_free_name_leaves_no_intermediate_label(
+    test_pool, game, service
+):
+    """A suffixed homonym renamed onto a free name drops its suffix in the same write: no
+    alias of a label it never had (« <new name> (2) »); the old suffixed label becomes a
+    former name, as any replaced label."""
+    async with test_pool.acquire() as conn:
+        guards = [
+            await service.create_entity(
+                conn,
+                NewEntitySpec("character", "Garde du sas", "descriptor"),
+                turn_id=None,
+                source="extractor",
+                trap=True,
+            )
+            for _ in range(2)
+        ]
+        handle = await entities.handle_of(conn, guards[1])
+        outcome = await service.reveal(
+            conn,
+            _ref(f"E{handle}"),
+            "Brune Okafor",
+            turn_id=None,
+            source="reveal",
+        )
+        row = await _character_row(conn, guards[1])
+        suffix = await conn.fetchval(
+            "SELECT label_suffix FROM characters WHERE id = $1", guards[1]
+        )
+        aliases = await _aliases(conn, game, guards[1])
+    assert (outcome.kind, suffix, row["label"]) == ("applied", None, "Brune Okafor")
+    assert not [a for a in aliases if a.startswith("Brune Okafor (")]
+    assert aliases["Garde du sas (2)"][0] == "former_name"
+    assert aliases["Brune Okafor"] == ("true_name", True)
 
 
 async def test_a_second_pass_in_the_same_turn_records_no_new_event(

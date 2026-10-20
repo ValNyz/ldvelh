@@ -4,9 +4,9 @@ message pair and mechanic rolls, all on the caller's connection."""
 from uuid import UUID
 
 import pytest
+from helpers import apply_deltas, apply_state, auth_headers, log_roll, make_roll
 
 from domain.turn import NarrationState
-from helpers import apply_deltas, apply_state, auth_headers, log_roll, make_roll
 from repos import turns
 from schema import NarrationOutput
 from tests.test_game_and_populator import (
@@ -19,22 +19,34 @@ pytestmark = pytest.mark.integration
 
 
 def _state(cycle=1, time="", location=None, date=None) -> NarrationState:
-    return NarrationState(cycle=cycle, time=time, location=location, npcs_present=[], date=date)
+    return NarrationState(
+        cycle=cycle, time=time, location=location, npcs_present=[], date=date
+    )
 
 
-async def _save(pool, game_id, user_message, assistant_message, state=None,
-                narrator_deltas=None):
+async def _save(
+    pool, game_id, user_message, assistant_message, state=None, narrator_deltas=None
+):
     async with pool.acquire() as conn:
         return await turns.save_turn_messages(
-            conn, game_id, user_message=user_message, assistant_message=assistant_message,
-            state=state or _state(), narrator_deltas=narrator_deltas or {}, engine_snapshot=None,
+            conn,
+            game_id,
+            user_message=user_message,
+            assistant_message=assistant_message,
+            state=state or _state(),
+            narrator_deltas=narrator_deltas or {},
+            engine_snapshot=None,
             turn_id=None,
         )
 
 
-async def _store_pending(pool, game_id, roll, message="Je saute.", cycle=1, turn_id=None):
+async def _store_pending(
+    pool, game_id, roll, message="Je saute.", cycle=1, turn_id=None
+):
     async with pool.acquire() as conn:
-        return await turns.store_pending_roll(conn, game_id, roll, message, cycle, turn_id)
+        return await turns.store_pending_roll(
+            conn, game_id, roll, message, cycle, turn_id
+        )
 
 
 async def _open_turn(pool, game_id):
@@ -47,10 +59,13 @@ async def _get_pending(pool, game_id):
         return await turns.get_pending_roll(conn, game_id)
 
 
-async def _claim(pool, game_id, roll_id, roll_details, outcome, message_id, turn_id=None):
+async def _claim(
+    pool, game_id, roll_id, roll_details, outcome, message_id, turn_id=None
+):
     async with pool.acquire() as conn:
-        return await turns.claim_pending_roll(conn, game_id, roll_id, roll_details, outcome,
-                                              message_id, 1, turn_id)
+        return await turns.claim_pending_roll(
+            conn, game_id, roll_id, roll_details, outcome, message_id, 1, turn_id
+        )
 
 
 # =============================================================================
@@ -59,9 +74,10 @@ async def _claim(pool, game_id, roll_id, roll_details, outcome, message_id, turn
 
 
 class TestApplyNarrationState:
-
     async def test_updates_cycle_time_location(self, client, test_user, test_pool):
-        game_id, service, world_gen = await _setup_game_with_world(client, test_user, test_pool)
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
         arrival_loc = world_gen.arrival_event.arrival_location_ref
         narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
 
@@ -75,9 +91,13 @@ class TestApplyNarrationState:
         assert state["game"]["time"] == "09h15"
 
     async def test_with_day_transition(self, client, test_user, test_pool):
-        game_id, service, world_gen = await _setup_game_with_world(client, test_user, test_pool)
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
         arrival_loc = world_gen.arrival_event.arrival_location_ref
-        narration = NarrationOutput.model_validate(_make_day_transition_narration(arrival_loc))
+        narration = NarrationOutput.model_validate(
+            _make_day_transition_narration(arrival_loc)
+        )
 
         result = await apply_state(test_pool, game_id, narration, 1)
 
@@ -98,26 +118,35 @@ class TestApplyNarrationState:
 
         async with test_pool.acquire() as conn:
             loc_id = await conn.fetchval(
-                "SELECT id FROM locations WHERE game_id = $1 AND name = $2", game_id, unknown_loc)
+                "SELECT id FROM locations WHERE game_id = $1 AND name = $2",
+                game_id,
+                unknown_loc,
+            )
         assert loc_id is not None
 
     async def test_resolves_existing_location(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        narration = NarrationOutput.model_validate(_make_narration_output("Le Quart de Cycle"))
+        narration = NarrationOutput.model_validate(
+            _make_narration_output("Le Quart de Cycle")
+        )
 
         result = await apply_state(test_pool, game_id, narration, 1)
         assert result.location == "Le Quart de Cycle"
 
         async with test_pool.acquire() as conn:
             loc_id = await conn.fetchval(
-                "SELECT current_location_id FROM games WHERE id = $1", game_id)
-            loc_name = await conn.fetchval("SELECT name FROM locations WHERE id = $1", loc_id)
+                "SELECT current_location_id FROM games WHERE id = $1", game_id
+            )
+            loc_name = await conn.fetchval(
+                "SELECT name FROM locations WHERE id = $1", loc_id
+            )
         assert loc_name == "Le Quart de Cycle"
 
     async def test_npcs_present(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         narration = NarrationOutput.model_validate(
-            _make_narration_output("Le Quart de Cycle", npcs_present=["Ossek"]))
+            _make_narration_output("Le Quart de Cycle", npcs_present=["Ossek"])
+        )
 
         result = await apply_state(test_pool, game_id, narration, 1)
         assert result.npcs_present == ["Ossek"]
@@ -129,22 +158,31 @@ class TestApplyNarrationState:
 
 
 class TestApplyNarratorDeltas:
-
     async def test_no_deltas_returns_null_credits(self, client, test_user, test_pool):
-        game_id, _, world_gen = await _setup_game_with_world(client, test_user, test_pool)
-        narration = NarrationOutput.model_validate(_make_narration_output(
-            world_gen.arrival_event.arrival_location_ref, credit_delta=None))
+        game_id, _, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        narration = NarrationOutput.model_validate(
+            _make_narration_output(
+                world_gen.arrival_event.arrival_location_ref, credit_delta=None
+            )
+        )
 
         result = await apply_deltas(test_pool, game_id, narration, 1)
 
         assert result.credit is None
 
     async def test_credit_delta_applied(self, client, test_user, test_pool):
-        game_id, service, world_gen = await _setup_game_with_world(client, test_user, test_pool)
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
         credits_before = (await service.load_game_state(game_id))["player"]["credits"]
-        narration = NarrationOutput.model_validate(_make_narration_output(
-            world_gen.arrival_event.arrival_location_ref,
-            credit_delta={"amount": -25, "description": "repas au terminal"}))
+        narration = NarrationOutput.model_validate(
+            _make_narration_output(
+                world_gen.arrival_event.arrival_location_ref,
+                credit_delta={"amount": -25, "description": "repas au terminal"},
+            )
+        )
 
         result = await apply_deltas(test_pool, game_id, narration, 1)
 
@@ -155,37 +193,119 @@ class TestApplyNarratorDeltas:
         state_after = await service.load_game_state(game_id)
         assert state_after["player"]["credits"] == credits_before - 25
 
-    async def test_entity_reveal_marks_character_known(self, client, test_user, test_pool):
+    async def test_entity_reveal_marks_character_known(
+        self, client, test_user, test_pool
+    ):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         sql = "SELECT known_by_protagonist FROM characters WHERE game_id = $1 AND name = 'Ossek'"
         async with test_pool.acquire() as conn:
             assert await conn.fetchval(sql, game_id) is False
 
-        narration = NarrationOutput.model_validate(_make_narration_output(
-            "Le Quart de Cycle", credit_delta=None,
-            entity_reveals=[{"entity_type": "character", "current_name": "Ossek",
-                             "real_name": None}]))
+        narration = NarrationOutput.model_validate(
+            _make_narration_output(
+                "Le Quart de Cycle",
+                credit_delta=None,
+                entity_reveals=[
+                    {
+                        "entity_type": "character",
+                        "current_name": "Ossek",
+                        "real_name": None,
+                    }
+                ],
+            )
+        )
         await apply_deltas(test_pool, game_id, narration, 1)
 
         async with test_pool.acquire() as conn:
             assert await conn.fetchval(sql, game_id) is True
 
-    async def test_entity_reveal_location_accessible(self, client, test_user, test_pool):
+    async def test_a_failing_reveal_at_the_commit_is_rolled_back_alone(
+        self, client, test_user, test_pool, monkeypatch, caplog
+    ):
+        """Each character reveal at the commit runs in its own savepoint (spec §4.11): one
+        that fails is rolled back and logged without story text, the next reveal and the
+        rest of the deltas are applied, the turn commits."""
+        import logging
+
+        from services.identity.service import IdentityService
+
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
+        other = next(c.name for c in world_gen.characters if c.name != "Ossek")
+        original = IdentityService.reveal
+
+        async def failing_for_ossek(self, conn, ref, real_name, **kwargs):
+            if ref.ref == "Ossek":
+                await conn.execute("SELECT 1 / 0")
+            return await original(self, conn, ref, real_name, **kwargs)
+
+        monkeypatch.setattr(IdentityService, "reveal", failing_for_ossek)
+        credits_before = (await service.load_game_state(game_id))["player"]["credits"]
+        narration = NarrationOutput.model_validate(
+            _make_narration_output(
+                "Le Quart de Cycle",
+                credit_delta={"amount": -5, "description": "un pourboire"},
+                entity_reveals=[
+                    {
+                        "entity_type": "character",
+                        "current_name": "Ossek",
+                        "real_name": None,
+                    },
+                    {
+                        "entity_type": "character",
+                        "current_name": other,
+                        "real_name": None,
+                    },
+                ],
+            )
+        )
+        with caplog.at_level(logging.WARNING):
+            result = await apply_deltas(test_pool, game_id, narration, 1)
+
+        sql = "SELECT known_by_protagonist FROM characters WHERE game_id = $1 AND name = $2"
+        async with test_pool.acquire() as conn:
+            ossek = await conn.fetchval(sql, game_id, "Ossek")
+            revealed = await conn.fetchval(sql, game_id, other)
+        warnings = [
+            r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+        ]
+        assert (ossek, revealed) == (False, True)
+        assert result.credit.applied is True
+        assert (await service.load_game_state(game_id))["player"]["credits"] == (
+            credits_before - 5
+        )
+        assert any("entity_reveal character item failed" in w for w in warnings)
+        assert not any("Ossek" in w or other in w for w in warnings)
+
+    async def test_entity_reveal_location_accessible(
+        self, client, test_user, test_pool
+    ):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         async with test_pool.acquire() as conn:
             await conn.execute(
                 "UPDATE locations SET accessible = false"
-                " WHERE game_id = $1 AND name = 'Serres Hydro-7'", game_id)
+                " WHERE game_id = $1 AND name = 'Serres Hydro-7'",
+                game_id,
+            )
 
-        narration = NarrationOutput.model_validate(_make_narration_output(
-            "Le Quart de Cycle", credit_delta=None,
-            entity_reveals=[{"entity_type": "location", "current_name": "Serres Hydro-7"}]))
+        narration = NarrationOutput.model_validate(
+            _make_narration_output(
+                "Le Quart de Cycle",
+                credit_delta=None,
+                entity_reveals=[
+                    {"entity_type": "location", "current_name": "Serres Hydro-7"}
+                ],
+            )
+        )
         await apply_deltas(test_pool, game_id, narration, 1)
 
         async with test_pool.acquire() as conn:
             accessible = await conn.fetchval(
                 "SELECT accessible FROM locations"
-                " WHERE game_id = $1 AND name = 'Serres Hydro-7'", game_id)
+                " WHERE game_id = $1 AND name = 'Serres Hydro-7'",
+                game_id,
+            )
         assert accessible is True
 
 
@@ -200,7 +320,9 @@ async def test_store_and_retrieve_info_requests(client, test_user, test_pool):
 
     async with test_pool.acquire() as conn:
         await turns.store_info_requests(conn, game_id, ["Ossek", "Justine Lépicier"])
-        reqs = await conn.fetchval("SELECT detail_requests FROM games WHERE id = $1", game_id)
+        reqs = await conn.fetchval(
+            "SELECT detail_requests FROM games WHERE id = $1", game_id
+        )
     assert "Ossek" in reqs
     assert "Justine Lépicier" in reqs
 
@@ -211,15 +333,22 @@ async def test_store_and_retrieve_info_requests(client, test_user, test_pool):
 
 
 class TestSaveTurnMessages:
-
     async def test_save_and_load_messages(self, client, test_user, test_pool):
-        game_id, service, world_gen = await _setup_game_with_world(client, test_user, test_pool)
+        game_id, service, world_gen = await _setup_game_with_world(
+            client, test_user, test_pool
+        )
 
         user_id, assistant_id = await _save(
-            test_pool, game_id, "Je regarde autour de moi",
+            test_pool,
+            game_id,
+            "Je regarde autour de moi",
             "Tu observes le terminal. Rien de spécial.",
-            _state(1, "09h15", world_gen.arrival_event.arrival_location_ref,
-                   "Lundi 18 Juillet 2847"),
+            _state(
+                1,
+                "09h15",
+                world_gen.arrival_event.arrival_location_ref,
+                "Lundi 18 Juillet 2847",
+            ),
         )
 
         assert user_id is not None
@@ -259,32 +388,48 @@ class TestSaveTurnMessages:
                 "provider": "anthropic",
             },
         }
-        await _save(test_pool, game_id, "Je parle à Ossek", "Ossek te regarde avec mélancolie.",
-                    narrator_deltas=deltas)
+        await _save(
+            test_pool,
+            game_id,
+            "Je parle à Ossek",
+            "Ossek te regarde avec mélancolie.",
+            narrator_deltas=deltas,
+        )
 
         messages = await service.load_chat_messages(game_id)
-        assistant_msg = [m for m in messages if m["role"] == "assistant"][0]
+        assistant_msg = next(m for m in messages if m["role"] == "assistant")
         assert "cost" in assistant_msg
         assert assistant_msg["cost"]["input_tokens"] == 1000
 
-    async def test_load_chat_messages_includes_roll_data(self, client, test_user, test_pool):
+    async def test_load_chat_messages_includes_roll_data(
+        self, client, test_user, test_pool
+    ):
         game_id, service, _ = await _setup_game_with_world(client, test_user, test_pool)
-        _, assistant_id = await _save(test_pool, game_id, "Je tente d'escalader le mur",
-                                      "Tu grimpes avec effort.")
-        roll = make_roll([-1, 0, 1, 1], 1, "success", skill="Athlétisme", skill_total=4,
-                         shifts=2, details={"difficulty": 2})
+        _, assistant_id = await _save(
+            test_pool, game_id, "Je tente d'escalader le mur", "Tu grimpes avec effort."
+        )
+        roll = make_roll(
+            [-1, 0, 1, 1],
+            1,
+            "success",
+            skill="Athlétisme",
+            skill_total=4,
+            shifts=2,
+            details={"difficulty": 2},
+        )
 
         await log_roll(test_pool, game_id, roll, message_id=assistant_id)
 
         messages = await service.load_chat_messages(game_id)
-        assistant_msg = [m for m in messages if m["role"] == "assistant"][0]
+        assistant_msg = next(m for m in messages if m["role"] == "assistant")
         assert "roll" in assistant_msg
         assert assistant_msg["roll"]["outcome"] == "success"
         assert assistant_msg["roll"]["dice"] == [-1, 0, 1, 1]
         assert assistant_msg["roll"]["details"]["skill_name"] == "Athlétisme"
 
-    async def test_load_chat_messages_no_roll_returns_no_roll_key(self, client, test_user,
-                                                                   test_pool):
+    async def test_load_chat_messages_no_roll_returns_no_roll_key(
+        self, client, test_user, test_pool
+    ):
         game_id, service, _ = await _setup_game_with_world(client, test_user, test_pool)
         await _save(test_pool, game_id, "Bonjour", "Bienvenue.")
 
@@ -298,20 +443,36 @@ class TestSaveTurnMessages:
 
 
 class TestMechanicRolls:
-
     async def test_log_mechanic_roll_persists_to_db(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        _, assistant_id = await _save(test_pool, game_id, "Je tire", "Le blaster fait mouche.")
-        roll = make_roll([3, 5, 2, 6], 16, "success", skill="Blasters", skill_total=19,
-                         shifts=4, details={"dice_code": "4D", "difficulty": 15})
+        _, assistant_id = await _save(
+            test_pool, game_id, "Je tire", "Le blaster fait mouche."
+        )
+        roll = make_roll(
+            [3, 5, 2, 6],
+            16,
+            "success",
+            skill="Blasters",
+            skill_total=19,
+            shifts=4,
+            details={"dice_code": "4D", "difficulty": 15},
+        )
 
         turn_id = await _open_turn(test_pool, game_id)
 
-        await log_roll(test_pool, game_id, roll, message_id=assistant_id, engine="d6",
-                       turn_id=turn_id)
+        await log_roll(
+            test_pool,
+            game_id,
+            roll,
+            message_id=assistant_id,
+            engine="d6",
+            turn_id=turn_id,
+        )
 
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id)
+            row = await conn.fetchrow(
+                "SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id
+            )
         assert row is not None
         assert row["turn_id"] == turn_id
         assert row["engine"] == "d6"
@@ -326,25 +487,43 @@ class TestMechanicRolls:
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         _, assistant_id = await _save(test_pool, game_id, "Test", "Result.")
 
-        await log_roll(test_pool, game_id, make_roll([0, 0, 0, 0], 0, "tie"),
-                   message_id=assistant_id)
+        await log_roll(
+            test_pool,
+            game_id,
+            make_roll([0, 0, 0, 0], 0, "tie"),
+            message_id=assistant_id,
+        )
 
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id)
+            row = await conn.fetchrow(
+                "SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id
+            )
         assert row is not None
         assert row["skill_used"] is None
         assert row["outcome"] == "tie"
 
-    async def test_log_mechanic_roll_with_complication(self, client, test_user, test_pool):
+    async def test_log_mechanic_roll_with_complication(
+        self, client, test_user, test_pool
+    ):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         _, assistant_id = await _save(test_pool, game_id, "Test", "Result.")
-        roll = make_roll([4, 1], 4, "failure", skill="Esquive", complication=True,
-                         details={"wild_die_rolls": [1]})
+        roll = make_roll(
+            [4, 1],
+            4,
+            "failure",
+            skill="Esquive",
+            complication=True,
+            details={"wild_die_rolls": [1]},
+        )
 
-        await log_roll(test_pool, game_id, roll, message_id=assistant_id, engine="d6", cycle=2)
+        await log_roll(
+            test_pool, game_id, roll, message_id=assistant_id, engine="d6", cycle=2
+        )
 
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id)
+            row = await conn.fetchrow(
+                "SELECT * FROM mechanic_rolls WHERE game_id = $1", game_id
+            )
         assert row["complication"] is True
         assert row["cycle"] == 2
 
@@ -353,14 +532,24 @@ class TestMechanicRolls:
         _, aid1 = await _save(test_pool, game_id, "Action 1", "Response 1")
         _, aid2 = await _save(test_pool, game_id, "Action 2", "Response 2")
 
-        await log_roll(test_pool, game_id, make_roll([1, 1, 0, -1], 1, "success", skill="Combat"),
-                   message_id=aid1)
-        await log_roll(test_pool, game_id,
-                   make_roll([-1, -1, 0, 0], -2, "failure", skill="Discrétion"),
-                   message_id=aid2)
+        await log_roll(
+            test_pool,
+            game_id,
+            make_roll([1, 1, 0, -1], 1, "success", skill="Combat"),
+            message_id=aid1,
+        )
+        await log_roll(
+            test_pool,
+            game_id,
+            make_roll([-1, -1, 0, 0], -2, "failure", skill="Discrétion"),
+            message_id=aid2,
+        )
 
-        assistants = [m for m in await service.load_chat_messages(game_id)
-                      if m["role"] == "assistant"]
+        assistants = [
+            m
+            for m in await service.load_chat_messages(game_id)
+            if m["role"] == "assistant"
+        ]
         assert len(assistants) == 2
         assert assistants[0]["roll"]["dice"] == [1, 1, 0, -1]
         assert assistants[0]["roll"]["outcome"] == "success"
@@ -369,26 +558,46 @@ class TestMechanicRolls:
 
     async def test_log_mechanic_roll_returns_uuid(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        roll_id = await log_roll(test_pool, game_id,
-                             make_roll([0, 0, 0, 0], 0, "failure", skill="Combat"))
+        roll_id = await log_roll(
+            test_pool, game_id, make_roll([0, 0, 0, 0], 0, "failure", skill="Combat")
+        )
         assert roll_id is not None
         assert isinstance(roll_id, UUID)
 
     async def test_store_and_get_pending_roll(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        roll = make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat", skill_total=1,
-                         shifts=-3, details={"difficulty": 4})
+        roll = make_roll(
+            [-1, 0, 0, -1],
+            -2,
+            "failure",
+            skill="Combat",
+            skill_total=1,
+            shifts=-3,
+            details={"difficulty": 4},
+        )
         turn_id = await _open_turn(test_pool, game_id)
-        roll_id = await _store_pending(test_pool, game_id, roll, message="Je frappe.", cycle=2,
-                                       turn_id=turn_id)
+        roll_id = await _store_pending(
+            test_pool, game_id, roll, message="Je frappe.", cycle=2, turn_id=turn_id
+        )
 
         pending = await _get_pending(test_pool, game_id)
-        assert pending == {"id": roll_id, "roll": roll.model_dump(), "player_message": "Je frappe."}
+        assert pending == {
+            "id": roll_id,
+            "roll": roll.model_dump(),
+            "player_message": "Je frappe.",
+        }
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE id = $1", roll_id)
-        assert (row["status"], row["message_id"], row["engine"], row["skill_used"],
-                row["outcome"], row["cycle"]) == ("pending", None, "fate_core", "Combat",
-                                                  "failure", 2)
+            row = await conn.fetchrow(
+                "SELECT * FROM mechanic_rolls WHERE id = $1", roll_id
+            )
+        assert (
+            row["status"],
+            row["message_id"],
+            row["engine"],
+            row["skill_used"],
+            row["outcome"],
+            row["cycle"],
+        ) == ("pending", None, "fate_core", "Combat", "failure", 2)
         assert row["turn_id"] == turn_id
 
     async def test_no_pending_roll(self, client, test_user, test_pool):
@@ -407,23 +616,40 @@ class TestMechanicRolls:
 
     async def test_claim_resolves_once(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        roll_id = await _store_pending(test_pool, game_id,
-                                       make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat"))
+        roll_id = await _store_pending(
+            test_pool, game_id, make_roll([-1, 0, 0, -1], -2, "failure", skill="Combat")
+        )
         _, aid = await _save(test_pool, game_id, "test", "response")
-        final = {"dice": [-1, 0, 0, -1], "total": -2, "details": {"invoked_aspects": ["A"]}}
+        final = {
+            "dice": [-1, 0, 0, -1],
+            "total": -2,
+            "details": {"invoked_aspects": ["A"]},
+        }
         resuming_turn = await _open_turn(test_pool, game_id)
 
-        assert await _claim(test_pool, game_id, roll_id, final, "success", aid,
-                            resuming_turn) is True
+        assert (
+            await _claim(
+                test_pool, game_id, roll_id, final, "success", aid, resuming_turn
+            )
+            is True
+        )
         assert await _get_pending(test_pool, game_id) is None
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM mechanic_rolls WHERE id = $1", roll_id)
-        assert (row["status"], row["outcome"], row["message_id"]) == ("resolved", "success", aid)
+            row = await conn.fetchrow(
+                "SELECT * FROM mechanic_rolls WHERE id = $1", roll_id
+            )
+        assert (row["status"], row["outcome"], row["message_id"]) == (
+            "resolved",
+            "success",
+            aid,
+        )
         # The resumed roll belongs to the turn that resolves it.
         assert row["turn_id"] == resuming_turn
         assert row["roll_details"]["details"]["invoked_aspects"] == ["A"]
         # Second claim of the same roll: refused, nothing changes.
-        assert await _claim(test_pool, game_id, roll_id, {"dice": []}, "tie", aid) is False
+        assert (
+            await _claim(test_pool, game_id, roll_id, {"dice": []}, "tie", aid) is False
+        )
 
     async def test_claim_checks_the_game(self, client, test_user, test_pool):
         from uuid import uuid4
@@ -450,30 +676,53 @@ async def _halted_then_resumed(test_pool, game_id):
     async with test_pool.acquire() as conn:
         async with uow(conn, halted):
             roll_id = await turns.store_pending_roll(
-                conn, game_id, make_roll([0], 0, "failure"), "Je saute.", 1, halted)
+                conn, game_id, make_roll([0], 0, "failure"), "Je saute.", 1, halted
+            )
             commitment = await conn.fetchval(
                 """INSERT INTO director_commitments (game_id, turn_id, kind, text)
-                   VALUES ($1, $2, 'secret', 'x') RETURNING id""", game_id, halted)
+                   VALUES ($1, $2, 'secret', 'x') RETURNING id""",
+                game_id,
+                halted,
+            )
         async with uow(conn, resuming):
             assert await turns.pending_roll_turn(conn, roll_id) == halted
-            assert await turns.claim_pending_roll(conn, game_id, roll_id, {}, "success", None,
-                                                  1, resuming)
-            assert await turns.adopt_halted_turn(conn, game_id, halted, resuming) is True
+            assert await turns.claim_pending_roll(
+                conn, game_id, roll_id, {}, "success", None, 1, resuming
+            )
+            assert (
+                await turns.adopt_halted_turn(conn, game_id, halted, resuming) is True
+            )
             await turns.mark_committed(conn, resuming)
     return halted, resuming, roll_id, commitment
 
 
-async def test_adopt_moves_the_halted_turn_into_the_resuming_one(client, test_user, test_pool):
+async def test_adopt_moves_the_halted_turn_into_the_resuming_one(
+    client, test_user, test_pool
+):
     game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-    halted, resuming, roll_id, commitment = await _halted_then_resumed(test_pool, game_id)
+    halted, resuming, _roll_id, commitment = await _halted_then_resumed(
+        test_pool, game_id
+    )
     async with test_pool.acquire() as conn:
-        assert await conn.fetchval("SELECT count(*) FROM turns WHERE id = $1", halted) == 0
-        assert await conn.fetchval(
-            "SELECT count(*) FROM world_changes WHERE turn_id = $1", halted) == 0
-        ops = [(r["table_name"], r["op"]) for r in await conn.fetch(
-            "SELECT table_name, op FROM world_changes WHERE turn_id = $1 ORDER BY id", resuming)]
+        assert (
+            await conn.fetchval("SELECT count(*) FROM turns WHERE id = $1", halted) == 0
+        )
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM world_changes WHERE turn_id = $1", halted
+            )
+            == 0
+        )
+        ops = [
+            (r["table_name"], r["op"])
+            for r in await conn.fetch(
+                "SELECT table_name, op FROM world_changes WHERE turn_id = $1 ORDER BY id",
+                resuming,
+            )
+        ]
         refs = await conn.fetchval(
-            "SELECT turn_id FROM director_commitments WHERE id = $1", commitment)
+            "SELECT turn_id FROM director_commitments WHERE id = $1", commitment
+        )
     # The halted turn's inserts come first, then the claim: the undo replays them last.
     assert ops[:2] == [("mechanic_rolls", "I"), ("director_commitments", "I")]
     assert ("mechanic_rolls", "U") in ops[2:]
@@ -481,7 +730,8 @@ async def test_adopt_moves_the_halted_turn_into_the_resuming_one(client, test_us
 
 
 async def test_undoing_the_resuming_turn_removes_what_the_halted_turn_wrote(
-        client, test_user, test_pool):
+    client, test_user, test_pool
+):
     """The re-pointing is journaled under the resuming turn; undoing it restores the
     halted turn's id for a moment, then the insert's undo removes the row: no dangling
     reference reaches the deferred foreign key check."""
@@ -489,13 +739,23 @@ async def test_undoing_the_resuming_turn_removes_what_the_halted_turn_wrote(
     _, resuming, roll_id, commitment = await _halted_then_resumed(test_pool, game_id)
     async with test_pool.acquire() as conn, conn.transaction():
         await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [resuming])
-        assert await conn.fetchval(
-            "SELECT count(*) FROM mechanic_rolls WHERE id = $1", roll_id) == 0
-        assert await conn.fetchval(
-            "SELECT count(*) FROM director_commitments WHERE id = $1", commitment) == 0
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM mechanic_rolls WHERE id = $1", roll_id
+            )
+            == 0
+        )
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM director_commitments WHERE id = $1", commitment
+            )
+            == 0
+        )
 
 
-async def test_undoing_a_later_turn_keeps_the_adopted_rows(client, test_user, test_pool):
+async def test_undoing_a_later_turn_keeps_the_adopted_rows(
+    client, test_user, test_pool
+):
     from repos.uow import uow
 
     game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
@@ -503,15 +763,19 @@ async def test_undoing_a_later_turn_keeps_the_adopted_rows(client, test_user, te
     later = await _open_turn(test_pool, game_id)
     async with test_pool.acquire() as conn:
         async with uow(conn, later):
-            await conn.execute("UPDATE director_commitments SET progress = 2 WHERE id = $1",
-                               commitment)
+            await conn.execute(
+                "UPDATE director_commitments SET progress = 2 WHERE id = $1", commitment
+            )
         async with conn.transaction():
             await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [later])
             await turns.delete_turns(conn, game_id, [later])
         row = await conn.fetchrow(
-            "SELECT turn_id, progress FROM director_commitments WHERE id = $1", commitment)
+            "SELECT turn_id, progress FROM director_commitments WHERE id = $1",
+            commitment,
+        )
         roll = await conn.fetchrow(
-            "SELECT turn_id, status FROM mechanic_rolls WHERE id = $1", roll_id)
+            "SELECT turn_id, status FROM mechanic_rolls WHERE id = $1", roll_id
+        )
     assert (row["turn_id"], row["progress"]) == (resuming, 0)
     assert (roll["turn_id"], roll["status"]) == (resuming, "resolved")
 
@@ -524,12 +788,21 @@ async def test_adopt_refuses_a_committed_or_foreign_turn(client, test_user, test
     resuming = await _open_turn(test_pool, game_id)
     async with test_pool.acquire() as conn:
         await turns.mark_committed(conn, committed)
-        assert await turns.adopt_halted_turn(conn, game_id, committed, resuming) is False
-        assert await turns.adopt_halted_turn(conn, uuid4(), resuming, committed) is False
+        assert (
+            await turns.adopt_halted_turn(conn, game_id, committed, resuming) is False
+        )
+        assert (
+            await turns.adopt_halted_turn(conn, uuid4(), resuming, committed) is False
+        )
         assert await turns.adopt_halted_turn(conn, game_id, None, resuming) is False
         assert await turns.adopt_halted_turn(conn, game_id, resuming, resuming) is False
-        assert await conn.fetchval(
-            "SELECT count(*) FROM turns WHERE id = ANY($1::uuid[])", [committed, resuming]) == 2
+        assert (
+            await conn.fetchval(
+                "SELECT count(*) FROM turns WHERE id = ANY($1::uuid[])",
+                [committed, resuming],
+            )
+            == 2
+        )
 
 
 # =============================================================================
@@ -539,23 +812,36 @@ async def test_adopt_refuses_a_committed_or_foreign_turn(client, test_user, test
 
 async def test_writes_share_the_callers_transaction(client, test_user, test_pool):
     """Every write goes through the caller's connection: a ROLLBACK leaves nothing."""
-    game_id, service, world_gen = await _setup_game_with_world(client, test_user, test_pool)
-    narration = NarrationOutput.model_validate(_make_narration_output(
-        "Dock 9", credit_delta={"amount": -30, "description": "billet"},
-        info_requests=["Ossek"],
-        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}))
+    game_id, service, _world_gen = await _setup_game_with_world(
+        client, test_user, test_pool
+    )
+    narration = NarrationOutput.model_validate(
+        _make_narration_output(
+            "Dock 9",
+            credit_delta={"amount": -30, "description": "billet"},
+            info_requests=["Ossek"],
+            day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"},
+        )
+    )
 
     async def counts(conn):
         return {
-            "cycle": await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1", game_id),
+            "cycle": await conn.fetchval(
+                "SELECT current_cycle FROM games WHERE id = $1", game_id
+            ),
             "requests": await conn.fetchval(
-                "SELECT detail_requests FROM games WHERE id = $1", game_id),
+                "SELECT detail_requests FROM games WHERE id = $1", game_id
+            ),
             "messages": await conn.fetchval(
-                "SELECT count(*) FROM messages WHERE game_id = $1", game_id),
+                "SELECT count(*) FROM messages WHERE game_id = $1", game_id
+            ),
             "rolls": await conn.fetchval(
-                "SELECT count(*) FROM mechanic_rolls WHERE game_id = $1", game_id),
+                "SELECT count(*) FROM mechanic_rolls WHERE game_id = $1", game_id
+            ),
             "dock": await conn.fetchval(
-                "SELECT count(*) FROM locations WHERE game_id = $1 AND name = 'Dock 9'", game_id),
+                "SELECT count(*) FROM locations WHERE game_id = $1 AND name = 'Dock 9'",
+                game_id,
+            ),
         }
 
     credits_before = (await service.load_game_state(game_id))["player"]["credits"]
@@ -567,34 +853,58 @@ async def test_writes_share_the_callers_transaction(client, test_user, test_pool
         await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
         await turns.store_info_requests(conn, game_id, narration.info_requests)
         _, assistant_id = await turns.save_turn_messages(
-            conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
-            state=state, narrator_deltas={}, engine_snapshot=None, turn_id=None)
-        await turns.log_mechanic_roll(conn, game_id, message_id=assistant_id, engine="fate_core",
-                                      roll=make_roll([1, 1, 1, 1], 4, "success"), cycle=2,
-                                      turn_id=None)
+            conn,
+            game_id,
+            user_message="Je pars.",
+            assistant_message="Tu pars.",
+            state=state,
+            narrator_deltas={},
+            engine_snapshot=None,
+            turn_id=None,
+        )
+        await turns.log_mechanic_roll(
+            conn,
+            game_id,
+            message_id=assistant_id,
+            engine="fate_core",
+            roll=make_roll([1, 1, 1, 1], 4, "success"),
+            cycle=2,
+            turn_id=None,
+        )
         assert (await counts(conn))["messages"] == before["messages"] + 2
         await tx.rollback()
         after = await counts(conn)
 
     assert after == before
-    assert (await service.load_game_state(game_id))["player"]["credits"] == credits_before
+    assert (await service.load_game_state(game_id))["player"][
+        "credits"
+    ] == credits_before
 
 
 @pytest.mark.integration
 async def test_unusable_time_with_no_stored_time_falls_back_to_the_default(
-        client, test_user, test_pool):
+    client, test_user, test_pool
+):
     """#86: games.current_time NULL and new_time None -> DEFAULT_GAME_TIME."""
     from helpers import apply_state
+
     from schema import DEFAULT_GAME_TIME
     from schema.narration import parse_narration
-    from tests.test_game_and_populator import _make_narration_output, _setup_game_with_world
+    from tests.test_game_and_populator import (
+        _make_narration_output,
+        _setup_game_with_world,
+    )
 
     game_id, service, _ = await _setup_game_with_world(client, test_user, test_pool)
     async with test_pool.acquire() as conn:
-        await conn.execute('UPDATE games SET "current_time" = NULL WHERE id = $1', game_id)
+        await conn.execute(
+            'UPDATE games SET "current_time" = NULL WHERE id = $1', game_id
+        )
     data = _make_narration_output("Le Quart de Cycle")
     data["time"] = {"new_time": "vers 10h"}
-    narration, _ = parse_narration(data, current_time="10h00", current_location="Le Quart de Cycle")
+    narration, _ = parse_narration(
+        data, current_time="10h00", current_location="Le Quart de Cycle"
+    )
 
     state = await apply_state(test_pool, game_id, narration, 1)
 
@@ -609,6 +919,7 @@ async def test_unusable_time_with_no_stored_time_falls_back_to_the_default(
 
 async def _message_id(pool, user):
     from services.game_service import GameService
+
     game_id = await GameService(pool).create_game(user["id"])
     _, assistant_id = await _save(pool, game_id, "Je pars.", "Tu pars.")
     return assistant_id
@@ -626,6 +937,7 @@ async def test_hold_source_message_true_then_false_after_delete(test_pool, test_
 
 async def test_rollback_delete_waits_for_a_held_message(test_pool, test_user):
     import asyncio
+
     message_id = await _message_id(test_pool, test_user)
 
     async def delete():
@@ -644,16 +956,23 @@ async def test_rollback_delete_waits_for_a_held_message(test_pool, test_user):
             await tx.commit()
     await asyncio.wait_for(deleting, 5)
     async with test_pool.acquire() as conn:
-        assert await conn.fetchval("SELECT 1 FROM messages WHERE id = $1", message_id) is None
+        assert (
+            await conn.fetchval("SELECT 1 FROM messages WHERE id = $1", message_id)
+            is None
+        )
 
 
 async def test_every_reference_to_turns_is_moved_by_the_adoption(test_pool):
     """A new foreign key to turns missing from _TURN_REFERENCES would make the adoption's
     DELETE fail (NO ACTION: every Fate resume stuck) or lose its rows' turn (SET NULL)."""
     async with test_pool.acquire() as conn:
-        referencing = {(r["t"], r["c"]) for r in await conn.fetch(
-            """SELECT c.conrelid::regclass::text AS t, a.attname AS c FROM pg_constraint c
+        referencing = {
+            (r["t"], r["c"])
+            for r in await conn.fetch(
+                """SELECT c.conrelid::regclass::text AS t, a.attname AS c FROM pg_constraint c
                JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
-               WHERE c.contype = 'f' AND c.confrelid = 'turns'::regclass""")}
+               WHERE c.contype = 'f' AND c.confrelid = 'turns'::regclass"""
+            )
+        }
     assert set(turns._TURN_REFERENCES) == referencing
     assert turns._TURN_REFERENCES[0] == ("world_changes", "turn_id")
