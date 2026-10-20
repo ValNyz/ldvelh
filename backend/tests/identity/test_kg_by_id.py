@@ -1212,3 +1212,131 @@ async def test_dropped_director_items_are_logged_as_counts(
         f"[DIRECTOR] Plan items dropped game={game_id} count=1 ref_dropped=1"
     ]
     assert "Personne Inconnue" not in caplog.text
+
+
+# --- Re-review of the fix wave (N1, N2) --------------------------------------------------
+
+
+async def test_untyped_references_reach_the_live_homonym_of_a_removed_character(
+    test_pool, test_user
+):
+    """N1: a fact participant and a relation end naming « Ossek » by its bare name attach
+    to the live Ossek, not to the removed homonym nor nowhere; a fact naming only a
+    removed character still attaches to it."""
+    from services.extraction.characters import CharactersExtractor
+    from services.extraction.narrative_arcs import NarrativeArcsExtractor
+
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        removed = await _remove_character(conn, game_id, "Ossek")
+        justine = await _remove_character(conn, game_id, "Justine Lépicier")
+    await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {"entities_created": [{"name": "Ossek"}]},
+        cycle=3,
+    )
+    facts = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {
+            "facts": [
+                _fact("PROTAGONIST", "Ossek", key="ossek:parle:quai"),
+                _fact("Justine Lépicier", key="justine:repose:quai"),
+            ]
+        },
+        cycle=4,
+    )
+    relations = await _run(
+        NarrativeArcsExtractor,
+        test_pool,
+        game_id,
+        {
+            "relations_created": [
+                {
+                    "cycle": 4,
+                    "relation": {
+                        "source_ref": "Ossek",
+                        "target_ref": "PROTAGONIST",
+                        "relation_type": "knows",
+                        "level": 3,
+                    },
+                }
+            ]
+        },
+        cycle=4,
+    )
+    async with test_pool.acquire() as conn:
+        fresh = await conn.fetchval(
+            "SELECT id FROM characters WHERE game_id = $1 AND true_name = 'Ossek'"
+            " AND removed_cycle IS NULL",
+            game_id,
+        )
+        participants = {
+            r["semantic_key"]: r["ids"]
+            for r in await conn.fetch(
+                """SELECT f.semantic_key, array_agg(fp.entity_id) AS ids
+                     FROM facts f JOIN fact_participants fp ON fp.fact_id = f.id
+                    WHERE f.game_id = $1 AND f.semantic_key = ANY($2)
+                    GROUP BY f.semantic_key""",
+                game_id,
+                ["ossek:parle:quai", "justine:repose:quai"],
+            )
+        }
+        sources = await conn.fetch(
+            "SELECT source_id FROM relations WHERE game_id = $1 AND start_cycle = 4",
+            game_id,
+        )
+    assert fresh not in (None, removed)
+    assert (facts["errors"], relations["errors"]) == ([], [])
+    assert fresh in participants["ossek:parle:quai"]
+    assert removed not in participants["ossek:parle:quai"]
+    assert participants["justine:repose:quai"] == [justine]
+    assert [r["source_id"] for r in sources] == [fresh]
+
+
+async def test_a_removed_character_named_by_the_extracted_name_is_not_reused(
+    test_pool, test_user
+):
+    """N2: the extractor's own name (not a proper name) naming only a removed character
+    reuses nothing: the new character is created."""
+    from services.extraction.characters import CharactersExtractor
+
+    game_id = await _world(test_pool, test_user)
+    await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {"entities_created": [{"name": "le vieux docker"}]},
+    )
+    async with test_pool.acquire() as conn:
+        removed = await conn.fetchval(
+            "UPDATE characters SET removed_cycle = 2 WHERE game_id = $1"
+            " AND descriptor = 'le vieux docker' RETURNING id",
+            game_id,
+        )
+    second = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {
+            "entities_created": [
+                {"name": "le vieux docker", "descriptor": "l'homme au bonnet rouge"}
+            ]
+        },
+        cycle=3,
+    )
+    async with test_pool.acquire() as conn:
+        created = await conn.fetchval(
+            "SELECT id FROM characters WHERE game_id = $1"
+            " AND descriptor = 'l''homme au bonnet rouge' AND removed_cycle IS NULL",
+            game_id,
+        )
+        via_name = [
+            e for e in await _events(conn, game_id, "create_reused") if e.get("via")
+        ]
+    assert second["errors"] == []
+    assert created not in (None, removed)
+    assert via_name == []

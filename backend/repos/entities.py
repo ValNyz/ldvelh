@@ -111,15 +111,35 @@ _RESERVED_REF = re.compile(
 
 
 async def find_any(
-    conn, game_id: UUID, ref: str | None, types: tuple[str, ...] = ANY_ENTITY_TYPES
+    conn,
+    game_id: UUID,
+    ref: str | None,
+    types: tuple[str, ...] = ANY_ENTITY_TYPES,
+    *,
+    live_first: bool = False,
 ) -> tuple[UUID, str] | None:
     """(id, type) of an untyped reference, only when exactly one type of `types` knows it
     and knows it once. A reference that two types know, or that two entities of one type
     share (labels and aliases together, as find_entity), is ambiguous: None, so an
-    ambiguity among characters never falls through to a location of the same name. The
-    outcome is logged at INFO with counts only (the reference is story text)."""
+    ambiguity among characters never falls through to a location of the same name. With
+    `live_first`, a name is first looked up among the live entities (not removed from the
+    world): a live entity is found even when a removed homonym shares its name, two live
+    ones are an ambiguity, and only a name no live entity holds may name a removed one.
+    The outcome is logged at INFO with counts only (the reference is story text)."""
     if ref is None or not ref.strip():
         return None
+    if live_first and not _RESERVED_REF.match(ref.strip()):
+        live = await candidate_counts(conn, game_id, ref, types, live_only=True)
+        if len(live) == 1 and next(iter(live.values())) == 1:
+            [entity_type] = live
+            [entity_id] = await live_candidates(conn, game_id, ref, entity_type)
+            return entity_id, entity_type
+        if live:
+            logger.info(
+                f"[IDENTITY] untyped reference unresolved (types={len(live)},"
+                f" live candidates={sum(live.values())})"
+            )
+            return None
     if _RESERVED_REF.match(ref.strip()):
         rows = await conn.fetch(
             """SELECT t.entity_type, find_entity($1, $2, t.entity_type) AS id
@@ -144,10 +164,11 @@ async def find_any(
 
 
 async def candidate_counts(
-    conn, game_id: UUID, ref: str, types: tuple[str, ...]
+    conn, game_id: UUID, ref: str, types: tuple[str, ...], *, live_only: bool = False
 ) -> dict[str, int]:
-    """Live entities of each type of `types` whose label or alias has the normalised form
-    of `ref` (merges followed): find_entity's last step, counted (2 or more: ambiguous)."""
+    """Entities of each type of `types` (merges followed; with `live_only`, those not
+    removed from the world only) whose label or alias has the normalised form of `ref`:
+    find_entity's last step, counted (2 or more: ambiguous)."""
     rows = await conn.fetch(
         """WITH ref AS (SELECT ldvelh_norm_for_game($1, $2) AS norm),
                 candidates AS (
@@ -161,10 +182,15 @@ async def candidate_counts(
                      WHERE al.game_id = $1 AND al.entity_type = ANY($3::text[])
                        AND al.alias_norm = ref.norm)
            SELECT entity_type, count(DISTINCT id) AS candidates
-             FROM candidates GROUP BY entity_type""",
+             FROM candidates
+            WHERE NOT $4
+               OR (identity_domain_row(entity_type, id) IS NOT NULL
+                   AND (identity_domain_row(entity_type, id) ->> 'removed_cycle') IS NULL)
+            GROUP BY entity_type""",
         game_id,
         ref,
         list(types),
+        live_only,
     )
     return {r["entity_type"]: r["candidates"] for r in rows}
 

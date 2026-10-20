@@ -644,8 +644,14 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         if extra is not None:
             # The label is the descriptor; the extractor's own name must not name
             # another character already (the old upsert matched it first).
-            named = await entity_repo.find_for_upsert(
-                conn, self.game_id, extra, EntityType.CHARACTER.value
+            # A removed character is no target (I1): the live ones decide.
+            named = await identity.live_target(
+                conn,
+                await entity_repo.find_for_upsert(
+                    conn, self.game_id, extra, EntityType.CHARACTER.value
+                ),
+                extra,
+                EntityType.CHARACTER.value,
             )
             if named.ambiguous:
                 raise AmbiguousLabel(

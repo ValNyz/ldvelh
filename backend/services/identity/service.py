@@ -157,7 +157,7 @@ class IdentityService:
         ):
             raise ValueError("only a character named by its true name has a descriptor")
         turn_id = turn_id or await current_turn_id(conn)
-        target = await self._live_target(
+        target = await self.live_target(
             conn,
             await entities.find_for_upsert(conn, self.game_id, label, spec.entity_type),
             label,
@@ -243,7 +243,7 @@ class IdentityService:
         )
         return entity_id
 
-    async def _live_target(
+    async def live_target(
         self, conn, target: entities.UpsertTarget, label: str, entity_type: str
     ) -> entities.UpsertTarget:
         """`target` restricted to live entities: one removed from the world is no target.
@@ -461,27 +461,35 @@ class IdentityService:
             ref, entity_type, self.game_id, candidates=live, removed=removed
         )
 
-    async def require_any_ref(self, conn, ref: str) -> ResolvedRef:
-        """The entity of any type that `ref` names (a fact participant, a relation end):
-        only when exactly one type knows it, once (`find_any`); RefUnresolved (type
-        'any') otherwise."""
-        resolved, candidates = await self._resolve_any(conn, ref)
-        if resolved is None:
-            raise RefUnresolved(ref, ANY_TYPE, self.game_id, candidates=candidates)
-        return resolved
-
-    async def _resolve_any(self, conn, ref: str) -> tuple[ResolvedRef | None, int]:
-        found = await entities.find_any(conn, self.game_id, ref)
+    async def require_any_live_ref(self, conn, ref: str) -> ResolvedRef:
+        """The entity of any type that `ref` names (a fact participant, a relation end, an
+        arc, event or chronology participant): only when exactly one type knows it, once
+        (`find_any`), live first: the live entity a name designates is found even when a
+        removed homonym shares the name, two live ones are ambiguous, and a name no live
+        entity holds may still name one removed entity (a fact about a dead NPC).
+        RefUnresolved (type 'any') otherwise, with `candidates` the live candidates and
+        `removed` the removed ones."""
+        found = await entities.find_any(conn, self.game_id, ref, live_first=True)
         if found is not None:
             entity_id, entity_type = found
-            return await self.resolved_ref(conn, entity_id, entity_type), 1
-        candidates = 0
+            return await self.resolved_ref(conn, entity_id, entity_type)
+        live = removed = 0
         if ref and ref.strip():
-            counts = await entities.candidate_counts(
-                conn, self.game_id, ref, entities.ANY_ENTITY_TYPES
+            types = entities.ANY_ENTITY_TYPES
+            live = sum(
+                (
+                    await entities.candidate_counts(
+                        conn, self.game_id, ref, types, live_only=True
+                    )
+                ).values()
             )
-            candidates = sum(counts.values())
-        return None, await self._unresolved(conn, ref, ANY_TYPE, candidates)
+            if live == 0:
+                every = await entities.candidate_counts(conn, self.game_id, ref, types)
+                removed = sum(every.values())
+        await self._unresolved(conn, ref, ANY_TYPE, live)
+        raise RefUnresolved(
+            ref, ANY_TYPE, self.game_id, candidates=live, removed=removed
+        )
 
     async def resolved_ref(
         self, conn, entity_id: UUID, entity_type: str

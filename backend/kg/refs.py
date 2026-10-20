@@ -9,7 +9,9 @@ id through IdentityService, never by guessing:
 - `optional`: the item stands without it (a fact's place, an event participant): an
   unresolved reference is counted the same way, in its own savepoint, and the item is
   written without it.
-`entity_type` None means an untyped reference (any type may hold it, exactly one must).
+`entity_type` None means an untyped reference (any type may hold it, exactly one must),
+always resolved live first (`IdentityService.require_any_live_ref`): the live homonym of a
+removed entity is found by its name, a name only removed entities hold may name one.
 `live`: the reference is a write target (a place, a seat, an inventory object): an entity
 removed from the world does not count, it is unresolved (`ref_dropped`, its event counting
 the removed entities named) like an unknown one.
@@ -47,12 +49,13 @@ async def resolve(
     live: bool = False,
     live_first: bool = False,
 ) -> ResolvedRef:
-    """The entity `ref` names; RefUnresolved when none or several do. With `live` (a
+    """The entity `ref` names; RefUnresolved when none or several do. Untyped: live
+    first, a removed entity as a fallback only. With `live` (a
     typed write target), only entities not removed from the world count: a removed one
     is unresolved, and a live homonym of a removed entity is still found. With
     `live_first`, the same, but a name only one removed entity holds resolves to it."""
     if entity_type is None:
-        return await identity.require_any_ref(conn, ref)
+        return await identity.require_any_live_ref(conn, ref)
     if not (live or live_first):
         return await identity.require_ref(conn, ref, entity_type)
     return await identity.require_live_ref(
