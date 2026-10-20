@@ -11,9 +11,10 @@ runs it (block, decide, apply), so that the candidates and the decisions can be 
   (IdentityConfig.escalation), the small model's decisions stand;
 - the application in the turn's transaction (stubs, aliases, reveals, mentions).
 
-Decisions are mapped to the eval's by span: the linked decisions (MATCH, ALIAS, NEW) take
-the spans the app writes (services.identity.mentions.place), the UNSURE and SKIP ones the
-spans still free. A link names the world id of its entity. A NEW names the entity the app
+Decisions are mapped to the eval's by span: the (decision, entity) pairs the app wrote its
+mentions from (`TurnResolution.linked`) take exactly the spans it wrote
+(services.identity.mentions.place), then the UNSURE and SKIP decisions, and the NEW the
+app wrote nothing for, the spans still free. A link names the world id of its entity. A NEW names the entity the app
 created for it: its first span is the NEW (id `new:<scene id>:<start>`), its other spans
 MATCH that id; a NEW the app folded into a world entity is a MATCH to it (that is what was
 written); a NEW the app refused to create (ambiguous label) has no id.
@@ -34,7 +35,6 @@ from uuid import UUID
 from domain.identity import (
     DECISIONS,
     MentionDecision,
-    MentionRow,
     TurnDecisions,
     TurnRef,
 )
@@ -43,7 +43,7 @@ from evals.identity.corpus import Scene
 from evals.identity.run import Decision, RunResult
 from evals.identity.world_loader import load_world, scene_context, turn_key
 from llm.session import LLMSession
-from repos import messages
+from repos import games, messages
 from services.identity.mentions import place
 from services.identity.normalize import Normalizer
 from services.identity.service import IdentityService
@@ -63,15 +63,13 @@ async def scratch_game(pool, language: str) -> AsyncIterator[tuple[object, UUID]
         transaction = conn.transaction()
         await transaction.start()
         try:
+            # No repository creates a bare user (sign-up goes through auth_service, with
+            # mail and hashing): a placeholder row, rolled back with the rest.
             user_id = await conn.fetchval(
                 "INSERT INTO users (email, password_hash) VALUES ($1, '') RETURNING id",
                 EVAL_USER,
             )
-            game_id = await conn.fetchval(
-                "INSERT INTO games (user_id, language) VALUES ($1, $2) RETURNING id",
-                user_id,
-                language,
-            )
+            game_id = await games.insert_game(conn, user_id, language)
             yield conn, game_id
         finally:
             await transaction.rollback()
@@ -99,35 +97,47 @@ def _overlaps(span: tuple[int, int], taken: list[tuple[int, int]]) -> bool:
 
 
 def placed(
-    text: str, decisions: list[MentionDecision], normalizer: Normalizer
-) -> list[tuple[int, int, MentionDecision]]:
-    """(start, end, decision) of every span, in text order: the linked decisions first,
-    as the app places them, then the UNSURE and SKIP ones on the spans left free."""
-    live = [d for d in decisions if not d.ignored]
-    linked = place(text, [(d, None) for d in live if d.decision in LINKING], normalizer)
-    taken = [(s, e) for s, e, _, _ in linked]
-    rest = place(
-        text, [(d, None) for d in live if d.decision not in LINKING], normalizer
-    )
-    spans = [*linked, *(p for p in rest if not _overlaps((p[0], p[1]), taken))]
-    return sorted(((s, e, d) for s, e, d, _ in spans), key=lambda p: p[0])
+    text: str,
+    linked: list[tuple[MentionDecision, UUID]],
+    decisions: list[MentionDecision],
+    normalizer: Normalizer,
+) -> list[tuple[int, int, MentionDecision, UUID | None]]:
+    """(start, end, decision, entity) of every span, in text order: the pairs the app
+    wrote its mentions from, on the spans it wrote; then the other live decisions
+    (UNSURE, SKIP, a NEW that created nothing) on the spans left free."""
+    written = place(text, linked, normalizer)
+    taken = [(s, e) for s, e, _, _ in written]
+    surfaces = {normalizer.fold(d.surface).strip() for d, _ in linked}
+    others = [
+        (d, None)
+        for d in decisions
+        if not d.ignored
+        and (
+            d.decision not in LINKING
+            or (
+                d.decision == NEW and normalizer.fold(d.surface).strip() not in surfaces
+            )
+        )
+    ]
+    rest = [
+        p for p in place(text, others, normalizer) if not _overlaps((p[0], p[1]), taken)
+    ]
+    return sorted([*written, *rest], key=lambda p: p[0])
 
 
 def to_decisions(
     scene: Scene,
+    linked: list[tuple[MentionDecision, UUID]],
     decisions: list[MentionDecision],
-    rows: list[MentionRow],
     world_of: dict[UUID, str],
     normalizer: Normalizer,
 ) -> list[Decision]:
     """The eval decisions of the turn (see the module docstring)."""
-    written = {(r.start_pos, r.end_pos): r.entity_id for r in rows}
     born: dict[UUID, str] = {}  # entity created by the turn -> its eval id
     out = []
-    for start, end, d in placed(scene.narration, decisions, normalizer):
+    for start, end, d, entity in placed(scene.narration, linked, decisions, normalizer):
         surface = scene.narration[start:end]
-        entity = written.get((start, end)) or d.entity_id
-        known = world_of.get(entity) or born.get(entity)
+        known = world_of.get(entity) or born.get(entity) if entity else None
         if d.decision in (MATCH, ALIAS):
             alias_kind = d.alias_kind if d.decision == ALIAS else None
             target = known or f"unknown:{entity}"
@@ -218,8 +228,8 @@ class ResolverV2Adapter:
         world_of = {ids[e.id]: e.id for e in scene.world if e.id in ids}
         decisions = to_decisions(
             scene,
+            applied.linked,
             decided.decisions.decisions,
-            applied.mentions,
             world_of,
             identity.normalizer,
         )

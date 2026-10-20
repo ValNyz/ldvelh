@@ -250,7 +250,8 @@ def test_measured_leaks_make_l_a_gate_row_and_the_milestone_reuses_the_rows():
 def test_estimated_cost_is_labelled_and_an_unpriced_model_has_no_cost():
     markdown, data = _render(cost_measured=False, cost_estimated=True)
     assert (
-        "Coût par tour : — (estimé : jetons ≈ caractères / 4)" in markdown
+        "Coût par tour : — (estimé : jetons ≈ caractères / 4, sans cache ni réflexion)"
+        in markdown
     )  # no cost_usd
     assert "Jetons par tour : entrée 2000" in markdown
     markdown, _ = _render(cost_priced=False)

@@ -14,6 +14,7 @@ from evals.identity import coref, leaks, runner
 from evals.identity.adapters import legacy_resolver
 from evals.identity.adapters.legacy_resolver import LegacyResolverAdapter
 from evals.identity.adapters.resolver_v2 import ResolverV2Adapter
+from evals.identity.calls import Call, Tap, request_token
 from evals.identity.corpus import Scene, load_scenes, load_sequences
 from evals.identity.report import FAIL, OK
 from evals.identity.run import Decision, RunResult
@@ -339,6 +340,7 @@ async def test_needs_db_reports_the_adapter_attribute(capsys):
 # --- resolver v2 (#154) ------------------------------------------------------------------
 
 V2_SCENE = "audit-objet-nomme"  # dev, no history
+TOKEN = request_token(V2_SCENE)  # its request files: no scene id shows through
 
 
 def _handle_of(prompt: str, label: str) -> str:
@@ -435,14 +437,15 @@ async def test_v2_staged_replay_asks_each_stage_then_scores(
     )  # fmt: skip
 
     assert await _main(_v2_args(root, "--emit-prompts", str(io))) == 0
-    first = json.loads((io / f"{V2_SCENE}.1.json").read_text("utf-8"))
+    first = json.loads((io / f"{TOKEN}.1.json").read_text("utf-8"))
     assert (first["purpose"], first["model"]) == ("identity", "claude-haiku-5-5")
-    assert first["scene_id"] == V2_SCENE and first["call"] == 1
+    assert first["call"] == 1 and "scene_id" not in first
+    assert V2_SCENE not in json.dumps(first) and len(TOKEN) == 12
     assert first["tools"][0]["name"] and first["messages"][0]["role"] == "user"
     pending = json.loads((io / "pending.json").read_text("utf-8"))
     assert pending == [
         {
-            "file": f"{V2_SCENE}.1.json",
+            "file": f"{TOKEN}.1.json",
             "purpose": "identity",
             "model": "claude-haiku-5-5",
         }
@@ -450,9 +453,9 @@ async def test_v2_staged_replay_asks_each_stage_then_scores(
     assert "1 requests pending (identity 1)" in capsys.readouterr().out
 
     prompt = first["messages"][0]["content"]
-    (io / f"{V2_SCENE}.1.txt").write_text(json.dumps(_first_pass(prompt)), "utf-8")
+    (io / f"{TOKEN}.1.txt").write_text(json.dumps(_first_pass(prompt)), "utf-8")
     assert await _main(replay) == eval_identity.PENDING_EXIT
-    second = json.loads((io / f"{V2_SCENE}.2.json").read_text("utf-8"))
+    second = json.loads((io / f"{TOKEN}.2.json").read_text("utf-8"))
     assert (second["purpose"], second["model"]) == (
         "identity_strong",
         "claude-sonnet-5-5",
@@ -462,7 +465,7 @@ async def test_v2_staged_replay_asks_each_stage_then_scores(
 
     strong = _second_opinion(second["messages"][0]["content"])
     fenced = f"```json\n{json.dumps(strong)}\n```"
-    (io / f"{V2_SCENE}.2.txt").write_text(fenced, "utf-8")
+    (io / f"{TOKEN}.2.txt").write_text(fenced, "utf-8")
     assert await _main(replay) == 0
     assert json.loads((io / "pending.json").read_text("utf-8")) == []
     (report,) = out.glob("*.md")
@@ -482,6 +485,9 @@ async def test_v2_staged_replay_asks_each_stage_then_scores(
     milestone = {r["name"]: r for r in data["milestone"]["rows"]}
     assert set(milestone) == {"hard_pool", "W", "L"}
     assert milestone["hard_pool"]["threshold"] == 0.85
+    assert (
+        data["cheap_tier"] is not None
+    )  # the same answers, replayed without escalation
 
     # The cheap tier replays the same answers: no new request, no escalation.
     for stale in out.glob("*"):
@@ -493,8 +499,15 @@ async def test_v2_staged_replay_asks_each_stage_then_scores(
     }
 
     # An answer to a request the code no longer builds is refused.
-    stored = io / f"{V2_SCENE}.1.json"
+    stored = io / f"{TOKEN}.1.json"
     stored.write_text(stored.read_text("utf-8").replace("NARRATION", "NARRATIVE"))
+    with pytest.raises(SystemExit, match="stale answers"):
+        await _main(replay)
+    assert json.loads((io / "pending.json").read_text("utf-8")) == []
+
+    # So is an answer whose request file is gone.
+    (io / f"{TOKEN}.2.json").unlink()
+    stored.write_text(stored.read_text("utf-8").replace("NARRATIVE", "NARRATION"))
     with pytest.raises(SystemExit, match="stale answers"):
         await _main(replay)
 
@@ -508,14 +521,14 @@ async def test_v2_runs_have_their_own_responses_directories(
     assert await _main(_v2_args(root, "--runs", "2", "--emit-prompts", str(io))) == 0
     pending = json.loads((io / "pending.json").read_text("utf-8"))
     assert [p["file"] for p in pending] == [
-        f"run1/{V2_SCENE}.1.json",
-        f"run2/{V2_SCENE}.1.json",
+        f"run1/{TOKEN}.1.json",
+        f"run2/{TOKEN}.1.json",
     ]
     with pytest.raises(SystemExit, match="identity, identity_strong"):
         await _main(_v2_args(root, "--models", "resolver=x", "--emit-prompts", str(io)))
 
 
-def test_leak_check_counts_undisclosed_secret_names_outside_the_narration():
+def test_leak_check_counts_cards_always_and_other_text_outside_the_narration():
     data = _scene()
     agent = {"id": "character_agent", "type": "character", "label": "Le passeur",
              "known": False, "secret": True, "true_name": "Ilse Varn",
@@ -526,8 +539,8 @@ def test_leak_check_counts_undisclosed_secret_names_outside_the_narration():
          "scene": {**data["scene"], "secrets": ["character_agent"]}}
     )  # fmt: skip
     assert leaks.secret_names(scene) == ["Ilse Varn"]
-    assert leaks.leak_count(scene, ['E4 · "Le passeur"', "nothing"]) == 0
-    assert leaks.leak_count(scene, ['{"evidence": "ILSE VARN entre"}']) == 1
+    assert leaks.leak_count(scene, ['E4 · "Le passeur"'], ["nothing"]) == 0
+    assert leaks.leak_count(scene, [], ['{"evidence": "ILSE VARN entre"}']) == 1
     open_name = [{"handle": "character_agent", "kind": "name"}]
     dumped = scene.model_dump()
     disclosed = Scene.model_validate(
@@ -535,4 +548,17 @@ def test_leak_check_counts_undisclosed_secret_names_outside_the_narration():
     )
     assert leaks.secret_names(disclosed) == []
     told = Scene.model_validate({**scene.model_dump(), "narration": "Ilse Varn rit."})
-    assert leaks.secret_names(told) == []  # the narration itself holds it
+    echo = ['{"surface": "Ilse Varn"}']
+    assert leaks.leak_count(told, [], echo) == 0  # an echo of the narration
+    # A card showing the secret alias leaks it, even when the narration holds it.
+    assert leaks.leak_count(told, ['E4 · "Le passeur" · aliases: "Ilse Varn"'], []) == 1
+
+
+def test_a_tap_tells_card_lines_from_the_rest_of_a_request():
+    request = {"messages": [{"role": "user", "content": (
+        '## NARRATION\nE7 arrive.\n\n## CANDIDATES\nE7 · character · "Le passeur"\n'
+        "\n## SCENE\npresent: E7"
+    )}]}  # fmt: skip
+    tap = Tap("scene", calls=[Call("identity", request, '{"mentions": []}')])
+    assert tap.card_lines() == ['E7 · character · "Le passeur"']
+    assert "E7 arrive." in tap.texts() and '{"mentions": []}' in tap.texts()

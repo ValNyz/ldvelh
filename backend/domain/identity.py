@@ -312,7 +312,8 @@ class TurnResolution:
     entities created (id and scene line), the aliases learned, the reveals applied, the
     scene the extractors receive, the entity types worth an extraction (created, or
     linked while still a bare stub), and the cascade's outcome. `usage`: per purpose,
-    calls, tokens and cost of the decision."""
+    calls, tokens and cost of the decision; `linked`: the (decision, entity) pairs the
+    mentions were written from (an evaluation reads which decision took each span)."""
 
     mentions: list[MentionRow]
     created: list[tuple[UUID, SceneEntity]]
@@ -325,6 +326,7 @@ class TurnResolution:
     deterministic: int = 0
     unsure: int = 0
     usage: dict = field(default_factory=dict)
+    linked: list[tuple[MentionDecision, UUID]] = field(default_factory=list)
 
     def stats(self) -> dict:
         """Counts of the resolution, for the extraction result and the logs."""

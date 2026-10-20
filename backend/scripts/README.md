@@ -140,7 +140,7 @@ python -m scripts.eval_identity --adapter legacy --split dev [--sequences] [--ca
 python -m scripts.eval_identity ... --emit-prompts DIR       # no call: one <scene id>.json per request
 python -m scripts.eval_identity ... --import-responses DIR --responder subagent:claude-sonnet
 python -m scripts.eval_identity --adapter v2 --split dev [--tier cheap] [--milestone pr2] [--runs N]
-python -m scripts.eval_identity --adapter v2 ... --emit-prompts DIR      # staged: <scene id>.<n>.json per call
+python -m scripts.eval_identity --adapter v2 ... --emit-prompts DIR      # staged: <token>.<n>.json per call
 python -m scripts.eval_identity --adapter v2 ... --import-responses DIR --responder subagent:claude-haiku+claude-sonnet
 ```
 
@@ -152,18 +152,23 @@ python -m scripts.eval_identity --adapter v2 ... --import-responses DIR --respon
   language packs are synced first), rolled back after each scene. `--models
   identity=MODEL,identity_strong=MODEL` overrides the catalog roles, `--tier cheap`
   turns the escalation off. Scenes only (no `--sequences` yet). Its emit / import is
-  staged: `<scene id>.<n>.json` per call (with `purpose` and `model`), answered in
-  `<scene id>.<n>.txt` (`evals/identity/RESPONDERS.md`); each run replays the answers
+  staged: `<token>.<n>.json` per call (with `purpose` and `model`; the token is a hash
+  of the scene id, whose name gives away the gold category, and the request holds no
+  scene id), answered in `<token>.<n>.txt` (`evals/identity/RESPONDERS.md`: a responder
+  reads only its request files and writes only their `.txt`); each run replays the answers
   and writes the next unanswered call of each scene, listed in `DIR/pending.json` with
   the count per purpose printed; `--import-responses` exits with code 3 and scores
   nothing while a request is pending. An answer whose request no longer matches what
   the code builds is refused (stale). `--runs N` reads `DIR/run1` ... `DIR/runN`. The
-  same directory serves `--tier cheap` (it replays the first stage only). Replayed
-  usage is estimated (characters / 4), priced when the model has a known price.
+  cascade import also replays the cheap tier from the same answers ("Étage bon marché
+  seul" of its report), and `--tier cheap` alone does the same in its own report.
+  Replayed usage is estimated (characters / 4, no cache, no thinking), priced when the
+  model has a known price.
 - `--milestone pr2`: adds the PR 2 gate (hard pool ≥ 0.85, W ≤ 0.02, L = 0, escalation
   rate and cost per turn against their targets); with `--gate` the exit code follows it.
-  L counts the undisclosed secret names of the fixtures found in the requests' cards
-  or the outputs (`evals/identity/leaks.py`).
+  L counts the undisclosed secret names of the fixtures that a candidate card shows,
+  or that the rest of a request or an output holds while the narration does not
+  (`evals/identity/leaks.py`).
 - Live runs make real, paid calls; the key is the server's (`ANTHROPIC_API_KEY`...) or,
   with a real database, the one the player of `CATALOG_KEYS_USER_EMAIL` saved.
 - `--emit-prompts` / `--import-responses` produce the report without an API key: the

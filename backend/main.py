@@ -3,7 +3,6 @@ LDVELH - FastAPI Application
 Point d'entrée principal
 """
 
-import json
 import os
 from contextlib import asynccontextmanager
 
@@ -18,6 +17,7 @@ from api.routes import router
 from api.tooltips import router as tooltips_router
 from api.world import router as world_router
 from config import get_settings
+from repos.pool import init_connection
 from services.subscribers import register_defaults
 from startup_checks import (
     check_identity_backfill,
@@ -76,14 +76,9 @@ async def lifespan(app: FastAPI):
     # Startup: créer le pool de connexions
     print("[STARTUP] Connexion à la base de données...")
 
-    async def _init_connection(conn):
-        await conn.set_type_codec(
-            "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
-        )
-
     pool = app.state.pool = await asyncpg.create_pool(
         settings.database_url, min_size=2, max_size=10,
-        command_timeout=60, init=_init_connection,
+        command_timeout=60, init=init_connection,
         server_settings=POOL_SERVER_SETTINGS,
     )
     print("[STARTUP] Pool de connexions créé")

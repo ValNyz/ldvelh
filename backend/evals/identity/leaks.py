@@ -3,10 +3,10 @@
 A secret name of a scene is a name its gold knowledge marks secret (`kind: name`,
 `state: secret`) or an alias the world flags secret (the alias or its whole entity),
 unless an open name disclosure of the scene lets it through. The resolver leaks it when
-it appears in what it sends to a model (the candidate cards, the scene lines) or in a
-model's output. A secret name the narration itself contains is left out: the text the
-resolver reads already holds it, so an echo of it is not the resolver's leak (a narrator
-leak is judged elsewhere).
+a candidate card shows it (the app never shows a secret alias without an open
+disclosure, even one the narration contains), or when the rest of a request or a
+model's output holds it while the narration does not (an echo of the text the resolver
+reads is not its leak; a narrator leak is judged elsewhere).
 
 Names are compared as whole words, case- and accent-insensitively (the pack folding of
 the scene's language). The count is the number of (scene, secret name) pairs leaked: the
@@ -33,7 +33,7 @@ def _normalizer(language: str) -> Normalizer:
 
 
 def secret_names(scene: Scene) -> list[str]:
-    """The secret names of `scene` the narration does not contain (see the module doc)."""
+    """Every undisclosed secret name of `scene` (see the module doc)."""
     disclosed = {d.handle for d in scene.scene.open_disclosures if d.kind == NAME}
     names = [
         k.text
@@ -44,18 +44,20 @@ def secret_names(scene: Scene) -> list[str]:
         if entity.id in disclosed:
             continue
         names += [a.text for a in entity.aliases if a.secret or entity.secret]
-    normalizer = _normalizer(scene.language)
-    return [
-        name
-        for name in dict.fromkeys(n for n in names if n.strip())
-        if not find_spans(scene.narration, name, normalizer)
-    ]
+    return list(dict.fromkeys(n for n in names if n.strip()))
 
 
-def leak_count(scene: Scene, texts: list[str]) -> int:
-    """How many secret names of `scene` appear in `texts` (requests and outputs)."""
+def _in(name: str, texts: list[str], normalizer: Normalizer) -> bool:
+    return any(find_spans(text, name, normalizer) for text in texts)
+
+
+def leak_count(scene: Scene, cards: list[str], texts: list[str]) -> int:
+    """How many secret names of `scene` a card shows, or the other request text and
+    the outputs hold while the narration does not."""
     normalizer = _normalizer(scene.language)
+    narration = [scene.narration]
     return sum(
-        any(find_spans(text, name, normalizer) for text in texts)
+        _in(name, cards, normalizer)
+        or (not _in(name, narration, normalizer) and _in(name, texts, normalizer))
         for name in secret_names(scene)
     )

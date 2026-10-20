@@ -373,4 +373,5 @@ async def apply(
         deterministic=sum(1 for d in decisions.decisions if d.deterministic),
         unsure=sum(1 for d in decisions.decisions if d.decision == UNSURE),
         usage=decisions.usage,
+        linked=linked,
     )

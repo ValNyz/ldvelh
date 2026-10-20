@@ -7,8 +7,10 @@ for the staged replay without an API key:
 
 - live (`Tap(script=None)`): the call goes to the real provider, its usage is the API's;
 - replay (`Tap(script=Script(...))`): the answer is the raw output a responder wrote
-  for that request, `<scene id>.<n>.txt` next to `<scene id>.<n>.json` (n = 1, 2... in
-  call order). The calls of a scene are staged: the cascade's second call depends on the
+  for that request, `<token>.<n>.txt` next to `<token>.<n>.json` (n = 1, 2... in call
+  order). The token is opaque (`request_token`, a hash of the scene id) and the request
+  carries no scene id: corpus ids name their gold category, and a responder must have
+  no way to see it. The scorer recomputes the token from the scene id. The calls of a scene are staged: the cascade's second call depends on the
   first answer. The first call without an answer writes its request file and makes the
   scene pending; it and every later call of the scene get a quiet answer (no mention), so
   the cascade ends without a warning, and the pending scene is not scored. An answer
@@ -26,6 +28,7 @@ tool_use block" ValueError, which the cascade counts as a failed call.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -33,6 +36,7 @@ from math import ceil
 from pathlib import Path
 
 from llm.session import LLMSession, Purpose
+from prompts.identity_prompt import SEPARATOR, format_handle
 from services.llm_providers import CompletionResult, LLMProvider, LLMUsage, ToolResult
 from utils import parse_json_response
 
@@ -41,6 +45,7 @@ IDENTITY_PURPOSES = (Purpose.IDENTITY, Purpose.IDENTITY_STRONG)
 # The answer of a call nobody answered yet: a valid, empty decision list.
 QUIET_OUTPUT = '{"mentions": []}'
 PENDING_INDEX = "pending.json"
+TOKEN_CHARS = 12
 
 
 def request_options(
@@ -61,6 +66,11 @@ def request_options(
 
 def dumps_request(request: dict) -> str:
     return json.dumps(request, ensure_ascii=False, indent=2) + "\n"
+
+
+def request_token(scene_id: str) -> str:
+    """The opaque name of a scene's request files (no gold category shows through)."""
+    return hashlib.sha256(scene_id.encode("utf-8")).hexdigest()[:TOKEN_CHARS]
 
 
 def estimate_tokens(text: str) -> int:
@@ -89,8 +99,9 @@ class Pending:
 class Script:
     """The answers of one scene's calls in `directory`, read in call order."""
 
-    def __init__(self, directory: Path, scene_id: str) -> None:
-        self.directory, self.scene_id = directory, scene_id
+    def __init__(self, directory: Path, scene_id: str, *, write: bool = True) -> None:
+        self.directory, self.token = directory, request_token(scene_id)
+        self.write = write  # False: a pending call is noted, its request not written
         self.calls = 0
         self.pending: Pending | None = None
         self.stale: str | None = None  # the answer file written for another request
@@ -101,7 +112,7 @@ class Script:
         self.calls += 1
         if self.pending is not None or self.stale is not None:
             return None
-        stem = f"{self.scene_id}.{self.calls}"
+        stem = f"{self.token}.{self.calls}"
         asked = self.directory / f"{stem}.json"
         answered = self.directory / f"{stem}.txt"
         text = dumps_request(request)
@@ -110,8 +121,9 @@ class Script:
                 self.stale = answered.name
                 return None
             return answered.read_text(encoding="utf-8")
-        self.directory.mkdir(parents=True, exist_ok=True)
-        asked.write_text(text, encoding="utf-8")
+        if self.write:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            asked.write_text(text, encoding="utf-8")
         self.pending = Pending(asked, request["purpose"], request["model"])
         return None
 
@@ -128,13 +140,28 @@ class Tap:
     def pending(self) -> Pending | None:
         return self.script.pending if self.script is not None else None
 
+    def card_lines(self) -> list[str]:
+        """The candidate cards the scene's requests showed (lines led by a handle)."""
+        return [line for line in self._lines() if _is_card(line)]
+
     def texts(self) -> list[str]:
-        """What the scene sent to the models and what they answered (the leak check)."""
-        out = []
-        for call in self.calls:
-            out += [m["content"] for m in call.request["messages"]]
-            out.append(call.output)
-        return out
+        """The rest of what the scene sent to the models, and what they answered."""
+        rest = [line for line in self._lines() if not _is_card(line)]
+        return [*rest, *(call.output for call in self.calls)]
+
+    def _lines(self) -> list[str]:
+        return [
+            line
+            for call in self.calls
+            for m in call.request["messages"]
+            for line in m["content"].splitlines()
+        ]
+
+
+def _is_card(line: str) -> bool:
+    head = line.split(SEPARATOR, 1)[0]
+    number = head[1:]
+    return number.isdigit() and head == format_handle(int(number))
 
 
 def _input_text(request: dict) -> str:
@@ -175,7 +202,6 @@ class TappedProvider(LLMProvider):
             purpose=self.purpose.value,
         )
         return {
-            "scene_id": self.tap.scene_id,
             "call": len(self.tap.calls) + 1,
             "purpose": self.purpose.value,
             **options,
@@ -275,12 +301,13 @@ def tapped_session(providers: dict[Purpose, LLMProvider], tap: Tap) -> LLMSessio
 class Responses:
     """The responses directory of one run: a script per scene, its pending requests."""
 
-    def __init__(self, directory: Path) -> None:
-        self.directory = directory
+    def __init__(self, directory: Path, *, write: bool = True) -> None:
+        self.directory, self.write = directory, write
         self.taps: dict[str, Tap] = {}
 
     def tap(self, scene_id: str) -> Tap:
-        self.taps[scene_id] = Tap(scene_id, Script(self.directory, scene_id))
+        script = Script(self.directory, scene_id, write=self.write)
+        self.taps[scene_id] = Tap(scene_id, script)
         return self.taps[scene_id]
 
     @property

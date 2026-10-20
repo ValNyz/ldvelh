@@ -11,6 +11,15 @@ from schema import DEFAULT_GAME_TIME
 logger = logging.getLogger(__name__)
 
 
+async def insert_game(conn, user_id: UUID, language: str) -> UUID:
+    """A new game of `user_id` (default name), its names read with the `language` pack."""
+    return await conn.fetchval(
+        "INSERT INTO games (user_id, language) VALUES ($1, $2) RETURNING id",
+        user_id,
+        language,
+    )
+
+
 async def game_exists(conn, game_id: UUID) -> bool:
     return await conn.fetchval("SELECT EXISTS (SELECT 1 FROM games WHERE id = $1)", game_id)
 

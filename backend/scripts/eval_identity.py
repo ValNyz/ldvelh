@@ -17,7 +17,8 @@ answers:
 Legacy: one request per scene, `<scene id>.json`, answered in `<scene id>.txt`.
 
 v2, staged (its calls depend on the previous answers): one request per model call,
-`<scene id>.<n>.json` with its `purpose` and `model`, answered in `<scene id>.<n>.txt`
+`<token>.<n>.json` with its `purpose` and `model`, answered in `<token>.<n>.txt` (the
+token hides the scene id, which names a gold category; `calls.request_token`)
 (evals/identity/RESPONDERS.md). Both flags replay the answered calls in order and write
 the first unanswered call of each scene as a new request; such a scene is pending.
 `<DIR>/pending.json` lists the pending requests (file, purpose, model) and their count
@@ -48,7 +49,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime
-import json
 import os
 import sys
 from collections import Counter
@@ -92,6 +92,10 @@ PROVIDERS = sorted(get_provider_catalog()["providers"])
 PENDING_EXIT = 3  # --import-responses with requests still to answer: nothing scored
 SUBAGENT = "subagent"
 SUBAGENT_NOTE = "subagent responders, to confirm with 3 API runs when a key exists"
+CHEAP_REPLAY_NOTE = (
+    "Cheap tier: the small model's answers of the cascade's responses replayed "
+    "(the same stage-1 samples), without the escalation."
+)
 
 
 def import_note(responder: str) -> str:
@@ -279,6 +283,7 @@ async def _eval_pool():
     (the normalisation SQL reads them)."""
     import asyncpg
 
+    from repos.pool import init_connection
     from scripts.sync_lang_packs import ensure_and_sync
 
     url = os.environ.get("TEST_DATABASE_URL")
@@ -289,12 +294,7 @@ async def _eval_pool():
     if not urlparse(url).path.lstrip("/").endswith("_test"):
         raise SystemExit("TEST_DATABASE_URL: the database name must end with _test")
 
-    async def init(conn):
-        await conn.set_type_codec(
-            "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
-        )
-
-    pool = await asyncpg.create_pool(url, min_size=1, max_size=2, init=init)
+    pool = await asyncpg.create_pool(url, min_size=1, max_size=2, init=init_connection)
     async with pool.acquire() as conn:
         await ensure_and_sync(conn)
     return pool
@@ -340,6 +340,7 @@ async def _v2_runs(args, adapter, scenes, providers):
         responses = Responses(run_directory(base, run, args.runs))
         runs.append(await _tapped_run(adapter, scenes, providers, responses.tap))
         if responses.stale:
+            write_pending_index(base, [])  # nothing to answer until the stale ones go
             raise SystemExit(
                 f"stale answers in {responses.directory}: {', '.join(responses.stale)} "
                 "answer another request than the one now built; remove them and their "
@@ -349,6 +350,23 @@ async def _v2_runs(args, adapter, scenes, providers):
     if base is not None:
         _print_pending(base, pending)
     return runs, pending
+
+
+async def _cheap_replay(args, pool, scenes, providers):
+    """The cheap tier on the cascade's own answers (the small model's, same samples):
+    its scores per run, or None when a run would need a request the cascade never made
+    (nothing is written in the cascade's directory)."""
+    adapter = ResolverV2Adapter(pool, tier="cheap")
+    scores = []
+    for run in range(args.runs):
+        directory = run_directory(args.import_responses, run, args.runs)
+        responses = Responses(directory, write=False)
+        results, _ = await _tapped_run(adapter, scenes, providers, responses.tap)
+        if responses.pending or responses.stale:
+            print("[eval] cheap tier not replayable from these answers: not reported")
+            return None
+        scores.append(runner.score(scenes, results))
+    return scores
 
 
 async def _run_v2(
@@ -373,8 +391,13 @@ async def _run_v2(
             print("[eval] nothing scored: answer the pending requests, then run again")
             return PENDING_EXIT
         purposes = [Purpose.IDENTITY]
+        extra = {}
         if args.tier == "cascade":
             purposes.append(Purpose.IDENTITY_STRONG)
+            if args.import_responses:
+                extra["cheap_scores_by_run"] = await _cheap_replay(
+                    args, pool, selection.scenes, providers
+                )
         return await _report(
             args,
             adapter,
@@ -382,9 +405,13 @@ async def _run_v2(
             {p.value: providers[p].model_name(p.value) for p in purposes},
             cost_estimated=staged,
             leaks_by_run=[
-                sum(leak_count(s, taps[s.id].texts()) for s in selection.scenes)
+                sum(
+                    leak_count(s, taps[s.id].card_lines(), taps[s.id].texts())
+                    for s in selection.scenes
+                )
                 for _, taps in runs
             ],
+            **extra,
         )
     finally:
         await pool.close()
@@ -395,6 +422,8 @@ async def _run_v2(
 
 async def _report(args, adapter, scores_by_run, models: dict[str, str], **extra) -> int:
     notes = [import_note(args.responder)] if args.import_responses else []
+    if args.import_responses and args.tier == "cheap":
+        notes.append(CHEAP_REPLAY_NOTE)
     if extra.get("sequence_results_by_run"):
         notes.append(adapter.sequence_note)
     if adapter.candidates_note:

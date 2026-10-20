@@ -79,7 +79,7 @@ MILESTONES = {
         "cost_target_usd": 0.01,
     },
 }
-ESTIMATE_NOTE = "estimé : jetons ≈ caractères / 4"
+ESTIMATE_NOTE = "estimé : jetons ≈ caractères / 4, sans cache ni réflexion"
 # (name, label, threshold key, operator, extractor)
 GLOBAL_ROWS: tuple[tuple[str, str, str, str, Callable[[Metrics], float]], ...] = (
     ("hard_macro", "Macro-moyenne A_cat (6 catégories dures)", "hard_macro", ">=",
