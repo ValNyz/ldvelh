@@ -27,7 +27,8 @@ def _dump(value: dict | None) -> str | None:
 
 async def _character_rows(conn, game_id: UUID, row_id: UUID | None = None):
     """The characters rows of the turns played before the migration: those created before
-    the game's first backfill (all of them during that run)."""
+    the game's first backfill; during that run, all of them for a legacy game (aliases
+    from the migration) and none for a game created since (all its turns came after)."""
     return await conn.fetch(
         """SELECT wc.id, wc.turn_id, wc.op, wc.row_id, wc.old_row::text AS old_row,
                   wc.new_row::text AS new_row
@@ -37,7 +38,10 @@ async def _character_rows(conn, game_id: UUID, row_id: UUID | None = None):
               AND tn.created_at < COALESCE(
                       (SELECT min(ev.created_at) FROM identity_events AS ev
                         WHERE ev.game_id = $1 AND ev.kind = 'identity_backfill'),
-                      'infinity')
+                      CASE WHEN EXISTS (SELECT 1 FROM entity_aliases AS al
+                                         WHERE al.game_id = $1 AND al.source = 'migration')
+                           THEN 'infinity'::timestamptz
+                           ELSE '-infinity'::timestamptz END)
             ORDER BY wc.id""",
         game_id,
         row_id,
@@ -85,6 +89,10 @@ async def _rewrite(conn, game_id: UUID, row, before: list, after: list) -> None:
                 row["row_id"],
                 old["name"],
             )
+        elif not gone and old and new and new.get("true_name"):
+            await restore_true_name_rows(
+                conn, row["row_id"], new["true_name"], turn_id=row["turn_id"]
+            )
     if row["op"] == "D" and gone:
         await conn.execute(
             """DELETE FROM world_changes
@@ -99,6 +107,39 @@ async def _rewrite(conn, game_id: UUID, row, before: list, after: list) -> None:
             row["turn_id"],
             _dump(after[0]),
         )
+
+
+async def restore_true_name_rows(
+    conn, character_id: UUID, true_name: str, *, turn_id: UUID | None = None
+) -> None:
+    """The way back of the flip above: an alias row of the journal (3.3) whose form is
+    now the character's true name is a true name again, known when the PC knows it,
+    secret by the 3.2 rule (mandatory and unknown). All pre-migration turns, or one."""
+    await conn.execute(
+        """UPDATE world_changes AS wc
+              SET old_row = wc.old_row || jsonb_build_object(
+                      'kind', 'true_name', 'known', ch.known_by_protagonist,
+                      'secret', ch.is_mandatory AND NOT ch.known_by_protagonist)
+             FROM characters AS ch
+            WHERE ch.id = $1 AND wc.table_name = 'entity_aliases'
+              AND ($3::uuid IS NULL OR wc.turn_id = $3)
+              AND wc.old_row ->> 'entity_id' = $1::uuid::text
+              AND wc.old_row ->> 'source' = 'migration'
+              AND wc.old_row ->> 'kind' = 'descriptor'
+              AND ldvelh_norm_for_game(ch.game_id, wc.old_row ->> 'alias')
+                  = ldvelh_norm_for_game(ch.game_id, $2)
+              AND wc.turn_id IN (SELECT tn.id FROM turns AS tn
+                                  WHERE tn.game_id = ch.game_id
+                                    AND tn.created_at < COALESCE(
+                                        (SELECT min(ev.created_at)
+                                           FROM identity_events AS ev
+                                          WHERE ev.game_id = ch.game_id
+                                            AND ev.kind = 'identity_backfill'),
+                                        'infinity'::timestamptz))""",
+        character_id,
+        true_name,
+        turn_id,
+    )
 
 
 async def _registry_rows_follow(
@@ -191,4 +232,7 @@ async def follow_model(
         if moved != sides:
             await _rewrite(conn, game_id, row, sides, moved)
             changed += 1
+    if changed and after["true_name"]:
+        # A former name the classification had read as a descriptor, now the true name.
+        await restore_true_name_rows(conn, row_id, after["true_name"])
     return changed
