@@ -694,7 +694,9 @@ async def _journal_ids(harness, game_id) -> set:
 
 async def test_rollback_to_the_arrival_keeps_the_world(harness, world_game):
     """Back to just after the arrival: every table as the arrival left it, its journal only."""
-    ignored = {"turns", "llm_calls"}
+    # Logs, never journaled, kept by a rollback: llm_calls and the identity telemetry
+    # (the B-08 turn's reveal of Mira writes a reveal event).
+    ignored = {"turns", "llm_calls", "identity_events"}
     arrival = {
         k: v
         for k, v in (await harness.db_summary(world_game)).items()

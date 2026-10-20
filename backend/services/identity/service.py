@@ -25,15 +25,20 @@ from packs.loader import load_lang
 from repos import entities
 from repos.uow import current_turn_id
 from services.identity import lexicon as lexicons
+from services.identity import merges, reveals
 from services.identity.aliases import derive
 from services.identity.classify import free_suffix
 from services.identity.normalize import Normalizer
 from services.identity.types import (
     AmbiguousLabel,
+    EntityRef,
+    FactRef,
     IdentityWriteMiss,
+    MergeOutcome,
     NewEntitySpec,
     RefUnresolved,
     ResolvedRef,
+    RevealOutcome,
 )
 
 logger = logging.getLogger(__name__)
@@ -104,7 +109,7 @@ class IdentityService:
             conn, self.game_id, label, spec.entity_type
         )
         if target.entity_id is not None and not trap:
-            await self._event(
+            await self.record_event(
                 conn,
                 "create_reused",
                 turn_id,
@@ -149,7 +154,7 @@ class IdentityService:
             await entities.set_created_turn(conn, entity_id, turn_id)
         await self._add_creation_aliases(conn, entity_id, spec, label, source, turn_id)
         if suffix is not None:
-            await self._event(
+            await self.record_event(
                 conn,
                 "label_suffixed",
                 turn_id,
@@ -158,7 +163,7 @@ class IdentityService:
             )
         elif contested:
             # A verified trap whose label is free but names others through their aliases.
-            await self._event(
+            await self.record_event(
                 conn,
                 "create_contested",
                 turn_id,
@@ -316,7 +321,7 @@ class IdentityService:
             )
             candidates = counts.get(entity_type, 0)
         if candidates > 1:
-            await self._event(
+            await self.record_event(
                 conn,
                 "ambiguous_ref",
                 None,
@@ -344,11 +349,13 @@ class IdentityService:
         *,
         source: str = "extractor",
         turn_id: UUID | None = None,
+        evidence: str | None = None,
     ) -> None:
         """Write `fields` on the entity's domain row, by id (merges followed). No row:
         IdentityWriteMiss. A new name keeps the old one as a former name (the triggers) and
-        gets its derived aliases; an internal label suffix no homonym needs any more goes.
-        known_by_protagonist is the reveal's (explicit reveals only): refused here."""
+        gets its derived aliases (a former name it takes back is its name again); an
+        internal label suffix no homonym needs any more goes. known_by_protagonist is the
+        reveal's (explicit reveals only): refused here."""
         if _KNOWN_FLAG in fields:
             raise ValueError(f"{_KNOWN_FLAG} is written by a reveal, not update_entity")
         live_id = await entities.follow_merge(conn, entity_id) or entity_id
@@ -362,6 +369,7 @@ class IdentityService:
         if fields.get(renamed):
             known = entity_type != CHARACTER or bool(row.get("known_by_protagonist"))
             kind = "true_name" if entity_type == CHARACTER else "label"
+            await entities.restore_former_name(conn, live_id, row[renamed], kind, known)
             for alias in derive(
                 row[renamed],
                 kind=kind,
@@ -378,6 +386,7 @@ class IdentityService:
                     secret=alias.secret,
                     source=source,
                     turn_id=turn_id,
+                    evidence=evidence,
                     entity_type=entity_type,
                 )
 
@@ -394,21 +403,82 @@ class IdentityService:
         ):
             await entities.clear_label_suffix(conn, entity_type, entity_id)
 
+    # --- reveals and merges (spec §4.7) -------------------------------------------------
+
+    async def reveal(
+        self,
+        conn,
+        ref: EntityRef | FactRef,
+        real_name: str | None,
+        *,
+        turn_id: UUID | None,
+        source: str,
+        evidence: str | None = None,
+    ) -> RevealOutcome:
+        """The protagonist learns the name of the entity `ref` names (`real_name`, else
+        the name it has), or the fact: the table of spec §4.7 (`reveals`). Idempotent;
+        an unresolved or ambiguous reference is a counted no-op, never a guess."""
+        return await reveals.reveal(
+            self,
+            conn,
+            ref,
+            real_name,
+            turn_id=turn_id,
+            source=source,
+            evidence=evidence,
+        )
+
+    async def merge(
+        self,
+        conn,
+        keep_id: UUID,
+        drop_id: UUID,
+        *,
+        reason: str | None,
+        turn_id: UUID | None,
+        evidence: str | None = None,
+    ) -> MergeOutcome:
+        """Merge `drop_id` into `keep_id` when the guards allow it (`merges`): undoable
+        through the turn's journal, audited in entity_merges."""
+        return await merges.merge(
+            self,
+            conn,
+            keep_id,
+            drop_id,
+            reason=reason,
+            turn_id=turn_id,
+            evidence=evidence,
+        )
+
     # --- telemetry ----------------------------------------------------------------------
 
-    async def _event(
+    async def record_event(
         self,
         conn,
         kind: str,
         turn_id: UUID | None,
         entity_id: UUID | None,
         payload: dict,
+        *,
+        once: bool = False,
     ) -> None:
+        """An identity_events row (types, ids, counts and codes only). `once`: not again
+        when the turn already has one of this kind for this entity (a reveal is applied at
+        the commit and again by the extraction, in the same turn)."""
+        turn_id = turn_id or await current_turn_id(conn)
+        if (
+            once
+            and turn_id is not None
+            and await entities.event_recorded(
+                conn, self.game_id, kind, entity_id, turn_id
+            )
+        ):
+            return
         await entities.insert_event(
             conn,
             self.game_id,
             kind,
-            turn_id=turn_id or await current_turn_id(conn),
+            turn_id=turn_id,
             entity_id=entity_id,
             payload=payload,
         )

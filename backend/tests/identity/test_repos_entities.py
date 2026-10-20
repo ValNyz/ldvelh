@@ -319,23 +319,39 @@ async def test_a_contested_character_name_leaves_the_label_holder_untouched(
 
 
 async def test_a_reveal_never_deletes_through_another_characters_alias(test_pool, game):
-    from kg.populator import KnowledgeGraphPopulator
+    """A revealed name that is only another character's descriptor designates no other
+    entity (spec §4.7: labels, true-name and label aliases): nothing is merged nor
+    deleted, the other character is untouched."""
+    from services.identity.service import IdentityService
+    from services.identity.types import EntityRef
 
     async with test_pool.acquire() as conn:
         elder = await _character(conn, game, descriptor="La Kethari âgée")
         tesk = await _character(
             conn, game, true_name="Tesk", descriptor="Le Kethari au tablier"
         )
-        revealed = await KnowledgeGraphPopulator(None, game).mark_character_known(
-            conn, "la Kethari âgée", "Kethari au tablier"
+        identity = await IdentityService.for_game(conn, game)
+        revealed = await identity.reveal(
+            conn,
+            EntityRef("la Kethari âgée", "character"),
+            "Kethari au tablier",
+            turn_id=None,
+            source="reveal",
         )
         rows = await conn.fetch(
             "SELECT id, known_by_protagonist, true_name FROM characters WHERE game_id = $1"
             " ORDER BY created_at",
             game,
         )
-    assert revealed is False
-    assert [tuple(r) for r in rows] == [(elder, False, None), (tesk, False, "Tesk")]
+        merges = await conn.fetchval(
+            "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
+        )
+    assert revealed.kind == "applied"
+    assert merges == 0
+    assert [tuple(r) for r in rows] == [
+        (elder, True, "Kethari au tablier"),
+        (tesk, False, "Tesk"),
+    ]
 
 
 async def test_a_descriptive_extracted_name_is_never_a_true_name(test_pool, game):
@@ -365,15 +381,22 @@ async def test_a_descriptive_extracted_name_is_never_a_true_name(test_pool, game
 async def test_a_reveal_without_real_name_marks_the_true_name_alias_known(
     test_pool, game
 ):
-    from kg.populator import KnowledgeGraphPopulator
+    from services.identity.service import IdentityService
+    from services.identity.types import EntityRef
 
     async with test_pool.acquire() as conn:
         tesk = await _character(
             conn, game, true_name="Tesk", descriptor="Le Kethari au tablier"
         )
-        assert await KnowledgeGraphPopulator(None, game).mark_character_known(
-            conn, "le Kethari au tablier"
+        identity = await IdentityService.for_game(conn, game)
+        revealed = await identity.reveal(
+            conn,
+            EntityRef("le Kethari au tablier", "character"),
+            None,
+            turn_id=None,
+            source="reveal",
         )
+        assert revealed.kind == "known_only"
         kinds = {
             a.alias: a.known for a in await entities.list_aliases(conn, game, tesk)
         }

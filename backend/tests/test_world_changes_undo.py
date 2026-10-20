@@ -9,6 +9,8 @@ import pytest
 from kg.populator import KnowledgeGraphPopulator
 from repos import turns
 from repos.uow import uow
+from services.identity.service import IdentityService
+from services.identity.types import EntityRef
 from tests.test_game_and_populator import _setup_game_with_world
 
 pytestmark = pytest.mark.integration
@@ -241,22 +243,31 @@ async def test_undo_restores_a_deleted_character_and_its_registry_row_once(
 
 
 async def test_undo_of_a_rename_restores_the_registry_name(test_pool, world):
+    """A reveal that renames (the narration's name against a hidden one) is undone by the
+    turn's journal: name, registry label and aliases as before."""
     game_id, turn_id = world
-    populator = KnowledgeGraphPopulator(None, game_id)
     async with test_pool.acquire() as conn:
-        char_id = await _new_character(conn, game_id, "A")
-        reg_id = await _registry_id(conn, game_id, "A")
+        char_id = await _new_character(conn, game_id, "Arno Vey")
+        reg_id = await _registry_id(conn, game_id, "Arno Vey")
+        identity = await IdentityService.for_game(conn, game_id)
         before = await _world(conn)
         async with uow(conn, turn_id):
-            await populator.mark_character_known(conn, "A", real_name="B")
-        assert await _registry_id(conn, game_id, "B") == reg_id
+            outcome = await identity.reveal(
+                conn,
+                EntityRef("Arno Vey", "character"),
+                "Brune Okafor",
+                turn_id=turn_id,
+                source="reveal",
+            )
+        assert outcome.kind == "conflict"
+        assert await _registry_id(conn, game_id, "Brune Okafor") == reg_id
         await _undo(conn, turn_id)
         name = await conn.fetchval("SELECT name FROM characters WHERE id = $1", char_id)
         names = await _registry_names(conn, game_id)
         assert await _world(conn) == before
-    assert name == "A"
-    assert "A" in names
-    assert "B" not in names
+    assert name == "Arno Vey"
+    assert "Arno Vey" in names
+    assert "Brune Okafor" not in names
 
 
 async def test_undo_restores_credits_only_when_applied(test_pool, world):
@@ -297,14 +308,16 @@ async def test_undo_is_idempotent(test_pool, world):
 
 async def test_undo_reverses_two_turns_in_order(test_pool, world):
     game_id, t1 = world
-    populator = KnowledgeGraphPopulator(None, game_id)
     async with test_pool.acquire() as conn:
         before = await _world(conn)
         t2 = await turns.open_turn(conn, game_id)
         async with uow(conn, t1):
             await _new_character(conn, game_id, "X")
+        identity = await IdentityService.for_game(conn, game_id)
         async with uow(conn, t2):
-            await populator.mark_character_known(conn, "X", real_name="Y")
+            await identity.reveal(
+                conn, EntityRef("X", "character"), "Y", turn_id=t2, source="reveal"
+            )
         await _undo(conn, t2, t1)
         assert await _world(conn) == before
         names = await _registry_names(conn, game_id)

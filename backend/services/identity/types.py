@@ -46,6 +46,30 @@ class FactRef:
 
 
 @dataclass(frozen=True)
+class RevealOutcome:
+    """What a reveal did (spec §4.7). `applied`: a true name set; `known_only`: the
+    protagonist now knows (or already knew) the name the entity has; `noop`: nothing to
+    reveal, or no entity resolved; `conflict`: the narration's name replaced another one;
+    `merged`: the name was another entity's, the two were merged into `merged_into` (the
+    live entity, possibly `entity_id` itself); `merge_refused`: the same, but a guard
+    refused the merge. `entity_id`: the entity the reference named (None: unresolved)."""
+
+    kind: Literal[
+        "applied", "known_only", "noop", "conflict", "merged", "merge_refused"
+    ]
+    entity_id: UUID | None
+    merged_into: UUID | None = None
+
+
+@dataclass(frozen=True)
+class MergeOutcome:
+    """A merge: its entity_merges id, or the code of the guard that refused it."""
+
+    merge_id: UUID | None
+    refused: str | None
+
+
+@dataclass(frozen=True)
 class ResolvedRef:
     """A resolved entity: its id, its E<n> handle and what the player may read for it."""
 

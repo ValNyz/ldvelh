@@ -500,3 +500,151 @@ async def update_domain_row(
         return table, None
     value = row["row"]
     return table, value if isinstance(value, dict) else json.loads(value)
+
+
+# Reveals and merges (spec §4.7).
+
+
+async def domain_row(conn, entity_type: str, entity_id: UUID) -> dict | None:
+    """An entity's domain row as a dict (None when it has none)."""
+    value = await conn.fetchval(
+        "SELECT identity_domain_row($1, $2)", str(entity_type), entity_id
+    )
+    if value is None:
+        return None
+    return value if isinstance(value, dict) else json.loads(value)
+
+
+async def name_similarity(conn, game_id: UUID, first: str, second: str) -> float:
+    """pg_trgm similarity of the normalised forms of two names (1 when the norms match)."""
+    return await conn.fetchval(
+        """SELECT similarity(ldvelh_norm_for_game($1, $2), ldvelh_norm_for_game($1, $3))""",
+        game_id,
+        first,
+        second,
+    )
+
+
+async def name_holders(
+    conn, game_id: UUID, entity_type: str, name: str, exclude: UUID
+) -> list[UUID]:
+    """Live entities of the type, `exclude` aside, that hold `name` (normalised) as their
+    registry label or as a true-name or label alias: the ones a revealed name designates."""
+    rows = await conn.fetch(
+        """WITH ref AS (SELECT ldvelh_norm_for_game($1, $3) AS norm)
+           SELECT DISTINCT live.id
+             FROM (SELECT er.id FROM entity_registry AS er, ref
+                    WHERE er.game_id = $1 AND er.entity_type = $2
+                      AND er.name_norm = ref.norm
+                   UNION
+                   SELECT al.entity_id FROM entity_aliases AS al, ref
+                    WHERE al.game_id = $1 AND al.entity_type = $2
+                      AND al.kind IN ('true_name', 'label') AND al.alias_norm = ref.norm)
+                  AS held (id)
+             CROSS JOIN LATERAL (SELECT entity_follow_merge(held.id) AS id) AS live
+            WHERE live.id IS DISTINCT FROM entity_follow_merge($4)""",
+        game_id,
+        str(entity_type),
+        name,
+        exclude,
+    )
+    return [r["id"] for r in rows]
+
+
+async def set_character_known(conn, game_id: UUID, entity_id: UUID) -> bool:
+    """The protagonist knows the character's true name; False when it already did."""
+    changed = await conn.fetchval(
+        """UPDATE characters SET known_by_protagonist = true, updated_at = now()
+           WHERE id = $1 AND game_id = $2 AND known_by_protagonist IS NOT TRUE
+           RETURNING id""",
+        entity_id,
+        game_id,
+    )
+    return changed is not None
+
+
+async def mark_forms_known(conn, entity_id: UUID, forms: list[str]) -> int:
+    """The entity's aliases with the normalised form of one of `forms` become known;
+    returns how many changed."""
+    rows = await conn.fetch(
+        """UPDATE entity_aliases AS al SET known = true
+           WHERE al.entity_id = $1 AND NOT al.known
+             AND al.alias_norm IN (SELECT ldvelh_norm_for_game(al.game_id, form)
+                                     FROM unnest($2::text[]) AS form)
+           RETURNING al.id""",
+        entity_id,
+        list(forms),
+    )
+    return len(rows)
+
+
+async def oldest(conn, entity_ids: list[UUID]) -> UUID:
+    """The entity created first (domain created_at, then handle): world-gen before any
+    later extraction."""
+    return await conn.fetchval(
+        """SELECT er.id FROM entity_registry AS er
+           WHERE er.id = ANY($1::uuid[])
+           ORDER BY (identity_domain_row(er.entity_type, er.id) ->> 'created_at')::timestamptz
+                    NULLS LAST, er.handle
+           LIMIT 1""",
+        list(entity_ids),
+    )
+
+
+async def merge_entities(
+    conn, keep_id: UUID, drop_id: UUID, reason: str | None, evidence: str | None
+) -> UUID:
+    """The SQL merge (journaled by the triggers); returns the entity_merges id."""
+    return await conn.fetchval(
+        "SELECT merge_entities($1, $2, $3, $4)", keep_id, drop_id, reason, evidence
+    )
+
+
+async def find_fact(conn, game_id: UUID, ref: str) -> UUID | None:
+    """The fact `ref` names (F<n> handle or id), None otherwise."""
+    if ref is None or not ref.strip():
+        return None
+    return await conn.fetchval("SELECT find_fact($1, $2)", game_id, ref)
+
+
+async def set_fact_known(conn, game_id: UUID, fact_id: UUID) -> bool:
+    """The protagonist knows the fact; False when it already did."""
+    changed = await conn.fetchval(
+        """UPDATE facts SET known = true WHERE id = $1 AND game_id = $2 AND NOT known
+           RETURNING id""",
+        fact_id,
+        game_id,
+    )
+    return changed is not None
+
+
+async def event_recorded(
+    conn, game_id: UUID, kind: str, entity_id: UUID | None, turn_id: UUID
+) -> bool:
+    """An identity_events row of this kind, entity and turn exists already."""
+    return await conn.fetchval(
+        """SELECT EXISTS (SELECT 1 FROM identity_events
+                           WHERE game_id = $1 AND kind = $2 AND turn_id = $4
+                             AND entity_id IS NOT DISTINCT FROM $3)""",
+        game_id,
+        kind,
+        entity_id,
+        turn_id,
+    )
+
+
+async def restore_former_name(
+    conn, entity_id: UUID, name: str, kind: str, known: bool
+) -> None:
+    """A former name the entity takes back is its name again (`kind`), with the known
+    flag of its name: the name triggers' alias of it already exists, so they keep it a
+    former name."""
+    await conn.execute(
+        """UPDATE entity_aliases AS al SET kind = $3, known = $4
+           WHERE al.entity_id = $1 AND al.kind = 'former_name'
+             AND al.alias_norm = ldvelh_norm_for_game(al.game_id, $2)""",
+        entity_id,
+        name,
+        kind,
+        known,
+    )

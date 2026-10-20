@@ -18,9 +18,16 @@ import pytest
 from unittest.mock import MagicMock
 
 from helpers import (
-    apply_deltas, apply_state, auth_headers, open_turn, save_pair, store_requests,
+    apply_deltas,
+    apply_state,
+    auth_headers,
+    open_turn,
+    save_pair,
+    store_requests,
 )
 from repos.uow import uow
+from services.identity.service import IdentityService
+from services.identity.types import EntityRef
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration
@@ -115,7 +122,8 @@ class TestRollback:
             turn = await open_turn(test_pool, game_id)
             await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
             await save_pair(
-                test_pool, game_id=game_id,
+                test_pool,
+                game_id=game_id,
                 user_message=f"Action {i + 1}",
                 assistant_message=f"Response {i + 1}",
                 cycle=1,
@@ -152,7 +160,8 @@ class TestRollback:
         turn = await open_turn(test_pool, game_id)
         await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
-            test_pool, game_id=game_id,
+            test_pool,
+            game_id=game_id,
             user_message="Premier tour",
             assistant_message="Première réponse",
             cycle=1,
@@ -171,7 +180,8 @@ class TestRollback:
         turn = await open_turn(test_pool, game_id)
         await apply_state(test_pool, game_id, narration2, 1, turn_id=turn)
         await save_pair(
-            test_pool, game_id=game_id,
+            test_pool,
+            game_id=game_id,
             user_message="Deuxième tour",
             assistant_message="Deuxième réponse",
             cycle=1,
@@ -222,29 +232,45 @@ class TestRollback:
         initial_credits = stats["credits"]
 
         # Round 1: spend 50 credits
-        narration1 = NarrationOutput.model_validate(_make_narration_output(
-            arrival_loc, credit_delta={"amount": -50, "description": "achat"},
-        ))
+        narration1 = NarrationOutput.model_validate(
+            _make_narration_output(
+                arrival_loc,
+                credit_delta={"amount": -50, "description": "achat"},
+            )
+        )
         turn = await open_turn(test_pool, game_id)
         await apply_state(test_pool, game_id, narration1, 1, turn_id=turn)
         await apply_deltas(test_pool, game_id, narration1, 1, turn_id=turn)
         await save_pair(
-            test_pool, game_id, "action1", "response1", cycle=1,
-            time="09h15", location_ref=arrival_loc,
+            test_pool,
+            game_id,
+            "action1",
+            "response1",
+            cycle=1,
+            time="09h15",
+            location_ref=arrival_loc,
             narrator_deltas={"credit_delta": {"amount": -50, "description": "achat"}},
             turn_id=turn,
         )
 
         # Round 2: spend 30 credits
-        narration2 = NarrationOutput.model_validate(_make_narration_output(
-            arrival_loc, credit_delta={"amount": -30, "description": "repas"},
-        ))
+        narration2 = NarrationOutput.model_validate(
+            _make_narration_output(
+                arrival_loc,
+                credit_delta={"amount": -30, "description": "repas"},
+            )
+        )
         turn = await open_turn(test_pool, game_id)
         await apply_state(test_pool, game_id, narration2, 1, turn_id=turn)
         await apply_deltas(test_pool, game_id, narration2, 1, turn_id=turn)
         await save_pair(
-            test_pool, game_id, "action2", "response2", cycle=1,
-            time="10h00", location_ref=arrival_loc,
+            test_pool,
+            game_id,
+            "action2",
+            "response2",
+            cycle=1,
+            time="10h00",
+            location_ref=arrival_loc,
             narrator_deltas={"credit_delta": {"amount": -30, "description": "repas"}},
             turn_id=turn,
         )
@@ -280,8 +306,13 @@ class TestRollback:
             turn = await open_turn(test_pool, game_id)
             await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
-                test_pool, game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
-                time="09h00", location_ref=arrival_loc,
+                test_pool,
+                game_id,
+                f"action{cycle}",
+                f"response{cycle}",
+                cycle=cycle,
+                time="09h00",
+                location_ref=arrival_loc,
                 turn_id=turn,
             )
 
@@ -295,7 +326,8 @@ class TestRollback:
             await conn.execute(
                 "INSERT INTO inventory (game_id, object_id, acquired_cycle)"
                 " VALUES ($1, $2, 2)",
-                game_id, obj_id,
+                game_id,
+                obj_id,
             )
             count = await conn.fetchval(
                 "SELECT COUNT(*) FROM inventory"
@@ -328,14 +360,22 @@ class TestRollback:
         # Send 3 rounds with different cycles
         times = ["09h00", "10h00", "11h00"]
         for i, cycle in enumerate([1, 2, 3]):
-            narration = NarrationOutput.model_validate(_make_narration_output(
-                arrival_loc, time={"new_time": times[i], "ellipse": False},
-            ))
+            narration = NarrationOutput.model_validate(
+                _make_narration_output(
+                    arrival_loc,
+                    time={"new_time": times[i], "ellipse": False},
+                )
+            )
             turn = await open_turn(test_pool, game_id)
             await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
-                test_pool, game_id, f"Action cycle {cycle}", f"Response cycle {cycle}",
-                cycle=cycle, time=times[i], location_ref=arrival_loc,
+                test_pool,
+                game_id,
+                f"Action cycle {cycle}",
+                f"Response cycle {cycle}",
+                cycle=cycle,
+                time=times[i],
+                location_ref=arrival_loc,
                 turn_id=turn,
             )
 
@@ -358,9 +398,7 @@ class TestRollback:
         # Verify cycles are monotonic
         cycles = [m["cycle"] for m in messages if m.get("cycle")]
         for i in range(1, len(cycles)):
-            assert cycles[i] >= cycles[i - 1], (
-                f"Messages not in cycle order: {cycles}"
-            )
+            assert cycles[i] >= cycles[i - 1], f"Messages not in cycle order: {cycles}"
 
     @pytest.mark.asyncio
     async def test_rollback_then_new_messages_ordered(
@@ -382,8 +420,13 @@ class TestRollback:
             turn = await open_turn(test_pool, game_id)
             await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
-                test_pool, game_id, f"Action {cycle}", f"Response {cycle}",
-                cycle=cycle, time="09h00", location_ref=arrival_loc,
+                test_pool,
+                game_id,
+                f"Action {cycle}",
+                f"Response {cycle}",
+                cycle=cycle,
+                time="09h00",
+                location_ref=arrival_loc,
                 turn_id=turn,
             )
 
@@ -391,14 +434,17 @@ class TestRollback:
         await service.rollback_to_message(game_id, keep_until_index=2)
 
         # Send a new message after rollback
-        narration = NarrationOutput.model_validate(
-            _make_narration_output(arrival_loc)
-        )
+        narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
         turn = await open_turn(test_pool, game_id)
         await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
-            test_pool, game_id, "New action after rollback", "New response after rollback",
-            cycle=1, time="09h30", location_ref=arrival_loc,
+            test_pool,
+            game_id,
+            "New action after rollback",
+            "New response after rollback",
+            cycle=1,
+            time="09h30",
+            location_ref=arrival_loc,
             turn_id=turn,
         )
 
@@ -429,8 +475,13 @@ class TestRollback:
             turn = await open_turn(test_pool, game_id)
             await apply_state(test_pool, game_id, narration, cycle, turn_id=turn)
             await save_pair(
-                test_pool, game_id, f"action{cycle}", f"response{cycle}", cycle=cycle,
-                time="09h00", location_ref=arrival_loc,
+                test_pool,
+                game_id,
+                f"action{cycle}",
+                f"response{cycle}",
+                cycle=cycle,
+                time="09h00",
+                location_ref=arrival_loc,
                 turn_id=turn,
             )
 
@@ -453,8 +504,7 @@ class TestRollback:
 
         async with test_pool.acquire() as conn:
             count = await conn.fetchval(
-                "SELECT COUNT(*) FROM director_plans"
-                " WHERE game_id = $1 AND cycle > 1",
+                "SELECT COUNT(*) FROM director_plans WHERE game_id = $1 AND cycle > 1",
                 game_id,
             )
         assert count == 0
@@ -477,8 +527,13 @@ class TestRollback:
             turn = await open_turn(test_pool, game_id)
             await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
             await save_pair(
-                test_pool, game_id, f"Action {i + 1}", f"Response {i + 1}",
-                cycle=1, time="09h15", location_ref=arrival_loc,
+                test_pool,
+                game_id,
+                f"Action {i + 1}",
+                f"Response {i + 1}",
+                cycle=1,
+                time="09h15",
+                location_ref=arrival_loc,
                 turn_id=turn,
             )
 
@@ -487,6 +542,7 @@ class TestRollback:
 
         # Rollback by ID of the 3rd message (user message of round 2)
         from uuid import UUID as _UUID
+
         target_id = _UUID(messages[2]["id"])
         result = await service.rollback_to_message(game_id, message_id=target_id)
 
@@ -516,8 +572,12 @@ class TestRollback:
             if not conv_id:
                 conv_id = await populator.create_conversation(conn, 1)
             await populator.save_message(
-                conn, conv_id, "user", "__ARRIVEE__",
-                sequence=1, cycle=1,
+                conn,
+                conv_id,
+                "user",
+                "__ARRIVEE__",
+                sequence=1,
+                cycle=1,
             )
 
         # Save 2 visible rounds
@@ -528,8 +588,13 @@ class TestRollback:
             turn = await open_turn(test_pool, game_id)
             await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
             await save_pair(
-                test_pool, game_id, f"Action {i + 1}", f"Response {i + 1}",
-                cycle=1, time="09h15", location_ref=arrival_loc,
+                test_pool,
+                game_id,
+                f"Action {i + 1}",
+                f"Response {i + 1}",
+                cycle=1,
+                time="09h15",
+                location_ref=arrival_loc,
                 turn_id=turn,
             )
 
@@ -539,6 +604,7 @@ class TestRollback:
 
         # Rollback by ID of 3rd visible message (Action 2)
         from uuid import UUID as _UUID
+
         target_id = _UUID(visible[2]["id"])
         result = await service.rollback_to_message(game_id, message_id=target_id)
 
@@ -557,9 +623,7 @@ class TestRollback:
             client, test_user, test_pool
         )
 
-        result = await service.rollback_to_message(
-            game_id, message_id=uuid.uuid4()
-        )
+        result = await service.rollback_to_message(game_id, message_id=uuid.uuid4())
         assert result["deleted"] == 0
 
     @pytest.mark.asyncio
@@ -572,14 +636,17 @@ class TestRollback:
         )
         arrival_loc = world_gen.arrival_event.arrival_location_ref
 
-        narration = NarrationOutput.model_validate(
-            _make_narration_output(arrival_loc)
-        )
+        narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
         turn = await open_turn(test_pool, game_id)
         await apply_state(test_pool, game_id, narration, 1, turn_id=turn)
         await save_pair(
-            test_pool, game_id, "Test", "Response", cycle=1,
-            time="09h00", location_ref=arrival_loc,
+            test_pool,
+            game_id,
+            "Test",
+            "Response",
+            cycle=1,
+            time="09h00",
+            location_ref=arrival_loc,
             turn_id=turn,
         )
 
@@ -625,9 +692,7 @@ class TestGameStateLoading:
         """load_game_state on a newly created game (no world) raises ValueError."""
         from services.game_service import GameService
 
-        resp = await client.post(
-            "/api/games", headers=auth_headers(test_user["token"])
-        )
+        resp = await client.post("/api/games", headers=auth_headers(test_user["token"]))
         game_id = UUID(resp.json()["gameId"])
         service = GameService(test_pool)
 
@@ -637,9 +702,7 @@ class TestGameStateLoading:
         assert state["world_created"] is False
 
     @pytest.mark.asyncio
-    async def test_load_world_info_after_population(
-        self, client, test_user, test_pool
-    ):
+    async def test_load_world_info_after_population(self, client, test_user, test_pool):
         """load_world_info returns structured world summary."""
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
@@ -661,9 +724,7 @@ class TestGameStateLoading:
         """load_world_info returns None if world not created."""
         from services.game_service import GameService
 
-        resp = await client.post(
-            "/api/games", headers=auth_headers(test_user["token"])
-        )
+        resp = await client.post("/api/games", headers=auth_headers(test_user["token"]))
         game_id = UUID(resp.json()["gameId"])
         service = GameService(test_pool)
 
@@ -684,9 +745,7 @@ class TestVerifyOwnership:
         """verify_ownership passes for the correct owner."""
         from services.game_service import GameService
 
-        resp = await client.post(
-            "/api/games", headers=auth_headers(test_user["token"])
-        )
+        resp = await client.post("/api/games", headers=auth_headers(test_user["token"]))
         game_id = UUID(resp.json()["gameId"])
         service = GameService(test_pool)
 
@@ -695,16 +754,12 @@ class TestVerifyOwnership:
         await service.verify_ownership(game_id, user_id)
 
     @pytest.mark.asyncio
-    async def test_unauthorized_access(
-        self, client, test_user, second_user, test_pool
-    ):
+    async def test_unauthorized_access(self, client, test_user, second_user, test_pool):
         """verify_ownership raises GameAccessDenied (403) for a different user."""
         from domain.errors import GameAccessDenied
         from services.game_service import GameService
 
-        resp = await client.post(
-            "/api/games", headers=auth_headers(test_user["token"])
-        )
+        resp = await client.post("/api/games", headers=auth_headers(test_user["token"]))
         game_id = UUID(resp.json()["gameId"])
         service = GameService(test_pool)
 
@@ -736,9 +791,7 @@ class TestBuildLLMMessages:
     """Tests for GameService.build_llm_messages()"""
 
     @pytest.mark.asyncio
-    async def test_build_llm_messages_with_history(
-        self, client, test_user, test_pool
-    ):
+    async def test_build_llm_messages_with_history(self, client, test_user, test_pool):
         """build_llm_messages builds correct message array with history."""
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
@@ -749,7 +802,8 @@ class TestBuildLLMMessages:
         times = ["09h15", "09h45"]
         for i in range(2):
             await save_pair(
-                test_pool, game_id=game_id,
+                test_pool,
+                game_id=game_id,
                 user_message=f"Action {i + 1}",
                 assistant_message=f"Response {i + 1}",
                 cycle=1,
@@ -768,9 +822,7 @@ class TestBuildLLMMessages:
         assert messages[-1]["content"] == context
 
     @pytest.mark.asyncio
-    async def test_build_llm_messages_empty_history(
-        self, client, test_user, test_pool
-    ):
+    async def test_build_llm_messages_empty_history(self, client, test_user, test_pool):
         """build_llm_messages with no prior messages returns only the context prompt."""
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
@@ -844,9 +896,7 @@ class TestExtractionPopulator:
     """Tests for ExtractionPopulator.process_extraction()"""
 
     @pytest.mark.asyncio
-    async def test_process_extraction_with_facts(
-        self, client, test_user, test_pool
-    ):
+    async def test_process_extraction_with_facts(self, client, test_user, test_pool):
         """process_extraction creates facts in the DB."""
         from kg.specialized_populator import ExtractionPopulator
         from schema import NarrativeExtraction
@@ -855,26 +905,28 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "time": "10h20",
-            "current_location_ref": "Le Quart de Cycle",
-            "facts": [
-                {
-                    "cycle": 2,
-                    "fact_type": "revelation",
-                    "description": "Ossek révèle qu'iel est seul de son espèce sur la station",
-                    "semantic_key": "ossek:revele:seul_espece",
-                    "importance": 4,
-                    "participants": [
-                        {"entity_ref": "Ossek", "role": "actor"},
-                        {"entity_ref": "Valentin", "role": "witness"},
-                    ],
-                }
-            ],
-            "segment_summary": "Valentin discute avec Ossek au Quart de Cycle.",
-            "key_npcs_present": ["Ossek"],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "time": "10h20",
+                "current_location_ref": "Le Quart de Cycle",
+                "facts": [
+                    {
+                        "cycle": 2,
+                        "fact_type": "revelation",
+                        "description": "Ossek révèle qu'iel est seul de son espèce sur la station",
+                        "semantic_key": "ossek:revele:seul_espece",
+                        "importance": 4,
+                        "participants": [
+                            {"entity_ref": "Ossek", "role": "actor"},
+                            {"entity_ref": "Valentin", "role": "witness"},
+                        ],
+                    }
+                ],
+                "segment_summary": "Valentin discute avec Ossek au Quart de Cycle.",
+                "key_npcs_present": ["Ossek"],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -903,23 +955,25 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_created": [
-                {
-                    "entity_type": "character",
-                    "name": "Elena Vasquez",
-                    "known_by_protagonist": True,
-                    "data": {
-                        "description": "Grande, cheveux courts noirs",
-                        "species": "human",
-                        "gender": "femme",
-                        "occupation": "ingénieure réseau",
-                        "mood": "anxieuse",
-                    },
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "entities_created": [
+                    {
+                        "entity_type": "character",
+                        "name": "Elena Vasquez",
+                        "known_by_protagonist": True,
+                        "data": {
+                            "description": "Grande, cheveux courts noirs",
+                            "species": "human",
+                            "gender": "femme",
+                            "occupation": "ingénieure réseau",
+                            "mood": "anxieuse",
+                        },
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -949,21 +1003,23 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_created": [
-                {
-                    "entity_type": "location",
-                    "name": "Marché Noir Section 9",
-                    "data": {
-                        "location_type": "market",
-                        "sector": "Quartier Ouvrier",
-                        "description": "Un couloir sombre où des stands improvisés vendent de tout.",
-                        "atmosphere": "tendue et animée",
-                    },
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "entities_created": [
+                    {
+                        "entity_type": "location",
+                        "name": "Marché Noir Section 9",
+                        "data": {
+                            "location_type": "market",
+                            "sector": "Quartier Ouvrier",
+                            "description": "Un couloir sombre où des stands improvisés vendent de tout.",
+                            "atmosphere": "tendue et animée",
+                        },
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -992,20 +1048,22 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_created": [
-                {
-                    "entity_type": "organization",
-                    "name": "Syndicat des Dockers",
-                    "data": {
-                        "org_type": "union",
-                        "domain": "transport",
-                        "description": "Syndicat influent qui contrôle le quai central.",
-                    },
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "entities_created": [
+                    {
+                        "entity_type": "organization",
+                        "name": "Syndicat des Dockers",
+                        "data": {
+                            "org_type": "union",
+                            "domain": "transport",
+                            "description": "Syndicat influent qui contrôle le quai central.",
+                        },
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1033,21 +1091,23 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_created": [
-                {
-                    "entity_type": "object",
-                    "name": "Clé magnétique usagée",
-                    "data": {
-                        "category": "tech",
-                        "description": "Clé de service trouvée dans un couloir",
-                        "transportable": True,
-                        "base_value": 10,
-                    },
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "entities_created": [
+                    {
+                        "entity_type": "object",
+                        "name": "Clé magnétique usagée",
+                        "data": {
+                            "category": "tech",
+                            "description": "Clé de service trouvée dans un couloir",
+                            "transportable": True,
+                            "base_value": 10,
+                        },
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1082,21 +1142,23 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "objects_created": [
-                {
-                    "name": "Carte d'accès niveau 2",
-                    "category": "tech",
-                    "description": "Carte magnétique bleue avec puce intégrée",
-                    "transportable": True,
-                    "stackable": False,
-                    "base_value": 50,
-                    "quantity": 1,
-                    "from_hint": "Carte d'accès temporaire",
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "objects_created": [
+                    {
+                        "name": "Carte d'accès niveau 2",
+                        "category": "tech",
+                        "description": "Carte magnétique bleue avec puce intégrée",
+                        "transportable": True,
+                        "stackable": False,
+                        "base_value": 50,
+                        "quantity": 1,
+                        "from_hint": "Carte d'accès temporaire",
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1136,21 +1198,22 @@ class TestExtractionPopulator:
         # Check initial mood
         async with test_pool.acquire() as conn:
             initial_mood = await conn.fetchval(
-                "SELECT mood FROM characters"
-                " WHERE game_id = $1 AND name = 'Ossek'",
+                "SELECT mood FROM characters WHERE game_id = $1 AND name = 'Ossek'",
                 game_id,
             )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_updated": [
-                {
-                    "entity_ref": "Ossek",
-                    "entity_type": "character",
-                    "changes": {"mood": "plus détendu, presque souriant"},
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "entities_updated": [
+                    {
+                        "entity_ref": "Ossek",
+                        "entity_type": "character",
+                        "changes": {"mood": "plus détendu, presque souriant"},
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1159,8 +1222,7 @@ class TestExtractionPopulator:
 
         async with test_pool.acquire() as conn:
             new_mood = await conn.fetchval(
-                "SELECT mood FROM characters"
-                " WHERE game_id = $1 AND name = 'Ossek'",
+                "SELECT mood FROM characters WHERE game_id = $1 AND name = 'Ossek'",
                 game_id,
             )
         assert new_mood == "plus détendu, presque souriant"
@@ -1178,22 +1240,24 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "relations_created": [
-                {
-                    "cycle": 2,
-                    "relation": {
-                        "source_ref": "Valentin",
-                        "target_ref": "Ossek",
-                        "relation_type": "knows",
-                        "known_by_protagonist": True,
-                        "level": 2,
-                        "context": "Rencontre au Quart de Cycle",
-                    },
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "relations_created": [
+                    {
+                        "cycle": 2,
+                        "relation": {
+                            "source_ref": "Valentin",
+                            "target_ref": "Ossek",
+                            "relation_type": "knows",
+                            "known_by_protagonist": True,
+                            "level": 2,
+                            "context": "Rencontre au Quart de Cycle",
+                        },
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1218,9 +1282,7 @@ class TestExtractionPopulator:
         assert rel["level"] == 2
 
     @pytest.mark.asyncio
-    async def test_process_extraction_creates_arc(
-        self, client, test_user, test_pool
-    ):
+    async def test_process_extraction_creates_arc(self, client, test_user, test_pool):
         """process_extraction creates a new narrative arc."""
         from kg.specialized_populator import ExtractionPopulator
         from schema import NarrativeExtraction
@@ -1229,18 +1291,20 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "arcs_created": [
-                {
-                    "title": "Les rumeurs de rachat",
-                    "domain": "professional",
-                    "description": "Des rumeurs circulent sur un investisseur externe intéressé par Symbiose Tech.",
-                    "involved_entities": ["Symbiose Tech"],
-                    "intensity": 3,
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "arcs_created": [
+                    {
+                        "title": "Les rumeurs de rachat",
+                        "domain": "professional",
+                        "description": "Des rumeurs circulent sur un investisseur externe intéressé par Symbiose Tech.",
+                        "involved_entities": ["Symbiose Tech"],
+                        "intensity": 3,
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1270,20 +1334,22 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "events_scheduled": [
-                {
-                    "event_type": "appointment",
-                    "title": "Déjeuner avec Ossek",
-                    "description": "RDV informel au Quart de Cycle",
-                    "planned_cycle": 5,
-                    "time": "12h30",
-                    "location_ref": "Le Quart de Cycle",
-                    "participants": ["Ossek"],
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "events_scheduled": [
+                    {
+                        "event_type": "appointment",
+                        "title": "Déjeuner avec Ossek",
+                        "description": "RDV informel au Quart de Cycle",
+                        "planned_cycle": 5,
+                        "time": "12h30",
+                        "location_ref": "Le Quart de Cycle",
+                        "participants": ["Ossek"],
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1314,13 +1380,15 @@ class TestExtractionPopulator:
         state_before = await service.load_game_state(game_id)
         credits_before = state_before["player"]["credits"]
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "credit_transactions": [
-                {"amount": -50, "description": "Réparation du terminal"},
-                {"amount": 200, "description": "Prime de bienvenue"},
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "credit_transactions": [
+                    {"amount": -50, "description": "Réparation du terminal"},
+                    {"amount": 200, "description": "Prime de bienvenue"},
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1342,13 +1410,15 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "time": "10h20",
-            "current_location_ref": "Le Quart de Cycle",
-            "segment_summary": "Valentin commande un café au Quart de Cycle et discute brièvement avec Ossek.",
-            "key_npcs_present": ["Ossek"],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "time": "10h20",
+                "current_location_ref": "Le Quart de Cycle",
+                "segment_summary": "Valentin commande un café au Quart de Cycle et discute brièvement avec Ossek.",
+                "key_npcs_present": ["Ossek"],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         await populator.process_extraction(extraction)
@@ -1364,9 +1434,7 @@ class TestExtractionPopulator:
         assert "café" in chrono["summary"].lower()
 
     @pytest.mark.asyncio
-    async def test_process_extraction_full_pipeline(
-        self, client, test_user, test_pool
-    ):
+    async def test_process_extraction_full_pipeline(self, client, test_user, test_pool):
         """Full extraction: facts + entity creation + relation + arc + event + credits."""
         from kg.specialized_populator import ExtractionPopulator
         from schema import NarrativeExtraction
@@ -1478,15 +1546,17 @@ class TestExtractionPopulator:
         )
 
         # Update Ossek without specifying entity_type -- populator should detect 'character'
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_updated": [
-                {
-                    "entity_ref": "Ossek",
-                    "changes": {"mood": "curieux et attentif"},
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "entities_updated": [
+                    {
+                        "entity_ref": "Ossek",
+                        "changes": {"mood": "curieux et attentif"},
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1495,16 +1565,13 @@ class TestExtractionPopulator:
 
         async with test_pool.acquire() as conn:
             mood = await conn.fetchval(
-                "SELECT mood FROM characters"
-                " WHERE game_id = $1 AND name = 'Ossek'",
+                "SELECT mood FROM characters WHERE game_id = $1 AND name = 'Ossek'",
                 game_id,
             )
         assert mood == "curieux et attentif"
 
     @pytest.mark.asyncio
-    async def test_process_extraction_arc_update(
-        self, client, test_user, test_pool
-    ):
+    async def test_process_extraction_arc_update(self, client, test_user, test_pool):
         """process_extraction updates an existing arc's progress and intensity."""
         from kg.specialized_populator import ExtractionPopulator
         from schema import NarrativeExtraction
@@ -1514,15 +1581,17 @@ class TestExtractionPopulator:
         )
 
         # "La mère malade" is created during world gen
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "arcs_updated": [
-                {
-                    "arc_title": "La mère malade",
-                    "intensity": 4,
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "arcs_updated": [
+                    {
+                        "arc_title": "La mère malade",
+                        "intensity": 4,
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1540,9 +1609,7 @@ class TestExtractionPopulator:
         assert arc["intensity"] == 4
 
     @pytest.mark.asyncio
-    async def test_process_extraction_arc_resolved(
-        self, client, test_user, test_pool
-    ):
+    async def test_process_extraction_arc_resolved(self, client, test_user, test_pool):
         """process_extraction resolves an existing arc."""
         from kg.specialized_populator import ExtractionPopulator
         from schema import NarrativeExtraction
@@ -1551,15 +1618,17 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 5,
-            "arcs_resolved": [
-                {
-                    "arc_title": "Le mal du banc",
-                    "resolution": "Ossek trouve un équilibre grâce à la relation avec Valentin",
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 5,
+                "arcs_resolved": [
+                    {
+                        "arc_title": "Le mal du banc",
+                        "resolution": "Ossek trouve un équilibre grâce à la relation avec Valentin",
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         await populator.process_extraction(extraction)
@@ -1596,17 +1665,19 @@ class TestExtractionPopulator:
             )
         assert inv_before is not None
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "inventory_changes": [
-                {
-                    "action": "lose",
-                    "object_ref": "Terminal personnel",
-                    "quantity_delta": 1,
-                    "reason": "Volé dans le terminal",
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "inventory_changes": [
+                    {
+                        "action": "lose",
+                        "object_ref": "Terminal personnel",
+                        "quantity_delta": 1,
+                        "reason": "Volé dans le terminal",
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         await populator.process_extraction(extraction)
@@ -1622,9 +1693,7 @@ class TestExtractionPopulator:
         assert inv_after is None or inv_after < inv_before
 
     @pytest.mark.asyncio
-    async def test_process_extraction_inventory_use(
-        self, client, test_user, test_pool
-    ):
+    async def test_process_extraction_inventory_use(self, client, test_user, test_pool):
         """process_extraction handles inventory 'use' action by creating a fact."""
         from kg.specialized_populator import ExtractionPopulator
         from schema import NarrativeExtraction
@@ -1633,17 +1702,19 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "inventory_changes": [
-                {
-                    "action": "use",
-                    "object_ref": "Terminal personnel",
-                    "quantity_delta": 1,
-                    "reason": "Consulter les messages",
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "inventory_changes": [
+                    {
+                        "action": "use",
+                        "object_ref": "Terminal personnel",
+                        "quantity_delta": 1,
+                        "reason": "Consulter les messages",
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         await populator.process_extraction(extraction)
@@ -1670,16 +1741,18 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "ambient_updates": [
-                {
-                    "entity_ref": "Le Quart de Cycle",
-                    "entity_type": "location",
-                    "ambient": "L'endroit semble plus animé ce soir, une musique douce filtre depuis l'arrière-salle.",
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "ambient_updates": [
+                    {
+                        "entity_ref": "Le Quart de Cycle",
+                        "entity_type": "location",
+                        "ambient": "L'endroit semble plus animé ce soir, une musique douce filtre depuis l'arrière-salle.",
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1716,17 +1789,19 @@ class TestExtractionPopulator:
             )
         assert known is False
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_updated": [
-                {
-                    "entity_ref": "Justine Lépicier",
-                    "entity_type": "character",
-                    "now_known": True,
-                    "changes": {"mood": "souriante et détendue"},
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "entities_updated": [
+                    {
+                        "entity_ref": "Justine Lépicier",
+                        "entity_type": "character",
+                        "now_known": True,
+                        "changes": {"mood": "souriante et détendue"},
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         await populator.process_extraction(extraction)
@@ -1752,28 +1827,51 @@ class TestExtractionPopulator:
 
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "entities_created": [{"entity_type": "character", "name": "Kethari âgée",
-                                  "known_by_protagonist": False}],
-        }))
+        await populator.process_extraction(
+            NarrativeExtraction.model_validate(
+                {
+                    "cycle": 2,
+                    "entities_created": [
+                        {
+                            "entity_type": "character",
+                            "name": "Kethari âgée",
+                            "known_by_protagonist": False,
+                        }
+                    ],
+                }
+            )
+        )
 
         async with test_pool.acquire() as conn:
             created = await conn.fetchrow(
                 "SELECT id, true_name, descriptor FROM characters"
-                " WHERE game_id = $1 AND name = 'Kethari âgée'", game_id)
-            revealed = await populator.mark_character_known(
-                conn, "La Kethari âgée", "Nahle Irun-Sa")
+                " WHERE game_id = $1 AND name = 'Kethari âgée'",
+                game_id,
+            )
+            identity = await IdentityService.for_game(conn, game_id)
+            revealed = await identity.reveal(
+                conn,
+                EntityRef("La Kethari âgée", "character"),
+                "Nahle Irun-Sa",
+                turn_id=None,
+                source="reveal",
+            )
             row = await conn.fetchrow(
                 "SELECT c.known_by_protagonist, c.true_name, c.descriptor, er.name AS label,"
                 " display_for_player(c.id) AS shown"
                 " FROM characters c JOIN entity_registry er ON er.id = c.id"
-                " WHERE c.id = $1", created["id"])
+                " WHERE c.id = $1",
+                created["id"],
+            )
         assert (created["true_name"], created["descriptor"]) == (None, "Kethari âgée")
-        assert revealed is True
-        assert dict(row) == {"known_by_protagonist": True, "true_name": "Nahle Irun-Sa",
-                             "descriptor": "Kethari âgée", "label": "Nahle Irun-Sa",
-                             "shown": "Nahle Irun-Sa"}
+        assert revealed.kind == "applied"
+        assert dict(row) == {
+            "known_by_protagonist": True,
+            "true_name": "Nahle Irun-Sa",
+            "descriptor": "Kethari âgée",
+            "label": "Nahle Irun-Sa",
+            "shown": "Nahle Irun-Sa",
+        }
 
     @pytest.mark.asyncio
     async def test_process_extraction_skips_owns_relations(
@@ -1787,20 +1885,22 @@ class TestExtractionPopulator:
             client, test_user, test_pool
         )
 
-        extraction = NarrativeExtraction.model_validate({
-            "cycle": 2,
-            "relations_created": [
-                {
-                    "cycle": 2,
-                    "relation": {
-                        "source_ref": "Valentin",
-                        "target_ref": "Terminal personnel",
-                        "relation_type": "owns",
-                        "known_by_protagonist": True,
-                    },
-                }
-            ],
-        })
+        extraction = NarrativeExtraction.model_validate(
+            {
+                "cycle": 2,
+                "relations_created": [
+                    {
+                        "cycle": 2,
+                        "relation": {
+                            "source_ref": "Valentin",
+                            "target_ref": "Terminal personnel",
+                            "relation_type": "owns",
+                            "known_by_protagonist": True,
+                        },
+                    }
+                ],
+            }
+        )
 
         populator = ExtractionPopulator(test_pool, game_id)
         stats = await populator.process_extraction(extraction)
@@ -1818,11 +1918,8 @@ class TestGameServiceLoadSidebar:
     """Tests for sidebar data loading (load_npcs, load_locations, etc.)."""
 
     @pytest.mark.asyncio
-    async def test_load_npcs_returns_list_of_dicts(
-        self, client, test_user, test_pool
-    ):
+    async def test_load_npcs_returns_list_of_dicts(self, client, test_user, test_pool):
         """load_npcs returns properly typed list after making a character known."""
-        from kg.populator import KnowledgeGraphPopulator
 
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
@@ -1830,9 +1927,15 @@ class TestGameServiceLoadSidebar:
 
         # World gen characters start as unknown — mark one known
         first_char = world_gen.characters[0].name
-        populator = KnowledgeGraphPopulator(test_pool, game_id)
         async with test_pool.acquire() as conn:
-            await populator.mark_character_known(conn, first_char, None)
+            identity = await IdentityService.for_game(conn, game_id)
+            await identity.reveal(
+                conn,
+                EntityRef(first_char, "character"),
+                None,
+                turn_id=None,
+                source="reveal",
+            )
 
         npcs = await service.load_npcs(game_id)
         assert isinstance(npcs, list)
@@ -1846,7 +1949,12 @@ class TestGameServiceLoadSidebar:
             assert len(npc["name"]) > 0
             # relationship should be a label string, not None
             assert npc["relationship"] in (
-                "Inconnu", "Hostile", "Neutre", "Connaissance", "Ami", "Ami proche"
+                "Inconnu",
+                "Hostile",
+                "Neutre",
+                "Connaissance",
+                "Ami",
+                "Ami proche",
             )
 
     @pytest.mark.asyncio
@@ -1908,8 +2016,14 @@ class TestGameServiceLoadSidebar:
             assert "name" in quest
             assert isinstance(quest["name"], str)
             assert quest["type"] in (
-                "personal", "professional", "social", "mystery",
-                "health", "family", "financial", "community",
+                "personal",
+                "professional",
+                "social",
+                "mystery",
+                "health",
+                "family",
+                "financial",
+                "community",
             ) or isinstance(quest["type"], str)
             assert quest["status"] == "En cours"
 
@@ -1968,9 +2082,7 @@ class TestContextBuilderMethods:
         assert isinstance(ctx.director_planned_events, list)
 
     @pytest.mark.asyncio
-    async def test_build_events_returns_typed_list(
-        self, client, test_user, test_pool
-    ):
+    async def test_build_events_returns_typed_list(self, client, test_user, test_pool):
         """_build_events returns list of EventSummary from DB."""
         from services.context_builder import ContextBuilder
         from kg.populator import KnowledgeGraphPopulator
@@ -1997,9 +2109,7 @@ class TestContextBuilderMethods:
         assert "Réunion urgente" in titles
 
     @pytest.mark.asyncio
-    async def test_build_facts_returns_typed_list(
-        self, client, test_user, test_pool
-    ):
+    async def test_build_facts_returns_typed_list(self, client, test_user, test_pool):
         """_build_facts returns list of Fact from DB."""
         from services.context_builder import ContextBuilder
 
@@ -2123,9 +2233,7 @@ class TestContextBuilderMethods:
         assert isinstance(details[npc_name], dict)
 
     @pytest.mark.asyncio
-    async def test_active_arcs_from_context_builder(
-        self, client, test_user, test_pool
-    ):
+    async def test_active_arcs_from_context_builder(self, client, test_user, test_pool):
         """_build_active_arcs returns ActiveArcSummary objects from DB data."""
         from services.context_builder import ContextBuilder
         from schema.narration import ActiveArcSummary

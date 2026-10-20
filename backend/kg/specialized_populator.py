@@ -11,7 +11,9 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from repos import entities as entity_repo
 from schema import (
+    PROTAGONIST_REF,
     ArcCreation,
     CharacterData,
     EntityCreation,
@@ -27,11 +29,11 @@ from schema import (
     ObjectCreation,
     ObjectData,
     OrganizationData,
-    PROTAGONIST_REF,
     RelationType,
     is_protagonist_ref,
 )
-from repos import entities as entity_repo
+from services.identity.service import IdentityService
+from services.identity.types import EntityRef
 
 from .item_writes import write_item, write_items
 from .populator import KnowledgeGraphPopulator
@@ -44,8 +46,11 @@ logger = logging.getLogger(__name__)
 
 # Types an untyped extractor reference may name (updates, removals): one type must know it.
 _DETECTABLE_TYPES = (
-    EntityType.PROTAGONIST, EntityType.CHARACTER, EntityType.ORGANIZATION,
-    EntityType.LOCATION, EntityType.OBJECT,
+    EntityType.PROTAGONIST,
+    EntityType.CHARACTER,
+    EntityType.ORGANIZATION,
+    EntityType.LOCATION,
+    EntityType.OBJECT,
 )
 
 
@@ -61,7 +66,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
     """
 
     async def populate(
-        self, world_gen, user_id: UUID | None = None,
+        self,
+        world_gen,
+        user_id: UUID | None = None,
         finalize: Callable[[Connection], Awaitable[None]] | None = None,
         conn: Connection | None = None,
     ) -> UUID:
@@ -76,7 +83,10 @@ class WorldPopulator(KnowledgeGraphPopulator):
             return await self._populate_in(own_conn, world_gen, user_id, finalize)
 
     async def _populate_in(
-        self, conn: Connection, world_gen, user_id: UUID | None,
+        self,
+        conn: Connection,
+        world_gen,
+        user_id: UUID | None,
         finalize: Callable[[Connection], Awaitable[None]] | None,
     ) -> UUID:
         """The whole world in one transaction on `conn`."""
@@ -85,9 +95,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             if self.game_id:
                 await self.rename_game(conn, world_gen.world.name)
             else:
-                await self.create_game(
-                    conn, world_gen.world.name, user_id
-                )
+                await self.create_game(conn, world_gen.world.name, user_id)
 
             # 2. Store world metadata on games table
             await self.set_world_data(
@@ -103,9 +111,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             await self.create_protagonist(conn, world_gen.protagonist)
 
             # 5. Create companion
-            await self.create_companion(
-                conn, world_gen.companion
-            )
+            await self.create_companion(conn, world_gen.companion)
 
             # 6. Create organizations (HQ refs resolved later)
             for org in world_gen.organizations:
@@ -122,15 +128,14 @@ class WorldPopulator(KnowledgeGraphPopulator):
 
             # 9. Create characters (with workplace/residence FKs)
             for char in world_gen.characters:
-                wp_id = await self._resolve_location_id(
-                    conn, char.workplace_ref
-                )
-                res_id = await self._resolve_location_id(
-                    conn, char.residence_ref
-                )
+                wp_id = await self._resolve_location_id(conn, char.workplace_ref)
+                res_id = await self._resolve_location_id(conn, char.residence_ref)
                 await self.create_character(
-                    conn, char, cycle=1,
-                    workplace_id=wp_id, residence_id=res_id,
+                    conn,
+                    char,
+                    cycle=1,
+                    workplace_id=wp_id,
+                    residence_id=res_id,
                     name_is_true_name=True,
                 )
 
@@ -139,8 +144,11 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 obj_row_id = await self.create_object(conn, obj)
                 if obj_row_id:
                     await self.add_to_inventory(
-                        conn, obj_row_id,
-                        quantity=obj.quantity, cycle=1, origin="initial",
+                        conn,
+                        obj_row_id,
+                        quantity=obj.quantity,
+                        cycle=1,
+                        origin="initial",
                     )
 
             # 11. Load registry (entity_registry IDs for relations/arcs)
@@ -182,9 +190,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             if finalize is not None:
                 await finalize(conn)
 
-            logger.info(
-                f"World populated: {len(self.registry)} entities"
-            )
+            logger.info(f"World populated: {len(self.registry)} entities")
 
         return self.game_id
 
@@ -226,9 +232,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
         """Update headquarters_id for organizations."""
         for org in organizations:
             if org.headquarters_ref:
-                hq_id = await self._resolve_location_id(
-                    conn, org.headquarters_ref
-                )
+                hq_id = await self._resolve_location_id(conn, org.headquarters_ref)
                 org_id = await self._find(conn, org.name, EntityType.ORGANIZATION)
                 if hq_id and org_id:
                     await conn.execute(
@@ -237,36 +241,26 @@ class WorldPopulator(KnowledgeGraphPopulator):
                         org_id,
                     )
 
-    async def _resolve_protagonist_refs(
-        self, conn: Connection, protagonist
-    ) -> None:
+    async def _resolve_protagonist_refs(self, conn: Connection, protagonist) -> None:
         """Update protagonist employer_id and residence_id."""
         if protagonist.employer_ref:
-            emp_id = await self._resolve_organization_id(
-                conn, protagonist.employer_ref
-            )
+            emp_id = await self._resolve_organization_id(conn, protagonist.employer_ref)
             if emp_id:
                 await conn.execute(
-                    "UPDATE protagonists SET employer_id = $1"
-                    " WHERE game_id = $2",
+                    "UPDATE protagonists SET employer_id = $1 WHERE game_id = $2",
                     emp_id,
                     self.game_id,
                 )
         if protagonist.residence_ref:
-            res_id = await self._resolve_location_id(
-                conn, protagonist.residence_ref
-            )
+            res_id = await self._resolve_location_id(conn, protagonist.residence_ref)
             if res_id:
                 await conn.execute(
-                    "UPDATE protagonists SET residence_id = $1"
-                    " WHERE game_id = $2",
+                    "UPDATE protagonists SET residence_id = $1 WHERE game_id = $2",
                     res_id,
                     self.game_id,
                 )
 
-    async def _store_arrival_event(
-        self, conn: Connection, arrival
-    ) -> None:
+    async def _store_arrival_event(self, conn: Connection, arrival) -> None:
         """Store arrival as facts + event + chronology entry."""
 
         # 1. Main arrival fact
@@ -275,9 +269,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
             FactData(
                 cycle=1,
                 fact_type=FactType.ENCOUNTER,
-                description=(
-                    f"Arrivée sur la station via {arrival.arrival_method}"
-                ),
+                description=(f"Arrivée sur la station via {arrival.arrival_method}"),
                 location_ref=arrival.arrival_location_ref,
                 time=getattr(arrival, "time", None),
                 importance=4,
@@ -308,9 +300,7 @@ class WorldPopulator(KnowledgeGraphPopulator):
         # 4. Additional facts
         sensory = getattr(arrival, "immediate_sensory_details", None)
         if sensory:
-            sensory_text = (
-                ". ".join(sensory) if isinstance(sensory, list) else sensory
-            )
+            sensory_text = ". ".join(sensory) if isinstance(sensory, list) else sensory
             await self.create_fact(
                 conn,
                 FactData(
@@ -410,9 +400,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     Routes entity creation/updates to the correct dedicated tables.
     """
 
-    async def process_extraction(
-        self, extraction: NarrativeExtraction
-    ) -> dict:
+    async def process_extraction(self, extraction: NarrativeExtraction) -> dict:
         """Process a complete narrative extraction."""
         stats = {
             "facts_created": 0,
@@ -430,6 +418,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         prefix = "[EXTRACTION] "
 
         async with self.pool.acquire() as conn:
+
             async def items(label, values, write, counter=None):
                 await write_items(conn, stats, label, values, write, counter, prefix)
 
@@ -438,68 +427,133 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     await self.load_registry(conn)
 
                 # One SAVEPOINT per item: a failed item never aborts the others.
-                await items("Entity creation", extraction.entities_created,
-                            lambda e: self._process_entity_creation(conn, e, cycle),
-                            "entities_created")
-                await items("Object creation", extraction.objects_created,
-                            lambda o: self._created(self.create_object_by_label(conn, o, cycle)),
-                            "objects_created")
+                await items(
+                    "Entity creation",
+                    extraction.entities_created,
+                    lambda e: self._process_entity_creation(conn, e, cycle),
+                    "entities_created",
+                )
+                await items(
+                    "Object creation",
+                    extraction.objects_created,
+                    lambda o: self._created(
+                        self.create_object_by_label(conn, o, cycle)
+                    ),
+                    "objects_created",
+                )
 
                 # Reload registry (new entities registered by triggers)
                 await self.load_registry(conn)
 
-                await items("Entity update", extraction.entities_updated,
-                            lambda u: self._created(self._process_entity_update(conn, u, cycle)),
-                            "entities_updated")
-                await items("Entity removal", extraction.entities_removed,
-                            lambda r: self._remove_detected(conn, r.entity_ref, r.cycle))
-                await items("Fact", extraction.facts,
-                            lambda f: self.create_fact(conn, f), "facts_created")
+                await items(
+                    "Entity update",
+                    extraction.entities_updated,
+                    lambda u: self._created(
+                        self._process_entity_update(conn, u, cycle)
+                    ),
+                    "entities_updated",
+                )
+                await items(
+                    "Entity removal",
+                    extraction.entities_removed,
+                    lambda r: self._remove_detected(conn, r.entity_ref, r.cycle),
+                )
+                await items(
+                    "Fact",
+                    extraction.facts,
+                    lambda f: self.create_fact(conn, f),
+                    "facts_created",
+                )
                 # Skip OWNS: handled by inventory
-                await items("Relation creation", [
-                    rc for rc in extraction.relations_created
-                    if rc.relation.relation_type != RelationType.OWNS
-                ], lambda rc: self.create_relation(conn, rc.relation, rc.cycle),
-                    "relations_created")
-                await items("Relation end", extraction.relations_ended,
-                            lambda re: self._created(self.end_relation(
-                                conn, re.source_ref, re.target_ref, re.relation_type,
-                                re.cycle, re.reason)),
-                            "relations_ended")
-                await items("Credits", extraction.credit_transactions,
-                            lambda tx: self._credit(conn, stats, tx, cycle), "credits_changed")
-                await items("Inventory change", extraction.inventory_changes,
-                            lambda inv: self._process_inventory_change(conn, inv, cycle))
-                await items("Arc creation", extraction.arcs_created,
-                            lambda arc: self._created(
-                                self._create_arc_from_extraction(conn, arc, cycle)),
-                            "arcs_created")
+                await items(
+                    "Relation creation",
+                    [
+                        rc
+                        for rc in extraction.relations_created
+                        if rc.relation.relation_type != RelationType.OWNS
+                    ],
+                    lambda rc: self.create_relation(conn, rc.relation, rc.cycle),
+                    "relations_created",
+                )
+                await items(
+                    "Relation end",
+                    extraction.relations_ended,
+                    lambda re: self._created(
+                        self.end_relation(
+                            conn,
+                            re.source_ref,
+                            re.target_ref,
+                            re.relation_type,
+                            re.cycle,
+                            re.reason,
+                        )
+                    ),
+                    "relations_ended",
+                )
+                await items(
+                    "Credits",
+                    extraction.credit_transactions,
+                    lambda tx: self._credit(conn, stats, tx, cycle),
+                    "credits_changed",
+                )
+                await items(
+                    "Inventory change",
+                    extraction.inventory_changes,
+                    lambda inv: self._process_inventory_change(conn, inv, cycle),
+                )
+                await items(
+                    "Arc creation",
+                    extraction.arcs_created,
+                    lambda arc: self._created(
+                        self._create_arc_from_extraction(conn, arc, cycle)
+                    ),
+                    "arcs_created",
+                )
                 # Update arc progress (simplified — Director manages arcs now)
-                await items("Arc update", extraction.arcs_updated,
-                            lambda au: self.update_arc(conn, arc_title=au.arc_title,
-                                                       intensity=au.intensity),
-                            "arcs_updated")
-                await items("Arc resolution", extraction.arcs_resolved,
-                            lambda res: self.resolve_arc(conn, res.arc_title,
-                                                         res.resolution, cycle))
-                await items("Event", extraction.events_scheduled,
-                            lambda ev: self._schedule_event(conn, ev))
-                await items("Ambient update", extraction.ambient_updates,
-                            lambda amb: self.update_entity(conn, amb.entity_type,
-                                                           amb.entity_ref,
-                                                           {"ambient": amb.ambient}),
-                            "ambients_updated")
+                await items(
+                    "Arc update",
+                    extraction.arcs_updated,
+                    lambda au: self.update_arc(
+                        conn, arc_title=au.arc_title, intensity=au.intensity
+                    ),
+                    "arcs_updated",
+                )
+                await items(
+                    "Arc resolution",
+                    extraction.arcs_resolved,
+                    lambda res: self.resolve_arc(
+                        conn, res.arc_title, res.resolution, cycle
+                    ),
+                )
+                await items(
+                    "Event",
+                    extraction.events_scheduled,
+                    lambda ev: self._schedule_event(conn, ev),
+                )
+                await items(
+                    "Ambient update",
+                    extraction.ambient_updates,
+                    lambda amb: self.update_entity(
+                        conn, amb.entity_type, amb.entity_ref, {"ambient": amb.ambient}
+                    ),
+                    "ambients_updated",
+                )
 
                 if extraction.segment_summary:
-                    await write_item(conn, stats["errors"], "Chronology",
-                                     lambda: self.save_chronology_entry(
-                                         conn,
-                                         cycle=cycle,
-                                         summary=extraction.segment_summary,
-                                         time=extraction.time,
-                                         location_ref=extraction.current_location_ref,
-                                         npc_refs=extraction.key_npcs_present or None,
-                                     ), prefix)
+                    await write_item(
+                        conn,
+                        stats["errors"],
+                        "Chronology",
+                        lambda: self.save_chronology_entry(
+                            conn,
+                            cycle=cycle,
+                            summary=extraction.segment_summary,
+                            time=extraction.time,
+                            location_ref=extraction.current_location_ref,
+                            npc_refs=extraction.key_npcs_present or None,
+                        ),
+                        prefix,
+                    )
 
                 await self.log_extraction(conn, cycle, stats)
 
@@ -511,12 +565,16 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         await write
         return True
 
-    async def _remove_detected(self, conn: Connection, entity_ref: str, cycle: int) -> bool:
+    async def _remove_detected(
+        self, conn: Connection, entity_ref: str, cycle: int
+    ) -> bool:
         et = await self._detect_entity_type(conn, entity_ref)
         return bool(et) and await self.remove_entity(conn, entity_ref, et, cycle)
 
     async def _credit(self, conn: Connection, stats: dict, tx, cycle: int) -> bool:
-        success, _, error = await self.credit_transaction(conn, tx.amount, cycle, tx.description)
+        success, _, error = await self.credit_transaction(
+            conn, tx.amount, cycle, tx.description
+        )
         if not success and error:
             stats["errors"].append(f"Credits: {error}")
         return success
@@ -532,8 +590,10 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         et = creation.entity_type
         data = creation.data or {}
         if is_protagonist_ref(creation.name):
-            logger.warning(f"[EXTRACT] Skipping {et} named after the reserved reference"
-                           f" '{creation.name}' (#28)")
+            logger.warning(
+                f"[EXTRACT] Skipping {et} named after the reserved reference"
+                f" '{creation.name}' (#28)"
+            )
             return False
 
         if et == EntityType.CHARACTER:
@@ -541,24 +601,20 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 name=creation.name,
                 known_by_protagonist=creation.known_by_protagonist,
                 descriptor=creation.descriptor,
-                **{k: v for k, v in data.items()
-                   if k not in ("workplace_ref", "residence_ref")},
+                **{
+                    k: v
+                    for k, v in data.items()
+                    if k not in ("workplace_ref", "residence_ref")
+                },
             )
-            wp_id = await self._resolve_location_id(
-                conn, data.get("workplace_ref")
-            )
-            res_id = await self._resolve_location_id(
-                conn, data.get("residence_ref")
-            )
-            await self.create_character(
-                conn, char_data, cycle, wp_id, res_id
-            )
+            wp_id = await self._resolve_location_id(conn, data.get("workplace_ref"))
+            res_id = await self._resolve_location_id(conn, data.get("residence_ref"))
+            await self.create_character(conn, char_data, cycle, wp_id, res_id)
 
         elif et == EntityType.LOCATION:
             loc_data = LocationData(
                 name=creation.name,
-                **{k: v for k, v in data.items()
-                   if k != "parent_location_ref"},
+                **{k: v for k, v in data.items() if k != "parent_location_ref"},
             )
             parent_id = await self._resolve_location_id(
                 conn, data.get("parent_location_ref")
@@ -568,12 +624,9 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         elif et == EntityType.ORGANIZATION:
             org_data = OrganizationData(
                 name=creation.name,
-                **{k: v for k, v in data.items()
-                   if k != "headquarters_ref"},
+                **{k: v for k, v in data.items() if k != "headquarters_ref"},
             )
-            hq_id = await self._resolve_location_id(
-                conn, data.get("headquarters_ref")
-            )
+            hq_id = await self._resolve_location_id(conn, data.get("headquarters_ref"))
             await self.create_organization(conn, org_data, cycle, hq_id)
 
         elif et == EntityType.OBJECT:
@@ -628,9 +681,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         """Route entity update to the correct dedicated table."""
         entity_type = update.entity_type
         if not entity_type:
-            entity_type = await self._detect_entity_type(
-                conn, update.entity_ref
-            )
+            entity_type = await self._detect_entity_type(conn, update.entity_ref)
         if not entity_type:
             # The ref is story text (#77): not logged.
             logger.warning("[UPDATE] Unknown entity type, update skipped")
@@ -638,8 +689,13 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
         # Reveal identity
         if update.now_known and entity_type == EntityType.CHARACTER:
-            await self.mark_character_known(
-                conn, update.entity_ref, update.real_name
+            identity = await IdentityService.for_game(conn, self.game_id)
+            await identity.reveal(
+                conn,
+                EntityRef(update.entity_ref, EntityType.CHARACTER.value),
+                update.real_name,
+                turn_id=None,
+                source="extractor",
             )
 
         # Field changes
@@ -651,15 +707,16 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         # Skill changes
         if update.skills_changed:
             await self._update_entity_skills(
-                conn, entity_type, update.entity_ref, update.skills_changed,
+                conn,
+                entity_type,
+                update.entity_ref,
+                update.skills_changed,
                 cycle,
             )
 
         # Mark as removed
         if update.removed:
-            await self.remove_entity(
-                conn, update.entity_ref, entity_type, cycle
-            )
+            await self.remove_entity(conn, update.entity_ref, entity_type, cycle)
 
     async def _detect_entity_type(
         self, conn: Connection, name: str
@@ -684,16 +741,12 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             char_id = await self._find(conn, entity_ref, EntityType.CHARACTER)
             if char_id:
                 for skill in skills:
-                    await self.update_skill(
-                        conn, skill, cycle, character_id=char_id
-                    )
+                    await self.update_skill(conn, skill, cycle, character_id=char_id)
         elif entity_type == EntityType.PROTAGONIST:
             proto_id = await self._resolve_protagonist_id(conn)
             if proto_id:
                 for skill in skills:
-                    await self.update_skill(
-                        conn, skill, cycle, protagonist_id=proto_id
-                    )
+                    await self.update_skill(conn, skill, cycle, protagonist_id=proto_id)
 
     # =========================================================================
     # INVENTORY CHANGES
@@ -707,22 +760,20 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             if change.object_hint:
                 return  # Handled by objects_created
             if change.object_ref:
-                obj_id = await self._resolve_object_id(
-                    conn, change.object_ref
-                )
+                obj_id = await self._resolve_object_id(conn, change.object_ref)
                 if obj_id:
                     await self.add_to_inventory(
-                        conn, obj_id,
+                        conn,
+                        obj_id,
                         quantity=change.quantity_delta,
-                        cycle=cycle, origin="acquired",
+                        cycle=cycle,
+                        origin="acquired",
                     )
 
         elif change.action == "lose" and change.object_ref:
             obj_id = await self._resolve_object_id(conn, change.object_ref)
             if obj_id:
-                await self.remove_from_inventory(
-                    conn, obj_id, change.quantity_delta
-                )
+                await self.remove_from_inventory(conn, obj_id, change.quantity_delta)
 
         elif change.action == "use" and change.object_ref:
             await self.create_fact(
@@ -731,8 +782,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     cycle=cycle,
                     fact_type=FactType.ACTION,
                     description=(
-                        f"Utilise {change.object_ref}."
-                        f" {change.reason or ''}"
+                        f"Utilise {change.object_ref}. {change.reason or ''}"
                     ).strip(),
                     importance=2,
                     participants=[
@@ -754,7 +804,9 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         intensity is passed on only when the extractor sent it, so a re-listed arc keeps
         its stored intensity (#87).
         """
-        explicit = {"intensity": arc.intensity} if "intensity" in arc.model_fields_set else {}
+        explicit = (
+            {"intensity": arc.intensity} if "intensity" in arc.model_fields_set else {}
+        )
         arc_data = NarrativeArcData(
             title=arc.title,
             domain=arc.domain,

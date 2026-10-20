@@ -483,7 +483,8 @@ async def test_c19_legacy_reveal_by_descriptor_works_after_migration(test_pool):
     """Review Focus 5: a legacy unknown NPC stored under a description is classified as a
     descriptor by the migration; a reveal naming it with an article finds it, sets its
     true name, marks it known and renames its registry row by id."""
-    from kg.populator import KnowledgeGraphPopulator
+    from services.identity.service import IdentityService
+    from services.identity.types import EntityRef
 
     async def hook(conn):
         await add_legacy_character(conn, "Kethari âgée", "La Kethari âgée")
@@ -497,10 +498,15 @@ async def test_c19_legacy_reveal_by_descriptor_works_after_migration(test_pool):
             game_id,
         )
         assert kethari["true_name"] is None
-        populator = KnowledgeGraphPopulator(test_pool, UUID(game_id))
-        assert await populator.mark_character_known(
-            conn, "La Kethari âgée", "Nom Révélé"
+        identity = await IdentityService.for_game(conn, UUID(game_id))
+        revealed = await identity.reveal(
+            conn,
+            EntityRef("La Kethari âgée", "character"),
+            "Nom Révélé",
+            turn_id=None,
+            source="reveal",
         )
+        assert revealed.kind == "applied"
         row = await conn.fetchrow(
             "SELECT c.known_by_protagonist, c.true_name, er.name AS label,"
             " display_for_player(c.id) AS shown"

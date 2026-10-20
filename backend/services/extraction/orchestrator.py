@@ -21,6 +21,8 @@ from kg.item_writes import write_item
 from kg.populator import KnowledgeGraphPopulator
 from llm.session import LLMSession
 from repos.uow import uow
+from services.identity.service import IdentityService
+from services.identity.types import EntityRef
 from utils.log_safe import log_exception, safe_repr, safe_text
 
 from .characters import CharactersExtractor
@@ -55,17 +57,25 @@ async def _apply_entity_reveals(
 ) -> None:
     """Each reveal in its own savepoint: a failing one is rolled back alone and logged."""
     errors: list[str | dict] = []
+    identity = None
     for reveal in entity_reveals:
         etype = reveal.get("entity_type")
         current_name = reveal.get("current_name")
         if etype == "character" and current_name:
             real = reveal.get("real_name")
+            identity = identity or await IdentityService.for_game(
+                conn, populator.game_id
+            )
             await write_item(
                 conn,
                 errors,
                 "entity_reveal character",
-                lambda name=current_name, real=real: populator.mark_character_known(
-                    conn, name, real
+                lambda name=current_name, real=real, identity=identity: identity.reveal(
+                    conn,
+                    EntityRef(name, "character"),
+                    real,
+                    turn_id=None,
+                    source="reveal",
                 ),
                 "[EXTRACTION] ",
             )

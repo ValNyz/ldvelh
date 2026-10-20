@@ -26,7 +26,9 @@ def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
     return KnowledgeGraphPopulator(None, game_id)
 
 
-async def _resolve_location(conn, game_id: UUID, location: str, new_cycle: int) -> UUID | None:
+async def _resolve_location(
+    conn, game_id: UUID, location: str, new_cycle: int
+) -> UUID | None:
     """Id of the narrated location (find_entity), created as a stub when unknown. A name
     that is ambiguous, or that an existing location holds as its label alongside another
     one's alias, never creates a duplicate."""
@@ -46,7 +48,9 @@ async def _resolve_location(conn, game_id: UUID, location: str, new_cycle: int) 
         """INSERT INTO locations (game_id, name, created_cycle)
         VALUES ($1, $2, $3)
         RETURNING id""",
-        game_id, location, new_cycle,
+        game_id,
+        location,
+        new_cycle,
     )
     logger.info(
         f"[GAME] Created stub location {location_id} "
@@ -55,8 +59,9 @@ async def _resolve_location(conn, game_id: UUID, location: str, new_cycle: int) 
     return location_id
 
 
-async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
-                                current_cycle: int) -> NarrationState:
+async def apply_narration_state(
+    conn, game_id: UUID, narration: NarrationOutput, current_cycle: int
+) -> NarrationState:
     """Cycle, date, time and location from the narration; stub events and locations."""
     new_cycle = current_cycle + 1 if narration.day_transition else current_cycle
     reader = KnowledgeGraphReader(None, game_id)
@@ -74,7 +79,9 @@ async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
         new_date = narration.day_transition.new_date
         if not new_date:
             new_date = f"Jour {new_cycle}"
-            logger.warning(f"[GAME] day_transition without new_date, using '{new_date}'")
+            logger.warning(
+                f"[GAME] day_transition without new_date, using '{new_date}'"
+            )
 
     location_id = None
     if location:
@@ -84,7 +91,11 @@ async def apply_narration_state(conn, game_id: UUID, narration: NarrationOutput,
         await populator.create_stub_event(conn, evt, new_cycle)
 
     await populator.update_game_state(
-        conn, cycle=new_cycle, date=new_date, time=new_time, location_id=location_id,
+        conn,
+        cycle=new_cycle,
+        date=new_date,
+        time=new_time,
+        location_id=location_id,
     )
 
     return NarrationState(
@@ -104,16 +115,25 @@ async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict
         # Savepoint: a failed statement must not abort the turn's transaction.
         async with conn.transaction():
             fp = await conn.fetchval(
-                "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id)
+                "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id
+            )
             if fp is None:
                 return None
             accepted = narration.compel_result == "accepted"
             new_fp = fp + 1 if accepted else max(0, fp - 1)
             await conn.execute(
-                "UPDATE character_fate SET fate_points = $1 WHERE game_id = $2", new_fp, game_id)
-    except Exception as e:
-        log_cause(logger, logging.WARNING, "[COMPEL] FP adjustment failed", e,
-                  debug_detail=get_settings().log_prompts)
+                "UPDATE character_fate SET fate_points = $1 WHERE game_id = $2",
+                new_fp,
+                game_id,
+            )
+    except Exception as e:  # noqa: BLE001 - a failed compel never aborts the commit
+        log_cause(
+            logger,
+            logging.WARNING,
+            "[COMPEL] FP adjustment failed",
+            e,
+            debug_detail=get_settings().log_prompts,
+        )
         return None
     return {
         "result": narration.compel_result,
@@ -123,9 +143,15 @@ async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict
     }
 
 
-async def apply_narrator_deltas(conn, game_id: UUID, narration: NarrationOutput,
-                                cycle: int) -> AppliedDeltas:
+async def apply_narrator_deltas(
+    conn, game_id: UUID, narration: NarrationOutput, cycle: int
+) -> AppliedDeltas:
     """Credit delta, entity reveals and compel, applied on the spot."""
+    # Lazy: the identity service reads the turn of the transaction (repos.uow, which
+    # imports this module).
+    from services.identity.service import IdentityService
+    from services.identity.types import EntityRef
+
     populator = _populator(game_id)
     credit = None
     if narration.credit_delta:
@@ -133,27 +159,51 @@ async def apply_narrator_deltas(conn, game_id: UUID, narration: NarrationOutput,
         applied, new_balance, error = await populator.credit_transaction(
             conn, cd.amount, cycle, cd.description
         )
-        credit = AppliedCredit(amount=cd.amount, description=cd.description, applied=applied,
-                               new_balance=new_balance, error=error)
+        credit = AppliedCredit(
+            amount=cd.amount,
+            description=cd.description,
+            applied=applied,
+            new_balance=new_balance,
+            error=error,
+        )
 
+    identity = None
     for reveal in narration.entity_reveals:
         if reveal.entity_type == "character":
-            await populator.mark_character_known(conn, reveal.current_name, reveal.real_name)
+            identity = identity or await IdentityService.for_game(conn, game_id)
+            await identity.reveal(
+                conn,
+                EntityRef(reveal.current_name, "character"),
+                reveal.real_name,
+                turn_id=None,
+                source="reveal",
+            )
         elif reveal.entity_type == "location":
             await populator.mark_location_accessible(conn, reveal.current_name)
 
-    return AppliedDeltas(credit=credit, compel=await _apply_compel(conn, game_id, narration))
+    return AppliedDeltas(
+        credit=credit, compel=await _apply_compel(conn, game_id, narration)
+    )
 
 
 async def store_info_requests(conn, game_id: UUID, requests: list[str]) -> None:
     """The details the next turn's context loads, replacing the previous set (one turn only)."""
-    await conn.execute("UPDATE games SET detail_requests = $1 WHERE id = $2", requests, game_id)
+    await conn.execute(
+        "UPDATE games SET detail_requests = $1 WHERE id = $2", requests, game_id
+    )
 
 
-async def save_turn_messages(conn, game_id: UUID, *, user_message: str, assistant_message: str,
-                             state: NarrationState, narrator_deltas: dict,
-                             engine_snapshot: dict | None,
-                             turn_id: UUID | None) -> tuple[UUID, UUID]:
+async def save_turn_messages(
+    conn,
+    game_id: UUID,
+    *,
+    user_message: str,
+    assistant_message: str,
+    state: NarrationState,
+    narrator_deltas: dict,
+    engine_snapshot: dict | None,
+    turn_id: UUID | None,
+) -> tuple[UUID, UUID]:
     """User + assistant message pair of the turn; returns (user_id, assistant_id).
 
     `turn_id`: the turn the pair belongs to (None outside a turn: tests, fixtures)."""
@@ -163,29 +213,51 @@ async def save_turn_messages(conn, game_id: UUID, *, user_message: str, assistan
         conv_id = await populator.create_conversation(conn, state.cycle)
 
     max_seq = await conn.fetchval(
-        "SELECT COALESCE(MAX(sequence), 0) FROM messages WHERE conversation_id = $1", conv_id,
+        "SELECT COALESCE(MAX(sequence), 0) FROM messages WHERE conversation_id = $1",
+        conv_id,
     )
-    stamp = {"cycle": state.cycle, "time": state.time, "game_date": state.date,
-             "location_ref": state.location}
+    stamp = {
+        "cycle": state.cycle,
+        "time": state.time,
+        "game_date": state.date,
+        "location_ref": state.location,
+    }
     user_id = await populator.save_message(
-        conn, conv_id, "user", user_message, sequence=max_seq + 1, turn_id=turn_id, **stamp,
+        conn,
+        conv_id,
+        "user",
+        user_message,
+        sequence=max_seq + 1,
+        turn_id=turn_id,
+        **stamp,
     )
     assistant_id = await populator.save_message(
-        conn, conv_id, "assistant", assistant_message, sequence=max_seq + 2, **stamp,
-        narrator_deltas=narrator_deltas, engine_snapshot=engine_snapshot, turn_id=turn_id,
+        conn,
+        conv_id,
+        "assistant",
+        assistant_message,
+        sequence=max_seq + 2,
+        **stamp,
+        narrator_deltas=narrator_deltas,
+        engine_snapshot=engine_snapshot,
+        turn_id=turn_id,
     )
     return user_id, assistant_id
 
 
 async def open_turn(conn, game_id: UUID) -> UUID:
     """A new open turn of the game; its world writes are journaled under its id (#105)."""
-    return await conn.fetchval("INSERT INTO turns (game_id) VALUES ($1) RETURNING id", game_id)
+    return await conn.fetchval(
+        "INSERT INTO turns (game_id) VALUES ($1) RETURNING id", game_id
+    )
 
 
 async def mark_committed(conn, turn_id: UUID) -> None:
     """The turn's writes are saved: it becomes a rollback target."""
     await conn.execute(
-        "UPDATE turns SET status = 'committed', committed_at = now() WHERE id = $1", turn_id)
+        "UPDATE turns SET status = 'committed', committed_at = now() WHERE id = $1",
+        turn_id,
+    )
 
 
 async def delete_turns(conn, game_id: UUID, turn_ids: list[UUID]) -> int:
@@ -194,7 +266,8 @@ async def delete_turns(conn, game_id: UUID, turn_ids: list[UUID]) -> int:
     Returns the number of turns deleted."""
     result = await conn.execute(
         "DELETE FROM turns WHERE game_id = $1 AND (id = ANY($2) OR status = 'open')",
-        game_id, turn_ids,
+        game_id,
+        turn_ids,
     )
     return int(result.split()[-1])
 
@@ -202,8 +275,12 @@ async def delete_turns(conn, game_id: UUID, turn_ids: list[UUID]) -> int:
 async def hold_source_message(conn, message_id: UUID) -> bool:
     """True if the message exists; it then stays share-locked until the transaction ends,
     so a rollback deleting it waits for the caller's writes (#23)."""
-    return await conn.fetchval(
-        "SELECT 1 FROM messages WHERE id = $1 FOR SHARE", message_id) is not None
+    return (
+        await conn.fetchval(
+            "SELECT 1 FROM messages WHERE id = $1 FOR SHARE", message_id
+        )
+        is not None
+    )
 
 
 async def lock_engine(conn, game_id: UUID) -> None:
@@ -211,17 +288,39 @@ async def lock_engine(conn, game_id: UUID) -> None:
     await _populator(game_id).lock_engine(conn)
 
 
-async def log_mechanic_roll(conn, game_id: UUID, *, message_id: UUID, engine: str,
-                            roll: RollResult, cycle: int | None, turn_id: UUID | None) -> UUID:
+async def log_mechanic_roll(
+    conn,
+    game_id: UUID,
+    *,
+    message_id: UUID,
+    engine: str,
+    roll: RollResult,
+    cycle: int | None,
+    turn_id: UUID | None,
+) -> UUID:
     """Log a resolved roll with the assistant message that narrated it, under its turn."""
     return await _populator(game_id).log_mechanic_roll(
-        conn, game_id, message_id, engine, roll.details.get("skill_name"),
-        roll.model_dump(), roll.outcome, roll.complication, cycle, turn_id,
+        conn,
+        game_id,
+        message_id,
+        engine,
+        roll.details.get("skill_name"),
+        roll.model_dump(),
+        roll.outcome,
+        roll.complication,
+        cycle,
+        turn_id,
     )
 
 
-async def store_pending_roll(conn, game_id: UUID, roll: RollResult, player_message: str,
-                             cycle: int, turn_id: UUID | None) -> UUID:
+async def store_pending_roll(
+    conn,
+    game_id: UUID,
+    roll: RollResult,
+    player_message: str,
+    cycle: int,
+    turn_id: UUID | None,
+) -> UUID:
     """A failed Fate roll waiting for an aspect invocation (at most one per game), stored
     under the turn it halted."""
     # Only Fate Core pauses a roll for an invocation.
@@ -231,8 +330,14 @@ async def store_pending_roll(conn, game_id: UUID, roll: RollResult, player_messa
             cycle, status, player_message, turn_id)
            VALUES ($1, NULL, 'fate_core', $2, $3, $4, $5, $6, 'pending', $7, $8)
            RETURNING id""",
-        game_id, roll.details.get("skill_name"), roll.model_dump(), roll.outcome,
-        roll.complication, cycle, player_message, turn_id,
+        game_id,
+        roll.details.get("skill_name"),
+        roll.model_dump(),
+        roll.outcome,
+        roll.complication,
+        cycle,
+        player_message,
+        turn_id,
     )
 
 
@@ -248,12 +353,23 @@ async def get_pending_roll(conn, game_id: UUID) -> dict | None:
     roll = row["roll_details"]
     if isinstance(roll, str):
         roll = parse_json(roll)
-    return {"id": row["id"], "roll": roll, "player_message": row["player_message"] or ""}
+    return {
+        "id": row["id"],
+        "roll": roll,
+        "player_message": row["player_message"] or "",
+    }
 
 
-async def claim_pending_roll(conn, game_id: UUID, roll_id: UUID, roll_details: dict,
-                             outcome: str, message_id: UUID, cycle: int,
-                             turn_id: UUID | None) -> bool:
+async def claim_pending_roll(
+    conn,
+    game_id: UUID,
+    roll_id: UUID,
+    roll_details: dict,
+    outcome: str,
+    message_id: UUID,
+    cycle: int,
+    turn_id: UUID | None,
+) -> bool:
     """Resolve the pending roll with its final details; False if it was no longer pending.
 
     The roll is stored pending at the cycle before its turn (the narration, hence a possible
@@ -266,14 +382,22 @@ async def claim_pending_roll(conn, game_id: UUID, roll_id: UUID, roll_details: d
             turn_id = $7
         WHERE id = $1 AND game_id = $2 AND status = 'pending'
         RETURNING id""",
-        roll_id, game_id, roll_details, outcome, message_id, cycle, turn_id,
+        roll_id,
+        game_id,
+        roll_details,
+        outcome,
+        message_id,
+        cycle,
+        turn_id,
     )
     return claimed is not None
 
 
 async def pending_roll_turn(conn, roll_id: UUID) -> UUID | None:
     """The turn a roll is stored under (the halted turn while it is pending)."""
-    return await conn.fetchval("SELECT turn_id FROM mechanic_rolls WHERE id = $1", roll_id)
+    return await conn.fetchval(
+        "SELECT turn_id FROM mechanic_rolls WHERE id = $1", roll_id
+    )
 
 
 # Every (table, column) referencing turns(id), world_changes first: deleting the turn
@@ -281,16 +405,23 @@ async def pending_roll_turn(conn, roll_id: UUID) -> UUID | None:
 # today, so their UPDATE matches nothing; if one ever did, undoing the resuming turn would
 # restore the deleted halted turn's id (a deferred FK error at the end of the replay).
 _TURN_REFERENCES = (
-    ("world_changes", "turn_id"), ("messages", "turn_id"), ("mechanic_rolls", "turn_id"),
-    ("extraction_logs", "turn_id"), ("director_commitments", "turn_id"),
-    ("llm_calls", "turn_id"), ("entity_registry", "created_turn_id"),
-    ("entity_aliases", "turn_id"), ("entity_mentions", "turn_id"),
-    ("entity_merges", "turn_id"), ("identity_events", "turn_id"),
+    ("world_changes", "turn_id"),
+    ("messages", "turn_id"),
+    ("mechanic_rolls", "turn_id"),
+    ("extraction_logs", "turn_id"),
+    ("director_commitments", "turn_id"),
+    ("llm_calls", "turn_id"),
+    ("entity_registry", "created_turn_id"),
+    ("entity_aliases", "turn_id"),
+    ("entity_mentions", "turn_id"),
+    ("entity_merges", "turn_id"),
+    ("identity_events", "turn_id"),
 )
 
 
-async def adopt_halted_turn(conn, game_id: UUID, halted_turn_id: UUID | None,
-                            turn_id: UUID) -> bool:
+async def adopt_halted_turn(
+    conn, game_id: UUID, halted_turn_id: UUID | None, turn_id: UUID
+) -> bool:
     """The turn resuming a pending roll takes over the halted turn that stored it (#22).
 
     The halted turn's journal (the roll's insert) and every row pointing at it move to
@@ -302,13 +433,17 @@ async def adopt_halted_turn(conn, game_id: UUID, halted_turn_id: UUID | None,
         return False
     halted = await conn.fetchval(
         "SELECT id FROM turns WHERE id = $1 AND game_id = $2 AND status = 'open' FOR UPDATE",
-        halted_turn_id, game_id,
+        halted_turn_id,
+        game_id,
     )
     if halted is None:
         return False
     for table, column in _TURN_REFERENCES:
-        await conn.execute(f"UPDATE {table} SET {column} = $2 WHERE {column} = $1",
-                           halted_turn_id, turn_id)
+        await conn.execute(
+            f"UPDATE {table} SET {column} = $2 WHERE {column} = $1",
+            halted_turn_id,
+            turn_id,
+        )
     await conn.execute("DELETE FROM turns WHERE id = $1", halted_turn_id)
     return True
 
