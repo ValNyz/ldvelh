@@ -801,6 +801,25 @@ def _pack_forms() -> set[str]:
     return forms - {""}
 
 
+def test_a_card_marks_a_label_the_pc_does_not_know():
+    named = _candidate(
+        8,
+        "Coffre Gris",
+        "object",
+        aliases=[_alias("Coffre Gris", known=False), _alias("le coffre", "descriptor")],
+    )
+    card = render_card(named, protagonist=False, companion=False)
+    assert '"Coffre Gris" (unknown to the PC)' in card
+    person = _candidate(
+        9, "Ana Ferro", aliases=[_alias("Ana Ferro", "true_name", known=False)]
+    )
+    card = render_card(person, protagonist=False, companion=False)
+    assert '"Ana Ferro" (name unknown to the PC)' in card
+    known = render_card(_candidate(10, "Rue Haute", "location"), protagonist=False,
+                        companion=False)  # fmt: skip
+    assert "unknown" not in known
+
+
 def test_prompt_examples_contain_no_corpus_name():
     """No label, alias, descriptor or mention surface of the gold corpus (any split,
     narrations and histories) in an example of any pack nor in a rendered prompt: the
@@ -941,6 +960,7 @@ def test_card_and_user_prompt_render_the_candidate():
     ):
         assert part in card
     assert "PROTAGONIST" in render_card(stranger, protagonist=True, companion=False)
+    assert "la femme âgée\" (unknown" not in card  # a known descriptor label
     user = build_identity_user_prompt(
         "Le texte.", [card], ['"x" = E3'], ["present: E17"]
     )

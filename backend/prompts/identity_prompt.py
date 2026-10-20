@@ -29,6 +29,9 @@ IDENTITY_STRONG_MARKER = "## SECOND OPINION"
 # Tool (or JSON schema) name of the decision output.
 DECISION_TOOL = "identity_decisions"
 SEPARATOR = " · "
+# Marks of a name the protagonist does not know (on a card).
+UNKNOWN = " (unknown to the PC)"
+NAME_UNKNOWN = " (name unknown to the PC)"
 
 
 class IdentityLexicon(Protocol):
@@ -174,6 +177,11 @@ def render_card(c: Candidate, *, protagonist: bool, companion: bool) -> str:
         parts.append("COMPANION")
     label = _quoted(c.label)
     shown = {c.label.casefold()}
+    unknown_label = next(
+        (a for a in c.aliases if a.alias.casefold() in shown and not a.known), None
+    )
+    if unknown_label is not None:  # the label itself is a name the PC does not know
+        label += NAME_UNKNOWN if unknown_label.kind == "true_name" else UNKNOWN
     names, descriptors = [], []
     for a in c.aliases:
         if a.alias.casefold() in shown:
@@ -182,7 +190,7 @@ def render_card(c: Candidate, *, protagonist: bool, companion: bool) -> str:
         if a.kind == "true_name" and not a.known:
             label += f" (name {_quoted(a.alias)} unknown to the PC)"
             continue
-        form = _quoted(a.alias) + ("" if a.known else " (unknown to the PC)")
+        form = _quoted(a.alias) + ("" if a.known else UNKNOWN)
         (descriptors if a.kind == "descriptor" else names).append(form)
     parts.append(label)
     if names:
