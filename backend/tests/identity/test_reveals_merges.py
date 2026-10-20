@@ -578,33 +578,48 @@ async def test_reveal_of_a_fact_marks_it_known(test_pool, game, service):
 async def test_a_revealed_descriptor_of_an_unnamed_character_never_merges(
     test_pool, game, service
 ):
-    """R18: a descriptor designates nobody, even when it is the registry label of an
-    unnamed character: no merge, the other character untouched, a counted no-op (the
-    revealed form is no name to give)."""
+    """R18, R19b: a name equal to another unnamed character's descriptor (its registry
+    label) designates nobody: no merge, the revealed character takes it as its true name,
+    known, and its registry label an internal suffix (R14, event label_suffixed) so the
+    registry stays unique; the other character is untouched; the undo restores both."""
     async with test_pool.acquire() as conn:
         elder = await _character(conn, game, descriptor="La Kethari âgée")
         apron = await _character(conn, game, descriptor="Le Kethari au tablier")
-        before = await _character_row(conn, apron)
-        outcome = await service.reveal(
-            conn,
-            _ref("la Kethari âgée"),
-            "Le Kethari au tablier",
-            turn_id=None,
-            source="reveal",
-        )
+        apron_before = await _character_row(conn, apron)
+        turn_id = await turns.open_turn(conn, game)
+        before = await _game_state(conn, game)
+        async with uow(conn, turn_id):
+            outcome = await service.reveal(
+                conn,
+                _ref("la Kethari âgée"),
+                "Le Kethari au tablier",
+                turn_id=turn_id,
+                source="reveal",
+            )
         merges = await conn.fetchval(
             "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
         )
         elder_row = await _character_row(conn, elder)
-        after = await _character_row(conn, apron)
-        noops = await _events(conn, game, "reveal_noop")
-    assert (outcome.kind, outcome.entity_id) == ("noop", elder)
-    assert merges == 0
+        suffix = await conn.fetchval(
+            "SELECT label_suffix FROM characters WHERE id = $1", elder
+        )
+        bare = await conn.fetchval("SELECT identity_bare_label($1)", elder)
+        apron_after = await _character_row(conn, apron)
+        suffixed = await _events(conn, game, "label_suffixed")
+        await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [turn_id])
+        after = await _game_state(conn, game)
+    assert (outcome.kind, outcome.entity_id, merges) == ("applied", elder, 0)
+    assert suffix
+    assert (elder_row["true_name"], elder_row["known"], elder_row["shown"]) == (
+        "Le Kethari au tablier",
+        True,
+        "Le Kethari au tablier",
+    )
+    assert elder_row["label"] == f"Le Kethari au tablier ({suffix})"
+    assert bare == "Le Kethari au tablier"
+    assert apron_after == apron_before
+    assert [e["entity_id"] for e in suffixed] == [elder]
     assert after == before
-    assert elder_row["true_name"] is None
-    assert [(e["entity_id"], e["payload"]["reason"]) for e in noops] == [
-        (elder, "label_of_another")
-    ]
 
 
 async def test_a_revealed_short_form_of_another_name_never_merges(

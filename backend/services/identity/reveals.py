@@ -12,7 +12,8 @@ row by row:
   table), else the refusal is counted and nothing is written, so the holder still
   resolves by its name;
 - a form that another entity holds as its registry label without designating it (an
-  unnamed character's descriptor) is no name to give: a counted no-op;
+  unnamed character's descriptor) is still given below, with an internal label suffix
+  (R14) so that the registry stays unique;
 - no true name yet (a character known by its descriptor): it becomes the true name, the
   descriptor stays an alias;
 - the same name (same norm, or similarity >= IdentityConfig.reveal_match): known, the
@@ -220,24 +221,8 @@ class _Reveal:
         return RevealOutcome("known_only", entity_id)
 
     async def named(self, entity_id: UUID, real: str) -> RevealOutcome:
-        """The revealed name is no other entity's: set, matched or in conflict. A form
-        another entity holds as its registry label without designating it (an unnamed
-        character's descriptor) is no name to give: a counted no-op."""
+        """The revealed name designates no other entity: set, matched or in conflict."""
         name = await self._current_name(entity_id)
-        if (not name or not await self._same_name(name, real)) and (
-            await entities.label_held_by_other(
-                self.conn, self.service.game_id, self.entity_type, real, entity_id
-            )
-        ):
-            await _noop_event(
-                self.service,
-                self.conn,
-                self.turn_id,
-                entity_id,
-                self.entity_type,
-                "label_of_another",
-            )
-            return RevealOutcome("noop", entity_id)
         if not name:
             await self._rename(entity_id, real)
             await self._event("reveal_applied", entity_id, case="named")
@@ -270,7 +255,10 @@ class _Reveal:
 
     async def _rename(self, entity_id: UUID, real: str) -> None:
         """`real` becomes the entity's name, known: the old one stays an alias (a
-        descriptor stays a descriptor, a replaced name becomes a former name)."""
+        descriptor stays a descriptor, a replaced name becomes a former name). A name
+        another entity holds as its registry label without designating it (an unnamed
+        character's descriptor) is still given: the registry label gets an internal
+        suffix (R19b), the player and the prompts read the bare name."""
         if self.entity_type == CHARACTER:
             # Known first: the aliases of the new name are made known.
             await entities.set_character_known(
@@ -284,6 +272,7 @@ class _Reveal:
             source=self.source,
             turn_id=self.turn_id,
             evidence=self.evidence,
+            suffix_if_held=True,
         )
         await self._mark_known(entity_id, real)
 

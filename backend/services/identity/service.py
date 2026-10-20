@@ -350,22 +350,45 @@ class IdentityService:
         source: str = "extractor",
         turn_id: UUID | None = None,
         evidence: str | None = None,
+        suffix_if_held: bool = False,
     ) -> None:
         """Write `fields` on the entity's domain row, by id (merges followed). No row:
         IdentityWriteMiss. A new name keeps the old one as a former name (the triggers) and
         gets its derived aliases (a former name it takes back is its name again); an
-        internal label suffix no homonym needs any more goes. known_by_protagonist is the
-        reveal's (explicit reveals only): refused here."""
+        internal label suffix no homonym needs any more goes. With `suffix_if_held`, a new
+        name that another entity of the type holds as its registry label without being
+        the same entity (an unnamed character's descriptor) gets an internal label suffix
+        in the same write (R14, event 'label_suffixed'), never shown to the player.
+        known_by_protagonist is the reveal's (explicit reveals only): refused here."""
         if _KNOWN_FLAG in fields:
             raise ValueError(f"{_KNOWN_FLAG} is written by a reveal, not update_entity")
         live_id = await entities.follow_merge(conn, entity_id) or entity_id
+        renamed = "true_name" if entity_type == CHARACTER else "name"
+        suffix, suffix_from = None, None
+        if (
+            suffix_if_held
+            and fields.get(renamed)
+            and await entities.label_held_by_other(
+                conn, self.game_id, entity_type, fields[renamed], live_id
+            )
+        ):
+            suffix, suffix_from = await self._free_suffix(
+                conn, entity_type, fields[renamed], None
+            )
         table, row = await entities.update_domain_row(
-            conn, self.game_id, entity_type, live_id, fields
+            conn, self.game_id, entity_type, live_id, fields, label_suffix=suffix
         )
         if row is None:
             raise IdentityWriteMiss(table, entity_id, self.game_id)
+        if suffix is not None:
+            await self.record_event(
+                conn,
+                "label_suffixed",
+                turn_id,
+                live_id,
+                {"entity_type": entity_type, "suffix_from": suffix_from},
+            )
         await self._drop_needless_suffix(conn, entity_type, live_id, fields, row)
-        renamed = "true_name" if entity_type == CHARACTER else "name"
         if fields.get(renamed):
             known = entity_type != CHARACTER or bool(row.get("known_by_protagonist"))
             kind = "true_name" if entity_type == CHARACTER else "label"

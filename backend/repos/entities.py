@@ -480,14 +480,25 @@ async def insert_domain_row(
 
 
 async def update_domain_row(
-    conn, game_id: UUID, entity_type: str, entity_id: UUID, values: dict
+    conn,
+    game_id: UUID,
+    entity_type: str,
+    entity_id: UUID,
+    values: dict,
+    *,
+    label_suffix: str | None = None,
 ) -> tuple[str, dict | None]:
     """(table, the row after the update as a dict, None when no row of the game has this
-    id in the type's table)."""
+    id in the type's table). `label_suffix`: an internal suffix set in the same statement
+    (a rename onto a label another entity holds, R14)."""
     table, columns = await domain_table(conn, entity_type)
     names = _checked(columns, values, table)
     if not names:
         raise ValueError(f"{table}: nothing to update")
+    values = dict(values)
+    if label_suffix is not None:
+        names.append("label_suffix")
+        values["label_suffix"] = label_suffix
     sets = ", ".join(f'"{c}" = ${i}' for i, c in enumerate(names, start=3))
     row = await conn.fetchrow(
         f"UPDATE {table} AS dom SET {sets} WHERE dom.id = $1 AND dom.game_id = $2"
