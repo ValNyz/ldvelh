@@ -57,8 +57,9 @@ class NarrativeArcsExtractor(BaseExtractor):
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         entities = await self.reader.get_entities(conn)
-        # The prompt names the protagonist PROTAGONIST, never by name or handle; the
-        # companion is not listed either (spec §4.10).
+        # The prompt names the protagonist PROTAGONIST, never by name or handle. The
+        # known-entities list leaves the companion out (extractors never update it, spec
+        # §4.10); when the turn names it, it is listed by handle in ENTITIES IN THIS SCENE.
         known_entities = [
             handled(e["name"], format_handle(e["handle"]) if e.get("handle") else None)
             for e in entities

@@ -573,11 +573,13 @@ async def test_known_entities_are_listed_by_handle(test_pool, test_user):
     assert f"- {handle} · Maëlle Corvin" in prompts[0]
 
 
-async def test_arcs_context_lists_entities_by_handle_but_never_the_pc_or_companion(
+async def test_arcs_known_entities_go_by_handle_without_the_pc_or_companion(
     test_pool, test_user
 ):
-    """The arcs extractor's known entities go by handle; the protagonist (PROTAGONIST in
-    the rules) and the companion are never listed by name or handle."""
+    """The arcs extractor's known entities go by handle. The list leaves out the
+    protagonist (PROTAGONIST in the rules, never by name or handle) and the companion
+    (extractors never update it); a companion the turn names is still listed by handle
+    in ENTITIES IN THIS SCENE."""
     from config import get_identity_config
     from domain.identity import NewEntitySpec
     from llm.session import LLMSession
