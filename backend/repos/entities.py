@@ -915,30 +915,42 @@ async def candidates_exact(
     return [(r["entity_id"], r["norm"]) for r in rows]
 
 
-# Generator 2. The words are looked up in the GIN trigram index of alias_norm; the
-# secret and rich filters come after the MATERIALIZED step.
+# Generator 2. The words are looked up in the GIN index on (game_id, alias_norm
+# gin_trgm_ops), which serves the game and the trigram predicates in one scan whatever the
+# share of the game in the table; the secret and rich filters come after the
+# MATERIALIZED step.
 CANDIDATES_TRGM_SQL = f"""
     WITH near AS MATERIALIZED (
              SELECT al.id, given.word
                FROM unnest($3::text[]) AS given (word)
                JOIN entity_aliases AS al
                     ON al.game_id = $1 AND given.word <% al.alias_norm),
-         aliases AS ({_BLOCKING_ALIASES})
-    SELECT aliases.entity_id,
-           max(word_similarity(aliases.alias_norm, near.word)) AS score
-      FROM near JOIN aliases ON aliases.alias_id = near.id
-     WHERE (length(aliases.alias_norm) >= $4
-            OR cardinality(string_to_array(aliases.alias_norm, ' ')) > 1)
-       AND strict_word_similarity(near.word, aliases.alias_norm) >= $5
-     GROUP BY aliases.entity_id"""
+         aliases AS ({_BLOCKING_ALIASES}),
+         covered AS (
+             SELECT aliases.alias_id, aliases.entity_id,
+                    least(1, sum(word_similarity(aliases.alias_norm, near.word))) AS score
+               FROM near JOIN aliases ON aliases.alias_id = near.id
+              WHERE (length(aliases.alias_norm) >= $4
+                     OR cardinality(string_to_array(aliases.alias_norm, ' ')) > 1)
+                AND strict_word_similarity(near.word, aliases.alias_norm) >= $5
+              GROUP BY aliases.alias_id, aliases.entity_id)
+    SELECT entity_id, max(score) AS score FROM covered GROUP BY entity_id"""
+
+_TRGM_THRESHOLD = "pg_trgm.word_similarity_threshold"
 
 
-async def set_trgm_threshold(conn, config) -> None:
-    """For the rest of the transaction: the word similarity threshold of `<%` (`s_word`)."""
+async def set_trgm_threshold(conn, config) -> str:
+    """The word similarity threshold of `<%` set to `s_word` (local to the transaction);
+    returns the previous value, for `restore_trgm_threshold`."""
+    previous = await conn.fetchval("SELECT current_setting($1)", _TRGM_THRESHOLD)
     await conn.execute(
-        "SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)",
-        str(config.s_word),
+        "SELECT set_config($1, $2, true)", _TRGM_THRESHOLD, str(config.s_word)
     )
+    return previous
+
+
+async def restore_trgm_threshold(conn, previous: str) -> None:
+    await conn.execute("SELECT set_config($1, $2, true)", _TRGM_THRESHOLD, previous)
 
 
 async def candidates_trgm(
@@ -947,13 +959,21 @@ async def candidates_trgm(
     """(entity, best score) of the rich aliases (at least `rich_min_chars` characters, or
     two words) that hold a fuzzy form of one of `words` (generator 2). The GIN trigram
     index finds the aliases in which a word reaches the word similarity `s_word`
-    (`word <% alias_norm`, threshold set for the transaction); the word must also match
-    whole words of the alias with a strict word similarity of at least `s_sim`. The score
-    is the share of the alias the word covers (`word_similarity(alias_norm, word)`)."""
+    (`word <% alias_norm`); the word must also match whole words of the alias with a strict
+    word similarity of at least `s_sim`. The score of an alias is the share of it the
+    matched words cover together (`word_similarity(alias_norm, word)` summed over its
+    words, at most 1), so that a name whose every word is misspelled scores like its
+    exact form would, not 1/n of it.
+
+    Matching is per word: a word the caller left out (shorter than `token_min_len`, a
+    stop word, a title, an article) cannot reach an alias here, and evidence spread over
+    several narration words only adds up through the sum above. The threshold is set for
+    the query only: the previous value is restored before returning, even inside a
+    caller's transaction."""
     if not words:
         return []
     async with conn.transaction():
-        await set_trgm_threshold(conn, config)
+        previous = await set_trgm_threshold(conn, config)
         rows = await conn.fetch(
             CANDIDATES_TRGM_SQL,
             game_id,
@@ -962,6 +982,7 @@ async def candidates_trgm(
             config.rich_min_chars,
             config.s_sim,
         )
+        await restore_trgm_threshold(conn, previous)
     return [(r["entity_id"], r["score"]) for r in rows]
 
 
@@ -1134,6 +1155,18 @@ async def candidates_context(
         CONTEXT.homonym,
     )
     return [(r["entity_id"], r["source"], r["recency"]) for r in rows]
+
+
+async def live_handles(conn, game_id: UUID, entity_ids: list[UUID]) -> dict[UUID, int]:
+    """E<n> handle of each id that is a live entity of the game (an id of another game or
+    a merge tombstone has none)."""
+    rows = await conn.fetch(
+        """SELECT id, handle FROM entity_registry
+            WHERE game_id = $1 AND id = ANY($2::uuid[]) AND merged_into IS NULL""",
+        game_id,
+        list(entity_ids),
+    )
+    return {r["id"]: r["handle"] for r in rows}
 
 
 @dataclass(frozen=True)

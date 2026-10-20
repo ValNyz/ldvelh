@@ -2,7 +2,7 @@
 excluded, no secret alias without an open disclosure, thresholds from IdentityConfig, and
 turn-set recall >= 0.98 on the gold corpus (dev + test; per-mention C@10 printed)."""
 
-import os
+import random
 from collections import Counter
 from pathlib import Path
 from uuid import UUID
@@ -300,23 +300,38 @@ async def test_a_secret_name_makes_no_homonym(test_pool, game, service):
     assert candidates.CONTEXT.homonym in sources[gang]
 
 
-async def test_trigram_generator_reads_a_trigram_index(test_pool, game, service):
-    """In a game of a thousand named places the planner looks the words of a narration up
-    in the GIN trigram index: no alias is compared with every word, nor with the text."""
+async def test_trigram_generator_reads_the_game_trigram_index(
+    test_pool, test_user, game, service
+):
+    """Production shape: a game of a thousand named places among twenty other games. The
+    planner looks the words of a narration up in the (game_id, alias_norm) GIN index,
+    never comparing every alias of the game with every word."""
     syllables = ["ka", "lo", "mi", "ra", "ten", "vor", "sel", "du", "bri", "an", "zel"]
-    names = [
-        "".join(syllables[(n * k) % len(syllables)] for k in (1, 3, 7)).capitalize()
-        + f" {n}"
-        for n in range(1000)
-    ]
-    words = sorted({name.split()[0].lower() for name in names})[:60]
+    draw = random.Random(7)
+
+    def names(seed: int, count: int) -> list[str]:
+        return [
+            " ".join(
+                "".join(draw.choice(syllables) for _ in range(3)).capitalize()
+                for _ in range(2)
+            )
+            + f" {seed}-{n}"
+            for n in range(count)
+        ]
+
+    places = names(0, 1000)
+    words = sorted({name.split()[0].lower() for name in places[:50]})
     async with test_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO locations (game_id, name) SELECT $1, unnest($2::text[])",
-            game,
-            names,
-        )
-        await conn.execute("ANALYZE entity_aliases")
+        insert = "INSERT INTO locations (game_id, name) SELECT $1, unnest($2::text[])"
+        await conn.execute(insert, game, places)
+        for seed in range(1, 21):
+            other = await conn.fetchval(
+                "INSERT INTO games (user_id, language) VALUES ($1, 'fr') RETURNING id",
+                test_user["id"],
+            )
+            await conn.execute(insert, other, names(seed, 300))
+        # What autovacuum keeps up to date in a live database: the GIN statistics too.
+        await conn.execute("VACUUM ANALYZE entity_aliases")
         async with conn.transaction():
             await entities.set_trgm_threshold(conn, service.config)
             plan = await conn.fetch(
@@ -328,7 +343,86 @@ async def test_trigram_generator_reads_a_trigram_index(test_pool, game, service)
                 service.config.s_sim,
             )
     text = "\n".join(r[0] for r in plan)
-    assert "_norm_trgm" in text, text
+    near = text[text.index("CTE near") : text.index("CTE Scan on near")]
+    assert "Bitmap Index Scan on idx_entity_aliases_game_norm_trgm" in near, text
+
+
+async def test_trigram_threshold_does_not_outlive_the_query(test_pool, game, service):
+    async with test_pool.acquire() as conn:
+        await _create(conn, service, "character", "Pater Ondrev Kasso")
+        async with conn.transaction():
+            await conn.execute(
+                "SELECT set_config('pg_trgm.word_similarity_threshold', '0.9', true)"
+            )
+            found = await entities.candidates_trgm(
+                conn, game, ["ondrav"], service.config, disclosed=[]
+            )
+            after = await conn.fetchval("SHOW pg_trgm.word_similarity_threshold")
+    assert found
+    assert after == "0.9"
+
+
+async def test_a_fuzzy_multi_word_name_stays_within_the_cap(test_pool, game, service):
+    """Both words misspelled: the coverage of the two words adds up, so the name outranks
+    aliases one of its words covers better on its own (scored by its best word alone, it
+    would fall behind them, out of the cap). Labels only, no derived short alias."""
+    async with test_pool.acquire() as conn:
+        insert = "INSERT INTO locations (game_id, name) VALUES ($1, $2) RETURNING id"
+        target = await conn.fetchval(insert, game, "Halle Marbrière")
+        for n in range(1, 9):
+            await conn.fetchval(insert, game, f"Halle {n}")
+        scene = await _scene(conn, game)
+        capped = IdentityConfig(max_candidates=3)
+        found = await _block(
+            conn, service, "Tu entres sous les halles marbrieres.", scene, config=capped
+        )
+    assert found.turn[0].entity_id == target
+    assert candidates.TRGM in found.turn[0].sources
+
+
+async def test_a_secret_name_of_another_entity_makes_no_homonym(
+    test_pool, game, service
+):
+    """The mirror case: a present entity whose public label is another entity's secret
+    true name does not pull that entity in either."""
+    async with test_pool.acquire() as conn:
+        hidden = await _create(
+            conn,
+            service,
+            "character",
+            "La Kethari âgée",
+            "descriptor",
+            aliases=[AliasSpec("Nahle Irun", "true_name", False, secret=True)],
+        )
+        place = await _create(conn, service, "location", "Nahle Irun")
+        scene = await _scene(conn, game, present_ids=[place])
+        found = await _block(conn, service, "Personne ne parle.", scene)
+    assert hidden not in {c.entity_id for c in found.context}
+
+
+async def test_card_turn_follows_a_merge_chain(test_pool, game, service):
+    async with test_pool.acquire() as conn:
+        keep = await _create(conn, service, "character", "Tesk Vahrun")
+        middle = await _create(conn, service, "character", "Mira Sol")
+        last = await _create(conn, service, "character", "Odon Lebrac")
+        conversation = await messages.insert_conversation(conn, game, 1)
+        mentioned = {1: keep, 2: last}  # turn 3: nobody; `middle` is never mentioned
+        for turn in (1, 2, 3):
+            message = await messages.insert_message(
+                conn, game, conversation, "assistant", "Quelqu'un attend.", turn
+            )
+            if turn in mentioned:
+                await entities.insert_mentions(
+                    conn,
+                    game,
+                    message,
+                    None,
+                    [MentionRow(0, 4, "Quel", mentioned[turn], "match")],
+                )
+        await entities.merge_entities(conn, middle, last, "test", None)
+        await entities.merge_entities(conn, keep, middle, "test", None)
+        [card] = await entities.candidate_cards(conn, game, [keep])
+    assert card.last_seen_turn == 2  # the turn of the mention of the entity merged last
 
 
 async def test_load_world_rebuilds_a_scene(test_pool, game):
@@ -385,11 +479,9 @@ async def _corpus_candidates(conn, user_id, scene):
 
 
 def _print_misses(label: str, misses: list[tuple]) -> None:
-    """Every dev miss in detail; for the frozen test split, counts by category only
-    (its details only with IDENTITY_SHOW_TEST_MISSES=1, for the gate report)."""
-    show_test = os.environ.get("IDENTITY_SHOW_TEST_MISSES") == "1"
+    """Every dev miss in detail; for the frozen test split, counts by category only."""
     for miss in misses:
-        if miss[0] == "dev" or show_test:
+        if miss[0] == "dev":
             print(f"  {label}", *miss)
     test = Counter(miss[2] for miss in misses if miss[0] == "test")
     print(f"  {label} test by category: {dict(sorted(test.items()))}")
@@ -406,8 +498,7 @@ async def test_blocking_recall_of_the_turn_set_on_the_whole_corpus(
     """Gate (spec §4.5.2, ruling R24): the gold id of every existing gold mention of dev +
     test is in its scene's CandidateSet (turn and context), at least 98 times in 100. The
     per-mention C@10 of the scorer is printed alongside, not gated. Misses are printed in
-    detail for dev only; the frozen test split shows counts by category (its details only
-    with IDENTITY_SHOW_TEST_MISSES=1)."""
+    detail for dev only; the frozen test split shows counts by category, never details."""
     split = load_split(FIXTURES)
     splits = {scene_id: "dev" for scene_id in split.dev}
     splits.update({scene_id: "test" for scene_id in split.test})

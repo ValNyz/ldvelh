@@ -120,26 +120,32 @@ async def block(
     if (protagonist := found.get(scene.protagonist_id)) is not None:
         protagonist.context_rank = CONTEXT_ORDER.index(CONTEXT.protagonist)
 
-    cards = await _cards(conn, game_id, found, disclosed)
-
-    ranked = _ranked(found, cards)
-    turn = [cards[i] for i in ranked if i in lexical_ids][: config.max_candidates]
-    in_turn = {c.entity_id for c in turn}
-    context = [
-        cards[i]
+    handles = await entities.live_handles(conn, game_id, list(found))
+    ranked = _ranked(found, handles)
+    turn_ids = [i for i in ranked if i in lexical_ids][: config.max_candidates]
+    in_turn = set(turn_ids)
+    context_ids = [
+        i
         for i in ranked
         if i not in in_turn and found[i].context_rank < len(CONTEXT_ORDER)
     ]
-    exact = {
-        norm: cards[next(iter(ids))]
+    unique = {
+        norm: next(iter(ids))
         for norm, ids in exact_ids.items()
-        if len(ids) == 1 and next(iter(ids)) in cards
+        if len(ids) == 1 and next(iter(ids)) in handles
     }
+    # Cards only for what the set holds, not for every entity a generator touched.
+    cards = await _cards(
+        conn, game_id, found, {*turn_ids, *context_ids, *unique.values()}, disclosed
+    )
+    turn = [cards[i] for i in turn_ids if i in cards]
+    context = [cards[i] for i in context_ids if i in cards]
+    exact = {norm: cards[i] for norm, i in unique.items() if i in cards}
     return CandidateSet(turn=turn, context=context, exact=exact)
 
 
-def _ranked(found: dict[UUID, _Found], cards: dict[UUID, Candidate]) -> list[UUID]:
-    """Entities with a card, best first: score, context source, recency, handle."""
+def _ranked(found: dict[UUID, _Found], handles: dict[UUID, int]) -> list[UUID]:
+    """Live entities of the game, best first: score, context source, recency, handle."""
 
     def key(entity_id: UUID) -> tuple:
         entry = found[entity_id]
@@ -147,10 +153,10 @@ def _ranked(found: dict[UUID, _Found], cards: dict[UUID, Candidate]) -> list[UUI
             -entry.score,
             entry.context_rank,
             entry.recency,
-            cards[entity_id].handle,
+            handles[entity_id],
         )
 
-    return sorted((i for i in found if i in cards), key=key)
+    return sorted((i for i in found if i in handles), key=key)
 
 
 async def _context(conn, game_id: UUID, scene: SceneContext):
@@ -170,10 +176,14 @@ async def _context(conn, game_id: UUID, scene: SceneContext):
 
 
 async def _cards(
-    conn, game_id: UUID, found: dict[UUID, _Found], disclosed: list[UUID]
+    conn,
+    game_id: UUID,
+    found: dict[UUID, _Found],
+    selected: set[UUID],
+    disclosed: list[UUID],
 ) -> dict[UUID, Candidate]:
-    """The card of each live entity found (an id of another game or a tombstone has none)."""
-    ids = list(found)
+    """The card of each selected entity."""
+    ids = list(selected)
     aliases: dict[UUID, list[CandidateAlias]] = {}
     for row in await entities.candidate_aliases(
         conn, game_id, ids, disclosed=disclosed

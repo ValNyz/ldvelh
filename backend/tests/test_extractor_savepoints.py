@@ -261,8 +261,8 @@ async def test_extraction_log_of_a_turn_rolled_back_meanwhile_is_dropped(
 
 
 async def test_extraction_log_of_a_deleted_game_still_warns(test_pool, test_user, caplog):
-    """#105: only the turn foreign key means "turn rolled back"; the game's (checked
-    first) failing is a real error and keeps the WARNING."""
+    """#105: a failing turn key means "turn rolled back" only while the game exists; a
+    deleted game is a real error and keeps the WARNING, whichever key PostgreSQL names."""
     from repos import turns
 
     extractor, game_id = await extractor_for(
@@ -282,5 +282,8 @@ async def test_extraction_log_of_a_deleted_game_still_warns(test_pool, test_user
 
     messages = [r.getMessage() for r in caplog.records]
     assert not any("extraction log dropped" in m for m in messages)
-    assert any("Log failed" in r.getMessage() and "extraction_logs_game_id_fkey" in r.getMessage()
+    # Both keys fail; PostgreSQL names whichever trigger fires first (OID order).
+    assert any("Log failed" in r.getMessage()
+               and ("extraction_logs_game_id_fkey" in r.getMessage()
+                    or "extraction_logs_turn_id_fkey" in r.getMessage())
                for r in caplog.records if r.levelno == logging.WARNING)

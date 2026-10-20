@@ -10,6 +10,10 @@ from schema import DEFAULT_GAME_TIME
 logger = logging.getLogger(__name__)
 
 
+async def game_exists(conn, game_id: UUID) -> bool:
+    return await conn.fetchval("SELECT EXISTS (SELECT 1 FROM games WHERE id = $1)", game_id)
+
+
 async def get_director_schedule(conn, game_id: UUID) -> DirectorSchedule:
     """Latest director plan (cycle, ig_time) plus the game's duration setting.
 

@@ -24,6 +24,7 @@ from kg.item_writes import write_item, write_items
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
 from prompts.extraction.shared import protagonist_section
+from repos import games
 from repos.uow import uow
 from schema import EntityType, FactData
 from schema.extraction import AmbientUpdate, EntityCreation, EntityUpdate
@@ -160,7 +161,14 @@ class BaseExtractor(ABC):
             try:
                 await self.populator.log_extraction(conn, cycle, stats, turn_id)
             except Exception as log_err:
-                if turn_id is not None and _turn_rolled_back(log_err):
+                # Both keys fail when the game itself is gone, and PostgreSQL reports
+                # whichever foreign key trigger fires first (trigger names follow OIDs):
+                # the turn's key means a rolled-back turn only while the game exists.
+                if (
+                    turn_id is not None
+                    and _turn_rolled_back(log_err)
+                    and await games.game_exists(conn, self.game_id)
+                ):
                     # The turn was deleted since the commit: its log would go with it.
                     logger.info(f"[{et}] Turn rolled back, extraction log dropped")
                 else:
