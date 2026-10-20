@@ -145,6 +145,10 @@ def build_report(
     sequence_results_by_run=None,
     c_at_10_scores: list[SceneScore] | None = None,
     iterations: int = 2000,
+    cost_estimated: bool = False,
+    cost_priced: bool = True,
+    leaks_by_run: list[int] | None = None,
+    milestone: str | None = None,
 ) -> tuple[str, dict]:
     """`report.render`, with `responder` (who answered, None for API calls) in the json."""
     markdown, data = render(
@@ -157,5 +161,9 @@ def build_report(
         c_at_10_scores=c_at_10_scores,
         iterations=iterations,
         cost_measured=responder is None,
+        cost_estimated=cost_estimated,
+        cost_priced=cost_priced,
+        leaks_by_run=leaks_by_run,
+        milestone=milestone,
     )
     return markdown, {**data, "responder": responder}

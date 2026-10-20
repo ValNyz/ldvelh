@@ -221,3 +221,37 @@ def test_imported_answers_print_an_unmeasured_cost():
     assert "Coût par tour : non mesuré (réponses importées)" in markdown
     assert data["cost_measured"] is False
     assert "non mesuré (réponses importées)" not in _render()[0]
+
+
+# --- resolver v2: L, the PR 2 milestone, estimated cost (#154) ---
+
+
+def test_measured_leaks_make_l_a_gate_row_and_the_milestone_reuses_the_rows():
+    markdown, data = _render(leaks_by_run=[0, 1, 0], milestone="pr2")
+    leak = _row(data, "L")
+    assert (leak["value"], leak["per_run"], leak["verdict"]) == (1, [0, 1, 0], "ÉCHEC")
+    assert {r["name"] for r in data["not_measured"]} == {"R", "P"}
+    assert "incomplète (R, P non mesurés)" in markdown
+    gate = data["milestone"]
+    rows = {r["name"]: r for r in gate["rows"]}
+    assert rows["hard_pool"]["threshold"] == 0.85
+    assert rows["hard_pool"]["value"] == _row(data, "hard_pool")["value"]
+    assert rows["L"]["verdict"] == "ÉCHEC" and gate["passed"] is False
+    assert gate["escalation_target"] == 0.20 and gate["cost_target_usd"] == 0.01
+    assert "## Gate du jalon PR 2" in markdown
+
+    _, clean = _render(leaks_by_run=[0], milestone="pr2")
+    assert _row(clean, "L")["verdict"] == "OK"
+    _, unmeasured = _render(milestone="pr2")
+    rows = {r["name"]: r for r in unmeasured["milestone"]["rows"]}
+    assert rows["L"]["measured"] is False and rows["L"]["verdict"] == "ÉCHEC"
+
+
+def test_estimated_cost_is_labelled_and_an_unpriced_model_has_no_cost():
+    markdown, data = _render(cost_measured=False, cost_estimated=True)
+    assert (
+        "Coût par tour : — (estimé : jetons ≈ caractères / 4)" in markdown
+    )  # no cost_usd
+    assert "Jetons par tour : entrée 2000" in markdown
+    markdown, _ = _render(cost_priced=False)
+    assert "Coût par tour : indisponible (modèle sans prix connu)" in markdown

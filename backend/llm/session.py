@@ -144,6 +144,15 @@ class LLMSession:
         session._providers = {purpose: provider for purpose in Purpose}
         return session
 
+    @classmethod
+    def from_providers(cls, default: LLMProvider, by_purpose: dict[Purpose, LLMProvider],
+                       ledger: UsageLedger | None = None) -> "LLMSession":
+        """`from_provider(default)`, with its own provider instance for the purposes of
+        `by_purpose` (an evaluation that taps the identity calls per model)."""
+        session = cls.from_provider(default, ledger)
+        session._providers.update(by_purpose)
+        return session
+
     # -- model selection (unchanged from before P2, see the plan) -------------
 
     def _catalog_active(self) -> bool:

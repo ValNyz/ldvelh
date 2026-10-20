@@ -177,6 +177,9 @@ class IdentityConfig(BaseSettings):
     evidence_max_words: int = 20
     # Output budget of one identity decision call (§4.5.3).
     decision_max_tokens: int = 4096
+    # The strong model's tier (§4.5.5): False keeps the small model's decisions, risky ones
+    # included (the cheap tier of the evaluation, `--tier cheap`).
+    escalation: bool = True
     # Share of turns escalated to the strong model: target and alert level (D29).
     escalation_target_rate: float = 0.20
     escalation_alert_rate: float = 0.25

@@ -5,7 +5,8 @@ before it, one escalation to the strong model and a fallback.
 The cascade: the prepass links the unique exact names of the text without the model; the
 small model (Purpose.IDENTITY) decides the rest, with one retry on an invalid output; the
 strong model (Purpose.IDENTITY_STRONG) is called once at most, for the abstentions, the
-revealed true names and the links that would merge two entities only. When the small model
+revealed true names and the links that would merge two entities only (never when
+IdentityConfig.escalation is off: the small model's decisions stand). When the small model
 fails twice, only the prepass applies (`fallback`, identity_events `resolver_fallback`).
 
 The verifications (§4.5.4) reject or downgrade, never guess: a rejected link becomes
@@ -709,7 +710,7 @@ async def decide_turn(
     risky = [
         i for i, d in enumerate(decided) if _risky(d, prompt.candidates, normalizer)
     ]
-    if not risky:
+    if not risky or not config.escalation:
         return TurnDecisions(decided, escalated=False, fallback=False, usage=usage)
 
     chosen = _theirs([decided[i] for i in risky], prompt, normalizer, config)

@@ -4,9 +4,10 @@
 #
 # - The repo is mounted read-only and copied inside the container.
 # - The report is written to EVAL_OUT (host dir, default backend/tests/reports/identity), the
-#   only directory written besides EVAL_IO for --emit-prompts.
+#   only directory written besides EVAL_IO.
 # - EVAL_IO (host dir, no default) is mounted at /io for --emit-prompts / --import-responses:
-#   pass those directories as /io/<path>. It is writable only with --emit-prompts.
+#   pass those directories as /io/<path>. It is writable with either flag (the v2 adapter's
+#   staged replay writes the next requests and pending.json next to the answers).
 # - Setup (tar, pip, apt, dbmate) runs in a container started without any key. The host's
 #   provider keys are given only to the final `docker exec` of the evaluation, as the host
 #   user (files written are the user's, nothing is chowned).
@@ -27,7 +28,7 @@ mkdir -p "$OUT"
 
 io_mode=ro
 for arg in "$@"; do
-  case "$arg" in --emit-prompts|--emit-prompts=*) io_mode=rw ;; esac
+  case "$arg" in --emit-prompts|--emit-prompts=*|--import-responses|--import-responses=*) io_mode=rw ;; esac
 done
 IO_ARGS=()
 if [ -n "${EVAL_IO:-}" ]; then

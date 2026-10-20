@@ -1,16 +1,19 @@
-"""The identity eval runner, the legacy resolver adapter and its offline path (#151)."""
+"""The identity eval runner, the legacy and v2 resolver adapters and their offline paths
+(#151, #154)."""
 
 import json
 import math
+import re
 import shutil
 from pathlib import Path
 
 import pytest
 import yaml
 
-from evals.identity import coref, runner
+from evals.identity import coref, leaks, runner
 from evals.identity.adapters import legacy_resolver
 from evals.identity.adapters.legacy_resolver import LegacyResolverAdapter
+from evals.identity.adapters.resolver_v2 import ResolverV2Adapter
 from evals.identity.corpus import Scene, load_scenes, load_sequences
 from evals.identity.report import FAIL, OK
 from evals.identity.run import Decision, RunResult
@@ -18,6 +21,8 @@ from evals.identity.scorer import score_scene
 from llm.session import LLMCall, LLMSession, Purpose
 from scripts import eval_identity
 from services.extraction.resolver import MentionMapping, ResolutionMap, resolve_entities
+from tests.characterization.scripted_llm import ScriptedLLMProvider
+from tests.conftest import TEST_DB_URL
 from tests.identity.test_corpus import ROOT, _scene
 
 WITH_HISTORY = "syn-sf-easy-01"
@@ -329,3 +334,205 @@ async def test_a_new_entity_chains_within_a_turn_and_across_turns(monkeypatch):
 async def test_needs_db_reports_the_adapter_attribute(capsys):
     assert await _main(["--split", "test", "--needs-db"]) == 0
     assert capsys.readouterr().out.strip() == str(int(LegacyResolverAdapter.needs_db))
+
+
+# --- resolver v2 (#154) ------------------------------------------------------------------
+
+V2_SCENE = "audit-objet-nomme"  # dev, no history
+
+
+def _handle_of(prompt: str, label: str) -> str:
+    """The handle of the candidate card that shows `label`."""
+    for line in prompt.splitlines():
+        if f'"{label}"' in line and re.match(r"E\d+ ", line):
+            return line.split(" ", 1)[0]
+    raise AssertionError(f"no card for {label!r}")
+
+
+def _first_pass(prompt: str) -> dict:
+    """The small model's answer: what the prepass leaves (« Olbert » also names the
+    shop, « ta lame » is left open)."""
+    return {
+        "mentions": [
+            {"surface": "Olbert", "before": "coffret, dit", "decision": "MATCH",
+             "handle": _handle_of(prompt, "Maître Olbert")},
+            {"surface": "ta lame", "before": "Tu reprends", "decision": "UNSURE"},
+            {"surface": "la garde", "before": "et frotte", "decision": "SKIP"},
+        ]
+    }  # fmt: skip
+
+
+def _second_opinion(prompt: str) -> dict:
+    """The strong model's answer: « Olbert » confirmed (it would also name the shop),
+    « ta lame » not an identity."""
+    return {
+        "mentions": [
+            {"surface": "Olbert", "before": "coffret, dit", "decision": "MATCH",
+             "handle": _handle_of(prompt, "Maître Olbert")},
+            {"surface": "ta lame", "before": "Tu reprends", "decision": "SKIP"},
+        ]
+    }  # fmt: skip
+
+
+async def test_v2_adapter_runs_a_scene_with_a_scripted_session(test_pool):
+    (scene,) = _scenes(V2_SCENE)
+    responses = {"identity": [_first_pass], "identity_strong": [_second_opinion]}
+    provider = ScriptedLLMProvider(responses)
+    adapter = ResolverV2Adapter(test_pool)
+    result = await adapter.run_scene(
+        scene, session=LLMSession.from_provider(provider), pool=None
+    )
+
+    assert provider.purposes() == ["identity", "identity_strong"]
+    by_start = {d.start: d for d in result.decisions}
+    olbert = by_start[0]  # « Maître Olbert », a unique exact name
+    assert (olbert.decision, olbert.entity_id) == ("MATCH", "character_maitre_olbert")
+    assert olbert.deterministic
+    short = by_start[scene.narration.index("Olbert", 500)]  # the model's link
+    assert (short.decision, short.entity_id) == ("MATCH", "character_maitre_olbert")
+    assert not short.deterministic and short.escalated
+    escalated = by_start[scene.narration.index("ta lame")]
+    assert (escalated.decision, escalated.escalated) == ("SKIP", True)
+    assert by_start[scene.narration.index("la garde")].decision == "SKIP"
+    assert "character_maitre_olbert" in result.candidates[0]
+    assert result.usage["identity_calls"] == 1
+    assert result.usage["identity_strong_calls"] == 1
+    assert result.usage["calls"] == 2 and result.usage["escalated"] == 1
+    assert result.usage["input_tokens"] == 200  # the scripted usage, both stages
+    score = score_scene(scene, result)
+    assert score.escalated and score.deterministic >= 1
+
+    # The cheap tier: the small model's UNSURE stands, no second opinion.
+    provider = ScriptedLLMProvider({"identity": [_first_pass]})
+    cheap = await ResolverV2Adapter(test_pool, tier="cheap").run_scene(
+        scene, session=LLMSession.from_provider(provider), pool=None
+    )
+    assert provider.purposes() == ["identity"]
+    unsure = {d.start: d for d in cheap.decisions}[escalated.start]
+    assert (unsure.decision, unsure.escalated) == ("UNSURE", False)
+    assert "identity_strong_calls" not in cheap.usage
+    assert cheap.usage["escalated"] == 0
+
+    # Its C@10 ranking: each gold mention's own candidates, as world ids.
+    ranking = await adapter.candidates(scene)
+    assert ranking[0][0] == "character_maitre_olbert"
+
+
+def _v2_args(root: Path, *extra: str) -> list[str]:
+    return ["--adapter", "v2", "--root", str(root), "--split", "test", *extra]
+
+
+async def test_v2_staged_replay_asks_each_stage_then_scores(
+    tmp_path, test_pool, monkeypatch, capsys
+):
+    monkeypatch.setenv("TEST_DATABASE_URL", TEST_DB_URL)
+    root = _corpus(tmp_path, V2_SCENE)
+    io, out = tmp_path / "io", tmp_path / "out"
+    responder = "subagent:claude-haiku+claude-sonnet"
+    replay = _v2_args(
+        root, "--import-responses", str(io), "--responder", responder,
+        "--out", str(out), "--iterations", "20", "--milestone", "pr2",
+    )  # fmt: skip
+
+    assert await _main(_v2_args(root, "--emit-prompts", str(io))) == 0
+    first = json.loads((io / f"{V2_SCENE}.1.json").read_text("utf-8"))
+    assert (first["purpose"], first["model"]) == ("identity", "claude-haiku-5-5")
+    assert first["scene_id"] == V2_SCENE and first["call"] == 1
+    assert first["tools"][0]["name"] and first["messages"][0]["role"] == "user"
+    pending = json.loads((io / "pending.json").read_text("utf-8"))
+    assert pending == [
+        {
+            "file": f"{V2_SCENE}.1.json",
+            "purpose": "identity",
+            "model": "claude-haiku-5-5",
+        }
+    ]
+    assert "1 requests pending (identity 1)" in capsys.readouterr().out
+
+    prompt = first["messages"][0]["content"]
+    (io / f"{V2_SCENE}.1.txt").write_text(json.dumps(_first_pass(prompt)), "utf-8")
+    assert await _main(replay) == eval_identity.PENDING_EXIT
+    second = json.loads((io / f"{V2_SCENE}.2.json").read_text("utf-8"))
+    assert (second["purpose"], second["model"]) == (
+        "identity_strong",
+        "claude-sonnet-5-5",
+    )
+    assert "identity_strong 1" in capsys.readouterr().out
+    assert not list(out.glob("*.md"))  # nothing scored while a scene is pending
+
+    strong = _second_opinion(second["messages"][0]["content"])
+    fenced = f"```json\n{json.dumps(strong)}\n```"
+    (io / f"{V2_SCENE}.2.txt").write_text(fenced, "utf-8")
+    assert await _main(replay) == 0
+    assert json.loads((io / "pending.json").read_text("utf-8")) == []
+    (report,) = out.glob("*.md")
+    assert report.name.endswith(
+        "-test-anthropic-claude-haiku-5-5+claude-sonnet-5-5-subagent.md"
+    )
+    text = report.read_text("utf-8")
+    assert eval_identity.SUBAGENT_NOTE.lower() in text.lower()
+    assert "Gate du jalon PR 2" in text
+    data = json.loads(report.with_suffix(".json").read_text("utf-8"))
+    assert data["models"] == {
+        "identity": "claude-haiku-5-5",
+        "identity_strong": "claude-sonnet-5-5",
+    }
+    assert _row(data, "L")["value"] == 0
+    assert data["cost_estimated"] is True and data["cost"]["per_turn_escalated"] == 1
+    milestone = {r["name"]: r for r in data["milestone"]["rows"]}
+    assert set(milestone) == {"hard_pool", "W", "L"}
+    assert milestone["hard_pool"]["threshold"] == 0.85
+
+    # The cheap tier replays the same answers: no new request, no escalation.
+    for stale in out.glob("*"):
+        stale.unlink()
+    assert await _main([*replay, "--tier", "cheap"]) == 0
+    (report,) = out.glob("*.json")
+    assert json.loads(report.read_text("utf-8"))["models"] == {
+        "identity": "claude-haiku-5-5"
+    }
+
+    # An answer to a request the code no longer builds is refused.
+    stored = io / f"{V2_SCENE}.1.json"
+    stored.write_text(stored.read_text("utf-8").replace("NARRATION", "NARRATIVE"))
+    with pytest.raises(SystemExit, match="stale answers"):
+        await _main(replay)
+
+
+async def test_v2_runs_have_their_own_responses_directories(
+    tmp_path, test_pool, monkeypatch
+):
+    monkeypatch.setenv("TEST_DATABASE_URL", TEST_DB_URL)
+    root = _corpus(tmp_path, V2_SCENE)
+    io = tmp_path / "io"
+    assert await _main(_v2_args(root, "--runs", "2", "--emit-prompts", str(io))) == 0
+    pending = json.loads((io / "pending.json").read_text("utf-8"))
+    assert [p["file"] for p in pending] == [
+        f"run1/{V2_SCENE}.1.json",
+        f"run2/{V2_SCENE}.1.json",
+    ]
+    with pytest.raises(SystemExit, match="identity, identity_strong"):
+        await _main(_v2_args(root, "--models", "resolver=x", "--emit-prompts", str(io)))
+
+
+def test_leak_check_counts_undisclosed_secret_names_outside_the_narration():
+    data = _scene()
+    agent = {"id": "character_agent", "type": "character", "label": "Le passeur",
+             "known": False, "secret": True, "true_name": "Ilse Varn",
+             "aliases": [{"text": "Ilse Varn", "kind": "true_name", "known": False,
+                          "secret": True}]}  # fmt: skip
+    scene = Scene.model_validate(
+        {**data, "world": [*data["world"], agent],
+         "scene": {**data["scene"], "secrets": ["character_agent"]}}
+    )  # fmt: skip
+    assert leaks.secret_names(scene) == ["Ilse Varn"]
+    assert leaks.leak_count(scene, ['E4 · "Le passeur"', "nothing"]) == 0
+    assert leaks.leak_count(scene, ['{"evidence": "ILSE VARN entre"}']) == 1
+    open_name = [{"handle": "character_agent", "kind": "name"}]
+    dumped = scene.model_dump()
+    disclosed = Scene.model_validate(
+        {**dumped, "scene": {**dumped["scene"], "open_disclosures": open_name}}
+    )
+    assert leaks.secret_names(disclosed) == []
+    told = Scene.model_validate({**scene.model_dump(), "narration": "Ilse Varn rit."})
+    assert leaks.secret_names(told) == []  # the narration itself holds it

@@ -494,6 +494,34 @@ async def test_cascade_escalates_only_unsure_true_name_and_merges_once():
     assert not turn.escalated
 
 
+async def test_without_escalation_the_small_model_decisions_stand():
+    stranger = _candidate(4, "la femme au manteau", sources={"present"})
+    text = "« Je suis Vela Sorn », dit la femme au manteau. Un passant regarde."
+    first = {
+        "mentions": [
+            _mention("Vela Sorn", "ALIAS", "E4", alias_kind="true_name"),
+            _mention("Un passant", "UNSURE"),
+        ]
+    }
+    provider = ScriptedLLMProvider({"identity": [first]})
+    turn = await decision.decide_turn(
+        LLMSession.from_provider(provider),
+        _Conn(),
+        text,
+        _set(stranger),
+        _scene(),
+        thresholds=CONFIG.model_copy(update={"escalation": False}),
+        normalizer=NORMALIZER,
+        lexicon=for_game("fr", None),
+    )
+    assert provider.purposes() == ["identity"]
+    assert not turn.escalated and set(turn.usage) == {"identity"}
+    by_surface = {d.surface: d for d in turn.decisions}
+    assert by_surface["Vela Sorn"].decision == "ALIAS"
+    assert by_surface["Un passant"].decision == "UNSURE"
+    assert not any(d.escalated for d in turn.decisions)
+
+
 async def test_the_prepass_wins_over_the_model_on_its_surfaces():
     keswil = _candidate(3, "Odran Keswil")
     tassel = _candidate(6, "Mira Tassel")

@@ -31,18 +31,17 @@ header): MESSAGE 1 of each turn is the turn's gold history annotated with world 
 not the system's own annotations of its previous turn; only the names the system
 created in earlier turns carry over (above).
 
-Disposable code: `request_options` reads the provider's private `_request_options`
-(the exact wire options) and falls back to the bare model and sampling options.
+The emitted request takes its wire options from `evals.identity.calls.request_options`.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from evals.identity.calls import request_options
 from evals.identity.corpus import Scene, WorldEntity
 from evals.identity.lexicon import Lexicon, load_lexicon
 from evals.identity.run import Decision, RunResult
@@ -56,6 +55,7 @@ from services.extraction.resolver import (
 )
 from services.llm_providers import CompletionResult, LLMProvider, LLMUsage
 
+RESOLVER = "resolver"  # the provider purpose name of the legacy resolver
 GAME_ID = UUID(int=0)  # the resolver takes a game id it does not use
 # The entity_type filter of the orchestrator's first-turn reference query.
 REGISTRY_TYPES = ("character", "location", "organization")
@@ -151,7 +151,7 @@ class OfflineProvider(LLMProvider):
     def __init__(self, like: LLMProvider, reply: str = "") -> None:
         self._like = like
         self.reply = reply
-        self.MODEL_MAIN = like.model_name("resolver")
+        self.MODEL_MAIN = like.model_name(RESOLVER)
         self.calls: list[dict] = []
 
     @property
@@ -179,18 +179,6 @@ class OfflineProvider(LLMProvider):
             }
         )
         return CompletionResult(content=self.reply, usage=LLMUsage())
-
-
-def request_options(provider: LLMProvider, *, max_tokens: int, temperature: float):
-    """Model and sampling options the provider puts on the wire for one request."""
-    build = getattr(provider, "_request_options", None)
-    if build is None:
-        return {
-            "model": provider.model_name("resolver"),
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }
-    return build(max_tokens, temperature)
 
 
 # --- output -> decisions ----------------------------------------------------
@@ -326,7 +314,10 @@ async def build_request(scene: Scene, like: LLMProvider) -> dict | None:
     )
     (call,) = capture.calls
     options = request_options(
-        like, max_tokens=call["max_tokens"], temperature=call["temperature"]
+        like,
+        max_tokens=call["max_tokens"],
+        temperature=call["temperature"],
+        purpose=RESOLVER,
     )
     return {
         "scene_id": scene.id,
@@ -339,7 +330,3 @@ async def build_request(scene: Scene, like: LLMProvider) -> dict | None:
 def replay_session(like: LLMProvider, raw_output: str) -> LLMSession:
     """A session whose resolver call answers `raw_output`, parsed by the app's code."""
     return LLMSession.from_provider(OfflineProvider(like, reply=raw_output))
-
-
-def dumps_request(request: dict) -> str:
-    return json.dumps(request, ensure_ascii=False, indent=2) + "\n"
