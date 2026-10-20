@@ -8,6 +8,7 @@ arbitrary pick (spec §4.2). No function opens a connection or a transaction.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -120,6 +121,24 @@ async def find_any(
         )
         hits = [(r["id"], r["entity_type"]) for r in rows if r["id"] is not None]
         return hits[0] if len(hits) == 1 else None
+    counts = await candidate_counts(conn, game_id, ref, types)
+    if len(counts) == 1 and next(iter(counts.values())) == 1:
+        [entity_type] = counts
+        entity_id = await find_entity(conn, game_id, ref, entity_type)
+        if entity_id is not None:
+            return entity_id, entity_type
+    logger.info(
+        f"[IDENTITY] untyped reference unresolved (types={len(counts)},"
+        f" candidates={sum(counts.values())})"
+    )
+    return None
+
+
+async def candidate_counts(
+    conn, game_id: UUID, ref: str, types: tuple[str, ...]
+) -> dict[str, int]:
+    """Live entities of each type of `types` whose label or alias has the normalised form
+    of `ref` (merges followed): find_entity's last step, counted (2 or more: ambiguous)."""
     rows = await conn.fetch(
         """WITH ref AS (SELECT ldvelh_norm_for_game($1, $2) AS norm),
                 candidates AS (
@@ -138,17 +157,7 @@ async def find_any(
         ref,
         list(types),
     )
-    counts = {r["entity_type"]: r["candidates"] for r in rows}
-    if len(counts) == 1 and next(iter(counts.values())) == 1:
-        [entity_type] = counts
-        entity_id = await find_entity(conn, game_id, ref, entity_type)
-        if entity_id is not None:
-            return entity_id, entity_type
-    logger.info(
-        f"[IDENTITY] untyped reference unresolved (types={len(counts)},"
-        f" candidates={sum(counts.values())})"
-    )
-    return None
+    return {r["entity_type"]: r["candidates"] for r in rows}
 
 
 async def find_for_upsert(
@@ -350,3 +359,117 @@ async def game_language(conn, game_id: UUID) -> tuple[str | None, str | None]:
         game_id,
     )
     return (row["language"], row["slug"]) if row else (None, None)
+
+
+async def label_taken(conn, game_id: UUID, entity_type: str, label: str) -> bool:
+    """A live entity of the type holds `label` (normalised) as its registry label: the
+    normalised uniqueness would refuse a second one."""
+    return await conn.fetchval(
+        """SELECT EXISTS (SELECT 1 FROM entity_registry
+                           WHERE game_id = $1 AND entity_type = $2 AND merged_into IS NULL
+                             AND name_norm = ldvelh_norm_for_game($1, $3))""",
+        game_id,
+        str(entity_type),
+        label,
+    )
+
+
+async def set_created_turn(conn, entity_id: UUID, turn_id: UUID) -> None:
+    """The turn that created an entity, when the transaction's own turn did not set it."""
+    await conn.execute(
+        """UPDATE entity_registry SET created_turn_id = $2
+           WHERE id = $1 AND created_turn_id IS DISTINCT FROM $2""",
+        entity_id,
+        turn_id,
+    )
+
+
+async def mark_aliases(
+    conn, entity_id: UUID, *, known: bool | None = None, secret: bool = False
+) -> None:
+    """Every alias of an entity: `known` set (None: unchanged), secret when `secret`."""
+    await conn.execute(
+        """UPDATE entity_aliases SET known = COALESCE($2, known), secret = secret OR $3
+           WHERE entity_id = $1""",
+        entity_id,
+        known,
+        secret,
+    )
+
+
+async def handles(conn, entity_ids: list[UUID]) -> dict[UUID, int]:
+    """E<n> handle of each id, read on its live entity (merges followed)."""
+    rows = await conn.fetch(
+        """SELECT ref.id, er.handle
+           FROM unnest($1::uuid[]) AS ref (id)
+           JOIN entity_registry AS er ON er.id = entity_follow_merge(ref.id)""",
+        list(entity_ids),
+    )
+    return {r["id"]: r["handle"] for r in rows}
+
+
+# Domain rows by id. Columns are checked against the table (pg_attribute), the identity
+# columns are the service's: never taken from a caller's fields.
+_IDENTITY_COLUMNS = frozenset(
+    {"id", "game_id", "label_suffix", "created_at", "updated_at"}
+)
+
+
+async def domain_table(conn, entity_type: str) -> tuple[str, frozenset[str]]:
+    """(table, writable columns) of an entity type's domain table."""
+    rows = await conn.fetch(
+        """SELECT identity_domain_table($1)::text AS tbl, att.attname
+           FROM pg_attribute AS att
+           WHERE att.attrelid = identity_domain_table($1) AND att.attnum > 0
+             AND NOT att.attisdropped""",
+        str(entity_type),
+    )
+    if not rows:
+        raise ValueError(f"no domain table for entity type {entity_type!r}")
+    return rows[0]["tbl"], frozenset(r["attname"] for r in rows) - _IDENTITY_COLUMNS
+
+
+def _checked(columns: frozenset[str], values: dict, table: str) -> list[str]:
+    unknown = set(values) - columns
+    if unknown:
+        raise ValueError(f"{table}: columns not writable here: {sorted(unknown)}")
+    return list(values)
+
+
+async def insert_domain_row(
+    conn, game_id: UUID, entity_type: str, values: dict, *, label_suffix: str | None
+) -> UUID:
+    """Insert an entity's domain row (its triggers register it); returns its id."""
+    table, columns = await domain_table(conn, entity_type)
+    names = _checked(columns, values, table)
+    cols = ", ".join(["game_id", "label_suffix", *(f'"{c}"' for c in names)])
+    marks = ", ".join(f"${i}" for i in range(1, len(names) + 3))
+    return await conn.fetchval(
+        f"INSERT INTO {table} ({cols}) VALUES ({marks}) RETURNING id",
+        game_id,
+        label_suffix,
+        *values.values(),
+    )
+
+
+async def update_domain_row(
+    conn, game_id: UUID, entity_type: str, entity_id: UUID, values: dict
+) -> tuple[str, dict | None]:
+    """(table, the row after the update as a dict, None when no row of the game has this
+    id in the type's table)."""
+    table, columns = await domain_table(conn, entity_type)
+    names = _checked(columns, values, table)
+    if not names:
+        raise ValueError(f"{table}: nothing to update")
+    sets = ", ".join(f'"{c}" = ${i}' for i, c in enumerate(names, start=3))
+    row = await conn.fetchrow(
+        f"UPDATE {table} AS dom SET {sets} WHERE dom.id = $1 AND dom.game_id = $2"
+        " RETURNING to_jsonb(dom) AS row",
+        entity_id,
+        game_id,
+        *values.values(),
+    )
+    if row is None:
+        return table, None
+    value = row["row"]
+    return table, value if isinstance(value, dict) else json.loads(value)

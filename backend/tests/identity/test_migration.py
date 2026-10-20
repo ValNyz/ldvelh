@@ -217,9 +217,9 @@ def test_classify_unknown_character_reads_the_pack(name, unknown_name, kind, to_
 
 
 async def test_name_norm_collision_gets_a_suffix_and_is_reported(test_pool):
-    """Legacy names unique only by case: the most recent gets the suffix « (2) » (a
-    character in its internal label_suffix, never shown; a location in its name), and the
-    report says so beforehand."""
+    """Legacy names unique only by case: the most recent gets the internal suffix « (2) »
+    (label_suffix, never shown, for a character as for a location: rulings R9, R14), and
+    the report says so beforehand."""
     from scripts.identity_migration_report import build_report
 
     reports = []
@@ -242,8 +242,11 @@ async def test_name_norm_collision_gets_a_suffix_and_is_reported(test_pool):
             game_id,
         )
         places = await conn.fetch(
-            "SELECT name FROM locations WHERE game_id = $1::uuid"
-            " AND lower(name) LIKE 'terminal quai 7%' ORDER BY name",
+            "SELECT l.name, l.label_suffix, er.name AS label,"
+            " display_for_player(l.id) AS shown"
+            " FROM locations l JOIN entity_registry er ON er.id = l.id"
+            " WHERE l.game_id = $1::uuid AND lower(l.name) LIKE 'terminal quai 7%'"
+            " ORDER BY er.name",
             game_id,
         )
         await identity_invariants(conn, game_id)
@@ -254,7 +257,10 @@ async def test_name_norm_collision_gets_a_suffix_and_is_reported(test_pool):
         "label": "OSSEK (2)",
         "shown": "Inconnu(e)",
     }
-    assert [p["name"] for p in places] == ["Terminal Quai 7", "terminal quai 7 (2)"]
+    assert [tuple(p.values()) for p in places] == [
+        ("Terminal Quai 7", None, "Terminal Quai 7", "Terminal Quai 7"),
+        ("terminal quai 7", "2", "terminal quai 7 (2)", "terminal quai 7"),
+    ]
     assert {(c[0], c[2], c[3]) for c in reports[0].collisions} == {
         ("character", "OSSEK", "OSSEK (2)"),
         ("location", "terminal quai 7", "terminal quai 7 (2)"),
