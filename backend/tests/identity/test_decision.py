@@ -681,7 +681,8 @@ async def test_follow_merges_redirects_a_tombstone_chain_to_the_live_entity(
 
 def _corpus_labels() -> set[str]:
     """Every label, true name, descriptor and alias of the gold corpus (scenes and
-    sequences, every split), and the surface of every gold NEW mention."""
+    sequences, every split), and the surface of every gold mention, of the narration
+    and of the history."""
     labels: set[str] = set()
     paths = [
         *sorted((FIXTURES / "scenes").glob("*.yaml")),
@@ -697,9 +698,10 @@ def _corpus_labels() -> set[str]:
                     e.get("descriptor") or "",
                 }
                 labels |= {a["text"] for a in e.get("aliases", [])}
-            for m in scene.get("gold", []):
-                if m["expected"].startswith("NEW"):
-                    labels.add(m["surface"])
+            mentions = [*scene.get("gold", [])]
+            for message in scene.get("history", []):
+                mentions += message.get("mentions", [])
+            labels |= {m["surface"] for m in mentions}
     return {label for label in labels if label.strip()}
 
 
@@ -750,16 +752,41 @@ def _rendered(lexicon) -> str:
     )
 
 
+def _pack_forms() -> set[str]:
+    """Every lexical entry of every language pack, in `_form` (« celui-là » → « celui
+    la »)."""
+    forms: set[str] = set()
+
+    def walk(value):
+        if isinstance(value, str):
+            forms.add(_form(value))
+        elif isinstance(value, list | dict):
+            for v in value.values() if isinstance(value, dict) else value:
+                walk(v)
+
+    skipped = {"lang", "version", "apostrophes", "prompt_examples"}
+    for lang in available_langs():
+        raw = yaml.safe_load((PACKS_DIR / "lang" / f"{lang}.yaml").read_text("utf-8"))
+        for key, value in raw.items():
+            if key not in skipped:
+                walk(value)
+    return forms - {""}
+
+
 def test_prompt_examples_contain_no_corpus_name():
-    """No label, alias or descriptor of the gold corpus (any split) in an example of any
-    pack nor in a rendered prompt: the examples must never teach a held-out case. Only a
-    label that is a single pack word (« le garde ») may appear."""
+    """No label, alias, descriptor or mention surface of the gold corpus (any split,
+    narrations and histories) in an example of any pack nor in a rendered prompt: the
+    examples must never teach a held-out case. Exempt: a form that is one pack entry
+    (« le garde », a pronoun the prompt lists) or a field name of the output schema."""
     heads = _heads()
-    common = set().union(*(_pack_words(lang) for lang in available_langs()))
+    fields = set(
+        decision_schema(["E1"])["properties"]["mentions"]["items"]["properties"]
+    )
+    exempt = _pack_forms() | fields
     cores = {
         core
         for label in _corpus_labels()
-        if (core := _core(label, heads)) and not (" " not in core and core in common)
+        if (core := _core(label, heads)) and core not in exempt
     }
     assert len(cores) > 300
     texts = _all_examples() + [
@@ -769,7 +796,7 @@ def test_prompt_examples_contain_no_corpus_name():
     leaked = {
         core for core in cores for text in texts if f" {core} " in f" {_form(text)} "
     }
-    assert leaked == set()
+    assert sorted(leaked) == [], ", ".join(sorted(leaked))
 
 
 def _pack_words(lang: str) -> set[str]:
