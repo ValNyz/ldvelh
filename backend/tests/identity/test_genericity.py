@@ -478,3 +478,95 @@ async def test_stop_words_and_titles_come_from_the_pack(
     assert candidates.TOKENS not in await _sources(
         test_pool, service, scene, ondrev, text, titled
     )
+
+
+def _fr_only_entries() -> set[str]:
+    """Phrases of the French pack (multi-word cues and the examples): single words may
+    also be English ones the generic rules use."""
+    fr = yaml.safe_load((PACKS_DIR / "lang" / "fr.yaml").read_text(encoding="utf-8"))
+    cues = [*fr["reveal_cues"], *fr["source_cues"], *fr["descriptor_heads"]]
+    entries = {c for c in cues if len(c.split()) > 1}
+    for examples in fr["prompt_examples"].values():
+        entries |= {e["input"] for e in examples} | {e["output"] for e in examples}
+    return entries
+
+
+@pytest.mark.integration
+async def test_pipeline_is_parametrizable_with_the_en_stub_pack(test_pool, test_user):
+    """A game in English on the witness pack: normalisation, aliases, prepass, blocking
+    and the identity prompt all follow the English pack, nothing depends on `fr`."""
+    import json
+
+    from config import get_identity_config
+    from domain.identity import NewEntitySpec, SceneContext, TurnRef
+    from llm.session import LLMSession
+    from repos import entities, messages
+    from services.identity.service import IdentityService
+    from tests.characterization.scripted_llm import ScriptedLLMProvider
+
+    text = "Reyes walks to the mill."
+    async with test_pool.acquire() as conn:
+        game = await conn.fetchval(
+            "INSERT INTO games (user_id, language) VALUES ($1, 'en') RETURNING id",
+            test_user["id"],
+        )
+        service = IdentityService(game, lang="en", config=get_identity_config())
+        protagonist = await entities.insert_domain_row(
+            conn, game, "protagonist", {"name": "Ash"}, label_suffix=None
+        )
+        made = {}
+        for entity_type, label in (
+            ("location", "The Old Mill"),
+            ("character", "Captain Reyes"),
+            ("organization", "the Guild"),
+        ):
+            made[label] = await service.create_entity(
+                conn,
+                NewEntitySpec(entity_type, label, "proper_name"),
+                turn_id=None,
+                source="world_gen",
+            )
+        norm = await conn.fetchval("SELECT ldvelh_norm_for_game($1, $2)", game, "The Old Mill")
+        reyes_aliases = {
+            a.alias for a in await entities.list_aliases(conn, game, made["Captain Reyes"])
+        }
+        conversation = await messages.insert_conversation(conn, game, 1)
+        message = await messages.insert_message(conn, game, conversation, "assistant", text, 1)
+
+        provider = ScriptedLLMProvider({"identity": json.dumps({"mentions": []})})
+        prompts = []
+        answer = provider.complete_with_tools
+
+        async def spy(*args, **kwargs):
+            prompts.extend(str(value) for value in [*args, *kwargs.values()])
+            return await answer(*args, **kwargs)
+
+        provider.complete_with_tools = spy
+        scene = SceneContext(
+            location_id=None,
+            present_ids=[],
+            recent_message_ids=[],
+            reveal_refs=[],
+            planned_npc_handles=[],
+            open_disclosure_ids=[],
+            protagonist_id=protagonist,
+            companion_id=None,
+            genre=None,
+        )
+        session = LLMSession.from_provider(provider)
+        decided = await service.decide(conn, session, text, scene)
+        resolution = await service.apply_resolution(
+            conn, TurnRef(None, message, 1), text, scene, decided
+        )
+    assert norm == "old mill"
+    assert "Reyes" in reyes_aliases
+    assert [(m.surface, m.entity_id, m.decision) for m in resolution.mentions] == [
+        ("Reyes", made["Captain Reyes"], "deterministic"),
+        ("the mill", made["The Old Mill"], "deterministic"),
+    ]
+    assert made["The Old Mill"] in {c.entity_id for c in decided.candidates.ranked()}
+    assert not decided.decisions.fallback
+    rendered = " ".join(prompts)
+    assert not {e for e in _fr_only_entries() if e in rendered}
+    english = yaml.safe_load((PACKS_DIR / "lang" / "en.yaml").read_text(encoding="utf-8"))
+    assert english["prompt_examples"]["identity"][0]["input"] in rendered

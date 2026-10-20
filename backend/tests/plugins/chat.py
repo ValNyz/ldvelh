@@ -15,7 +15,7 @@ DEFAULT_RESPONSES = {
     "world_gen": payloads.WORLD_GEN,
     "narration": payloads.NARRATION,
     "mechanical": payloads.mechanical(requires_test=False),
-    "resolver": payloads.RESOLVER_EMPTY,
+    "identity": payloads.IDENTITY_EMPTY,
     "director": payloads.DIRECTOR,
 }
 

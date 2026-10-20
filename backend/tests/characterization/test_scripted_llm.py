@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from services.extraction.resolver import RESOLVER_SYSTEM_PROMPT
+from prompts.identity_prompt import IDENTITY_PROMPT_MARKER, IDENTITY_STRONG_MARKER
 from services.llm_providers import LLMUsage, StructuredOutputMode
 from tests.characterization.scripted_llm import (
     ScriptedLLMProvider,
@@ -18,7 +18,8 @@ from tests.characterization.scripted_llm import (
     ("Tu es le **Maître du Jeu** d'un jeu de rôle narratif solo.\n...", "narration"),
     ("Tu es le **Directeur de scénario** d'un jeu de rôle narratif solo.", "director"),
     ("## YOUR ROLE\nYou decide whether a test is needed", "mechanical"),
-    (RESOLVER_SYSTEM_PROMPT, "resolver"),
+    (f"{IDENTITY_PROMPT_MARKER}\n...", "identity"),
+    (f"{IDENTITY_PROMPT_MARKER}\n{IDENTITY_STRONG_MARKER}\n...", "identity_strong"),
     ("something else", "unknown"),
 ])
 def test_classify_by_system_prompt(prompt, expected):
@@ -98,10 +99,10 @@ def test_provider_class_is_compatible_with_catalog(monkeypatch):
 
 
 async def test_complete_with_schema_answers_scripted_payload_as_json():
-    p = ScriptedLLMProvider({"extract:extract_characters": {"entities_created": []}},
+    p = ScriptedLLMProvider({"extract:extract_characters": {"proposed_entities": []}},
                             mode=StructuredOutputMode.JSON_SCHEMA)
     r = await p.complete_with_schema("sys", [], "extract_characters", {}, 0.3, 100)
-    assert json.loads(r.content) == {"entities_created": []}
+    assert json.loads(r.content) == {"proposed_entities": []}
     assert p.purposes() == ["extract:extract_characters"]
     assert p.calls[0].method == "complete_with_schema"
 
@@ -109,8 +110,8 @@ async def test_complete_with_schema_answers_scripted_payload_as_json():
 async def test_text_mode_extraction_uses_complete_with_same_label():
     from prompts.extraction import characters_prompt
 
-    p = ScriptedLLMProvider({"extract:extract_characters": {"entities_created": []}},
+    p = ScriptedLLMProvider({"extract:extract_characters": {"proposed_entities": []}},
                             mode=StructuredOutputMode.TEXT)
     r = await p.complete(characters_prompt.SYSTEM_PROMPT, [], 0.3, 100)
-    assert json.loads(r.content) == {"entities_created": []}
+    assert json.loads(r.content) == {"proposed_entities": []}
     assert p.purposes() == ["extract:extract_characters"]

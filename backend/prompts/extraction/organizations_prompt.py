@@ -5,55 +5,56 @@ Handles organization CRUD, ambient updates, and organization-related facts.
 
 from schema.extraction import OrganizationsExtraction
 
-from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur d'ORGANISATIONS d'un jeu de rôle narratif sur une station spatiale.
+SYSTEM_PROMPT = f"""Tu es l'extracteur d'ORGANISATIONS d'un jeu de rôle narratif.
 Tu analyses les textes narratifs et extrais les changements relatifs aux organisations.
 
 ## FORMAT DE SORTIE
 
 ```json
 {{
-    "entities_created": [
+    "proposed_entities": [
         {{
             "entity_type": "organization",
-            "name": "Consortium Hélios",
+            "label": "<name of the organization as the text gives it>",
+            "kind": "proper_name",
             "known_by_protagonist": true,
-            "data": {{
-                "org_type": "corporation",
-                "domain": "énergie",
+            "fields": {{
+                "org_type": "company",
+                "domain": "<domain>",
                 "size": "large",
-                "description": "Conglomérat énergétique aux pratiques douteuses",
-                "reputation": "puissant mais controversé",
-                "headquarters_ref": "Tour Hélios",
+                "description": "<what the organization is>",
+                "reputation": "<reputation>",
+                "headquarters_ref": "E7",
                 "founding_cycle": -3000
             }}
         }}
     ],
     "entities_updated": [
         {{
-            "entity_ref": "Symbiose Tech",
+            "entity_ref": "E9",
             "entity_type": "organization",
             "changes": {{
-                "reputation": "en crise après le scandale"
+                "reputation": "<new reputation>"
             }}
         }}
     ],
     "ambient_updates": [
         {{
-            "entity_ref": "Symbiose Tech",
+            "entity_ref": "E9",
             "entity_type": "organization",
-            "ambient": "Tension palpable dans les bureaux, réunions à huis clos"
+            "ambient": "<the visible effect on the organization>"
         }}
     ],
     "facts": [
         {{
             "fact_type": "revelation",
-            "description": "Symbiose Tech est en négociation secrète avec un investisseur",
-            "semantic_key": "symbiose_tech:negocie:investisseur_secret",
+            "description": "<what was revealed about the organization>",
+            "semantic_key": "<subject>:<verb>:<object>",
             "importance": 4,
             "participants": [
-                {{"entity_ref": "Symbiose Tech", "role": "actor"}}
+                {{"entity_ref": "E9", "role": "actor"}}
             ]
         }}
     ]
@@ -62,12 +63,12 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux organis
 
 ## ORGANIZATION DATA FIELDS
 
-data (for entities_created):
+fields (for proposed_entities):
 - org_type (string), domain (string), size (small|medium|large|station-wide)
 - description (string), reputation (string)
-- headquarters_ref (string — location name), founding_cycle (int)
+- headquarters_ref (string — handle of a location), founding_cycle (int)
 
-changes (for entities_updated): same keys as data above.
+changes (for entities_updated): same keys as fields above.
 
 ## AMBIENT UPDATES
 
@@ -76,7 +77,7 @@ describing the VISIBLE effect: atmosphere in offices, employee behavior, public 
 
 {STRICT_KEYS_RULE}
 
-{ENTITY_MATCHING_RULE}
+{ENTITY_REFERENCE_RULE}
 
 {FACT_RULES}
 
@@ -84,7 +85,7 @@ describing the VISIBLE effect: atmosphere in offices, employee behavior, public 
 
 ## ORGANIZATION-SPECIFIC RULES
 
-1. Only create entities with entity_type="organization"
+1. Only propose entities with entity_type="organization"
 2. org_type values: company, guild, government, ngo, informal, criminal
 3. Extract only ORGANIZATION-related facts (business events, reputation changes)
 4. For size, use: small (<10), medium (10-100), large (100+), station-wide"""
@@ -137,7 +138,7 @@ def build_user_prompt(
 {texts_joined}
 
 ## INSTRUCTIONS
-1. Extract NEW organizations not in the known list
+1. Propose NEW organizations absent from the scene list (proposed_entities)
 2. Extract updates to existing organizations (reputation, domain, etc.)
 3. Generate ambient_updates for organizations affected by active arcs
 4. Extract organization-related facts

@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from typing import NamedTuple
 from uuid import UUID
 
+from domain.identity import MentionRow
+
 logger = logging.getLogger(__name__)
 
 # Types an untyped reference (a fact participant, a relation end) may name. No order: a
@@ -51,18 +53,6 @@ class AliasRow:
     secret: bool
     source: str
     turn_id: UUID | None
-
-
-@dataclass(frozen=True)
-class MentionRow:
-    start_pos: int
-    end_pos: int
-    surface: str
-    entity_id: UUID
-    decision: str
-    evidence: str | None = None
-    entity_type: str | None = None  # set on read
-    label: str | None = None  # display_for_player, set on read
 
 
 @dataclass(frozen=True)
@@ -1286,3 +1276,127 @@ async def set_alias_flags(
         known,
         secret,
     )
+
+
+# Resolver v2 application and extractor proposals (spec §4.5.6, §4.6).
+
+
+async def similar_live_entity(
+    conn, game_id: UUID, entity_type: str, label: str, threshold: float
+) -> UUID | None:
+    """The one live entity of the type with a non-secret label or alias whose normalised
+    form is close to `label` (pg_trgm word similarity, either way round, from
+    `threshold`); None when none is, or when two are equally close (no pick)."""
+    if label is None or not label.strip():
+        return None
+    rows = await conn.fetch(
+        """WITH ref AS (SELECT ldvelh_norm_for_game($1, $3) AS norm),
+                scored AS (
+                    SELECT entity_follow_merge(al.entity_id) AS id,
+                           GREATEST(word_similarity(ref.norm, al.alias_norm),
+                                    word_similarity(al.alias_norm, ref.norm)) AS score
+                      FROM entity_aliases AS al, ref
+                     WHERE al.game_id = $1 AND al.entity_type = $2 AND NOT al.secret)
+           SELECT id, max(score) AS score FROM scored
+            WHERE score >= $4
+              AND identity_domain_row($2, id) IS NOT NULL
+              AND (identity_domain_row($2, id) ->> 'removed_cycle') IS NULL
+            GROUP BY id
+            ORDER BY score DESC
+            LIMIT 2""",
+        game_id,
+        str(entity_type),
+        label,
+        threshold,
+    )
+    if not rows or (len(rows) > 1 and rows[1]["score"] == rows[0]["score"]):
+        return None
+    return rows[0]["id"]
+
+
+async def bare_entities(conn, entity_ids: list[UUID]) -> dict[UUID, str]:
+    """Type of each live entity of `entity_ids` whose row still has no description (a
+    stub the extractors have not filled yet)."""
+    if not entity_ids:
+        return {}
+    rows = await conn.fetch(
+        """SELECT er.id, er.entity_type
+             FROM entity_registry AS er
+             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
+                  AS dom
+            WHERE er.id = ANY($1::uuid[]) AND er.merged_into IS NULL
+              AND dom.row IS NOT NULL
+              AND (dom.row ->> 'removed_cycle') IS NULL
+              AND coalesce(btrim(dom.row ->> 'description'), '') = ''""",
+        list(entity_ids),
+    )
+    return {r["id"]: r["entity_type"] for r in rows}
+
+
+@dataclass(frozen=True)
+class SceneEntityRow:
+    entity_id: UUID
+    handle: int
+    entity_type: str
+    label: str
+    known: bool
+
+
+async def scene_entity_rows(conn, entity_ids: list[UUID]) -> list[SceneEntityRow]:
+    """Handle, type, player-facing label and known flag of each entity (merges
+    followed), in the order of `entity_ids`: a character is known when the protagonist
+    knows its name, another entity when one of its non-secret aliases is known."""
+    if not entity_ids:
+        return []
+    rows = await conn.fetch(
+        """SELECT DISTINCT ON (live.id) live.id AS entity_id, er.handle, er.entity_type,
+                  display_for_player(live.id) AS label,
+                  coalesce((SELECT c.known_by_protagonist FROM characters AS c
+                             WHERE c.id = live.id),
+                           EXISTS (SELECT 1 FROM entity_aliases AS al
+                                    WHERE al.entity_id = live.id AND al.known
+                                      AND NOT al.secret)) AS known,
+                  ids.ord
+             FROM unnest($1::uuid[]) WITH ORDINALITY AS ids (id, ord)
+             CROSS JOIN LATERAL (SELECT entity_follow_merge(ids.id) AS id) AS live
+             JOIN entity_registry AS er ON er.id = live.id
+            ORDER BY live.id, ids.ord""",
+        list(entity_ids),
+    )
+    ordered = sorted(rows, key=lambda r: r["ord"])
+    return [
+        SceneEntityRow(
+            r["entity_id"], r["handle"], r["entity_type"], r["label"], bool(r["known"])
+        )
+        for r in ordered
+    ]
+
+
+async def protagonist_and_companion(
+    conn, game_id: UUID
+) -> tuple[UUID | None, UUID | None]:
+    """Ids of the game's protagonist and companion (None when it has none)."""
+    row = await conn.fetchrow(
+        """SELECT (SELECT id FROM entity_registry WHERE game_id = $1
+                     AND entity_type = 'protagonist' AND merged_into IS NULL LIMIT 1)
+                  AS protagonist,
+                  (SELECT id FROM entity_registry WHERE game_id = $1
+                     AND entity_type = 'companion' AND merged_into IS NULL LIMIT 1)
+                  AS companion""",
+        game_id,
+    )
+    return row["protagonist"], row["companion"]
+
+
+async def reference_labels(conn, game_id: UUID) -> list[tuple[str, str]]:
+    """(bare label, type) of the game's characters, locations and organizations, by type
+    then label: the legacy resolver's first-turn reference."""
+    rows = await conn.fetch(
+        """SELECT identity_bare_label(er.id) AS name, er.entity_type
+             FROM entity_registry er
+            WHERE er.game_id = $1
+              AND er.entity_type IN ('character', 'location', 'organization')
+            ORDER BY er.entity_type, er.name""",
+        game_id,
+    )
+    return [(r["name"], r["entity_type"]) for r in rows]

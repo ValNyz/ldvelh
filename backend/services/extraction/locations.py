@@ -65,8 +65,7 @@ class LocationsExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_text: str, cycle: int,
-        resolution_map=None,
+        self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         known_locs = [
             {
@@ -84,11 +83,6 @@ class LocationsExtractor(BaseExtractor):
             stub_locations=context.get("stub_locations"),
             active_arcs_with_locations=context.get("arcs_with_locations"),
         )
-        if resolution_map:
-            from prompts.extraction.shared import RESOLUTION_SECTION_HEADER
-            section = resolution_map.to_prompt_section("location")
-            if section:
-                user_prompt += f"\n\n{RESOLUTION_SECTION_HEADER}{section}"
         return locations_prompt.SYSTEM_PROMPT, user_prompt
 
     def _get_tool_schema(self) -> dict:

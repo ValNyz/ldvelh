@@ -18,8 +18,6 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from domain.identity import (
-    AliasSpec,
-    AmbiguousLabel,
     EntityRef,
     NewEntitySpec,
     UpdateRefused,
@@ -29,7 +27,6 @@ from repos.uow import current_turn_id
 from schema import (
     PROTAGONIST_REF,
     CharacterData,
-    EntityCreation,
     EntityType,
     EntityUpdate,
     FactData,
@@ -40,10 +37,10 @@ from schema import (
     ObjectCreation,
     ObjectData,
     OrganizationData,
+    ProposedEntity,
     is_protagonist_ref,
 )
 from schema.entity_changes import bound_changes
-from services.identity.classify import extracted_character_names
 
 from . import refs
 from .item_writes import write_item
@@ -71,6 +68,28 @@ _NOT_COLUMNS = frozenset(
         "headquarters_ref",
     }
 )
+
+
+# Types an extractor may propose, the data model of their row and their references to a
+# place: row column -> (field of the proposal, label of an unresolved one).
+_DATA_MODELS: dict[EntityType, type[BaseModel]] = {
+    EntityType.CHARACTER: CharacterData,
+    EntityType.LOCATION: LocationData,
+    EntityType.ORGANIZATION: OrganizationData,
+    EntityType.OBJECT: ObjectData,
+}
+_PROPOSABLE = frozenset(_DATA_MODELS)
+_REFERENCES: dict[EntityType, dict[str, tuple[str, str]]] = {
+    EntityType.CHARACTER: {
+        "workplace_id": ("workplace_ref", "create workplace"),
+        "residence_id": ("residence_ref", "create residence"),
+    },
+    EntityType.LOCATION: {"parent_id": ("parent_location_ref", "create parent")},
+    EntityType.ORGANIZATION: {
+        "headquarters_id": ("headquarters_ref", "create headquarters")
+    },
+    EntityType.OBJECT: {},
+}
 
 
 def _columns(data: BaseModel, cycle: int, **ids: UUID | None) -> dict:
@@ -546,159 +565,58 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     # ENTITY CREATION
     # =========================================================================
 
-    async def create_extracted_entity(
-        self, conn: Connection, errors: list, creation: EntityCreation, cycle: int
+    async def create_proposed_entity(
+        self, conn: Connection, errors: list, proposed: ProposedEntity, cycle: int
     ) -> UUID | None:
-        """Create (or reuse) the entity an extractor lists in entities_created, through
-        IdentityService.create_entity. A reused entity holding the label takes the
-        non-blank fields (#87); an object is never put in the inventory here, only
-        `acquired` does that (F18). None when nothing was written."""
-        et = creation.entity_type
-        if is_protagonist_ref(creation.name):
+        """The entity an extractor proposes (proposed_entities), through
+        IdentityService.create_from_extractor: its fields bounded by the type's data
+        model and its references resolved to ids first. A reused entity holding the label
+        takes the non-blank fields (#87); an object is never put in the inventory here,
+        only `acquired` does that (F18). None when nothing was written."""
+        et = proposed.entity_type
+        if is_protagonist_ref(proposed.label):
             logger.warning(
                 f"[EXTRACT] Skipping a {et} named after the reserved reference (#28)"
             )
             return None
-        identity = await self.identity(conn)
-        data = creation.data or {}
-        if et == EntityType.CHARACTER:
-            return await self._create_character(conn, errors, identity, creation, cycle)
-        if et == EntityType.LOCATION:
-            spec = _named_spec(
-                et,
-                LocationData(name=creation.name, **data),
-                cycle,
-                parent_id=await refs.optional(
-                    identity,
-                    conn,
-                    errors,
-                    "create parent",
-                    data.get("parent_location_ref"),
-                    EntityType.LOCATION.value,
-                    live=True,
-                ),
-            )
-        elif et == EntityType.ORGANIZATION:
-            spec = _named_spec(
-                et,
-                OrganizationData(name=creation.name, **data),
-                cycle,
-                headquarters_id=await refs.optional(
-                    identity,
-                    conn,
-                    errors,
-                    "create headquarters",
-                    data.get("headquarters_ref"),
-                    EntityType.LOCATION.value,
-                    live=True,
-                ),
-            )
-        elif et == EntityType.OBJECT:
-            spec = _named_spec(et, ObjectData(name=creation.name, **data), cycle)
-        else:
-            # The name is story text (#77): only the type is logged.
-            logger.warning(f"[EXTRACT] Unsupported entity type: {et}, creation skipped")
+        if et not in _PROPOSABLE:
+            # The label is story text (#77): only the type is logged.
+            logger.warning(f"[EXTRACT] Unsupported entity type: {et}, proposal skipped")
             return None
-        return await self._extracted(conn, identity, spec)
+        identity = await self.identity(conn)
+        columns = await self._proposed_columns(conn, errors, identity, proposed, cycle)
+        return await identity.create_from_extractor(
+            conn,
+            proposed.model_copy(update={"fields": columns}),
+            turn_id=await _turn_of(conn),
+        )
 
-    async def _create_character(
+    async def _proposed_columns(
         self,
         conn: Connection,
         errors: list,
         identity: IdentityService,
-        creation: EntityCreation,
+        proposed: ProposedEntity,
         cycle: int,
-    ) -> UUID:
-        data = creation.data or {}
-        location = EntityType.LOCATION.value
-        char = CharacterData(
-            name=creation.name,
-            known_by_protagonist=creation.known_by_protagonist,
-            descriptor=creation.descriptor,
-            **{k: v for k, v in data.items() if k not in _NOT_COLUMNS},
-        )
-        fields = _columns(
-            char,
-            cycle,
-            workplace_id=await refs.optional(
+    ) -> dict:
+        """The row columns of a proposal: its fields validated by the data model of its
+        type, its place references resolved to live ids (an unresolved one is counted
+        and left out)."""
+        data = {k: v for k, v in proposed.fields.items() if k not in _NOT_COLUMNS}
+        refs_of = _REFERENCES[proposed.entity_type]
+        model = _DATA_MODELS[proposed.entity_type](name=proposed.label, **data)
+        ids = {}
+        for column, (key, label) in refs_of.items():
+            ids[column] = await refs.optional(
                 identity,
                 conn,
                 errors,
-                "create workplace",
-                data.get("workplace_ref"),
-                location,
+                label,
+                proposed.fields.get(key),
+                EntityType.LOCATION.value,
                 live=True,
-            ),
-            residence_id=await refs.optional(
-                identity,
-                conn,
-                errors,
-                "create residence",
-                data.get("residence_ref"),
-                location,
-                live=True,
-            ),
-        )
-        true_name, descriptor, extra = extracted_character_names(
-            char.name, char.descriptor, identity.normalizer, identity.lexicon
-        )
-        if extra is not None:
-            # The label is the descriptor; the extractor's own name must not name
-            # another character already (the old upsert matched it first).
-            # A removed character is no target (I1): the live ones decide.
-            named = await identity.live_target(
-                conn,
-                await entity_repo.find_for_upsert(
-                    conn, self.game_id, extra, EntityType.CHARACTER.value
-                ),
-                extra,
-                EntityType.CHARACTER.value,
             )
-            if named.ambiguous:
-                raise AmbiguousLabel(
-                    extra,
-                    EntityType.CHARACTER.value,
-                    self.game_id,
-                    candidates=await identity.label_candidates(
-                        conn, extra, EntityType.CHARACTER.value
-                    ),
-                    source="extractor",
-                )
-            if named.entity_id is not None:
-                await identity.record_event(
-                    conn,
-                    "create_reused",
-                    await _turn_of(conn),
-                    named.entity_id,
-                    {
-                        "entity_type": EntityType.CHARACTER.value,
-                        "contested": named.contested,
-                        "source": "extractor",
-                        "via": "name",
-                    },
-                )
-                return named.entity_id
-        spec = NewEntitySpec(
-            EntityType.CHARACTER.value,
-            true_name or descriptor,
-            "proper_name" if true_name else "descriptor",
-            known=char.known_by_protagonist,
-            descriptor=descriptor if true_name else None,
-            fields=fields,
-            aliases=[AliasSpec(extra, "descriptor", known=True)] if extra else [],
-        )
-        return await self._extracted(conn, identity, spec)
-
-    async def _extracted(
-        self, conn: Connection, identity: IdentityService, spec: NewEntitySpec
-    ) -> UUID:
-        return await identity.create_entity(
-            conn,
-            spec,
-            turn_id=await _turn_of(conn),
-            source="extractor",
-            refill=True,
-        )
+        return _columns(model, cycle, **ids)
 
     async def create_object_by_label(
         self, conn: Connection, obj_creation: ObjectCreation, cycle: int
@@ -714,8 +632,14 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             base_value=obj_creation.base_value,
         )
         identity = await self.identity(conn)
-        obj_id = await self._extracted(
-            conn, identity, _named_spec(EntityType.OBJECT, obj_data, cycle)
+        obj_id = await identity.create_from_extractor(
+            conn,
+            ProposedEntity(
+                entity_type=EntityType.OBJECT,
+                label=obj_creation.name,
+                fields=_columns(obj_data, cycle),
+            ),
+            turn_id=await _turn_of(conn),
         )
         if not await self.is_live(conn, EntityType.OBJECT, obj_id):
             return None
@@ -732,7 +656,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     # ENTITY UPDATE ROUTING
     # =========================================================================
 
-    async def _process_entity_update(
+    async def process_entity_update(
         self, conn: Connection, errors: list, update: EntityUpdate, cycle: int
     ) -> None:
         """Apply an extracted update to the entity its reference names, live first (the
@@ -833,7 +757,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     # INVENTORY CHANGES
     # =========================================================================
 
-    async def _process_inventory_change(
+    async def process_inventory_change(
         self, conn: Connection, change: InventoryChange, cycle: int
     ) -> None:
         """Process acquire/lose/use inventory actions; the object is named by a
@@ -900,7 +824,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         )
         return await self.create_fact(conn, fact, participants, location_id)
 
-    async def _schedule_event(self, conn: Connection, errors: list, event) -> UUID:
+    async def schedule_event(self, conn: Connection, errors: list, event) -> UUID:
         """Schedule a future event from extraction; its place and participants that do
         not resolve are counted, the event is kept without them (C12)."""
         identity = await self.identity(conn)

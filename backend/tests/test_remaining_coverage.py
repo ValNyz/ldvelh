@@ -459,7 +459,7 @@ class TestNarrativeValidators:
 
 
 # =============================================================================
-# SCHEMA / EXTRACTION — InventoryChange, EntityCreation, EventScheduled
+# SCHEMA / EXTRACTION — InventoryChange, ProposedEntity, EventScheduled
 # =============================================================================
 
 
@@ -509,10 +509,10 @@ class TestExtractionValidators:
         assert ic.action == "lose"
 
     def test_entity_creation_type_normalization(self):
-        """EntityCreation normalizes entity_type."""
-        from schema.extraction import EntityCreation
+        """ProposedEntity normalizes entity_type."""
+        from schema.extraction import ProposedEntity
 
-        ec = EntityCreation(entity_type="pnj", name="Somebody")
+        ec = ProposedEntity(entity_type="pnj", label="Somebody")
         assert ec.entity_type.value == "character"
 
     def test_entity_update_type_none_passes(self):
@@ -587,7 +587,7 @@ class TestExtractionValidators:
         assert "inventory_changes" not in props
         assert "entities_removed" not in props
         # These should remain
-        assert "facts" in props or "entities_created" in props
+        assert "facts" in props or "proposed_entities" in props
 
 
 # =============================================================================

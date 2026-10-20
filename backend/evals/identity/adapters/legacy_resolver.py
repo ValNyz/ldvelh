@@ -47,7 +47,7 @@ from evals.identity.corpus import Scene, WorldEntity
 from evals.identity.lexicon import Lexicon, load_lexicon
 from evals.identity.run import Decision, RunResult
 from llm.session import LLMSession
-from services.extraction.orchestrator import _build_first_turn_reference
+from services.extraction.resolver import build_first_turn_reference
 from services.extraction.resolver import (
     MentionMapping,
     ResolutionMap,
@@ -128,7 +128,7 @@ async def reference(scene: Scene) -> Reference:
             [m.start, m.start + len(m.surface), e.label, e.type] for m, e in linked
         ]
         return Reference(last.text, annotations, _unique([e.id for _, e in linked]))
-    text, annotations = await _build_first_turn_reference(_WorldPool(scene), GAME_ID)
+    text, annotations = await build_first_turn_reference(_WorldPool(scene), GAME_ID)
     by_label = {e.label: e.id for e in scene.world}
     ids = [by_label[a[2]] for a in annotations or []]
     return Reference(text, annotations or [], _unique(ids))

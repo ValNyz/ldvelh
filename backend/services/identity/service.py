@@ -24,6 +24,7 @@ from uuid import UUID
 
 from config import IdentityConfig, get_identity_config
 from domain.identity import (
+    AliasSpec,
     AmbiguousLabel,
     EntityRef,
     FactRef,
@@ -33,14 +34,19 @@ from domain.identity import (
     RefUnresolved,
     ResolvedRef,
     RevealOutcome,
+    SceneContext,
+    TurnRef,
+    TurnResolution,
 )
+from llm.session import LLMSession
 from packs.loader import load_lang
 from repos import entities
 from repos.uow import current_turn_id
 from services.identity import lexicon as lexicons
-from services.identity import merges, reveals
+from schema.extraction import ProposedEntity
+from services.identity import merges, resolution, reveals
 from services.identity.aliases import derive
-from services.identity.classify import free_suffix
+from services.identity.classify import extracted_character_names, free_suffix
 from services.identity.normalize import Normalizer
 
 logger = logging.getLogger(__name__)
@@ -631,6 +637,151 @@ class IdentityService:
         if current.get("label_suffix"):
             return entities.SuffixChange(None, None)
         return None
+
+    # --- the resolver v2 of a turn (spec §4.5) ------------------------------------------
+
+    async def resolve_turn(
+        self,
+        conn,
+        session: LLMSession,
+        turn: TurnRef,
+        narration: str,
+        scene: SceneContext,
+    ) -> TurnResolution:
+        """Block, decide and apply the identity decisions of a turn's narration
+        (`resolution`): run it in the turn's unit of work. A caller that must not hold
+        the transaction during the model calls runs `decide` then `apply_resolution`."""
+        decided = await self.decide(conn, session, narration, scene)
+        return await self.apply_resolution(conn, turn, narration, scene, decided)
+
+    async def decide(
+        self, conn, session: LLMSession, narration: str, scene: SceneContext
+    ) -> resolution.DecidedTurn:
+        """The candidates and the decision cascade of a narration: reads and model calls
+        only, no write."""
+        return await resolution.decide(self, conn, session, narration, scene)
+
+    async def apply_resolution(
+        self,
+        conn,
+        turn: TurnRef,
+        narration: str,
+        scene: SceneContext,
+        decided: resolution.DecidedTurn,
+    ) -> TurnResolution:
+        """Write what `decide` decided (stubs, aliases, reveals, mentions, events)."""
+        return await resolution.apply(self, conn, turn, narration, scene, decided)
+
+    # --- proposals of the extractors (spec §4.6, C6-C9) ---------------------------------
+
+    async def create_from_extractor(
+        self, conn, proposed: ProposedEntity, *, turn_id: UUID | None = None
+    ) -> UUID:
+        """The entity an extractor proposes, without a model call (the resolver should
+        have seen it; a cost bound): the live entity a label or alias of the type names
+        exactly, else the one live entity of the type whose name is close
+        (`create_from_extractor` similarity, event 'extractor_reused'), else a new one
+        (`create_entity`, source extractor). `proposed.fields` are columns of its row
+        (references already ids). A character name that is not a proper name is a
+        descriptor; next to a distinct descriptor it is a second descriptor, whose
+        holder is reused when it already names a live character. Live entities only
+        (R21), an internal suffix for a verified homonym (R14), and a label only
+        aliases of several entities hold creates nothing (AmbiguousLabel, R16)."""
+        turn_id = turn_id or await current_turn_id(conn)
+        spec, extra = self._proposed_spec(proposed)
+        if extra is not None and (
+            reused := await self._reuse_by_name(conn, extra, turn_id)
+        ):
+            return reused
+        target = await self.live_target(
+            conn,
+            await entities.find_for_upsert(
+                conn, self.game_id, spec.label, spec.entity_type
+            ),
+            spec.label,
+            spec.entity_type,
+        )
+        if target.entity_id is None and not target.ambiguous:
+            similar = await entities.similar_live_entity(
+                conn,
+                self.game_id,
+                spec.entity_type,
+                spec.label,
+                self.config.create_from_extractor,
+            )
+            if similar is not None:
+                await self.record_event(
+                    conn,
+                    "extractor_reused",
+                    turn_id,
+                    similar,
+                    {"entity_type": spec.entity_type},
+                )
+                return similar
+        return await self.create_entity(
+            conn, spec, turn_id=turn_id, source="extractor", refill=True
+        )
+
+    def _proposed_spec(
+        self, proposed: ProposedEntity
+    ) -> tuple[NewEntitySpec, str | None]:
+        """(the spec of a proposal, a character's second descriptor or None)."""
+        entity_type = getattr(proposed.entity_type, "value", proposed.entity_type)
+        label = " ".join(proposed.label.split())
+        if entity_type != CHARACTER:
+            return NewEntitySpec(
+                entity_type, label, "proper_name", fields=dict(proposed.fields)
+            ), None
+        if proposed.kind == "descriptor":
+            true_name, descriptor, extra = None, label, None
+        else:
+            true_name, descriptor, extra = extracted_character_names(
+                label, proposed.descriptor, self.normalizer, self.lexicon
+            )
+        spec = NewEntitySpec(
+            CHARACTER,
+            true_name or descriptor,
+            "proper_name" if true_name else "descriptor",
+            known=proposed.known_by_protagonist,
+            descriptor=descriptor if true_name else None,
+            fields=dict(proposed.fields),
+            aliases=[AliasSpec(extra, "descriptor", known=True)] if extra else [],
+        )
+        return spec, extra
+
+    async def _reuse_by_name(
+        self, conn, name: str, turn_id: UUID | None
+    ) -> UUID | None:
+        """The live character `name` already names (event 'create_reused' via name);
+        AmbiguousLabel when several do; None when none does."""
+        named = await self.live_target(
+            conn,
+            await entities.find_for_upsert(conn, self.game_id, name, CHARACTER),
+            name,
+            CHARACTER,
+        )
+        if named.ambiguous:
+            raise AmbiguousLabel(
+                name,
+                CHARACTER,
+                self.game_id,
+                candidates=await self.label_candidates(conn, name, CHARACTER),
+                source="extractor",
+            )
+        if named.entity_id is not None:
+            await self.record_event(
+                conn,
+                "create_reused",
+                turn_id,
+                named.entity_id,
+                {
+                    "entity_type": CHARACTER,
+                    "contested": named.contested,
+                    "source": "extractor",
+                    "via": "name",
+                },
+            )
+        return named.entity_id
 
     # --- reveals and merges (spec §4.7) -------------------------------------------------
 

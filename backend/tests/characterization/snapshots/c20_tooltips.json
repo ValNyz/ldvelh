@@ -16,6 +16,23 @@
         ]
       ],
       "sequence_present": true
+    },
+    {
+      "annotations": [
+        [
+          5,
+          19,
+          "Le Quart de Cycle",
+          "location"
+        ],
+        [
+          144,
+          149,
+          "Inconnu(e)",
+          "character"
+        ]
+      ],
+      "sequence_present": true
     }
   ],
   "character_tooltip": {

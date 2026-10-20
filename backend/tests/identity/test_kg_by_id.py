@@ -286,12 +286,12 @@ async def test_world_gen_registers_every_entity_with_true_name_and_descriptor(
 async def test_seen_object_is_not_added_to_inventory_unless_acquired(
     test_pool, test_user
 ):
-    """F18: an object an extractor lists in entities_created exists, but only `acquired`
-    puts it in the inventory. No extractor routes an object through entities_created (the
+    """F18: an object an extractor proposes exists, but only `acquired`
+    puts it in the inventory. No extractor routes an object through proposed_entities (the
     inventory extractor only has objects_created, which are acquired), so the routing
     entry point is called directly."""
     from kg.specialized_populator import ExtractionPopulator
-    from schema import EntityCreation
+    from schema import ProposedEntity
     from services.extraction.inventory import InventoryExtractor
 
     game_id = await _world(test_pool, test_user)
@@ -305,8 +305,8 @@ async def test_seen_object_is_not_added_to_inventory_unless_acquired(
         )
 
     async with test_pool.acquire() as conn:
-        seen = await populator.create_extracted_entity(
-            conn, [], EntityCreation(entity_type="object", name="Clé à molette"), 2
+        seen = await populator.create_proposed_entity(
+            conn, [], ProposedEntity(entity_type="object", label="Clé à molette"), 2
         )
         assert seen is not None
         assert await owned(conn) == 0
@@ -339,11 +339,11 @@ async def test_extractor_update_by_descriptor_hits_the_entity(test_pool, test_us
         test_pool,
         game_id,
         {
-            "entities_created": [
+            "proposed_entities": [
                 {
-                    "name": "Mara Ilen",
+                    "label": "Mara Ilen",
                     "descriptor": "la docker balafrée",
-                    "data": {"mood": "calme"},
+                    "fields": {"mood": "calme"},
                 }
             ]
         },
@@ -395,8 +395,8 @@ async def test_stale_cache_cannot_drop_reveal_fact_participants(test_pool, test_
         test_pool,
         game_id,
         {
-            "entities_created": [
-                {"name": "La Kethari âgée", "known_by_protagonist": False}
+            "proposed_entities": [
+                {"label": "La Kethari âgée", "known_by_protagonist": False}
             ]
         },
     )
@@ -918,7 +918,7 @@ async def test_an_extractor_recreating_a_removed_character_gets_a_fresh_live_one
         CharactersExtractor,
         test_pool,
         game_id,
-        {"entities_created": [{"name": "Ossek", "data": {"mood": "nerveux"}}]},
+        {"proposed_entities": [{"label": "Ossek", "fields": {"mood": "nerveux"}}]},
         cycle=3,
     )
     async with test_pool.acquire() as conn:
@@ -951,7 +951,7 @@ async def test_an_extractor_recreating_a_removed_character_gets_a_fresh_live_one
         CharactersExtractor,
         test_pool,
         game_id,
-        {"entities_created": [{"name": "Ossek", "data": {"mood": "calme"}}]},
+        {"proposed_entities": [{"label": "Ossek", "fields": {"mood": "calme"}}]},
         cycle=4,
     )
     async with test_pool.acquire() as conn:
@@ -1036,7 +1036,7 @@ async def test_removing_a_live_homonym_works_and_removing_again_is_a_counted_noo
         CharactersExtractor,
         test_pool,
         game_id,
-        {"entities_created": [{"name": "Ossek"}]},
+        {"proposed_entities": [{"label": "Ossek"}]},
         cycle=3,
     )
     stats = await _run(
@@ -1148,15 +1148,15 @@ async def test_a_character_reused_through_its_extracted_name_is_recorded(
         CharactersExtractor,
         test_pool,
         game_id,
-        {"entities_created": [{"name": "le vieux docker"}]},
+        {"proposed_entities": [{"label": "le vieux docker"}]},
     )
     second = await _run(
         CharactersExtractor,
         test_pool,
         game_id,
         {
-            "entities_created": [
-                {"name": "le vieux docker", "descriptor": "l'homme au bonnet rouge"}
+            "proposed_entities": [
+                {"label": "le vieux docker", "descriptor": "l'homme au bonnet rouge"}
             ]
         },
         cycle=3,
@@ -1239,7 +1239,7 @@ async def test_untyped_references_reach_the_live_homonym_of_a_removed_character(
         CharactersExtractor,
         test_pool,
         game_id,
-        {"entities_created": [{"name": "Ossek"}]},
+        {"proposed_entities": [{"label": "Ossek"}]},
         cycle=3,
     )
     facts = await _run(
@@ -1314,7 +1314,7 @@ async def test_a_removed_character_named_by_the_extracted_name_is_not_reused(
         CharactersExtractor,
         test_pool,
         game_id,
-        {"entities_created": [{"name": "le vieux docker"}]},
+        {"proposed_entities": [{"label": "le vieux docker"}]},
     )
     async with test_pool.acquire() as conn:
         removed = await conn.fetchval(
@@ -1327,8 +1327,8 @@ async def test_a_removed_character_named_by_the_extracted_name_is_not_reused(
         test_pool,
         game_id,
         {
-            "entities_created": [
-                {"name": "le vieux docker", "descriptor": "l'homme au bonnet rouge"}
+            "proposed_entities": [
+                {"label": "le vieux docker", "descriptor": "l'homme au bonnet rouge"}
             ]
         },
         cycle=3,

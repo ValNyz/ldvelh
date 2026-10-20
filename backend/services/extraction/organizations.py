@@ -63,8 +63,7 @@ class OrganizationsExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_text: str, cycle: int,
-        resolution_map=None,
+        self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         known_orgs = [
             {
@@ -81,11 +80,6 @@ class OrganizationsExtractor(BaseExtractor):
             known_organizations=known_orgs,
             active_arcs_with_orgs=context.get("arcs_with_orgs"),
         )
-        if resolution_map:
-            from prompts.extraction.shared import RESOLUTION_SECTION_HEADER
-            section = resolution_map.to_prompt_section("organization")
-            if section:
-                user_prompt += f"\n\n{RESOLUTION_SECTION_HEADER}{section}"
         return organizations_prompt.SYSTEM_PROMPT, user_prompt
 
     def _get_tool_schema(self) -> dict:

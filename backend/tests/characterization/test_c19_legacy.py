@@ -393,9 +393,10 @@ async def test_legacy_game_new_turn_rolls_back_through_the_journal(
     before = {
         k: v for k, v in (await h.db_summary(game_id)).items() if k not in ignored
     }
-    scripted_llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
+    scripted_llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
+    scripted_llm._responses["narration"] = payloads.NARRATION_NEW_CHARACTER
     scripted_llm._responses["extract:extract_characters"] = (
-        payloads.EXTRACT_CHARACTERS_NEW
+        payloads.extract_characters_new
     )
     await h.chat(game_id, "Je reprends ma partie.")
     await h.drain()

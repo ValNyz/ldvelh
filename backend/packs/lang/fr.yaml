@@ -87,3 +87,10 @@ prompt_examples:
       output: "ALIAS true_name : le rémouleur au chapeau de feutre, présent dans la scène, se présente."
     - input: "La rémouleuse au foulard jaune s'éloigne ; Ferrant la regarde partir."
       output: "Deux personnes distinctes : « la rémouleuse au foulard jaune » n'est pas Ferrant."
+  # Proposals of the extraction prompts: an entity the narrative introduces outside the
+  # scene list, by its proper name or by what the protagonist sees.
+  extraction:
+    - input: "Malo Ferrant, le rémouleur, aiguise un couteau près de la fontaine."
+      output: '{"proposed_entities": [{"entity_type": "character", "label": "Malo Ferrant", "kind": "proper_name", "fields": {"occupation": "rémouleur"}}]}'
+    - input: "Une rémouleuse au foulard jaune attend devant l'atelier."
+      output: '{"proposed_entities": [{"entity_type": "character", "label": "Rémouleuse au foulard jaune", "kind": "descriptor", "known_by_protagonist": false}]}'

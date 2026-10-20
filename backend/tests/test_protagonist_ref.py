@@ -286,7 +286,7 @@ async def test_extracted_entity_named_after_the_token_is_skipped(test_pool, test
 
     game_id, _ = await populate_kira(test_pool, test_user)
     result, _ = await run_extractor(CharactersExtractor, test_pool, game_id, {
-        "entities_created": [{"name": PROTAGONIST_REF, "data": {"occupation": "pilote"}}]})
+        "proposed_entities": [{"label": PROTAGONIST_REF, "fields": {"occupation": "pilote"}}]})
     assert result["stats"]["entities_created"] == 0
     async with test_pool.acquire() as conn:
         assert await conn.fetchval(
@@ -312,13 +312,13 @@ async def test_extractor_user_prompt_names_the_protagonist(test_pool, test_user)
 def test_extraction_prompts_teach_the_token_not_a_name():
     from prompts.extraction import (characters_prompt, inventory_prompt, locations_prompt,
                                     narrative_arcs_prompt, organizations_prompt)
-    from prompts.extraction.shared import ENTITY_MATCHING_RULE
+    from prompts.extraction.shared import ENTITY_REFERENCE_RULE
 
-    assert f'"{PROTAGONIST_REF}"' in ENTITY_MATCHING_RULE
+    assert f'"{PROTAGONIST_REF}"' in ENTITY_REFERENCE_RULE
     for module in (characters_prompt, inventory_prompt, locations_prompt,
                    narrative_arcs_prompt, organizations_prompt):
         assert "valentin" not in module.SYSTEM_PROMPT.lower(), module.__name__
-        assert ENTITY_MATCHING_RULE in module.SYSTEM_PROMPT, module.__name__
+        assert ENTITY_REFERENCE_RULE in module.SYSTEM_PROMPT, module.__name__
     assert f'"source_ref": "{PROTAGONIST_REF}"' in narrative_arcs_prompt.SYSTEM_PROMPT
     assert f'"entity_ref": "{PROTAGONIST_REF}"' in inventory_prompt.SYSTEM_PROMPT
 

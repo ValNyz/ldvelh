@@ -120,7 +120,7 @@ from .extraction import (
     # Extraction type enum
     ExtractionType,
     # Entity changes
-    EntityCreation,
+    ProposedEntity,
     EntityRemoval,
     EntityUpdate,
     ObjectCreation,
@@ -319,7 +319,7 @@ __all__ = [
     # EXTRACTION
     # =========================================================================
     "ExtractionType",
-    "EntityCreation",
+    "ProposedEntity",
     "EntityRemoval",
     "EntityUpdate",
     "ObjectCreation",

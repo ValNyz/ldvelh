@@ -2,7 +2,7 @@
   "llm_calls": [
     "mechanical",
     "narration",
-    "resolver"
+    "identity"
   ],
   "sse": [
     "warning",

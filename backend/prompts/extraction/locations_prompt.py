@@ -5,28 +5,29 @@ Handles location CRUD, stub enrichment, ambient updates, and location-related fa
 
 from schema.extraction import LocationsExtraction
 
-from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur de LIEUX d'un jeu de rôle narratif sur une station spatiale.
+SYSTEM_PROMPT = f"""Tu es l'extracteur de LIEUX d'un jeu de rôle narratif.
 Tu analyses les textes narratifs et extrais les changements relatifs aux lieux.
 
 ## FORMAT DE SORTIE
 
 ```json
 {{
-    "entities_created": [
+    "proposed_entities": [
         {{
             "entity_type": "location",
-            "name": "Atelier Mécanique B",
+            "label": "<name of the place as the text gives it>",
+            "kind": "proper_name",
             "known_by_protagonist": true,
-            "data": {{
-                "location_type": "workshop",
-                "sector": "Quartier Ouvrier",
-                "description": "Petit atelier encombré, outils rouillés sur les murs",
-                "atmosphere": "graisseux et bruyant",
+            "fields": {{
+                "location_type": "<type>",
+                "sector": "<sector>",
+                "description": "<what the place looks like>",
+                "atmosphere": "<atmosphere>",
                 "accessible": true,
-                "notable_features": ["établi central", "odeur d'huile"],
-                "typical_crowd": "mécaniciens",
+                "notable_features": ["<feature>"],
+                "typical_crowd": "<who is usually there>",
                 "operating_hours": "08h-20h",
                 "price_range": null,
                 "parent_location_ref": null
@@ -35,29 +36,29 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux lieux.
     ],
     "entities_updated": [
         {{
-            "entity_ref": "Le Quart de Cycle",
+            "entity_ref": "E7",
             "entity_type": "location",
             "changes": {{
-                "atmosphere": "tendu après l'incident",
+                "atmosphere": "<new atmosphere>",
                 "accessible": false
             }}
         }}
     ],
     "ambient_updates": [
         {{
-            "entity_ref": "Serres Hydro-7",
+            "entity_ref": "E7",
             "entity_type": "location",
-            "ambient": "L'éclairage vacille depuis la panne, ambiance inquiétante"
+            "ambient": "<the visible effect on the place>"
         }}
     ],
     "facts": [
         {{
             "fact_type": "observation",
-            "description": "Le Terminal Quai 7 est en travaux, accès limité",
-            "semantic_key": "terminal_quai_7:en_travaux:acces_limite",
+            "description": "<a lasting truth about the place>",
+            "semantic_key": "<subject>:<verb>:<object>",
             "importance": 3,
             "participants": [
-                {{"entity_ref": "Terminal Quai 7", "role": "target"}}
+                {{"entity_ref": "E7", "role": "target"}}
             ]
         }}
     ]
@@ -66,14 +67,14 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux lieux.
 
 ## LOCATION DATA FIELDS
 
-data (for entities_created):
+fields (for proposed_entities):
 - location_type (string), sector (string), description (string)
 - atmosphere (string), accessible (bool)
 - notable_features (list of strings), typical_crowd (string)
 - operating_hours (string), price_range (string)
-- parent_location_ref (string — name of parent location)
+- parent_location_ref (string — handle of the parent location)
 
-changes (for entities_updated): same keys as data above.
+changes (for entities_updated): same keys as fields above.
 
 ## STUB ENRICHMENT
 
@@ -88,7 +89,7 @@ describing the VISIBLE effect: atmosphere shift, physical changes, crowd behavio
 
 {STRICT_KEYS_RULE}
 
-{ENTITY_MATCHING_RULE}
+{ENTITY_REFERENCE_RULE}
 
 {FACT_RULES}
 
@@ -96,7 +97,7 @@ describing the VISIBLE effect: atmosphere shift, physical changes, crowd behavio
 
 ## LOCATION-SPECIFIC RULES
 
-1. Only create entities with entity_type="location"
+1. Only propose entities with entity_type="location"
 2. For locations the protagonist hasn't visited yet: known_by_protagonist=false
 3. Prioritize enriching stub locations (entities_updated with full data)
 4. Extract only LOCATION-related facts (observations about places)"""
@@ -134,7 +135,7 @@ def build_user_prompt(
         stubs_section = (
             f"\n\nStub locations (no description — enrich via entities_updated):\n"
             f"- {stubs_str}\n"
-            f"For each stub: entity_ref = exact name, changes = "
+            f"For each stub: entity_ref = its handle, changes = "
             f"{{description, location_type, sector, atmosphere}}"
         )
 
@@ -161,7 +162,7 @@ def build_user_prompt(
 {texts_joined}
 
 ## INSTRUCTIONS
-1. Extract NEW locations not in the known list
+1. Propose NEW locations absent from the scene list (proposed_entities)
 2. Enrich STUB locations with full details if the narrative describes them
 3. Extract updates to existing locations (atmosphere, accessibility, etc.)
 4. Generate ambient_updates for locations affected by active arcs

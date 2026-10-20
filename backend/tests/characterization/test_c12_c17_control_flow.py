@@ -29,8 +29,9 @@ async def _messages(harness, game_id):
 
 async def test_c12_rollback_regenerate(harness, world_game):
     # Make the turn visibly grow the KG so the rollback has something to undo.
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
+    harness.llm._responses["narration"] = payloads.NARRATION_NEW_CHARACTER
+    harness.llm._responses["extract:extract_characters"] = payloads.extract_characters_new
     msgs_before_turn = await _messages(harness, world_game)
     db_before_turn = await harness.db_summary(world_game)
 
@@ -264,10 +265,11 @@ async def test_c16_provider_error_midstream(harness, world_game):
     assert "done" in harness.summarize(recovery)
 
 
-async def test_c17_back_to_back_turns_keep_both_extractions(harness, world_game):
-    # Both turns would trigger extraction (resolver reports a new character each time).
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+async def test_c17_back_to_back_turns_keep_both_resolutions(harness, world_game):
+    # Both turns name the new character: the first creates her, the second links her.
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
+    harness.llm._responses["narration"] = payloads.NARRATION_NEW_CHARACTER
+    harness.llm._responses["extract:extract_characters"] = payloads.extract_characters_new
     # Turn A's extraction is held in its resolver call, so it is still running when turn B
     # ends: the realistic overlap (a real LLM resolver takes seconds, turns are quick).
     gate = asyncio.Event()
@@ -278,7 +280,7 @@ async def test_c17_back_to_back_turns_keep_both_extractions(harness, world_game)
 
         async def wrapper(system_prompt, *a, **k):
             from tests.characterization.scripted_llm import classify_call
-            if classify_call(system_prompt) == "resolver" and not first_resolver["held"]:
+            if classify_call(system_prompt) == "identity" and not first_resolver["held"]:
                 first_resolver["held"] = True
                 await gate.wait()
             return await original(system_prompt, *a, **k)
@@ -293,10 +295,22 @@ async def test_c17_back_to_back_turns_keep_both_extractions(harness, world_game)
     finally:
         gate.set()
     await harness.drain()
-    # extraction_logs has no message_id column; the resolver call count is the direct proxy
-    # for "an extraction ran for this turn" (one resolver call per non-skipped extraction).
-    resolver_calls = harness.llm.purposes().count("resolver")
-    assert resolver_calls >= 2, f"only {resolver_calls} extraction(s) ran for 2 turns"
+    # One identity call per resolved turn, and each turn keeps its own mentions (#154).
+    resolver_calls = harness.llm.purposes().count("identity")
+    assert resolver_calls >= 2, f"only {resolver_calls} resolution(s) ran for 2 turns"
+    async with harness.pool.acquire() as conn:
+        per_message = await conn.fetch(
+            """SELECT m.id, count(em.id) AS mentions
+                 FROM messages AS m
+                 LEFT JOIN entity_mentions AS em ON em.message_id = m.id
+                WHERE m.game_id = $1 AND m.role = 'assistant'
+                GROUP BY m.id, m.sequence ORDER BY m.sequence DESC LIMIT 2""",
+            world_game)
+        created = await conn.fetchval(
+            "SELECT count(*) FROM characters WHERE game_id = $1 AND name = $2",
+            world_game, payloads.NEW_CHARACTER_NAME)
+    assert [r["mentions"] > 0 for r in per_message] == [True, True]
+    assert created == 1
 
 
 async def test_c12c_day_change_turn_with_roll_rolls_back_cleanly(harness, fate_game, monkeypatch):

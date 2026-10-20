@@ -22,9 +22,9 @@ async def test_every_write_path_of_a_turn_journals_under_it(harness, world_game)
             "SELECT coalesce(max(id), 0) FROM world_changes"
         )
 
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
     harness.llm._responses["extract:extract_characters"] = (
-        payloads.EXTRACT_CHARACTERS_NEW
+        payloads.extract_characters_new
     )
     harness.llm._responses["director"] = json.dumps(
         {
@@ -39,11 +39,13 @@ async def test_every_write_path_of_a_turn_journals_under_it(harness, world_game)
         }
     )
     harness.llm._responses["narration"] = narration_with(
+        narrative_text=payloads.NEW_CHARACTER_TEXT,
         day_transition={"new_cycle": 12, "new_date": "Jour 12"},
         entity_reveals=[
             {
                 "entity_type": "character",
-                # Only extraction creates her: only phase 3 can apply this reveal.
+                # Only the turn's resolution creates her: only phase 3 can apply this
+                # reveal.
                 "current_name": payloads.NEW_CHARACTER_NAME,
                 "real_name": "Nora Révélée",
             }
@@ -85,10 +87,12 @@ async def test_every_write_path_of_a_turn_journals_under_it(harness, world_game)
         "entity_registry",
         "director_plans",
         "narrative_arcs",
+        "entity_mentions",
+        "entity_aliases",
     } <= tables
     assert ("characters", "I") in {
         (r["table_name"], r["op"]) for r in changes
-    }  # extracted
+    }  # created by the identity service (resolver v2)
     assert [r["turn_id"] for r in renames] == [turn_id]  # phase 3 reveal
     assert "extraction_logs" not in tables  # not a world table: not journaled
     assert log_turns and {r["turn_id"] for r in log_turns} == {turn_id}
@@ -115,7 +119,9 @@ async def test_world_generation_and_initial_director_are_not_journaled(harness):
 async def test_extractor_run_without_turn_writes_unjournaled(test_pool, test_user):
     """The unit-test path: an extractor run with no turn writes, but journals nothing."""
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Theta"}]}
+        test_pool,
+        test_user,
+        {"proposed_entities": [{"entity_type": "character", "label": "Theta"}]},
     )
     result = await extractor.run("texte", {}, 1)
 

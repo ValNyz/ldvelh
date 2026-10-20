@@ -126,15 +126,15 @@ async def test_unroutable_entity_warnings_carry_no_entity_name(test_pool, test_u
     """An unsupported creation type is logged without the name; an unknown update target
     is a counted unresolved reference, with no name above DEBUG."""
     from kg.specialized_populator import ExtractionPopulator
-    from schema import EntityCreation
+    from schema import ProposedEntity
     from tests.helpers import extractor_for
 
     extractor, game_id = await extractor_for(test_pool, test_user, {
         "entities_updated": [{"entity_ref": STORY, "changes": {"mood": "calme"}}]})
     with caplog.at_level(logging.DEBUG):
         async with test_pool.acquire() as conn:
-            await ExtractionPopulator(test_pool, game_id).create_extracted_entity(
-                conn, [], EntityCreation(entity_type="protagonist", name=STORY), 1)
+            await ExtractionPopulator(test_pool, game_id).create_proposed_entity(
+                conn, [], ProposedEntity(entity_type="protagonist", label=STORY), 1)
         result = await extractor.run("texte", {}, 1)
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     infos = [r.getMessage() for r in caplog.records if r.levelno >= logging.INFO]

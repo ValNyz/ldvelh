@@ -1,4 +1,5 @@
-"""#17: resolver-inferred extractors run only for new entities absent from the registry."""
+"""#17, #154: the extractors run for the entity types the turn's resolution really
+created or left bare (a stub without description), plus the narrator's triggers."""
 
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,28 +8,26 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
-from domain.identity import EntityRef, ResolvedRef
+from config import get_identity_config
+from domain.identity import EntityRef, NewEntitySpec, ResolvedRef, TurnResolution
 from repos import entities
 from services.extraction import orchestrator
 from services.extraction.orchestrator import EXTRACTOR_MAP, resolver_triggers
-from services.extraction.resolver import MentionMapping, ResolutionMap
+from services.identity.service import IdentityService
 
 pytestmark = pytest.mark.integration
 
 LOCATION_ID = uuid4()
 
 
-def _map(*mappings: MentionMapping) -> ResolutionMap:
-    return ResolutionMap(mappings=list(mappings))
-
-
-def _quai(is_new: bool = True) -> MentionMapping:
-    return MentionMapping(
-        mention="le quai", canonical="Le Quai 9", entity_type="location", is_new=is_new
+def _resolution(*new_types: str) -> TurnResolution:
+    return TurnResolution(
+        mentions=[], created=[], aliases_added=0, reveals=[], scene_entities=[],
+        new_types=set(new_types), escalated=False, fallback=False,
     )
 
 
-async def _game(test_pool, test_user, registry_names=()):
+async def _game(test_pool, test_user):
     game_id = uuid4()
     async with test_pool.acquire() as conn:
         await conn.execute(
@@ -36,13 +35,6 @@ async def _game(test_pool, test_user, registry_names=()):
             game_id,
             test_user["id"],
         )
-        for name in registry_names:
-            await conn.execute(
-                "INSERT INTO entity_registry (game_id, entity_type, name) "
-                "VALUES ($1, 'location', $2)",
-                game_id,
-                name,
-            )
     return game_id
 
 
@@ -58,20 +50,11 @@ def _spies():
     return {k: _cls(k) for k in EXTRACTOR_MAP}, instances
 
 
-async def _run(test_pool, game_id, resolution_map, triggers):
+async def _run(test_pool, game_id, resolution, triggers):
     spies, _ = _spies()
     with (
         patch.dict(EXTRACTOR_MAP, spies),
-        patch.object(
-            orchestrator,
-            "resolve_entities",
-            AsyncMock(return_value=(resolution_map, None)),
-        ),
-        patch.object(
-            orchestrator,
-            "_build_first_turn_reference",
-            AsyncMock(return_value=("ref", None)),
-        ),
+        patch.object(orchestrator, "resolve_phase", AsyncMock(return_value=resolution)),
     ):
         await orchestrator.run_resolve_and_extract(
             test_pool,
@@ -85,32 +68,32 @@ async def _run(test_pool, game_id, resolution_map, triggers):
     return spies
 
 
-async def test_all_existing_mappings_and_no_narrator_trigger_run_nothing(
-    test_pool, test_user
-):
-    game_id = await _game(test_user=test_user, test_pool=test_pool)
-    rmap = _map(_quai(is_new=False))
-    async with test_pool.acquire() as conn:
-        assert await resolver_triggers(conn, game_id, rmap) == set()
-    spies = await _run(test_pool, game_id, rmap, [])
-    assert all(not cls.called for cls in spies.values())
+def test_nothing_resolved_adds_nothing():
+    assert resolver_triggers(None) == set()
+    assert resolver_triggers(_resolution()) == set()
 
 
-async def test_new_location_adds_locations(test_pool, test_user):
+def test_new_or_bare_types_add_their_extractor():
+    assert resolver_triggers(_resolution("location")) == {"locations"}
+    assert resolver_triggers(_resolution("character", "object")) == {
+        "characters",
+        "inventory",
+    }
+
+
+def test_types_without_extractor_are_dropped():
+    assert resolver_triggers(_resolution("arc", "protagonist")) == set()
+
+
+async def test_no_new_type_and_no_narrator_trigger_run_nothing(test_pool, test_user):
     game_id = await _game(test_pool, test_user)
-    async with test_pool.acquire() as conn:
-        assert await resolver_triggers(conn, game_id, _map(_quai())) == {"locations"}
-
-
-async def test_new_mapping_already_in_registry_does_not_trigger(test_pool, test_user):
-    game_id = await _game(test_pool, test_user, ["le quai 9"])
-    async with test_pool.acquire() as conn:
-        assert await resolver_triggers(conn, game_id, _map(_quai())) == set()
+    spies = await _run(test_pool, game_id, _resolution(), [])
+    assert all(not cls.called for cls in spies.values())
 
 
 async def test_narrator_triggers_are_kept_for_existing_entities(test_pool, test_user):
     game_id = await _game(test_pool, test_user)
-    spies = await _run(test_pool, game_id, _map(_quai(is_new=False)), ["locations"])
+    spies = await _run(test_pool, game_id, _resolution(), ["locations"])
     assert spies["locations"].called
     assert not spies["characters"].called
 
@@ -118,7 +101,7 @@ async def test_narrator_triggers_are_kept_for_existing_entities(test_pool, test_
 async def test_trigger_log_names_both_origins(test_pool, test_user, caplog):
     game_id = await _game(test_pool, test_user)
     with caplog.at_level(logging.INFO, logger="services.extraction.orchestrator"):
-        await _run(test_pool, game_id, _map(_quai()), ["characters"])
+        await _run(test_pool, game_id, _resolution("location"), ["characters"])
     lines = [
         r.getMessage() for r in caplog.records if "Triggers for game" in r.getMessage()
     ]
@@ -128,49 +111,28 @@ async def test_trigger_log_names_both_origins(test_pool, test_user, caplog):
     )
 
 
-async def test_accent_case_comparison_is_done_in_sql(test_pool, test_user):
-    game_id = await _game(test_pool, test_user, ["écluse"])
-    m = MentionMapping(
-        mention="l'écluse", canonical="Écluse", entity_type="location", is_new=True
-    )
-    async with test_pool.acquire() as conn:
-        assert await resolver_triggers(conn, game_id, _map(m)) == set()
-
-
-async def test_mix_of_new_and_existing_mappings_triggers_only_the_new_one(
-    test_pool, test_user
-):
-    game_id = await _game(test_pool, test_user, ["Le Quai 9"])
-    new_char = MentionMapping(
-        mention="Ana", canonical="Ana", entity_type="character", is_new=True
-    )
-    async with test_pool.acquire() as conn:
-        assert await resolver_triggers(conn, game_id, _map(_quai(), new_char)) == {
-            "characters"
-        }
-
-
-async def test_unknown_entity_type_is_dropped(test_pool, test_user):
+async def test_a_failed_resolution_keeps_narrator_triggers(test_pool, test_user):
     game_id = await _game(test_pool, test_user)
-    arc = MentionMapping(mention="x", canonical="X", entity_type="arc", is_new=True)
-    async with test_pool.acquire() as conn:
-        assert await resolver_triggers(conn, game_id, _map(arc)) == set()
-
-
-async def test_lookup_failure_keeps_narrator_triggers(
-    test_pool, test_user, caplog, monkeypatch
-):
-    game_id = await _game(test_pool, test_user)
-    monkeypatch.setattr(
-        orchestrator, "resolver_triggers", AsyncMock(side_effect=RuntimeError("boom"))
-    )
-    with caplog.at_level(logging.INFO, logger="services.extraction.orchestrator"):
-        spies = await _run(test_pool, game_id, _map(_quai()), ["characters"])
+    spies = await _run(test_pool, game_id, None, ["characters"])
     assert spies["characters"].called and not spies["locations"].called
-    assert any(
-        r.levelno == logging.WARNING and "lookup failed" in r.getMessage()
-        for r in caplog.records
-    )
+
+
+async def test_only_entities_without_description_are_bare(test_pool, test_user):
+    game_id = await _game(test_pool, test_user)
+    service = IdentityService(game_id, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        stub = await service.create_entity(
+            conn, NewEntitySpec("location", "Quai 9", "proper_name"),
+            turn_id=None, source="resolver",
+        )
+        described = await service.create_entity(
+            conn,
+            NewEntitySpec("location", "Halle aux Cordiers", "proper_name",
+                          fields={"description": "Une halle couverte."}),
+            turn_id=None, source="world_gen",
+        )
+        bare = await entities.bare_entities(conn, [stub, described])
+    assert bare == {stub: "location"}
 
 
 # =============================================================================
@@ -225,9 +187,7 @@ async def _reapply(test_pool, game_id, assistant_message_id, character_error=Non
         patch.object(
             orchestrator.IdentityService, "for_game", AsyncMock(return_value=identity)
         ),
-        patch.object(
-            orchestrator, "resolve_entities", AsyncMock(return_value=(None, None))
-        ),
+        patch.object(orchestrator, "resolve_phase", AsyncMock(return_value=None)),
     ):
         await orchestrator.run_resolve_and_extract(
             test_pool,

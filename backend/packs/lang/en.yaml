@@ -31,3 +31,6 @@ prompt_examples:
   identity:
     - input: "\"I'm Rafe Collins,\" says the man in the grey coat."
       output: "ALIAS true_name: the man in the grey coat, present in the scene, introduces himself."
+  extraction:
+    - input: "Rafe Collins, the knife grinder, sharpens a blade by the fountain."
+      output: '{"proposed_entities": [{"entity_type": "character", "label": "Rafe Collins", "kind": "proper_name", "fields": {"occupation": "knife grinder"}}]}'

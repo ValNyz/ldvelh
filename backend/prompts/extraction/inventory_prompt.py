@@ -6,9 +6,9 @@ Handles object creation deduplicated by object label, inventory changes, and inv
 from schema import PROTAGONIST_REF
 from schema.extraction import InventoryExtraction
 
-from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur d'INVENTAIRE d'un jeu de rôle narratif sur une station spatiale.
+SYSTEM_PROMPT = f"""Tu es l'extracteur d'INVENTAIRE d'un jeu de rôle narratif.
 Tu analyses les textes narratifs et crées les fiches d'objets acquis et les changements d'inventaire.
 
 ## FORMAT DE SORTIE
@@ -17,36 +17,36 @@ Tu analyses les textes narratifs et crées les fiches d'objets acquis et les cha
 {{
     "objects_created": [
         {{
-            "name": "Carte d'accès niveau 2",
+            "name": "<name of the acquired object>",
             "category": "tech",
-            "description": "Carte magnétique bleue avec puce intégrée",
+            "description": "<what the object looks like>",
             "transportable": true,
             "stackable": false,
             "base_value": 50,
             "quantity": 1,
-            "from_hint": "Carte d'accès temporaire"
+            "from_hint": "<the inventory hint it formalizes>"
         }}
     ],
     "inventory_changes": [
         {{
             "action": "acquire",
             "object_ref": null,
-            "object_hint": "Carte d'accès temporaire",
+            "object_hint": "<the inventory hint>",
             "quantity_delta": 1,
-            "reason": "Donnée par l'accueil"
+            "reason": "<how it was acquired>"
         }},
         {{
             "action": "use",
-            "object_ref": "Terminal personnel",
+            "object_ref": "E21",
             "quantity_delta": 1,
-            "reason": "Consulté pour chercher l'itinéraire"
+            "reason": "<what it was used for>"
         }}
     ],
     "facts": [
         {{
             "fact_type": "acquisition",
-            "description": "Kira reçoit une carte d'accès niveau 2 de l'accueil",
-            "semantic_key": "kira:receives:carte_acces_2",
+            "description": "<what the protagonist acquired, and from whom>",
+            "semantic_key": "<subject>:<verb>:<object>",
             "importance": 3,
             "participants": [
                 {{"entity_ref": "{PROTAGONIST_REF}", "role": "actor"}}
@@ -61,7 +61,8 @@ Tu analyses les textes narratifs et crées les fiches d'objets acquis et les cha
 Existing objects are listed by their label.
 - If the item is an existing object (same object, even written with another case, accents
   or article), do NOT create a new objects_created entry.
-  Instead, use inventory_changes with object_ref = the existing object label, exactly as listed.
+  Instead, use inventory_changes with object_ref = the existing object's handle (E<n>) from the
+  scene list, else its label exactly as listed.
 - This prevents the same object being recorded twice under two spellings.
 
 ## OBJECT FIELDS
@@ -79,12 +80,12 @@ Existing objects are listed by their label.
 
 - action: acquire, lose, use
 - For "acquire" with a new object: set object_ref=null, object_hint=item description
-- For "acquire" with an existing object: set object_ref=existing object label
-- For "lose" and "use": object_ref is required (exact name of existing object)
+- For "acquire" with an existing object: set object_ref=its handle (else its exact label)
+- For "lose" and "use": object_ref is required (handle, else exact label of the object)
 
 {STRICT_KEYS_RULE}
 
-{ENTITY_MATCHING_RULE}
+{ENTITY_REFERENCE_RULE}
 
 {FACT_RULES}
 

@@ -21,7 +21,7 @@ from domain.identity import NewEntitySpec, SceneContext
 from evals.identity.corpus import HistoryMessage, Scene, WorldEntity
 from evals.identity.scorer import LINKS
 from repos import entities, messages
-from repos.entities import MentionRow
+from domain.identity import MentionRow
 from services.identity.service import IdentityService
 
 SOURCE = "world_gen"

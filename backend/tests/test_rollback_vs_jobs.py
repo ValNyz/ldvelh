@@ -41,9 +41,10 @@ async def _new_character_count(harness, game_id) -> int:
 
 
 def _script_new_character(harness):
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
+    harness.llm._responses["narration"] = payloads.NARRATION_NEW_CHARACTER
     harness.llm._responses["extract:extract_characters"] = (
-        payloads.EXTRACT_CHARACTERS_NEW
+        payloads.extract_characters_new
     )
 
 
@@ -56,7 +57,7 @@ def _hold_first_resolver(harness) -> tuple[asyncio.Event, asyncio.Event]:
         original = getattr(harness.llm, method_name)
 
         async def wrapper(system_prompt, *a, **k):
-            if classify_call(system_prompt) == "resolver" and not held["done"]:
+            if classify_call(system_prompt) == "identity" and not held["done"]:
                 held["done"] = True
                 entered.set()
                 await gate.wait()
@@ -102,7 +103,7 @@ async def test_regenerate_extracts_the_replacement_turn(harness, world_game):
         gate.set()
     await harness.drain()
 
-    assert harness.llm.purposes().count("resolver") >= 1
+    assert harness.llm.purposes().count("identity") >= 1
     assert await _new_character_count(harness, world_game) == 1
 
 
@@ -121,7 +122,7 @@ async def test_job_past_the_cancel_timeout_writes_nothing(
                 await release.wait()
             except asyncio.CancelledError:
                 continue
-        return payloads.EXTRACT_CHARACTERS_NEW, None
+        return payloads.extract_characters_new(user_prompt), None
 
     results: list[dict] = []
     real_run = CharactersExtractor.run

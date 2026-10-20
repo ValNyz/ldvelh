@@ -957,10 +957,10 @@ class TestExtractorWrites:
     @pytest.mark.asyncio
     async def test_character_is_created(self, client, test_user, test_pool):
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        stats = await _extract(test_pool, game_id, _characters(), {"entities_created": [{
-            "name": "Elena Vasquez",
+        stats = await _extract(test_pool, game_id, _characters(), {"proposed_entities": [{
+            "label": "Elena Vasquez",
             "known_by_protagonist": True,
-            "data": {"description": "Grande, cheveux courts noirs", "species": "human",
+            "fields": {"description": "Grande, cheveux courts noirs", "species": "human",
                      "gender": "femme", "occupation": "ingénieure réseau",
                      "mood": "anxieuse"},
         }]})
@@ -982,9 +982,9 @@ class TestExtractorWrites:
         from services.extraction.locations import LocationsExtractor
 
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        stats = await _extract(test_pool, game_id, LocationsExtractor, {"entities_created": [{
-            "name": "Marché Noir Section 9",
-            "data": {"location_type": "market", "sector": "Quartier Ouvrier",
+        stats = await _extract(test_pool, game_id, LocationsExtractor, {"proposed_entities": [{
+            "label": "Marché Noir Section 9",
+            "fields": {"location_type": "market", "sector": "Quartier Ouvrier",
                      "parent_location_ref": "Bloc Tournesol",
                      "description": "Un couloir sombre où des stands vendent de tout.",
                      "atmosphere": "tendue et animée"},
@@ -1006,9 +1006,9 @@ class TestExtractorWrites:
 
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
         stats = await _extract(test_pool, game_id, OrganizationsExtractor, {
-            "entities_created": [{
-                "name": "Syndicat des Dockers",
-                "data": {"org_type": "union", "domain": "transport",
+            "proposed_entities": [{
+                "label": "Syndicat des Dockers",
+                "fields": {"org_type": "union", "domain": "transport",
                          "description": "Syndicat influent qui contrôle le quai central."},
             }]})
 
@@ -1264,8 +1264,8 @@ class TestExtractorWrites:
         descriptor; a reveal naming it with an article finds it (find_entity), sets its true
         name and marks it known, registry included."""
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        await _extract(test_pool, game_id, _characters(), {"entities_created": [{
-            "name": "Kethari âgée", "known_by_protagonist": False}]})
+        await _extract(test_pool, game_id, _characters(), {"proposed_entities": [{
+            "label": "Kethari âgée", "known_by_protagonist": False}]})
 
         async with test_pool.acquire() as conn:
             created = await conn.fetchrow(
@@ -1780,14 +1780,14 @@ class TestFirstTurnResolver:
 
     @pytest.mark.asyncio
     async def test_first_turn_reference_built(self, client, test_user, test_pool):
-        """_build_first_turn_reference returns entity names from DB."""
-        from services.extraction.orchestrator import _build_first_turn_reference
+        """build_first_turn_reference returns entity names from DB."""
+        from services.extraction.resolver import build_first_turn_reference
 
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
         )
 
-        text, annotations = await _build_first_turn_reference(test_pool, game_id)
+        text, annotations = await build_first_turn_reference(test_pool, game_id)
 
         assert len(text) > 0
         assert annotations is not None

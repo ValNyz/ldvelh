@@ -830,7 +830,8 @@ def _stub_lexicon() -> Lexicon:
     raw["reveal_cues"] = ["the name is glorp"]
     raw["source_cues"] = ["blinkplate"]
     raw["prompt_examples"] = {
-        "identity": [{"input": "Lang input sample.", "output": "Lang output sample."}]
+        "identity": [{"input": "Lang input sample.", "output": "Lang output sample."}],
+        "extraction": [],
     }
     genre = GenrePack.model_validate(
         {

@@ -4,6 +4,7 @@ from uuid import UUID
 
 import pytest
 
+from domain.identity import MentionRow
 from repos import entities, turns
 from repos.uow import uow
 
@@ -134,7 +135,7 @@ async def test_mentions_follow_the_tombstone(test_pool, game):
             message,
             None,
             [
-                entities.MentionRow(0, 15, "La Kethari âgée", drop, "match"),
+                MentionRow(0, 15, "La Kethari âgée", drop, "match"),
             ],
         )
         await conn.fetchval("SELECT merge_entities($1, $2, 'reveal', NULL)", keep, drop)
@@ -276,7 +277,7 @@ async def test_an_ambiguous_name_creates_no_location(test_pool, game):
     from kg.populator import KnowledgeGraphPopulator
     from kg.specialized_populator import ExtractionPopulator
     from services.turn_effects import _resolve_location
-    from schema import EntityCreation
+    from schema import ProposedEntity
     from domain.identity import AmbiguousLabel
 
     async with test_pool.acquire() as conn:
@@ -289,8 +290,8 @@ async def test_an_ambiguous_name_creates_no_location(test_pool, game):
                 "Dock",
             )
         with pytest.raises(AmbiguousLabel):
-            await ExtractionPopulator(None, game).create_extracted_entity(
-                conn, [], EntityCreation(entity_type="location", name="Dock"), 1
+            await ExtractionPopulator(None, game).create_proposed_entity(
+                conn, [], ProposedEntity(entity_type="location", label="Dock"), 1
             )
         stub = await _resolve_location(
             conn, KnowledgeGraphPopulator(None, game), "le Dock", 2
@@ -307,17 +308,17 @@ async def test_a_contested_character_name_leaves_the_label_holder_untouched(
     """The old code skipped a name matching another character's descriptor: the holder of
     the label is not rewritten with data that may describe the other one."""
     from kg.specialized_populator import ExtractionPopulator
-    from schema import EntityCreation
+    from schema import ProposedEntity
 
     async with test_pool.acquire() as conn:
         holder = await _character(conn, game, true_name="Marek", mood="calme")
         other = await _character(conn, game, true_name="Ilya")
         await _alias(conn, game, other, "character", "Marek")
-        result = await ExtractionPopulator(None, game).create_extracted_entity(
+        result = await ExtractionPopulator(None, game).create_proposed_entity(
             conn,
             [],
-            EntityCreation(
-                entity_type="character", name="Marek", data={"mood": "furieux"}
+            ProposedEntity(
+                entity_type="character", label="Marek", fields={"mood": "furieux"}
             ),
             1,
         )
@@ -366,14 +367,14 @@ async def test_a_reveal_never_deletes_through_another_characters_alias(test_pool
 
 async def test_a_descriptive_extracted_name_is_never_a_true_name(test_pool, game):
     from kg.specialized_populator import ExtractionPopulator
-    from schema import EntityCreation
+    from schema import ProposedEntity
 
     async with test_pool.acquire() as conn:
-        guard = await ExtractionPopulator(None, game).create_extracted_entity(
+        guard = await ExtractionPopulator(None, game).create_proposed_entity(
             conn,
             [],
-            EntityCreation(
-                entity_type="character", name="Le garde", descriptor="Garde en armure"
+            ProposedEntity(
+                entity_type="character", label="Le garde", descriptor="Garde en armure"
             ),
             1,
         )
@@ -420,17 +421,17 @@ async def test_a_reveal_without_real_name_marks_the_true_name_alias_known(
 
 async def test_an_extractor_descriptor_alias_carries_its_turn(test_pool, game):
     from kg.specialized_populator import ExtractionPopulator
-    from schema import EntityCreation
+    from schema import ProposedEntity
 
     async with test_pool.acquire() as conn:
         turn_id = await turns.open_turn(conn, game)
         async with uow(conn, turn_id):
-            guard = await ExtractionPopulator(None, game).create_extracted_entity(
+            guard = await ExtractionPopulator(None, game).create_proposed_entity(
                 conn,
                 [],
-                EntityCreation(
+                ProposedEntity(
                     entity_type="character",
-                    name="Le garde",
+                    label="Le garde",
                     descriptor="Garde en armure",
                 ),
                 1,

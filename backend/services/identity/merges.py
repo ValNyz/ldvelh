@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Entities made by game creation: never merged (spec §4.10).
 UNMERGEABLE_TYPES = frozenset({"protagonist", "companion"})
-_MANDATORY = "is_mandatory"
+_REQUIRED_FLAG = "is_mandatory"
 
 
 async def refusal(
@@ -46,7 +46,7 @@ async def refusal(
         return "already_merged"
     keep_row = await entities.domain_row(conn, keep.entity_type, keep_id) or {}
     drop_row = await entities.domain_row(conn, drop.entity_type, drop_id) or {}
-    if keep_row.get(_MANDATORY) and drop_row.get(_MANDATORY):
+    if keep_row.get(_REQUIRED_FLAG) and drop_row.get(_REQUIRED_FLAG):
         return "both_mandatory"
     return None
 

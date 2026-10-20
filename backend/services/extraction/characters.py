@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from kg import refs
 from prompts.extraction import characters_prompt
 from schema import EntityType
-from schema.extraction import EntityCreation
+from schema.extraction import ProposedEntity
 
 from .base import BaseExtractor
 
@@ -71,8 +71,7 @@ class CharactersExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_text: str, cycle: int,
-        resolution_map=None,
+        self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         known_chars = [
             {
@@ -92,11 +91,6 @@ class CharactersExtractor(BaseExtractor):
             known_characters=known_chars,
             active_arcs_with_characters=context.get("arcs_with_characters"),
         )
-        if resolution_map:
-            from prompts.extraction.shared import RESOLUTION_SECTION_HEADER
-            section = resolution_map.to_prompt_section("character")
-            if section:
-                user_prompt += f"\n\n{RESOLUTION_SECTION_HEADER}{section}"
         return characters_prompt.SYSTEM_PROMPT, user_prompt
 
     def _get_tool_schema(self) -> dict:
@@ -115,11 +109,11 @@ class CharactersExtractor(BaseExtractor):
         await self._write_facts(conn, stats, raw_result, cycle)
         return stats
 
-    def _skip_creation(self, ec: EntityCreation) -> bool:
+    def _skip_proposal(self, proposed: ProposedEntity) -> bool:
         """Skip the companion's name to avoid duplication."""
         companion_name = getattr(self, '_companion_name', None)
-        if companion_name and ec.name.lower() == companion_name:
-            logger.info(f"[CHARACTERS] Skipping companion '{ec.name}' (already in companions table)")
+        if companion_name and proposed.label.lower() == companion_name:
+            logger.info("[CHARACTERS] Skipping the companion (already in companions table)")
             return True
         return False
 

@@ -1,5 +1,6 @@
 """Game repository: DB reads that build domain objects."""
 
+import json
 import logging
 from uuid import UUID
 
@@ -131,3 +132,14 @@ async def get_init_params(conn, game_id: UUID) -> dict:
         game_id,
     )
     return dict(row) if row else {}
+
+
+async def latest_planned_events(conn, game_id: UUID) -> list[dict]:
+    """The planned events of the Director's latest plan ([] when none)."""
+    raw = await conn.fetchval(
+        """SELECT planned_events FROM director_plans WHERE game_id = $1
+            ORDER BY created_at DESC LIMIT 1""",
+        game_id,
+    )
+    events = json.loads(raw) if isinstance(raw, str) else raw
+    return [e for e in events or [] if isinstance(e, dict)]

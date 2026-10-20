@@ -198,6 +198,16 @@ class Normalizer:
             return any(_initial(w).isupper() for w in words[1:])
         return True
 
+    def strip_article(self, text: str, lexicon: Lexicon) -> str:
+        """`text` without one leading article or elision when something follows it, case
+        kept (« la jeune femme » → « jeune femme », « l'archiviste » → « archiviste »)."""
+        words = text.split()
+        if len(words) > 1 and self.key(words[0]) in lexicon.articles:
+            return " ".join(words[1:])
+        if words and (unglued := self.drop_elided(words[0], lexicon.elisions)):
+            return " ".join([unglued, *words[1:]])
+        return " ".join(words)
+
     def strip_title(self, text: str, lexicon: Lexicon) -> str:
         """`text` without its leading titles (language and genre), one word kept at least.
         A leading article goes with the titles (« Le Pater Ondrev » → « Ondrev »); without a

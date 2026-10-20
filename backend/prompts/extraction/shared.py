@@ -3,7 +3,12 @@ LDVELH - Shared Extraction Rules
 Common instructions for all specialized extractors.
 """
 
+from typing import Protocol
+
+from packs.loader import Example
 from schema import PROTAGONIST_REF
+
+SEPARATOR = " · "
 
 STRICT_KEYS_RULE = """## STRICT KEY CONSTRAINT
 
@@ -13,15 +18,77 @@ You MUST use EXACTLY the JSON keys listed in the output format.
 - Do NOT nest data in unplanned sub-objects
 - If some information has no matching key, ignore it"""
 
-ENTITY_MATCHING_RULE = f"""## ENTITY NAME MATCHING
+ENTITY_REFERENCE_RULE = f"""## ENTITY REFERENCES
 
-- Use EXACT names from the known entities list when referencing existing entities
-- Case-insensitive matching, but prefer the canonical casing from the list
-- For new entities, use the name as it appears in the narrative text
-- The player character is ALWAYS referenced as "{PROTAGONIST_REF}" in reference fields
-  (source_ref, target_ref, entity_ref, involved_entities, participants), never by name.
-  In free text (description, summary) use the name given in the PROTAGONIST section
-  (the examples call the player character Kira)"""
+- Reference every entity by its handle (E<n>) from the ENTITIES IN THIS SCENE section,
+  in every reference field (entity_ref, source_ref, target_ref, owner_ref, location_ref,
+  object_ref, involved_entities, participants)
+- An entity the narrative introduces that is absent from that list goes in
+  proposed_entities, with its label as the text gives it: never create an entity
+  anywhere else, and never propose one the list already holds
+- The player character is ALWAYS referenced as "{PROTAGONIST_REF}" in reference fields,
+  never by name or handle. In free text (description, summary) use the name given in
+  the PROTAGONIST section"""
+
+SCENE_ENTITIES_HEADER = "## ENTITIES IN THIS SCENE"
+
+
+class SceneLine(Protocol):
+    """An entity of the scene (domain.identity.SceneEntity)."""
+
+    handle: str
+    entity_type: str
+    label: str
+    known: bool
+    is_new: bool
+
+
+class ExtractionLexicon(Protocol):
+    """What the extraction prompts read of a game's lexicon (Lexicon)."""
+
+    extraction_examples: list[Example]
+    entity_type_vocab: dict[str, list[str]]
+
+
+def _scene_line(entity: SceneLine) -> str:
+    return SEPARATOR.join(
+        (
+            entity.handle,
+            entity.entity_type,
+            entity.label,
+            "known" if entity.known else "unknown",
+            "new" if entity.is_new else "existing",
+        )
+    )
+
+
+def scene_entities_section(
+    entities: list[SceneLine], lexicon: ExtractionLexicon
+) -> str:
+    """User-prompt section listing the entities of the scene by handle, with the
+    examples of the game's packs (genre, else language) and the genre's words for each
+    entity type: no example of a universe written here."""
+    lines = [f"- {_scene_line(e)}" for e in entities] or ["- (none)"]
+    parts = [
+        f"\n\n{SCENE_ENTITIES_HEADER}\n"
+        "Reference every entity by its handle; propose an entity absent from this list"
+        " in proposed_entities, never create it.\n" + "\n".join(lines)
+    ]
+    vocab = [
+        f"- {entity_type}: {', '.join(words)}"
+        for entity_type, words in lexicon.entity_type_vocab.items()
+        if words
+    ]
+    if vocab:
+        parts.append("Words of this world for each entity type:\n" + "\n".join(vocab))
+    if lexicon.extraction_examples:
+        parts.append(
+            "Examples:\n"
+            + "\n".join(
+                f"- {e.input}\n  -> {e.output}" for e in lexicon.extraction_examples
+            )
+        )
+    return "\n\n".join(parts)
 
 
 def protagonist_section(name: str | None) -> str:
@@ -29,9 +96,10 @@ def protagonist_section(name: str | None) -> str:
     if not name:
         return ""
     return (
-        f"\n\n## PROTAGONIST\nThe player character is {name}: write \"{PROTAGONIST_REF}\""
-        f" in reference fields, \"{name}\" in free text."
+        f'\n\n## PROTAGONIST\nThe player character is {name}: write "{PROTAGONIST_REF}"'
+        f' in reference fields, "{name}" in free text.'
     )
+
 
 FACT_RULES = """## FACTS (Entity Knowledge Only)
 
@@ -56,14 +124,3 @@ CORE_RULES = """## CORE RULES
 4. Inventory hints are already applied — only create detailed object records for new acquisitions
 5. Deduplicate: an entity/fact should appear only once
 6. known_by_protagonist=true if the protagonist SAW/HEARD the name"""
-
-RESOLUTION_SECTION_HEADER = """## ENTITY RESOLUTION MAP (MANDATORY)
-
-The following entities have been identified in this scene by the resolver.
-You MUST include ALL of them in your extraction output — do NOT skip any.
-Use the CANONICAL name (right side), NOT the narrative mention (left side).
-
-For EXISTING entities: update their data if the narrative adds new information.
-For NEW entities: create them with the suggested canonical name.
-
-"""

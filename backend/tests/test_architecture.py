@@ -32,7 +32,6 @@ LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enha
 KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, full dotted name of the imported module): frozen debt, may only shrink
     ("kg/populator.py", "services.identity.service"),             # #108
     ("kg/refs.py", "services.identity.service"),                  # #108
-    ("kg/specialized_populator.py", "services.identity.classify"),# #108
     ("kg/specialized_populator.py", "services.identity.service"), # #108
     ("llm/session.py", "services.llm_providers"),                 # #172
     ("llm/usage.py", "services.llm_providers"),                   # #172

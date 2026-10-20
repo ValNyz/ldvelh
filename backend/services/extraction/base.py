@@ -23,19 +23,18 @@ from kg import refs
 from kg.item_writes import write_item, write_items
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
-from prompts.extraction.shared import protagonist_section
+from prompts.extraction.shared import protagonist_section, scene_entities_section
 from repos import games
 from repos.uow import uow
 from schema import EntityType, FactData
-from schema.extraction import AmbientUpdate, EntityCreation, EntityUpdate
+from schema.extraction import AmbientUpdate, EntityUpdate, ProposedEntity
 from utils.log_safe import log_cause, log_exception, safe_text
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
+    from domain.identity import SceneEntity
     from llm.session import LLMSession
-
-    from .resolver import ResolutionMap
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +66,15 @@ class BaseExtractor(ABC):
         message_content: str,
         narrator_deltas: dict,
         trigger_cycle: int,
-        resolution_map: "ResolutionMap | None" = None,
+        scene_entities: list[SceneEntity] | None = None,
         *,
         source_message_id: UUID | None = None,
         turn_id: UUID | None = None,
     ) -> dict:
         """Extract entities from a single message.
 
-        With `source_message_id`, nothing is written if that message was deleted meanwhile
+        `scene_entities`: the entities of the scene the resolver linked or created, which
+        the prompt lists by handle (spec §4.5.6). With `source_message_id`, nothing is written if that message was deleted meanwhile
         (rolled back): the run is then reported as skipped. With `turn_id`, the writes are
         journaled under that turn (#105); without it (unit tests), they are not.
         """
@@ -89,10 +89,11 @@ class BaseExtractor(ABC):
 
                 # 2. Build prompts
                 system_prompt, user_prompt = self._build_prompts(
-                    context, message_content, trigger_cycle,
-                    resolution_map=resolution_map,
-                )
+                    context, message_content, trigger_cycle)
                 if self.writes_entity_refs:
+                    identity = await self.populator.identity(conn)
+                    user_prompt += scene_entities_section(
+                        scene_entities or [], identity.lexicon)
                     user_prompt += protagonist_section(
                         await self.reader.get_protagonist_name(conn))
 
@@ -220,11 +221,11 @@ class BaseExtractor(ABC):
         self, conn: Connection, stats: dict, raw_result: dict, cycle: int,
         entity_type: EntityType,
     ) -> None:
-        """Entity creations (IdentityService.create_entity), updates and ambient updates
-        (by the id their reference resolves to) of one entity type."""
-        await self._write_items(conn, stats, "create", raw_result.get("entities_created"),
-                                lambda d: self._create_entity(conn, stats, d, cycle,
-                                                              entity_type),
+        """Entity proposals (IdentityService.create_from_extractor), updates and ambient
+        updates (by the id their reference resolves to) of one entity type."""
+        await self._write_items(conn, stats, "create", raw_result.get("proposed_entities"),
+                                lambda d: self._propose_entity(conn, stats, d, cycle,
+                                                               entity_type),
                                 "entities_created")
         await self._write_items(conn, stats, "update", raw_result.get("entities_updated"),
                                 lambda d: self._update_entity(conn, stats, d, cycle,
@@ -234,27 +235,27 @@ class BaseExtractor(ABC):
                                 lambda d: self._update_ambient(conn, d, entity_type),
                                 "ambients_updated")
 
-    def _skip_creation(self, ec: EntityCreation) -> bool:
-        """Hook: True to ignore an extracted creation."""
+    def _skip_proposal(self, proposed: ProposedEntity) -> bool:
+        """Hook: True to ignore an extracted proposal."""
         return False
 
-    async def _create_entity(
-        self, conn: Connection, stats: dict, ec_data: dict, cycle: int,
+    async def _propose_entity(
+        self, conn: Connection, stats: dict, data: dict, cycle: int,
         entity_type: EntityType,
     ) -> bool:
-        ec_data.setdefault("entity_type", entity_type.value)
-        ec = EntityCreation.model_validate(ec_data)
-        if ec.entity_type != entity_type or self._skip_creation(ec):
+        data.setdefault("entity_type", entity_type.value)
+        proposed = ProposedEntity.model_validate(data)
+        if proposed.entity_type != entity_type or self._skip_proposal(proposed):
             return False
-        return bool(await self.populator.create_extracted_entity(
-            conn, stats["errors"], ec, cycle))
+        return bool(await self.populator.create_proposed_entity(
+            conn, stats["errors"], proposed, cycle))
 
     async def _update_entity(
         self, conn: Connection, stats: dict, eu_data: dict, cycle: int,
         entity_type: EntityType,
     ) -> bool:
         eu_data.setdefault("entity_type", entity_type.value)
-        await self.populator._process_entity_update(
+        await self.populator.process_entity_update(
             conn, stats["errors"], EntityUpdate.model_validate(eu_data), cycle)
         return True
 
@@ -294,8 +295,7 @@ class BaseExtractor(ABC):
 
     @abstractmethod
     def _build_prompts(
-        self, context: dict, narrative_text: str, cycle: int,
-        resolution_map: "ResolutionMap | None" = None,
+        self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         """Return (system_prompt, user_prompt)."""
 

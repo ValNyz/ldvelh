@@ -436,13 +436,14 @@ EXTRACTION_PROTAGONIST_STATE_EXAMPLE = {
 }
 
 EXTRACTION_ENTITIES_EXAMPLE = {
-    "entities_created": [
+    "proposed_entities": [
         {
             "entity_type": "character",
-            "name": "Elena Vasquez",
+            "label": "Elena Vasquez",
+            "kind": "proper_name",
             "known_by_protagonist": True,
             "descriptor": None,
-            "data": {
+            "fields": {
                 "description": "Grande, cheveux courts",
                 "mood": "anxieuse mais déterminée",
                 "origin": "Colonie de Mars",

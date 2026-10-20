@@ -35,7 +35,7 @@ async def _character(test_pool, game_id, name):
 
 async def test_over_long_changes_are_bounded_and_the_rest_is_kept(test_pool, test_user, caplog):
     raw = {
-        "entities_created": [{"name": "Voss"}],
+        "proposed_entities": [{"label": "Voss"}],
         "entities_updated": [{"entity_ref": "Voss", "changes": {
             "age": STORY,                      # varchar(30)
             "pronouns": "il ou elle selon les jours, surtout il",  # varchar(30)
@@ -60,7 +60,7 @@ async def test_over_long_changes_are_bounded_and_the_rest_is_kept(test_pool, tes
 
 async def test_skill_level_above_the_check_is_clamped(test_pool, test_user):
     raw = {
-        "entities_created": [{"name": "Zeta"}],
+        "proposed_entities": [{"label": "Zeta"}],
         "entities_updated": [{"entity_ref": "Zeta",
                               "skills_changed": [{"name": "escrime", "level": 6}]}],
     }

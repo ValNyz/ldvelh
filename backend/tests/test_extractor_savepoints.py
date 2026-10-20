@@ -23,7 +23,7 @@ async def _fact_keys(test_pool, game_id):
 
 async def test_unique_violation_in_one_item_keeps_the_other_items(test_pool, test_user):
     raw = {
-        "entities_created": [{"name": "Alpha"}, {"name": "Beta"}],
+        "proposed_entities": [{"label": "Alpha"}, {"label": "Beta"}],
         "entities_updated": [{"entity_ref": "Alpha", "changes": {"mood": "inquiet"}},
                              {"entity_ref": "Beta", "changes": {"mood": "calme"}}],
         "facts": [_fact("porte:grince:nuit")],
@@ -63,7 +63,7 @@ async def test_unique_violation_in_one_item_keeps_the_other_items(test_pool, tes
 
 async def test_clean_run_reports_success(test_pool, test_user):
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Gamma"}]})
+        test_pool, test_user, {"proposed_entities": [{"label": "Gamma"}]})
     result = await extractor.run("texte", {}, 1)
     assert result["success"] is True and not result.get("partial")
     assert result["stats"]["errors"] == []
@@ -72,7 +72,7 @@ async def test_clean_run_reports_success(test_pool, test_user):
 
 async def test_populate_raising_returns_failure(test_pool, test_user):
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Delta"}]})
+        test_pool, test_user, {"proposed_entities": [{"label": "Delta"}]})
     real_populate = extractor._populate
 
     async def failing_populate(conn, raw_result, cycle):
@@ -95,7 +95,7 @@ async def test_sql_error_swallowed_inside_an_item_fails_only_that_item(test_pool
     """The aborted savepoint is rolled back: the item fails, the others commit."""
     extractor, game_id = await extractor_for(
         test_pool, test_user,
-        {"entities_created": [{"name": "Epsilon"}],
+        {"proposed_entities": [{"label": "Epsilon"}],
          "entities_updated": [{"entity_ref": "Epsilon", "changes": {"mood": "las"}}]})
 
     async def swallowing_update(conn, *_args, **_kwargs):
@@ -179,7 +179,7 @@ async def test_orchestrator_log_counts_real_outcomes(caplog):
 async def test_populate_skips_when_the_source_message_is_gone(test_pool, test_user):
     """#23: the source message was rolled back: nothing is written, the run is skipped."""
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Zeta"}]})
+        test_pool, test_user, {"proposed_entities": [{"label": "Zeta"}]})
     result = await extractor.run("texte", {}, 1, source_message_id=uuid4(), turn_id=uuid4())
 
     assert result["success"] is False and result["skipped"] is True
@@ -201,7 +201,7 @@ async def test_cancel_inside_the_guarded_transaction_releases_the_message(test_p
     from repos import turns
 
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Eta"}]})
+        test_pool, test_user, {"proposed_entities": [{"label": "Eta"}]})
     async with test_pool.acquire() as conn:
         _, message_id = await turns.save_turn_messages(
             conn, game_id, user_message="Je pars.", assistant_message="Tu pars.",
@@ -237,7 +237,7 @@ async def test_extraction_log_of_a_turn_rolled_back_meanwhile_is_dropped(
     from repos import turns
 
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Iota"}]})
+        test_pool, test_user, {"proposed_entities": [{"label": "Iota"}]})
     async with test_pool.acquire() as conn:
         turn_id = await turns.open_turn(conn, game_id)
     real_log = extractor.populator.log_extraction
@@ -268,7 +268,7 @@ async def test_a_failed_game_check_keeps_the_warning_and_the_success(
     from repos import games, turns
 
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Lambda"}]})
+        test_pool, test_user, {"proposed_entities": [{"label": "Lambda"}]})
     async with test_pool.acquire() as conn:
         turn_id = await turns.open_turn(conn, game_id)
     real_log = extractor.populator.log_extraction
@@ -297,7 +297,7 @@ async def test_extraction_log_of_a_deleted_game_still_warns(test_pool, test_user
     from repos import turns
 
     extractor, game_id = await extractor_for(
-        test_pool, test_user, {"entities_created": [{"name": "Kappa"}]})
+        test_pool, test_user, {"proposed_entities": [{"label": "Kappa"}]})
     async with test_pool.acquire() as conn:
         turn_id = await turns.open_turn(conn, game_id)
     real_log = extractor.populator.log_extraction

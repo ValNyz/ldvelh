@@ -1,12 +1,12 @@
 """
 Entity upserts never wipe or reveal (#87): an extractor that lists an existing entity again
-in entities_created must not overwrite a stored value with a default, an empty value or
+in proposed_entities must not overwrite a stored value with a default, an empty value or
 NULL, and must not change known_by_protagonist (only explicit reveals do).
 """
 
 from kg.populator import KnowledgeGraphPopulator
 from llm.session import LLMSession
-from schema import EntityCreation, NarrativeArcData, RelationType
+from schema import NarrativeArcData, ProposedEntity, RelationType
 from services.engine.narrative import NarrativeEngine
 from services.extraction.characters import CharactersExtractor
 from services.extraction.locations import LocationsExtractor
@@ -40,10 +40,10 @@ async def _game(test_pool, test_user):
 
 HIDDEN_NPC = {
     "entity_type": "character",
-    "name": "Justine Lépicier",
+    "label": "Justine Lépicier",
     "known_by_protagonist": False,
     "descriptor": "la femme au manteau gris",
-    "data": {"traits": ["méfiante", "loyale"], "description": "Manteau gris, regard vif",
+    "fields": {"traits": ["méfiante", "loyale"], "description": "Manteau gris, regard vif",
              "species": "humaine", "mood": "sur ses gardes", "occupation": "pilote"},
 }
 
@@ -54,11 +54,11 @@ class TestCharacterUpsert:
     ):
         game_id = await _game(test_pool, test_user)
         await _run(CharactersExtractor, test_pool, game_id,
-                   {"entities_created": [HIDDEN_NPC]})
+                   {"proposed_entities": [HIDDEN_NPC]})
         # The extractor lists her again with defaults only: known defaults to True,
         # traits to [].
         await _run(CharactersExtractor, test_pool, game_id,
-                   {"entities_created": [{"name": "Justine Lépicier"}]}, cycle=2)
+                   {"proposed_entities": [{"label": "Justine Lépicier"}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["known_by_protagonist"] is False
         assert row["descriptor"] == "la femme au manteau gris"
@@ -69,9 +69,9 @@ class TestCharacterUpsert:
     ):
         game_id = await _game(test_pool, test_user)
         await _run(CharactersExtractor, test_pool, game_id,
-                   {"entities_created": [HIDDEN_NPC]})
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Justine Lépicier", "known_by_protagonist": True}]}, cycle=2)
+                   {"proposed_entities": [HIDDEN_NPC]})
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Justine Lépicier", "known_by_protagonist": True}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["known_by_protagonist"] is False
 
@@ -79,10 +79,10 @@ class TestCharacterUpsert:
         self, test_pool, test_user
     ):
         game_id = await _game(test_pool, test_user)
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Marcus", "known_by_protagonist": True}]})
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Marcus", "known_by_protagonist": False,
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Marcus", "known_by_protagonist": True}]})
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Marcus", "known_by_protagonist": False,
              "descriptor": "l'homme au bar"}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Marcus")
         assert row["known_by_protagonist"] is True
@@ -91,9 +91,9 @@ class TestCharacterUpsert:
     async def test_non_empty_traits_still_replace_stored_traits(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
         await _run(CharactersExtractor, test_pool, game_id,
-                   {"entities_created": [HIDDEN_NPC]})
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Justine Lépicier", "data": {"traits": ["rancunière"]}}]}, cycle=2)
+                   {"proposed_entities": [HIDDEN_NPC]})
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Justine Lépicier", "fields": {"traits": ["rancunière"]}}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["traits"] == ["rancunière"]
 
@@ -101,8 +101,8 @@ class TestCharacterUpsert:
         self, test_pool, test_user
     ):
         game_id = await _game(test_pool, test_user)
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Ossek", "descriptor": "le type au bar"}]})
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Ossek", "descriptor": "le type au bar"}]})
         row = await _row(test_pool, "characters", game_id, "Ossek")
         assert row["known_by_protagonist"] is False
         assert row["descriptor"] == "le type au bar"
@@ -110,9 +110,9 @@ class TestCharacterUpsert:
     async def test_whitespace_strings_do_not_wipe_text_fields(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
         await _run(CharactersExtractor, test_pool, game_id,
-                   {"entities_created": [HIDDEN_NPC]})
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Justine Lépicier", "data": {"description": "  ", "mood": " "}}]},
+                   {"proposed_entities": [HIDDEN_NPC]})
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Justine Lépicier", "fields": {"description": "  ", "mood": " "}}]},
             cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["description"] == "Manteau gris, regard vif"
@@ -121,9 +121,9 @@ class TestCharacterUpsert:
     async def test_empty_strings_do_not_wipe_text_fields(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
         await _run(CharactersExtractor, test_pool, game_id,
-                   {"entities_created": [HIDDEN_NPC]})
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Justine Lépicier", "data": {
+                   {"proposed_entities": [HIDDEN_NPC]})
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Justine Lépicier", "fields": {
                 "description": "", "species": "", "mood": "", "occupation": ""}}]},
             cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
@@ -135,9 +135,9 @@ class TestCharacterUpsert:
     async def test_non_empty_text_fields_still_update(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
         await _run(CharactersExtractor, test_pool, game_id,
-                   {"entities_created": [HIDDEN_NPC]})
-        await _run(CharactersExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Justine Lépicier", "data": {"mood": "détendue"}}]}, cycle=2)
+                   {"proposed_entities": [HIDDEN_NPC]})
+        await _run(CharactersExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Justine Lépicier", "fields": {"mood": "détendue"}}]}, cycle=2)
         row = await _row(test_pool, "characters", game_id, "Justine Lépicier")
         assert row["mood"] == "détendue"
         assert row["description"] == "Manteau gris, regard vif"
@@ -146,12 +146,12 @@ class TestCharacterUpsert:
 class TestLocationUpsert:
     async def test_empty_strings_do_not_wipe_location_fields(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
-        full = {"entity_type": "location", "name": "Le Quart de Cycle", "data": {
+        full = {"entity_type": "location", "label": "Le Quart de Cycle", "fields": {
             "location_type": "bar", "sector": "anneau B",
             "description": "Bar enfumé", "atmosphere": "feutrée"}}
-        await _run(LocationsExtractor, test_pool, game_id, {"entities_created": [full]})
-        await _run(LocationsExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Le Quart de Cycle", "data": {
+        await _run(LocationsExtractor, test_pool, game_id, {"proposed_entities": [full]})
+        await _run(LocationsExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Le Quart de Cycle", "fields": {
                 "location_type": "", "sector": "", "description": "",
                 "atmosphere": ""}}]}, cycle=2)
         row = await _row(test_pool, "locations", game_id, "Le Quart de Cycle")
@@ -164,13 +164,13 @@ class TestOrganizationUpsert:
         self, test_pool, test_user
     ):
         game_id = await _game(test_pool, test_user)
-        full = {"entity_type": "organization", "name": "Syndicat des Docks", "data": {
+        full = {"entity_type": "organization", "label": "Syndicat des Docks", "fields": {
             "org_type": "syndicat", "domain": "logistique",
             "description": "Contrôle les quais"}}
         await _run(OrganizationsExtractor, test_pool, game_id,
-                   {"entities_created": [full]})
-        await _run(OrganizationsExtractor, test_pool, game_id, {"entities_created": [
-            {"name": "Syndicat des Docks", "data": {
+                   {"proposed_entities": [full]})
+        await _run(OrganizationsExtractor, test_pool, game_id, {"proposed_entities": [
+            {"label": "Syndicat des Docks", "fields": {
                 "org_type": "", "domain": "", "description": ""}}]}, cycle=2)
         row = await _row(test_pool, "organizations", game_id, "Syndicat des Docks")
         assert (row["org_type"], row["domain"], row["description"]) == (
@@ -196,7 +196,7 @@ class TestRelationUpsert:
     async def _two_npcs(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
         extractor = await _run(CharactersExtractor, test_pool, game_id, {
-            "entities_created": [HIDDEN_NPC, {"name": "Marcus"}]})
+            "proposed_entities": [HIDDEN_NPC, {"label": "Marcus"}]})
         return game_id, extractor
 
     async def test_recreating_hidden_relation_does_not_reveal(self, test_pool, test_user):
@@ -305,16 +305,16 @@ class TestNarrativeTraitUpsert:
         assert row["description"] == "Ouvre toutes les portes"
 
 
-class TestEntityCreationDefault:
+class TestProposedEntityDefault:
     def test_descriptor_without_flag_means_hidden(self):
-        ec = EntityCreation(entity_type="character", name="Justine",
+        ec = ProposedEntity(entity_type="character", label="Justine",
                             descriptor="la femme au manteau gris")
         assert ec.known_by_protagonist is False
 
     def test_no_flag_and_no_descriptor_stays_known(self):
-        assert EntityCreation(entity_type="character", name="Marcus").known_by_protagonist
+        assert ProposedEntity(entity_type="character", label="Marcus").known_by_protagonist
 
     def test_explicit_flag_wins_over_descriptor(self):
-        ec = EntityCreation(entity_type="character", name="Justine",
+        ec = ProposedEntity(entity_type="character", label="Justine",
                             known_by_protagonist=True, descriptor="la femme")
         assert ec.known_by_protagonist is True

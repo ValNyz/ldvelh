@@ -21,7 +21,7 @@ from schema import (
     DayTransition,
     # Extraction
     NarrativeExtraction,
-    EntityCreation,
+    ProposedEntity,
     EntityUpdate,
     CreditTransaction,
     InventoryChange,
@@ -294,15 +294,16 @@ class TestExtractionExamples:
             assert change.object_hint == "Carte d'accès temporaire"
             assert change.quantity_delta == 1
 
-    def test_entity_creation(self, extraction_examples):
-        """EntityCreation avec data dict (plus d'attributes)"""
-        for ec in extraction_examples["entities"]["entities_created"]:
-            entity = EntityCreation(**ec)
-            assert entity.name == "Elena Vasquez"
+    def test_proposed_entity(self, extraction_examples):
+        """ProposedEntity avec fields dict (plus d'attributes)"""
+        for ec in extraction_examples["entities"]["proposed_entities"]:
+            entity = ProposedEntity(**ec)
+            assert entity.label == "Elena Vasquez"
             assert entity.entity_type == EntityType.CHARACTER
+            assert entity.kind == "proper_name"
             assert entity.known_by_protagonist is True
-            assert "description" in entity.data
-            assert entity.data["species"] == "human"
+            assert "description" in entity.fields
+            assert entity.fields["species"] == "human"
 
     def test_entity_update(self, extraction_examples):
         """EntityUpdate avec changes dict"""
@@ -378,7 +379,7 @@ class TestExtractionExamples:
         assert extraction.cycle == 5
         assert extraction.current_location_ref == "Le Quart de Cycle"
         assert len(extraction.facts) >= 1
-        assert len(extraction.entities_created) >= 1
+        assert len(extraction.proposed_entities) >= 1
         assert extraction.segment_summary != ""
 
 

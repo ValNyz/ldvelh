@@ -15,9 +15,9 @@ pytestmark = pytest.mark.integration
 
 
 async def test_unknown_entity_type_rejects_the_item_only(test_pool, test_user):
-    extractor, game_id = await extractor_for(test_pool, test_user, {"entities_created": [
-        {"entity_type": "vehicle", "name": "Le Corbeau"},
-        {"entity_type": "character", "name": "Mira"}]})
+    extractor, game_id = await extractor_for(test_pool, test_user, {"proposed_entities": [
+        {"entity_type": "vehicle", "label": "Le Corbeau"},
+        {"entity_type": "character", "label": "Mira"}]})
     async with test_pool.acquire() as conn:
         before = await conn.fetchval("SELECT count(*) FROM protagonists WHERE game_id = $1",
                                      game_id)

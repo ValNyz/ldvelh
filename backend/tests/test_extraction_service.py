@@ -16,39 +16,39 @@ from schema.extraction import (
     InventoryExtraction,
     NarrativeArcsExtraction,
 )
-from services.extraction.resolver import MentionMapping, ResolutionMap
+from domain.identity import SceneEntity, TurnResolution
 
 
 SESSION = MagicMock()  # the orchestrator is fully patched in these tests
 SAMPLE_GAME_ID = uuid4()
 SAMPLE_MSG_ID = uuid4()
 PREV_MSG_ID = uuid4()
+SCENE = [
+    SceneEntity("E17", "character", "Vieille au châle", False, False),
+    SceneEntity("E21", "location", "Halle aux Cordiers", True, True),
+]
 
 
-def _mock_pool(with_messages=False):
-    """Build a mock asyncpg pool with a working acquire() context manager.
+def _resolution(scene, *, new_types=None, usage=None) -> TurnResolution:
+    return TurnResolution(
+        mentions=[], created=[], aliases_added=0, reveals=[], scene_entities=scene,
+        new_types=new_types or set(), escalated=False, fallback=False, usage=usage or {},
+    )
 
-    If with_messages=True, fetchrow returns mock current + previous messages
-    for the resolver flow.
-    """
+
+def _extractor_class(run):
+    instance = MagicMock()
+    instance.run = AsyncMock(side_effect=run)
+    return MagicMock(return_value=instance)
+
+
+def _mock_pool():
+    """A mock asyncpg pool with a working acquire() context manager."""
     mock_conn = AsyncMock()
     mock_conn.execute = AsyncMock()
     mock_conn.fetch = AsyncMock(return_value=[])
     mock_conn.fetchval = AsyncMock(return_value=None)
-
-    if with_messages:
-        async def _fetchrow(query, *args):
-            # Previous assistant message with annotations (only DB query left)
-            if "narrator_context" in query:
-                return {
-                    "content": "Le docteur vous accueille.",
-                    "narrator_context": [[3, 10, "Dr. Voss", "character"]],
-                }
-            return None
-
-        mock_conn.fetchrow = AsyncMock(side_effect=_fetchrow)
-    else:
-        mock_conn.fetchrow = AsyncMock(return_value=None)
+    mock_conn.fetchrow = AsyncMock(return_value=None)
 
     pool = MagicMock()
 
@@ -90,7 +90,7 @@ class TestExtractionType:
 class TestCharactersExtraction:
     def test_empty_defaults(self):
         ext = CharactersExtraction()
-        assert ext.entities_created == []
+        assert ext.proposed_entities == []
         assert ext.entities_updated == []
         assert ext.entities_removed == []
         assert ext.ambient_updates == []
@@ -101,7 +101,7 @@ class TestCharactersExtraction:
 class TestLocationsExtraction:
     def test_empty_defaults(self):
         ext = LocationsExtraction()
-        assert ext.entities_created == []
+        assert ext.proposed_entities == []
         assert ext.entities_updated == []
         assert ext.ambient_updates == []
         assert ext.facts == []
@@ -110,7 +110,7 @@ class TestLocationsExtraction:
 class TestOrganizationsExtraction:
     def test_empty_defaults(self):
         ext = OrganizationsExtraction()
-        assert ext.entities_created == []
+        assert ext.proposed_entities == []
         assert ext.entities_updated == []
         assert ext.ambient_updates == []
         assert ext.facts == []
@@ -148,7 +148,7 @@ class TestOrchestrator:
 
     @pytest.mark.asyncio
     async def test_empty_triggers_skipped(self):
-        """Empty triggers list returns None immediately."""
+        """No narrator trigger and nothing resolved: no extractor runs."""
         from services.extraction.orchestrator import run_resolve_and_extract
 
         pool, _ = _mock_pool()
@@ -157,8 +157,7 @@ class TestOrchestrator:
             triggers=[], session=SESSION,
         )
 
-        # No extractors run, but resolver may run (returns result dict)
-        assert result.get("extractors") == {} or result.get("skipped") is True
+        assert result.get("extractors") == {}
 
     @pytest.mark.asyncio
     async def test_invalid_trigger_ignored(self):
@@ -171,8 +170,7 @@ class TestOrchestrator:
             triggers=["nonexistent_type"], session=SESSION,
         )
 
-        # Should complete without error (no valid extractors to run)
-        assert result is not None or result is None  # Just verifying no exception
+        assert result["extractors"] == {}
 
     @pytest.mark.asyncio
     async def test_resolver_called_before_extractors(self):
@@ -180,25 +178,19 @@ class TestOrchestrator:
         from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
 
         call_order = []
-
-        pool, mock_conn = _mock_pool(with_messages=True)
+        pool, _ = _mock_pool()
 
         async def mock_resolve(*args, **kwargs):
             call_order.append("resolver")
-            return None, None
+            return None
 
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
-                                     source_message_id=None, turn_id=None):
+        async def mock_extractor_run(**kwargs):
             call_order.append("extractor")
             return {"type": "characters", "skipped": True}
 
-        mock_extractor_cls = MagicMock()
-        mock_instance = MagicMock()
-        mock_instance.run = AsyncMock(side_effect=mock_extractor_run)
-        mock_extractor_cls.return_value = mock_instance
-
+        mock_extractor_cls = _extractor_class(mock_extractor_run)
         with (
-            patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
+            patch("services.extraction.orchestrator.resolve_phase", side_effect=mock_resolve),
             patch.dict(EXTRACTOR_MAP, {"characters": mock_extractor_cls}),
         ):
             await run_resolve_and_extract(
@@ -212,39 +204,23 @@ class TestOrchestrator:
         assert call_order == ["resolver", "extractor"]
 
     @pytest.mark.asyncio
-    async def test_resolution_map_passed_to_extractors(self):
-        """Resolution map from Phase 1 is forwarded to each extractor."""
+    async def test_scene_entities_passed_to_extractors(self):
+        """The scene of the turn's resolution is forwarded to each extractor."""
         from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
 
-        resolution_map = ResolutionMap(mappings=[
-            MentionMapping("le docteur", "Dr. Voss", "character", False),
-        ])
+        resolution = _resolution(SCENE)
+        pool, _ = _mock_pool()
+        received = []
 
-        pool, mock_conn = _mock_pool(with_messages=True)
-
-        received_maps = []
-
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
-                                     source_message_id=None, turn_id=None):
-            received_maps.append(resolution_map)
+        async def mock_extractor_run(**kwargs):
+            received.append(kwargs["scene_entities"])
             return {"type": "test", "success": True, "stats": {}}
 
-        async def mock_resolve(*args, **kwargs):
-            return resolution_map, {"cost_usd": 0.001}
-
-        mock_chars_cls = MagicMock()
-        inst1 = MagicMock()
-        inst1.run = AsyncMock(side_effect=mock_extractor_run)
-        mock_chars_cls.return_value = inst1
-
-        mock_locs_cls = MagicMock()
-        inst2 = MagicMock()
-        inst2.run = AsyncMock(side_effect=mock_extractor_run)
-        mock_locs_cls.return_value = inst2
-
         with (
-            patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
-            patch.dict(EXTRACTOR_MAP, {"characters": mock_chars_cls, "locations": mock_locs_cls}),
+            patch("services.extraction.orchestrator.resolve_phase",
+                  AsyncMock(return_value=resolution)),
+            patch.dict(EXTRACTOR_MAP, {"characters": _extractor_class(mock_extractor_run),
+                                       "locations": _extractor_class(mock_extractor_run)}),
         ):
             await run_resolve_and_extract(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
@@ -255,35 +231,49 @@ class TestOrchestrator:
                 narrator_deltas={},
             )
 
-        # Both extractors should have received the same resolution map
-        assert len(received_maps) == 2
-        assert all(rm is resolution_map for rm in received_maps)
+        assert received == [SCENE, SCENE]
+
+    @pytest.mark.asyncio
+    async def test_new_types_add_their_extractor(self):
+        """A type the resolution created runs its extractor without a narrator trigger."""
+        from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
+
+        pool, _ = _mock_pool()
+        ran = []
+
+        async def mock_extractor_run(**kwargs):
+            ran.append(kwargs["scene_entities"])
+            return {"type": "locations", "success": True, "stats": {}}
+
+        with (
+            patch("services.extraction.orchestrator.resolve_phase",
+                  AsyncMock(return_value=_resolution(SCENE, new_types={"location"}))),
+            patch.dict(EXTRACTOR_MAP, {"locations": _extractor_class(mock_extractor_run)}),
+        ):
+            result = await run_resolve_and_extract(
+                pool, SAMPLE_GAME_ID, trigger_cycle=3, triggers=[], session=SESSION,
+                assistant_message_id=SAMPLE_MSG_ID, message_content="Le quai.",
+            )
+
+        assert list(result["extractors"]) == ["locations"] and ran == [SCENE]
 
     @pytest.mark.asyncio
     async def test_resolver_failure_does_not_block_extractors(self):
-        """If Phase 1 fails, Phase 2 extractors still run normally."""
+        """If Phase 1 fails, Phase 2 extractors still run, with an empty scene."""
+        from services.extraction import orchestrator
         from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
 
-        pool, mock_conn = _mock_pool(with_messages=True)
-
+        pool, _ = _mock_pool()
         extractor_called = []
 
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
-                                     source_message_id=None, turn_id=None):
-            extractor_called.append(resolution_map)
+        async def mock_extractor_run(**kwargs):
+            extractor_called.append(kwargs["scene_entities"])
             return {"type": "characters", "success": True, "stats": {}}
 
-        async def mock_resolve(*args, **kwargs):
-            raise RuntimeError("Haiku is down!")
-
-        mock_cls = MagicMock()
-        inst = MagicMock()
-        inst.run = AsyncMock(side_effect=mock_extractor_run)
-        mock_cls.return_value = inst
-
         with (
-            patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
-            patch.dict(EXTRACTOR_MAP, {"characters": mock_cls}),
+            patch.object(orchestrator.IdentityService, "for_game",
+                         AsyncMock(side_effect=RuntimeError("Haiku is down!"))),
+            patch.dict(EXTRACTOR_MAP, {"characters": _extractor_class(mock_extractor_run)}),
         ):
             result = await run_resolve_and_extract(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
@@ -293,36 +283,33 @@ class TestOrchestrator:
                 narrator_deltas={},
             )
 
-        # Extractor was called with resolution_map=None (graceful degradation)
-        assert len(extractor_called) == 1
-        assert extractor_called[0] is None
+        assert extractor_called == [[]]
+        assert result["resolver"] is None
         assert result["extractors"]["characters"]["success"] is True
 
     @pytest.mark.asyncio
     async def test_resolver_cost_aggregated(self):
-        """Resolver cost is included in total cost aggregation."""
-        from services.extraction.orchestrator import EXTRACTOR_MAP, run_resolve_and_extract
+        """The resolution's counts and cost are in the result."""
+        from services.extraction.orchestrator import (
+            EXTRACTOR_MAP,
+            run_resolve_and_extract,
+            total_cost,
+        )
 
-        pool, mock_conn = _mock_pool(with_messages=True)
+        pool, _ = _mock_pool()
+        usage = {"identity": {"calls": 1, "input_tokens": 1, "output_tokens": 1,
+                              "cost_usd": 0.002}}
 
-        async def mock_resolve(*args, **kwargs):
-            return ResolutionMap(), {"cost_usd": 0.002}
-
-        async def mock_extractor_run(message_content, narrator_deltas, trigger_cycle, resolution_map=None,
-                                     source_message_id=None, turn_id=None):
+        async def mock_extractor_run(**kwargs):
             return {
                 "type": "characters", "success": True, "stats": {},
                 "cost": {"cost_usd": 0.01},
             }
 
-        mock_cls = MagicMock()
-        inst = MagicMock()
-        inst.run = AsyncMock(side_effect=mock_extractor_run)
-        mock_cls.return_value = inst
-
         with (
-            patch("services.extraction.orchestrator.resolve_entities", side_effect=mock_resolve),
-            patch.dict(EXTRACTOR_MAP, {"characters": mock_cls}),
+            patch("services.extraction.orchestrator.resolve_phase",
+                  AsyncMock(return_value=_resolution([], usage=usage))),
+            patch.dict(EXTRACTOR_MAP, {"characters": _extractor_class(mock_extractor_run)}),
         ):
             result = await run_resolve_and_extract(
                 pool, SAMPLE_GAME_ID, trigger_cycle=3,
@@ -332,154 +319,78 @@ class TestOrchestrator:
                 narrator_deltas={},
             )
 
-        assert result["resolver"] is not None
         assert result["resolver"]["cost_usd"] == 0.002
+        assert {k: result["resolver"][k] for k in
+                ("mentions", "deterministic", "escalated", "fallback", "unsure")} == {
+            "mentions": 0, "deterministic": 0, "escalated": False, "fallback": False,
+            "unsure": 0}
+        assert total_cost(result) == pytest.approx(0.012)
 
 
 # =============================================================================
-# EXTRACTOR PROMPT INJECTION
+# SCENE SECTION OF THE EXTRACTION PROMPTS
 # =============================================================================
 
 
-class TestExtractorPromptInjection:
-    """Tests that each extractor correctly injects resolution section into prompts."""
+class TestSceneEntitiesSection:
+    """The extractors see the scene by handle; examples come from the packs (#154)."""
 
-    RESOLUTION_MAP = ResolutionMap(mappings=[
-        MentionMapping("le docteur", "Dr. Elara Voss", "character", False),
-        MentionMapping("le bar", "Le Nebula Lounge", "location", False),
-        MentionMapping("la guilde", "Guilde des Marchands", "organization", False),
-        MentionMapping("la lame", "Couteau de survie", "object", False),
-        MentionMapping("l'enquête", "Mystères E7", "arc", False),
-    ])
+    def test_lines_list_handles_types_labels_and_flags(self):
+        from prompts.extraction.shared import SCENE_ENTITIES_HEADER, scene_entities_section
+        from services.identity.lexicon import for_game
 
-    NARRATIVE_TEXTS = ["Le docteur vous accueille dans le bar."]
+        section = scene_entities_section(SCENE, for_game("fr", None))
+        assert SCENE_ENTITIES_HEADER in section
+        assert "- E17 · character · Vieille au châle · unknown · existing" in section
+        assert "- E21 · location · Halle aux Cordiers · known · new" in section
+        assert "proposed_entities" in section
 
-    def test_characters_injects_character_section(self):
-        """Characters extractor injects only character mentions."""
-        from services.extraction.characters import CharactersExtractor
+    def test_examples_come_from_the_game_language(self):
+        from prompts.extraction.shared import scene_entities_section
+        from services.identity.lexicon import for_game
 
-        ext = CharactersExtractor.__new__(CharactersExtractor)
-        context = {"characters": [], "arcs_with_characters": []}
-        _, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=self.RESOLUTION_MAP,
-        )
-        assert "ENTITY RESOLUTION MAP" in user_prompt
-        assert "Dr. Elara Voss" in user_prompt
-        # Should NOT include non-character types
-        assert "Le Nebula Lounge" not in user_prompt
-        assert "Couteau de survie" not in user_prompt
+        fr, en = for_game("fr", None), for_game("en", None)
+        assert fr.extraction_examples[0].input in scene_entities_section([], fr)
+        assert en.extraction_examples[0].input in scene_entities_section([], en)
+        assert fr.extraction_examples[0].input not in scene_entities_section([], en)
 
-    def test_locations_injects_location_section(self):
-        """Locations extractor injects only location mentions."""
-        from services.extraction.locations import LocationsExtractor
+    def test_genre_words_and_examples_replace_the_language_ones(self):
+        from packs.loader import Example, GenreIdentity, GenrePack, load_lang
+        from prompts.extraction.shared import scene_entities_section
+        from services.identity.lexicon import Lexicon
 
-        ext = LocationsExtractor.__new__(LocationsExtractor)
-        context = {"locations": [], "stub_locations": [], "arcs_with_locations": []}
-        _, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=self.RESOLUTION_MAP,
-        )
-        assert "ENTITY RESOLUTION MAP" in user_prompt
-        assert "Le Nebula Lounge" in user_prompt
-        assert "Dr. Elara Voss" not in user_prompt
+        genre = GenrePack(slug="test", identity=GenreIdentity(
+            entity_type_vocab={"location": ["comptoir", "relais"]},
+            prompt_examples={"extraction": [Example(input="genre input", output="out")]},
+        ))
+        section = scene_entities_section([], Lexicon(load_lang("fr"), genre))
+        assert "- location: comptoir, relais" in section
+        assert "genre input" in section
+        assert load_lang("fr").prompt_examples.extraction[0].input not in section
 
-    def test_organizations_injects_organization_section(self):
-        """Organizations extractor injects only organization mentions."""
-        from services.extraction.organizations import OrganizationsExtractor
+    def test_no_universe_example_in_the_extraction_prompts(self):
+        import importlib
 
-        ext = OrganizationsExtractor.__new__(OrganizationsExtractor)
-        context = {"organizations": [], "arcs_with_orgs": []}
-        _, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=self.RESOLUTION_MAP,
-        )
-        assert "ENTITY RESOLUTION MAP" in user_prompt
-        assert "Guilde des Marchands" in user_prompt
-        assert "Dr. Elara Voss" not in user_prompt
+        for module in ("characters_prompt", "locations_prompt", "organizations_prompt",
+                       "inventory_prompt", "narrative_arcs_prompt"):
+            prompt = importlib.import_module(f"prompts.extraction.{module}").SYSTEM_PROMPT
+            assert "station spatiale" not in prompt and "IA de bord" not in prompt
+            assert "entities_created" not in prompt
+            assert "ENTITY RESOLUTION MAP" not in prompt and "MANDATORY" not in prompt
 
-    def test_inventory_injects_object_section(self):
-        """Inventory extractor injects only object mentions."""
-        from services.extraction.inventory import InventoryExtractor
+    async def test_an_extractor_prompt_lists_the_scene(self, test_pool, test_user):
+        from tests.helpers import extractor_for
 
-        ext = InventoryExtractor.__new__(InventoryExtractor)
-        # Inventory needs _engine set for build_user_prompt
-        mock_engine = MagicMock()
-        mock_engine.get_object_prompt_addon.return_value = None
-        ext._engine = mock_engine
-        context = {"canonical_names": [], "objects": [], "inventory_hints": []}
-        _, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=self.RESOLUTION_MAP,
-        )
-        assert "ENTITY RESOLUTION MAP" in user_prompt
-        assert "Couteau de survie" in user_prompt
-        assert "Dr. Elara Voss" not in user_prompt
+        extractor, _ = await extractor_for(test_pool, test_user, {})
+        prompts = []
 
-    def test_narrative_arcs_injects_all_types(self):
-        """Narrative arcs extractor injects ALL entity types (cross-entity references)."""
-        from services.extraction.narrative_arcs import NarrativeArcsExtractor
+        async def fake_call(system_prompt, user_prompt, schema):
+            prompts.append(user_prompt)
+            return {}, None
 
-        ext = NarrativeArcsExtractor.__new__(NarrativeArcsExtractor)
-        context = {"known_entities": [], "active_arcs": [], "known_relations": []}
-        _, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=self.RESOLUTION_MAP,
-        )
-        assert "ENTITY RESOLUTION MAP" in user_prompt
-        # All types should be present
-        assert "Dr. Elara Voss" in user_prompt
-        assert "Le Nebula Lounge" in user_prompt
-        assert "Guilde des Marchands" in user_prompt
-        assert "Couteau de survie" in user_prompt
-        assert "Mystères E7" in user_prompt
-
-    def test_no_injection_when_none(self):
-        """No resolution section appended when resolution_map is None."""
-        from services.extraction.characters import CharactersExtractor
-
-        ext = CharactersExtractor.__new__(CharactersExtractor)
-        context = {"characters": [], "arcs_with_characters": []}
-        _, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=None,
-        )
-        assert "ENTITY RESOLUTION MAP" not in user_prompt
-
-    def test_no_injection_when_empty_for_type(self):
-        """No resolution section when map has no entries for this extractor's type."""
-        from services.extraction.locations import LocationsExtractor
-
-        # Map only has character entries — locations extractor should get nothing
-        char_only_map = ResolutionMap(mappings=[
-            MentionMapping("le docteur", "Dr. Voss", "character", False),
-        ])
-        ext = LocationsExtractor.__new__(LocationsExtractor)
-        context = {"locations": [], "stub_locations": [], "arcs_with_locations": []}
-        _, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=char_only_map,
-        )
-        assert "ENTITY RESOLUTION MAP" not in user_prompt
-
-    def test_progression_ignores_resolution_map(self):
-        """Progression extractor accepts resolution_map but doesn't use it."""
-        from services.extraction.progression import ProgressionExtractor
-
-        ext = ProgressionExtractor.__new__(ProgressionExtractor)
-        mock_engine = MagicMock()
-        mock_engine.get_progression_system_prompt.return_value = "sys"
-        mock_engine.build_progression_user_prompt.return_value = "user"
-        ext._engine = mock_engine
-
-        context = {"stats": {}, "rolls": [], "narrative_summary": "test"}
-        sys_prompt, user_prompt = ext._build_prompts(
-            context, self.NARRATIVE_TEXTS, cycle=3,
-            resolution_map=self.RESOLUTION_MAP,
-        )
-        # Progression doesn't inject resolution — it delegates to engine
-        assert "ENTITY RESOLUTION MAP" not in user_prompt
-        assert user_prompt == "user"
+        extractor._call_llm = fake_call
+        await extractor.run("texte", {}, 1, scene_entities=SCENE)
+        assert "- E17 · character · Vieille au châle · unknown · existing" in prompts[0]
 
 
 class _CountingPool:
@@ -525,7 +436,7 @@ class TestExtractorConnections:
             async def extract_structured(self, **kwargs):
                 seen.append(pool.in_use)
                 assert pool.in_use == 0
-                return LLMCall(value={"entities_created": []}, cost=None)
+                return LLMCall(value={"proposed_entities": []}, cost=None)
 
         result = await CharactersExtractor(pool, game_id, _Session()).run("texte", {}, 1)
 
@@ -550,7 +461,7 @@ class TestExtractorErrorsDoNotLeakStory:
                                         LLMSession.from_provider(FakeProvider()))
 
         async def fake_call(*args, **kwargs):
-            return {"entities_created": [{"name": "Voss", "data": fragment}]}, None
+            return {"proposed_entities": [{"label": "Voss", "fields": fragment}]}, None
 
         extractor._call_llm = fake_call
         with caplog.at_level(logging.DEBUG):
@@ -610,6 +521,6 @@ def test_every_extractor_accepts_the_orchestrator_call():
         try:
             inspect.signature(cls.run).bind(
                 None, message_content="m", narrator_deltas={}, trigger_cycle=1,
-                resolution_map=None, source_message_id=None, turn_id=None)
+                scene_entities=[], source_message_id=None, turn_id=None)
         except TypeError as exc:
             pytest.fail(f"{name}: {exc}")

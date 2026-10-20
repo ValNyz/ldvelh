@@ -17,7 +17,7 @@ from evals.identity.run import RunResult
 from evals.identity.scorer import CANDIDATES_K, LINKS, aggregate, score_scene
 from evals.identity.world_loader import load_world, scene_context, turn_key
 from repos import entities, messages
-from repos.entities import MentionRow
+from domain.identity import MentionRow
 from services.identity import candidates
 from services.identity.service import IdentityService
 

@@ -58,7 +58,7 @@ class TestExtractionExampleKeys:
             "credit_transactions", "inventory_changes"
         }
         assert set(EXTRACTION_ENTITIES_EXAMPLE.keys()) == {
-            "entities_created", "entities_updated"
+            "proposed_entities", "entities_updated"
         }
         assert set(EXTRACTION_FACTS_EXAMPLE.keys()) == {"facts"}
         assert set(EXTRACTION_RELATIONS_EXAMPLE.keys()) == {

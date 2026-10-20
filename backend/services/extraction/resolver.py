@@ -18,6 +18,7 @@ from uuid import UUID
 from schema.extraction import EntityResolution
 from config import get_settings
 from llm.session import Purpose
+from repos import entities
 from utils.log_safe import safe_repr
 
 if TYPE_CHECKING:
@@ -161,6 +162,25 @@ def _rebuild_annotated_text(text: str, annotations: list | None) -> str:
         result = result[:end] + f" [= {canonical}]" + result[end:]
 
     return result
+
+
+async def build_first_turn_reference(pool: Pool, game_id: UUID) -> tuple[str, list]:
+    """A synthetic reference text for the first turn's resolution: with no previous
+    narrator message, a fake MESSAGE 1 lists the known entities so that the resolver can
+    map the first response's mentions (the evaluation's legacy adapter reads it)."""
+    async with pool.acquire() as conn:
+        rows = await entities.reference_labels(conn, game_id)
+    if not rows:
+        return "", None
+    parts = []
+    annotations = []
+    offset = 0
+    for name, etype in rows:
+        line = f"{name} [= {name}]"
+        annotations.append([offset, offset + len(name), name, etype])
+        parts.append(line)
+        offset += len(line) + 1  # +1 for newline
+    return "\n".join(parts), annotations
 
 
 # =============================================================================

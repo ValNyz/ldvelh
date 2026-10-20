@@ -80,14 +80,19 @@ async def _turn(harness, game_id, narration: str, message: str) -> None:
 
 
 async def _first_turn_creates_mira(harness, game_id) -> None:
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
     harness.llm._responses["extract:extract_characters"] = (
-        payloads.EXTRACT_CHARACTERS_NEW
+        payloads.extract_characters_new
     )
     await _turn(
-        harness, game_id, narration_with(info_requests=[OBJECT]), "Je regarde la foule."
+        harness,
+        game_id,
+        narration_with(
+            info_requests=[OBJECT], narrative_text=payloads.NEW_CHARACTER_TEXT
+        ),
+        "Je regarde la foule.",
     )
-    harness.llm._responses["resolver"] = payloads.RESOLVER_EMPTY
+    harness.llm._responses["identity"] = payloads.IDENTITY_EMPTY
 
 
 async def _b08_turn(harness, game_id) -> None:
@@ -204,7 +209,7 @@ async def test_cycle_engine_keeps_the_old_behaviour(harness, world_game, monkeyp
         turns_before = await conn.fetchval(
             "SELECT count(*) FROM turns WHERE game_id = $1", world_game
         )
-    harness.llm._responses["resolver"] = payloads.RESOLVER_EMPTY
+    harness.llm._responses["identity"] = payloads.IDENTITY_EMPTY
     await _turn(harness, world_game, payloads.NARRATION, "Deuxième tour.")
 
     user_msg = await last_user_message_id(harness, world_game)

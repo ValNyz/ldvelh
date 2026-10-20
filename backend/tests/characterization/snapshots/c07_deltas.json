@@ -16,8 +16,8 @@
   ],
   "llm_calls": [
     "extract:extract_inventory",
-    "narration",
-    "resolver"
+    "identity",
+    "narration"
   ],
   "objects_named_gobelet": 1,
   "reveal_character": {

@@ -176,9 +176,10 @@ async def test_c09b_day_transition_strictness(harness, world_game, bad, request)
 
 
 async def test_c10_extraction_writes_entities(harness, world_game):
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
-    events = await _turn(harness, world_game, payloads.NARRATION, "J'observe la foule.")
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
+    harness.llm._responses["extract:extract_characters"] = payloads.extract_characters_new
+    events = await _turn(harness, world_game, payloads.NARRATION_NEW_CHARACTER,
+                         "J'observe la foule.")
     async with harness.pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT name, occupation FROM characters WHERE game_id = $1 AND name = $2",
@@ -187,7 +188,7 @@ async def test_c10_extraction_writes_entities(harness, world_game):
             "SELECT name, entity_type FROM entity_registry WHERE game_id = $1 AND name = $2",
             world_game, payloads.NEW_CHARACTER_NAME)
     calls = sorted(harness.llm.purposes())
-    assert "resolver" in calls and "extract:extract_characters" in calls, calls
+    assert "identity" in calls and "extract:extract_characters" in calls, calls
     assert_snapshot("c10_extraction", {
         "sse": harness.summarize(events),
         "llm_calls": calls,
@@ -200,10 +201,11 @@ async def test_c10_extraction_writes_entities(harness, world_game):
 async def test_c10b_day_change_turn_extraction_rolls_back(harness, world_game):
     """#84: a day-change turn is extracted with the NEW cycle, so rolling back its player
     message removes the entity its extraction created."""
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
+    harness.llm._responses["extract:extract_characters"] = payloads.extract_characters_new
     await _turn(harness, world_game, narration_with(
-        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}),
+        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"},
+        narrative_text=payloads.NEW_CHARACTER_TEXT),
         "Je dors jusqu'au matin.")
     async with harness.pool.acquire() as conn:
         game_cycle = await conn.fetchval("SELECT current_cycle FROM games WHERE id = $1",
@@ -290,7 +292,8 @@ async def test_c11c_day_change_director_arc_rolls_back(harness, world_game):
         world_arcs = await conn.fetchval(
             "SELECT COUNT(*) FROM narrative_arcs WHERE game_id = $1", world_game)
     await _turn(harness, world_game, narration_with(
-        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"}),
+        day_transition={"new_cycle": 2, "new_date": "Mardi 19 Juillet 2847"},
+        narrative_text=payloads.NEW_CHARACTER_TEXT),
         "Je dors jusqu'au matin.")
     assert harness.llm.purposes().count("director") == 1
     async with harness.pool.acquire() as conn:

@@ -84,8 +84,7 @@ class NarrativeArcsExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_text: str, cycle: int,
-        resolution_map=None,
+        self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         user_prompt = narrative_arcs_prompt.build_user_prompt(
             narrative_text=narrative_text,
@@ -94,12 +93,6 @@ class NarrativeArcsExtractor(BaseExtractor):
             active_arcs=context.get("active_arcs") or None,
             known_relations=context.get("known_relations") or None,
         )
-        if resolution_map:
-            from prompts.extraction.shared import RESOLUTION_SECTION_HEADER
-            # All entity types — arcs reference characters, locations, etc.
-            section = resolution_map.to_prompt_section(None)
-            if section:
-                user_prompt += f"\n\n{RESOLUTION_SECTION_HEADER}{section}"
         return narrative_arcs_prompt.SYSTEM_PROMPT, user_prompt
 
     def _get_tool_schema(self) -> dict:
@@ -191,5 +184,5 @@ class NarrativeArcsExtractor(BaseExtractor):
         self, conn: Connection, stats: dict, ev_data: dict, cycle: int
     ) -> bool:
         ev = EventScheduledExtraction.model_validate(ev_data)
-        await self.populator._schedule_event(conn, stats["errors"], ev)
+        await self.populator.schedule_event(conn, stats["errors"], ev)
         return True

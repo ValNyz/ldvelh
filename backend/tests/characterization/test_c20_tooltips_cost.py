@@ -11,15 +11,9 @@ from tests.characterization.snapshot import assert_snapshot
 
 
 async def test_c20_tooltips_annotations_and_entity(harness, world_game):
-    # The default narration mentions "Ossek" and "Quart de Cycle": resolve both so spans are stored.
-    harness.llm._responses["resolver"] = json.dumps({
-        "existing": [
-            {"mentions": ["Ossek"], "canonical": "Ossek", "entity_type": "character"},
-            {"mentions": ["Quart de Cycle"], "canonical": "Le Quart de Cycle",
-             "entity_type": "location"},
-        ],
-        "new": [],
-    })
+    # The default narration names "Ossek" and "Quart de Cycle" exactly: the deterministic
+    # prepass of the resolver v2 links both (the scripted model adds nothing), so spans are
+    # stored with the label the player may read (#154).
     await harness.chat(world_game, "Je regarde autour de moi.")
     await harness.drain()
 
@@ -44,7 +38,7 @@ async def test_c20_tooltips_annotations_and_entity(harness, world_game):
         "/api/tooltips/entity",
         params={"gameId": world_game, "name": "Nobody At All", "entityType": "character"},
         headers=harness.headers)
-    assert ann["messages"], "resolver mappings must produce stored annotation spans"
+    assert ann["messages"], "resolved mentions must produce stored annotation spans"
     assert found_char.json()["found"] is True
     assert found_loc.json()["found"] is True
     assert missing.json()["found"] is False

@@ -121,7 +121,7 @@ def extraction_examples():
             "time": "10h20",
             "current_location_ref": "Le Quart de Cycle",
             "facts": EXTRACTION_FACTS_EXAMPLE["facts"],
-            "entities_created": EXTRACTION_ENTITIES_EXAMPLE["entities_created"],
+            "proposed_entities": EXTRACTION_ENTITIES_EXAMPLE["proposed_entities"],
             "entities_updated": EXTRACTION_ENTITIES_EXAMPLE["entities_updated"],
             "relations_created": EXTRACTION_RELATIONS_EXAMPLE["relations_created"],
             "relations_updated": EXTRACTION_RELATIONS_EXAMPLE["relations_updated"],

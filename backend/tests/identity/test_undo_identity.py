@@ -11,7 +11,7 @@ from config import get_identity_config
 from repos import entities, turns
 from repos.uow import uow
 from services.identity.service import IdentityService
-from domain.identity import EntityRef
+from domain.identity import EntityRef, MentionRow
 
 pytestmark = pytest.mark.integration
 
@@ -198,7 +198,7 @@ async def test_undo_of_a_turn_removes_its_mentions_and_learned_aliases(
                 game,
                 message,
                 turn_id,
-                [entities.MentionRow(0, 5, "Nahle", nahle, "alias")],
+                [MentionRow(0, 5, "Nahle", nahle, "alias")],
             )
         await _undo(conn, turn_id)
         after = await _state(conn, game)
@@ -220,7 +220,7 @@ async def test_mentions_of_a_merged_entity_resolve_through_the_tombstone_and_aga
             game,
             message,
             None,
-            [entities.MentionRow(0, 5, "Nahle", nahle, "match")],
+            [MentionRow(0, 5, "Nahle", nahle, "match")],
         )
         turn_id = await turns.open_turn(conn, game)
         before = await _state(conn, game)

@@ -7,32 +7,71 @@ drift still shows up there.
 """
 
 import json
+import re
 from pathlib import Path
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 
 WORLD_GEN = (_FIXTURES / "world_gen.json").read_text(encoding="utf-8")
 NARRATION = (_FIXTURES / "narration.json").read_text(encoding="utf-8")
-# Minimal VALID shapes: keys must match schema.extraction.EntityResolution and
-# schema.director.DirectorOutput (the smoke test model_validate()s both).
-RESOLVER_EMPTY = json.dumps({"existing": [], "new": []})
-# Resolver reporting one genuinely new character: makes the orchestrator add the
-# "characters" extractor, so LLMSession.extract_structured runs (mode-dependent code path).
+# Minimal VALID shapes: keys must match the identity decision output (services.identity.
+# decision.parse) and schema.director.DirectorOutput (the smoke test checks both).
+IDENTITY_EMPTY = json.dumps({"mentions": []})
+# A narration naming one genuinely new character, and the identity decision creating her:
+# the identity service creates the stub, which makes the orchestrator add the "characters"
+# extractor, so LLMSession.extract_structured runs (mode-dependent code path).
 NEW_CHARACTER_NAME = "Mira Kessler"
-RESOLVER_NEW_CHARACTER = json.dumps({
-    "existing": [],
-    "new": [{
-        "mentions": [NEW_CHARACTER_NAME],
-        "suggested_name": NEW_CHARACTER_NAME,
-        "entity_type": "character",
+NEW_CHARACTER_TEXT = (
+    json.loads(NARRATION)["narrative_text"]
+    + f"\n\n{NEW_CHARACTER_NAME} répare un panneau près de l'entrée."
+)
+NARRATION_NEW_CHARACTER = json.dumps(
+    {**json.loads(NARRATION), "narrative_text": NEW_CHARACTER_TEXT}, ensure_ascii=False
+)
+IDENTITY_NEW_CHARACTER = json.dumps({
+    "mentions": [{
+        "surface": NEW_CHARACTER_NAME,
+        "before": "",
+        "decision": "NEW",
+        "handle": None,
+        "category": "NEW",
+        "new_type": "character",
+        "new_kind": "proper_name",
+        "evidence": "a person the scene introduces",
     }],
 })
-# Minimal valid schema.extraction.CharactersExtraction creating that character.
-EXTRACT_CHARACTERS_NEW = {
-    "entities_created": [{
+_SCENE_LINE = re.compile(r"^- (E\d+) · (\w+) · (.+?) · ", re.MULTILINE)
+
+
+def scene_handle(prompt: str, label: str) -> str:
+    """The handle the ENTITIES IN THIS SCENE section of an extraction prompt gives
+    `label` (the label itself when the section does not list it)."""
+    for handle, _, line_label in _SCENE_LINE.findall(prompt):
+        if line_label == label:
+            return handle
+    return label
+
+
+def extract_characters_new(prompt: str) -> dict:
+    """Valid schema.extraction.CharactersExtraction enriching the new character, by the
+    handle the prompt lists for her (a scripted payload computed from the prompt)."""
+    return {
+        "entities_updated": [{
+            "entity_ref": scene_handle(prompt, NEW_CHARACTER_NAME),
+            "entity_type": "character",
+            "changes": {"occupation": "Technicienne"},
+        }],
+    }
+
+
+# Valid schema.extraction.CharactersExtraction proposing the new character (an extractor
+# that met her outside the scene list): the identity service creates her.
+EXTRACT_CHARACTERS_PROPOSED = {
+    "proposed_entities": [{
         "entity_type": "character",
-        "name": NEW_CHARACTER_NAME,
-        "data": {"occupation": "Technicienne"},
+        "label": NEW_CHARACTER_NAME,
+        "kind": "proper_name",
+        "fields": {"occupation": "Technicienne"},
     }],
 }
 DIRECTOR = json.dumps({

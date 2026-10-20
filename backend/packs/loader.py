@@ -52,6 +52,8 @@ class Pronouns(_Strict):
 
 class LangExamples(_Strict):
     identity: list[Example]
+    # Proposals of the extraction prompts (proposed_entities), in the game's language.
+    extraction: list[Example]
 
 
 def _check_entries(field: str, value: list[str], *, one_word: bool) -> list[str]:

@@ -1,15 +1,21 @@
 """
 LDVELH - Extraction Orchestrator
 
-Post-turn background job, queued per game by the supervisor (pipeline/post_turn.py):
-1. Resolver: entity annotations (for tooltips)
-2. Extractors: entity/relation extraction (phase a: entities, phase b: arcs)
-3. Re-apply entity_reveals (fix race condition with the narrator deltas applied at turn commit),
-   in the turn's unit of work, share-locking the source message like the extractors (#23, #105)
+Post-turn background job, queued per game by the supervisor (pipeline/post_turn.py), one
+function per phase:
+1. Resolver v2 (always): the scene of the turn, the identity decisions (model calls
+   outside any transaction), then their application in the turn's unit of work,
+   share-locking the source message: stubs created by the identity service,
+   entity_mentions and the legacy narrator_context, identity_events (#154).
+2. Extractors: run for the entity types the turn really created or left bare, plus the
+   narrator's extraction_triggers; they reference the scene's entities by handle (phase a:
+   entities, phase b: arcs and progression).
+3. Re-apply entity_reveals (fix race condition with the narrator deltas applied at turn
+   commit), in the turn's unit of work, share-locking the source message like the
+   extractors (#23, #105).
 """
 
 import asyncio
-import json
 import logging
 from uuid import UUID
 
@@ -17,11 +23,14 @@ import asyncpg
 
 from config import get_settings
 from domain.errors import SourceMessageGone
+from domain.identity import SceneEntity, TurnRef, TurnResolution
 from llm.session import LLMSession
+from repos import messages
 from repos.uow import uow
 from services.identity.reveals import apply_entity_reveals
+from services.identity.scene import collect_scene_context
 from services.identity.service import IdentityService
-from utils.log_safe import log_exception, safe_repr, safe_text
+from utils.log_safe import log_exception, safe_text
 
 from .characters import CharactersExtractor
 from .inventory import InventoryExtractor
@@ -29,7 +38,6 @@ from .locations import LocationsExtractor
 from .narrative_arcs import NarrativeArcsExtractor
 from .organizations import OrganizationsExtractor
 from .progression import ProgressionExtractor
-from .resolver import ResolutionMap, build_span_annotations, resolve_entities
 
 logger = logging.getLogger(__name__)
 
@@ -48,65 +56,35 @@ TYPE_TO_EXTRACTOR = {
     "organization": "organizations",
     "object": "inventory",
 }
+# Phase a: entity extractors (no cross-entity references); phase b: relation extractors
+# (they reference entities phase a may have enriched).
+ENTITY_EXTRACTORS = ("characters", "locations", "organizations", "inventory")
+RELATION_EXTRACTORS = ("narrative_arcs", "progression")
 
 
-async def resolver_triggers(
-    conn: asyncpg.Connection, game_id: UUID, resolution_map: ResolutionMap
-) -> set[str]:
-    """Extractors implied by mappings that are new and not yet in the game's registry."""
-    candidates = [
-        m
-        for m in resolution_map.mappings
-        if m.is_new and m.entity_type in TYPE_TO_EXTRACTOR
-    ]
-    if not candidates:
+def resolver_triggers(resolution: TurnResolution | None) -> set[str]:
+    """Extractors of the entity types the turn created or linked while still bare."""
+    if resolution is None:
         return set()
-    pairs = list({(m.canonical, m.entity_type) for m in candidates})
-    rows = await conn.fetch(
-        """SELECT ref.canonical, ref.entity_type
-           FROM unnest($2::text[], $3::text[]) AS ref (canonical, entity_type)
-           WHERE find_entity($1, ref.canonical, ref.entity_type) IS NOT NULL""",
-        game_id,
-        [p[0] for p in pairs],
-        [p[1] for p in pairs],
-    )
-    known = {(r["canonical"], r["entity_type"]) for r in rows}
     return {
-        TYPE_TO_EXTRACTOR[m.entity_type]
-        for m in candidates
-        if (m.canonical, m.entity_type) not in known
+        TYPE_TO_EXTRACTOR[t] for t in resolution.new_types if t in TYPE_TO_EXTRACTOR
     }
 
 
-async def _compute_triggers(
-    pool: asyncpg.Pool,
-    game_id: UUID,
-    triggers: list[str] | None,
-    resolution_map: ResolutionMap | None,
-) -> set[str]:
-    """Narrator triggers plus resolver-inferred ones (new entities only), logged by origin."""
+def compute_triggers(
+    game_id: UUID, triggers: list[str] | None, resolution: TurnResolution | None
+) -> list[str]:
+    """Narrator triggers plus resolver ones, logged by origin, in a stable order."""
     narrator = {t for t in (triggers or []) if t in EXTRACTOR_MAP}
-    inferred: set[str] = set()
-    if resolution_map:
-        try:
-            async with pool.acquire() as conn:
-                inferred = await resolver_triggers(conn, game_id, resolution_map)
-        except Exception as e:
-            log_exception(
-                logger,
-                logging.WARNING,
-                "[EXTRACTION] Resolver trigger lookup failed, using narrator triggers only",
-                e,
-                debug_detail=get_settings().log_prompts,
-            )
+    inferred = resolver_triggers(resolution)
     logger.info(
         f"[EXTRACTION] Triggers for game {game_id}: "
         f"narrator={sorted(narrator)} resolver={sorted(inferred)}"
     )
-    return narrator | inferred
+    return sorted(narrator | inferred)
 
 
-async def run_resolve_and_extract(  # noqa: C901 - P6, frozen complexity debt: split run_resolve_and_extract
+async def run_resolve_and_extract(
     pool: asyncpg.Pool,
     game_id: UUID,
     trigger_cycle: int,
@@ -118,196 +96,39 @@ async def run_resolve_and_extract(  # noqa: C901 - P6, frozen complexity debt: s
     narrator_deltas: dict | None = None,
     turn_id: UUID | None = None,
 ) -> dict:
-    """Background task: resolver → extractors → re-apply entity_reveals.
+    """Background task: resolver v2 → extractors → re-apply entity_reveals.
 
-    Always runs the resolver (for tooltip annotations).
-    Only runs extractors if triggers is non-empty.
-    Re-applies entity_reveals after extraction to fix race condition.
-    World writes are journaled under `turn_id` when given (#105).
+    Always runs the resolver (mentions, tooltips); runs the extractors only when the turn
+    triggers some. World writes are journaled under `turn_id` when given (#105).
     """
     try:
-        result = {"resolver": None, "extractors": {}}
-        total_cost = 0.0
-        narrator_deltas = narrator_deltas or {}
-
-        # =====================================================================
-        # Phase 1: Resolver (always runs)
-        # =====================================================================
-        resolution_map = None
-
-        try:
-            if assistant_message_id and message_content:
-                async with pool.acquire() as conn:
-                    prev_msg = await conn.fetchrow(
-                        """SELECT content, narrator_context FROM messages
-                           WHERE game_id = $1 AND role = 'assistant'
-                             AND id != $2
-                           ORDER BY sequence DESC LIMIT 1""",
-                        game_id,
-                        assistant_message_id,
-                    )
-
-                if prev_msg and prev_msg["content"]:
-                    prev_text = prev_msg["content"]
-                    prev_annotations = prev_msg["narrator_context"]
-                else:
-                    prev_text, prev_annotations = await _build_first_turn_reference(
-                        pool, game_id
-                    )
-
-                if prev_text:
-                    resolution_map, resolver_cost = await resolve_entities(
-                        pool,
-                        game_id,
-                        previous_response=prev_text,
-                        previous_annotations=prev_annotations,
-                        current_response=message_content,
-                        session=session,
-                    )
-
-                    if resolver_cost and isinstance(resolver_cost, dict):
-                        total_cost += resolver_cost.get("cost_usd", 0)
-                        result["resolver"] = resolver_cost
-                else:
-                    logger.info("[RESOLVER] No reference text available, skipping")
-        except Exception as e:
-            logger.warning(f"[RESOLVER] Failed, continuing without: {safe_repr(e)}")
-
-        # =====================================================================
-        # Phase 2: Extractors
-        # Combine narrator triggers + resolver-inferred triggers from new entities
-        # =====================================================================
-        valid_triggers = sorted(
-            await _compute_triggers(pool, game_id, triggers, resolution_map)
+        deltas = narrator_deltas or {}
+        turn = (
+            TurnRef(turn_id, assistant_message_id, trigger_cycle)
+            if assistant_message_id
+            else None
         )
-
-        if valid_triggers and message_content:
-            logger.info(
-                f"[EXTRACTION] Running {len(valid_triggers)} extractors "
-                f"for game {game_id}: {valid_triggers}"
+        resolution = await resolve_phase(
+            pool, session, game_id, turn, message_content, deltas
+        )
+        result = {"resolver": _resolver_summary(resolution), "extractors": {}}
+        names = compute_triggers(game_id, triggers, resolution)
+        if names and message_content:
+            result["extractors"] = await extract_phase(
+                pool,
+                session,
+                game_id,
+                names,
+                message_content,
+                deltas,
+                trigger_cycle,
+                resolution.scene_entities if resolution else [],
+                source_message_id=assistant_message_id,
+                turn_id=turn_id,
             )
-
-            # Phase 2a: entity extractors (no cross-entity references)
-            ENTITY_EXTRACTORS = {
-                "characters",
-                "locations",
-                "organizations",
-                "inventory",
-            }
-            # Phase 2b: relation extractors (reference entities created in 2a)
-            RELATION_EXTRACTORS = {"narrative_arcs", "progression"}
-
-            phase_a = [t for t in valid_triggers if t in ENTITY_EXTRACTORS]
-            phase_b = [t for t in valid_triggers if t in RELATION_EXTRACTORS]
-
-            async def _run_phase(trigger_names):
-                tasks = [
-                    EXTRACTOR_MAP[t](pool, game_id, session).run(
-                        message_content=message_content,
-                        narrator_deltas=narrator_deltas,
-                        trigger_cycle=trigger_cycle,
-                        resolution_map=resolution_map,
-                        source_message_id=assistant_message_id,
-                        turn_id=turn_id,
-                    )
-                    for t in trigger_names
-                ]
-                return list(
-                    zip(
-                        trigger_names,
-                        await asyncio.gather(*tasks, return_exceptions=True),
-                    )
-                )
-
-            all_results = []
-            if phase_a:
-                all_results.extend(await _run_phase(phase_a))
-            if phase_b:
-                all_results.extend(await _run_phase(phase_b))
-
-            for trigger, ext_result in all_results:
-                if isinstance(ext_result, Exception):
-                    log_exception(
-                        logger,
-                        logging.ERROR,
-                        f"[EXTRACTION] {trigger} raised exception",
-                        ext_result,
-                        debug_detail=get_settings().log_prompts,
-                    )
-                    result["extractors"][trigger] = {
-                        "success": False,
-                        "error": safe_text(ext_result),
-                    }
-                else:
-                    result["extractors"][trigger] = ext_result
-                    cost = (
-                        ext_result.get("cost") if isinstance(ext_result, dict) else None
-                    )
-                    if cost and isinstance(cost, dict):
-                        total_cost += cost.get("cost_usd", 0)
-
-            logger.info(
-                f"[EXTRACTION] Complete: {_outcome_summary(result['extractors'])}, "
-                f"total cost: ${total_cost:.6f}"
-            )
-
-            # Update assistant message with extraction cost
-            if assistant_message_id and total_cost > 0:
-                await _append_extraction_cost(
-                    pool, assistant_message_id, result, total_cost
-                )
-
-        # =====================================================================
-        # Phase 3: Re-apply entity_reveals (entities now exist after extraction)
-        # =====================================================================
-        try:
-            entity_reveals = narrator_deltas.get("entity_reveals", [])
-            if entity_reveals:
-                async with pool.acquire() as conn:
-                    # Share-lock the source message: a rollback deleting it waits for
-                    # these writes, and reveals of an already-deleted turn are skipped.
-                    try:
-                        async with uow(
-                            conn, turn_id, source_message_id=assistant_message_id
-                        ):
-                            await apply_entity_reveals(
-                                conn,
-                                await IdentityService.for_game(conn, game_id),
-                                entity_reveals,
-                                turn_id=None,
-                                source="reveal",
-                                log_prefix="[EXTRACTION] ",
-                            )
-                    except SourceMessageGone:
-                        logger.info(
-                            "[EXTRACTION] Source message gone, entity_reveals skipped"
-                        )
-        except Exception as e:
-            logger.warning(
-                f"[EXTRACTION] Re-apply entity_reveals failed: {safe_repr(e)}"
-            )
-
-        # =====================================================================
-        # Phase 4: Store annotations (after extractors, so entities exist in DB)
-        # =====================================================================
-        try:
-            if resolution_map and message_content and assistant_message_id:
-                annotations = build_span_annotations(message_content, resolution_map)
-                if annotations:
-                    async with pool.acquire() as conn:
-                        await conn.execute(
-                            "UPDATE messages SET narrator_context = $1 WHERE id = $2",
-                            annotations,
-                            assistant_message_id,
-                        )
-                    logger.info(
-                        f"[RESOLVER] Stored {len(annotations)} entity annotations"
-                    )
-        except Exception as e:
-            logger.warning(f"[EXTRACTION] Store annotations failed: {safe_text(e)}")
-
+            await _record_cost(pool, assistant_message_id, result)
+        await reveal_phase(pool, game_id, deltas, assistant_message_id, turn_id)
         return result
-
     except Exception as e:
         log_exception(
             logger,
@@ -319,42 +140,176 @@ async def run_resolve_and_extract(  # noqa: C901 - P6, frozen complexity debt: s
         return {"success": False, "error": safe_text(e)}
 
 
-async def _build_first_turn_reference(
-    pool: asyncpg.Pool, game_id: UUID
-) -> tuple[str, list]:
-    """Build a synthetic reference text for first-turn entity resolution.
+# =============================================================================
+# Phase 1: resolver v2
+# =============================================================================
 
-    When no previous assistant message exists, we construct a fake "MESSAGE 1"
-    from known DB entities so the resolver can map mentions in the first response.
-    """
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """SELECT identity_bare_label(er.id) AS name, er.entity_type
-               FROM entity_registry er
-               WHERE er.game_id = $1
-                 AND er.entity_type IN ('character', 'location', 'organization')
-               ORDER BY er.entity_type, er.name""",
-            game_id,
+
+async def resolve_phase(
+    pool: asyncpg.Pool,
+    session: LLMSession,
+    game_id: UUID,
+    turn: TurnRef | None,
+    narration: str | None,
+    deltas: dict,
+) -> TurnResolution | None:
+    """The turn's identity resolution (spec §4.5): decided outside any transaction,
+    applied in the turn's unit of work. None when there is nothing to resolve, when the
+    source message is gone (rolled back) or when it failed (the turn goes on)."""
+    if turn is None or not narration:
+        return None
+    try:
+        async with pool.acquire() as conn:
+            identity = await IdentityService.for_game(conn, game_id)
+            scene = await collect_scene_context(conn, game_id, turn.message_id, deltas)
+            decided = await identity.decide(conn, session, narration, scene)
+            async with uow(conn, turn.turn_id, source_message_id=turn.message_id):
+                return await identity.apply_resolution(
+                    conn, turn, narration, scene, decided
+                )
+    except SourceMessageGone:
+        logger.info("[IDENTITY] Source message gone, turn resolution skipped")
+    except Exception as e:
+        log_exception(
+            logger,
+            logging.WARNING,
+            "[IDENTITY] Turn resolution failed, continuing without",
+            e,
+            debug_detail=get_settings().log_prompts,
+        )
+    return None
+
+
+def _resolver_summary(resolution: TurnResolution | None) -> dict | None:
+    """Counts and cost of the resolution (no story text)."""
+    if resolution is None:
+        return None
+    return {
+        **resolution.stats(),
+        "cost_usd": resolution.cost_usd(),
+        "usage": resolution.usage,
+    }
+
+
+# =============================================================================
+# Phase 2: extractors
+# =============================================================================
+
+
+async def extract_phase(
+    pool: asyncpg.Pool,
+    session: LLMSession,
+    game_id: UUID,
+    names: list[str],
+    message_content: str,
+    deltas: dict,
+    trigger_cycle: int,
+    scene_entities: list[SceneEntity],
+    *,
+    source_message_id: UUID | None,
+    turn_id: UUID | None,
+) -> dict:
+    """Entity extractors, then relation extractors; each one's result (or failure)."""
+    logger.info(
+        f"[EXTRACTION] Running {len(names)} extractors for game {game_id}: {names}"
+    )
+
+    async def run(trigger_names: list[str]) -> list[tuple[str, object]]:
+        tasks = [
+            EXTRACTOR_MAP[t](pool, game_id, session).run(
+                message_content=message_content,
+                narrator_deltas=deltas,
+                trigger_cycle=trigger_cycle,
+                scene_entities=scene_entities,
+                source_message_id=source_message_id,
+                turn_id=turn_id,
+            )
+            for t in trigger_names
+        ]
+        return list(
+            zip(trigger_names, await asyncio.gather(*tasks, return_exceptions=True))
         )
 
-    if not rows:
-        return "", None
+    outcomes = []
+    for phase in (ENTITY_EXTRACTORS, RELATION_EXTRACTORS):
+        if chosen := [t for t in names if t in phase]:
+            outcomes.extend(await run(chosen))
+    extractors = {name: _extractor_result(name, out) for name, out in outcomes}
+    logger.info(f"[EXTRACTION] Complete: {_outcome_summary(extractors)}")
+    return extractors
 
-    parts = []
-    annotations = []
-    offset = 0
-    for r in rows:
-        name = r["name"]
-        etype = r["entity_type"]
-        line = f"{name} [= {name}]"
-        start = offset
-        end = offset + len(name)
-        annotations.append([start, end, name, etype])
-        parts.append(line)
-        offset += len(line) + 1  # +1 for newline
 
-    text = "\n".join(parts)
-    return text, annotations
+def _extractor_result(name: str, ext_result) -> dict:
+    if isinstance(ext_result, Exception):
+        log_exception(
+            logger,
+            logging.ERROR,
+            f"[EXTRACTION] {name} raised exception",
+            ext_result,
+            debug_detail=get_settings().log_prompts,
+        )
+        return {"success": False, "error": safe_text(ext_result)}
+    return ext_result
+
+
+def total_cost(result: dict) -> float:
+    """What the resolver and the extractors of a turn cost."""
+    total = (result.get("resolver") or {}).get("cost_usd", 0) or 0
+    for ext_result in result.get("extractors", {}).values():
+        cost = ext_result.get("cost") if isinstance(ext_result, dict) else None
+        if cost and isinstance(cost, dict):
+            total += cost.get("cost_usd", 0)
+    return total
+
+
+async def _record_cost(
+    pool: asyncpg.Pool, message_id: UUID | None, result: dict
+) -> None:
+    cost = total_cost(result)
+    logger.info(f"[EXTRACTION] Total cost: ${cost:.6f}")
+    if message_id and cost > 0:
+        await _append_extraction_cost(pool, message_id, result, cost)
+
+
+# =============================================================================
+# Phase 3: re-apply entity_reveals
+# =============================================================================
+
+
+async def reveal_phase(
+    pool: asyncpg.Pool,
+    game_id: UUID,
+    deltas: dict,
+    message_id: UUID | None,
+    turn_id: UUID | None,
+) -> None:
+    """The narrator's entity_reveals again, now that the turn's entities exist; the
+    source message share-locked: a rollback deleting it waits for these writes, and the
+    reveals of an already-deleted turn are skipped."""
+    entity_reveals = deltas.get("entity_reveals", [])
+    if not entity_reveals:
+        return
+    try:
+        async with pool.acquire() as conn:
+            async with uow(conn, turn_id, source_message_id=message_id):
+                await apply_entity_reveals(
+                    conn,
+                    await IdentityService.for_game(conn, game_id),
+                    entity_reveals,
+                    turn_id=None,
+                    source="reveal",
+                    log_prefix="[EXTRACTION] ",
+                )
+    except SourceMessageGone:
+        logger.info("[EXTRACTION] Source message gone, entity_reveals skipped")
+    except Exception as e:
+        log_exception(
+            logger,
+            logging.WARNING,
+            "[EXTRACTION] Re-apply entity_reveals failed",
+            e,
+            debug_detail=get_settings().log_prompts,
+        )
 
 
 def _outcome(ext_result) -> str:
@@ -387,12 +342,7 @@ async def _append_extraction_cost(
     """Append extraction cost to the assistant message's narrator_deltas."""
     try:
         async with pool.acquire() as conn:
-            row = await conn.fetchval(
-                "SELECT narrator_deltas FROM messages WHERE id = $1",
-                message_id,
-            )
-            deltas = json.loads(row) if isinstance(row, str) else (row or {})
-
+            deltas = await messages.narrator_deltas(conn, message_id)
             extraction_cost = {
                 "cost_usd": round(total_cost, 6),
                 "extractors": {},
@@ -413,11 +363,7 @@ async def _append_extraction_cost(
             if narration_cost:
                 deltas["total_cost_usd"] = round(narration_cost + total_cost, 6)
 
-            await conn.execute(
-                "UPDATE messages SET narrator_deltas = $1 WHERE id = $2",
-                deltas,
-                message_id,
-            )
+            await messages.set_narrator_deltas(conn, message_id, deltas)
             logger.info(
                 f"[EXTRACTION] Updated message {message_id} with cost: ${total_cost:.6f}"
             )

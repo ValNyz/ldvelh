@@ -17,7 +17,6 @@ from prompts.extraction import (
     organizations_prompt,
 )
 from prompts.identity_prompt import IDENTITY_PROMPT_MARKER, IDENTITY_STRONG_MARKER
-from services.extraction.resolver import RESOLVER_SYSTEM_PROMPT
 from services.llm_providers import (
     CompletionResult,
     LLMProvider,
@@ -56,8 +55,6 @@ def classify_call(system_prompt: str, tool_name: str | None = None) -> str:
         return "identity_strong" if strong else "identity"
     if tool_name:
         return f"extract:{tool_name}"
-    if system_prompt == RESOLVER_SYSTEM_PROMPT:
-        return "resolver"
     if system_prompt in _EXTRACTOR_PROMPTS:
         return _EXTRACTOR_PROMPTS[system_prompt]
     head = system_prompt[:600]
@@ -99,6 +96,18 @@ class ScriptedLLMProvider(LLMProvider):
         if purpose in self.fail_on:
             raise self.fail_on[purpose]
 
+    @staticmethod
+    def _computed(payload, messages):
+        """A callable payload is computed from the call's user messages (a payload that
+        names entities by the handles the prompt gives them)."""
+        if not callable(payload):
+            return payload
+        text = "\n".join(
+            m["content"] if isinstance(m.get("content"), str) else json.dumps(m.get("content"))
+            for m in messages
+        )
+        return payload(text)
+
     def purposes(self) -> list[str]:
         return [c.purpose for c in self.calls]
 
@@ -117,7 +126,7 @@ class ScriptedLLMProvider(LLMProvider):
     async def complete(self, system_prompt, messages, temperature, max_tokens) -> CompletionResult:
         purpose = classify_call(system_prompt)
         self._record("complete", purpose)
-        content = self._next(purpose, "{}")
+        content = self._computed(self._next(purpose, "{}"), messages)
         if not isinstance(content, str):
             content = json.dumps(content)
         return CompletionResult(content=content, usage=USAGE)
@@ -126,7 +135,7 @@ class ScriptedLLMProvider(LLMProvider):
         tool_name = tool_choice.get("name", tools[0]["name"])
         purpose = classify_call(system_prompt, tool_name=tool_name)
         self._record("complete_with_tools", purpose)
-        payload = self._next(purpose, {})
+        payload = self._computed(self._next(purpose, {}), messages)
         if isinstance(payload, str):
             payload = json.loads(payload)
         return ToolResult(tool_name=tool_name, tool_input=payload, usage=USAGE)
@@ -134,7 +143,7 @@ class ScriptedLLMProvider(LLMProvider):
     async def complete_with_schema(self, system_prompt, messages, schema_name, schema, temperature, max_tokens) -> CompletionResult:
         purpose = classify_call(system_prompt, tool_name=schema_name)
         self._record("complete_with_schema", purpose)
-        payload = self._next(purpose, {})
+        payload = self._computed(self._next(purpose, {}), messages)
         if not isinstance(payload, str):
             payload = json.dumps(payload)
         return CompletionResult(content=payload, usage=USAGE)

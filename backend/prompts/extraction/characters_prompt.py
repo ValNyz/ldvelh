@@ -6,60 +6,61 @@ Handles character CRUD, ambient updates, skills, and character-related facts.
 from schema import PROTAGONIST_REF
 from schema.extraction import CharactersExtraction
 
-from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur de PERSONNAGES d'un jeu de rôle narratif sur une station spatiale.
+SYSTEM_PROMPT = f"""Tu es l'extracteur de PERSONNAGES d'un jeu de rôle narratif.
 Tu analyses les textes narratifs et extrais les changements relatifs aux personnages (PNJ).
 
 ## FORMAT DE SORTIE
 
 ```json
 {{
-    "entities_created": [
+    "proposed_entities": [
         {{
             "entity_type": "character",
-            "name": "Elena Vasquez",
+            "label": "<name, or what the protagonist sees, as the text gives it>",
+            "kind": "proper_name",
             "known_by_protagonist": true,
             "descriptor": null,
-            "data": {{
-                "description": "Grande, cheveux courts",
-                "mood": "anxieuse mais déterminée",
-                "origin": "Colonie de Mars",
+            "fields": {{
+                "description": "<physical description>",
+                "mood": "<mood>",
+                "origin": "<origin>",
                 "species": "human",
-                "gender": "femme",
-                "pronouns": "elle",
-                "occupation": "ingénieure réseau",
-                "traits": ["pragmatique", "directe"],
+                "gender": "<gender>",
+                "pronouns": "<pronouns>",
+                "occupation": "<occupation>",
+                "traits": ["<trait>"],
                 "romantic_potential": false,
-                "workplace_ref": "Serres Hydro-7",
+                "workplace_ref": "E4",
                 "residence_ref": null
             }}
         }}
     ],
     "entities_updated": [
         {{
-            "entity_ref": "Nom exact du PNJ",
+            "entity_ref": "E12",
             "entity_type": "character",
             "now_known": true,
-            "real_name": "Dr. Sarah Chen",
+            "real_name": "<the name the protagonist just learned>",
             "changes": {{
-                "mood": "soulagée",
-                "occupation": "Xénobiologiste"
+                "mood": "<new mood>",
+                "occupation": "<occupation>"
             }}
         }}
     ],
     "entities_removed": [
         {{
-            "entity_ref": "Nom exact",
-            "reason": "A quitté la station définitivement",
+            "entity_ref": "E12",
+            "reason": "<why the character left the story for good>",
             "cycle": 5
         }}
     ],
     "ambient_updates": [
         {{
-            "entity_ref": "Ossek",
+            "entity_ref": "E12",
             "entity_type": "character",
-            "ambient": "Iel semble plus distant que d'habitude, le regard perdu vers le hublot"
+            "ambient": "<what an observer notices about the character right now>"
         }}
     ],
     "skills_changed": [
@@ -68,11 +69,11 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux personn
     "facts": [
         {{
             "fact_type": "revelation",
-            "description": "Marie révèle qu'elle envoie de l'argent à sa mère malade",
-            "semantic_key": "marie:reveals:sick_mother",
+            "description": "<what the character revealed>",
+            "semantic_key": "<subject>:<verb>:<object>",
             "importance": 4,
             "participants": [
-                {{"entity_ref": "Marie", "role": "actor"}},
+                {{"entity_ref": "E12", "role": "actor"}},
                 {{"entity_ref": "{PROTAGONIST_REF}", "role": "witness"}}
             ]
         }}
@@ -82,13 +83,13 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux personn
 
 ## CHARACTER DATA FIELDS
 
-data (for entities_created):
+fields (for proposed_entities):
 - description (string), mood (string), age (string), origin (string)
 - species (string, default "human"), gender (string), pronouns (string)
 - occupation (string), traits (list of strings)
 - romantic_potential (bool), workplace_ref (string), residence_ref (string)
 
-changes (for entities_updated): same keys as data above.
+changes (for entities_updated): same keys as fields above.
 
 ## AMBIENT UPDATES
 
@@ -102,7 +103,7 @@ Only extract protagonist skill changes (new skills learned or level-ups).
 
 {STRICT_KEYS_RULE}
 
-{ENTITY_MATCHING_RULE}
+{ENTITY_REFERENCE_RULE}
 
 {FACT_RULES}
 
@@ -110,12 +111,10 @@ Only extract protagonist skill changes (new skills learned or level-ups).
 
 ## CHARACTER-SPECIFIC RULES
 
-1. Only create entities with entity_type="character"
-2. If the narrative mentions a name matching an existing character's alias, do NOT create a new character — update the existing one instead.
-3. For unknown characters (protagonist hasn't learned their name): known_by_protagonist=false, descriptor must be a SIMPLE PHYSICAL description of what the protagonist SEES.
-   Good: "La femme aux cernes", "Le vieux en manteau", "Le type aux lunettes"
-   Bad: "Celle qui sait", "Le Gardien des Secrets", "La Nouvelle" — NO poetic titles, NO narrative roles
-4. entities_removed: only for permanent departures (death, left the station) — NOT temporary absence
+1. Only propose entities with entity_type="character"
+2. A character of the ENTITIES IN THIS SCENE list is updated by its handle, never proposed again.
+3. For unknown characters (protagonist hasn't learned their name): kind="descriptor", label = a SIMPLE PHYSICAL description of what the protagonist SEES, never a poetic title nor a narrative role.
+4. entities_removed: only for permanent departures (death, left for good) — NOT temporary absence
 5. Extract only CHARACTER-related facts (interactions, revelations about people)
 6. Ambient: what an observer would NOTICE about this character right now"""
 
@@ -173,7 +172,7 @@ def build_user_prompt(
 {texts_joined}
 
 ## INSTRUCTIONS
-1. Extract NEW characters not in the known list
+1. Propose NEW characters absent from the scene list (proposed_entities)
 2. Extract updates to EXISTING characters (mood, occupation, etc.)
 3. Extract character removals (permanent departures only)
 4. Generate ambient_updates for characters affected by active arcs

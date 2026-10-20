@@ -15,14 +15,16 @@ async def test_init_world_reaches_world_gen(harness):
 
 
 def test_default_payloads_validate_against_schemas():
-    """Resolver/director constants must be valid, not merely ignored, by their models."""
+    """Identity/director constants must be valid, not merely ignored, by their parsers."""
     import json
 
     from schema.director import DirectorOutput
-    from schema.extraction import EntityResolution
+    from services.identity import decision
+    from services.llm_providers import StructuredOutputMode
     from tests.characterization import payloads
 
-    EntityResolution.model_validate(json.loads(payloads.RESOLVER_EMPTY))
+    mode = StructuredOutputMode.TOOL_USE
+    assert decision.parse(json.loads(payloads.IDENTITY_EMPTY), mode) == []
     out = DirectorOutput.model_validate(json.loads(payloads.DIRECTOR))
     assert out.narrator_guidance and out.tension_level == 3
 
@@ -30,13 +32,18 @@ def test_default_payloads_validate_against_schemas():
 def test_new_character_payloads_validate_against_schemas():
     import json
 
-    from schema.extraction import CharactersExtraction, EntityResolution
+    from schema.extraction import CharactersExtraction
+    from services.identity import decision
+    from services.llm_providers import StructuredOutputMode
     from tests.characterization import payloads
 
-    res = EntityResolution.model_validate(json.loads(payloads.RESOLVER_NEW_CHARACTER))
-    assert res.new[0].suggested_name == payloads.NEW_CHARACTER_NAME
-    ext = CharactersExtraction.model_validate(payloads.EXTRACT_CHARACTERS_NEW)
-    assert ext.entities_created[0].name == payloads.NEW_CHARACTER_NAME
+    mode = StructuredOutputMode.TOOL_USE
+    [new] = decision.parse(json.loads(payloads.IDENTITY_NEW_CHARACTER), mode)
+    assert (new.surface, new.decision) == (payloads.NEW_CHARACTER_NAME, "NEW")
+    assert payloads.NEW_CHARACTER_NAME in payloads.NEW_CHARACTER_TEXT
+    prompt = f"## ENTITIES IN THIS SCENE\n- E15 · character · {payloads.NEW_CHARACTER_NAME} · known · new"
+    ext = CharactersExtraction.model_validate(payloads.extract_characters_new(prompt))
+    assert ext.entities_updated[0].entity_ref == "E15"
 
 
 def test_engine_payloads_validate_against_schemas():

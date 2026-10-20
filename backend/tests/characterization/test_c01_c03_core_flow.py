@@ -4,6 +4,7 @@ import pytest
 
 from services.llm_providers import StructuredOutputMode
 from tests.characterization import payloads
+from tests.helpers import narration_with
 from tests.characterization.snapshot import assert_snapshot
 
 
@@ -31,9 +32,10 @@ async def test_c02_arrival(harness):
 ], ids=["tool_use", "json_schema", "text"])
 async def test_c03_light_turn(harness, world_game, llm_mode):
     # The mode only changes how extractors call the LLM (LLMSession.extract_structured:
-    # tool_use / json_schema / plain text). A new-character resolution forces one extractor to run.
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    # tool_use / json_schema / plain text). The narrator's trigger forces one extractor to
+    # run, and its proposal creates the new character through the identity service (#154).
+    harness.llm._responses["narration"] = narration_with(extraction_triggers=["characters"])
+    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_PROPOSED
     events = await harness.chat(world_game, "Je regarde autour de moi.")
     await harness.drain()
     snap = harness.snapshot(events, await harness.db_summary(world_game))

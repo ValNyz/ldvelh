@@ -116,9 +116,9 @@ async def test_prompt_reads_carry_the_bare_label(test_pool, world):
 
 
 async def test_first_turn_resolver_reference_carries_the_bare_label(test_pool, world):
-    from services.extraction.orchestrator import _build_first_turn_reference
+    from services.extraction.resolver import build_first_turn_reference
 
-    text, _ = await _build_first_turn_reference(test_pool, world["game"])
+    text, _ = await build_first_turn_reference(test_pool, world["game"])
     assert f"{GUARD} [= {GUARD}]" in text
     assert "(Quai 9)" not in text and "(2)" not in text
 

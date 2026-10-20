@@ -91,6 +91,22 @@ class ResolvedRef:
 
 
 @dataclass(frozen=True)
+class MentionRow:
+    """A span of a message that names an entity (entity_mentions): offsets in the raw
+    text, the surface found there, the linked entity and how it was decided (match,
+    alias, new, deterministic)."""
+
+    start_pos: int
+    end_pos: int
+    surface: str
+    entity_id: UUID
+    decision: str
+    evidence: str | None = None
+    entity_type: str | None = None  # set on read
+    label: str | None = None  # display_for_player, set on read
+
+
+@dataclass(frozen=True)
 class SceneContext:
     """What the resolver knows of the scene of a turn (spec §4.5.1): the context generator
     of the blocking reads it. `reveal_refs` and `planned_npc_handles` are references as
@@ -103,7 +119,7 @@ class SceneContext:
     reveal_refs: list[str]
     planned_npc_handles: list[str]
     open_disclosure_ids: list[UUID]
-    protagonist_id: UUID
+    protagonist_id: UUID | None
     companion_id: UUID | None
     genre: str | None
 
@@ -257,9 +273,71 @@ class TurnDecisions:
                         {"from": str(d.redirected_from)},
                     )
                 )
+            if d.decision == "UNSURE" and d.rejection is None and not d.ignored:
+                rows.append(("uncertain", None, {"category": d.category}))
         if self.fallback:
             rows.append(("resolver_fallback", None, {"prepass": len(self.decisions)}))
+        if self.escalated:
+            escalated = sum(1 for d in self.decisions if d.escalated)
+            rows.append(("escalation", None, {"mentions": escalated}))
         return rows
+
+
+@dataclass(frozen=True)
+class TurnRef:
+    """The turn a resolution belongs to: its id (None outside a journaled turn), its
+    narrator message and its cycle."""
+
+    turn_id: UUID | None
+    message_id: UUID
+    cycle: int
+
+
+@dataclass(frozen=True)
+class SceneEntity:
+    """An entity of the scene as the extractors see it (spec §4.5.6): its handle E<n>,
+    its type, what the player may read for it, whether the protagonist knows its name,
+    and whether this turn created it."""
+
+    handle: str
+    entity_type: str
+    label: str
+    known: bool
+    is_new: bool
+
+
+@dataclass(frozen=True)
+class TurnResolution:
+    """What the resolver v2 applied for a turn (spec §4.5.6): the mentions written, the
+    entities created (id and scene line), the aliases learned, the reveals applied, the
+    scene the extractors receive, the entity types worth an extraction (created, or
+    linked while still a bare stub), and the cascade's outcome. `usage`: per purpose,
+    calls, tokens and cost of the decision."""
+
+    mentions: list[MentionRow]
+    created: list[tuple[UUID, SceneEntity]]
+    aliases_added: int
+    reveals: list[RevealOutcome]
+    scene_entities: list[SceneEntity]
+    new_types: set[str]
+    escalated: bool
+    fallback: bool
+    deterministic: int = 0
+    unsure: int = 0
+    usage: dict = field(default_factory=dict)
+
+    def stats(self) -> dict:
+        """Counts of the resolution, for the extraction result and the logs."""
+        return {
+            "mentions": len(self.mentions),
+            "deterministic": self.deterministic,
+            "escalated": self.escalated,
+            "fallback": self.fallback,
+            "unsure": self.unsure,
+        }
+
+    def cost_usd(self) -> float:
+        return sum(entry.get("cost_usd") or 0 for entry in self.usage.values())
 
 
 class IdentityFailure(Exception):

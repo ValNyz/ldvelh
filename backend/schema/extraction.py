@@ -49,19 +49,24 @@ class ExtractionType(str, Enum):
 # =============================================================================
 
 
-class EntityCreation(BaseModel):
-    """
-    A new entity discovered/introduced in the narrative.
-    Entity-specific fields go in the data dict, validated by the populator
-    against the appropriate entity model (CharacterData, LocationData, etc.)
-    """
+class ProposedEntity(BaseModel):
+    """An entity an extractor read in the narrative but did not find among the entities
+    of the scene: a proposal, created (or matched to an existing entity) by the identity
+    service, never by the extractor (spec §4.6).
+
+    `label`: the name as the text gives it. `kind`: a proper name, or a descriptor (what
+    the protagonist sees of someone or something not named). `fields`: the columns of
+    its row (keys match the target table), references to other entities by handle.
+    `known_by_protagonist`: the protagonist learned the proper name (a descriptor is
+    always seen); `descriptor`: what the protagonist sees of a character named by its
+    proper name."""
 
     entity_type: EntityType
-    name: Name  # 100 chars
+    label: Name  # 100 chars
+    kind: Literal["proper_name", "descriptor"] = "proper_name"
     known_by_protagonist: bool = True
     descriptor: Name | None = None
-    # Entity-specific fields (keys match the target table columns)
-    data: dict = Field(
+    fields: dict = Field(
         default_factory=dict,
         description="Entity-specific fields matching the target table columns",
     )
@@ -80,7 +85,7 @@ class EntityCreation(BaseModel):
 
 
 class EntityUpdate(BaseModel):
-    """An update to an existing entity"""
+    """An update to an existing entity, named by its handle (E<n>) in the scene"""
 
     entity_ref: EntityRef
     entity_type: EntityType | None = None  # Helps routing to the correct table
@@ -312,7 +317,7 @@ class NarrativeExtraction(BaseModel):
     facts: list[FactData] = Field(default_factory=list)
 
     # Entity changes
-    entities_created: list[EntityCreation] = Field(default_factory=list)
+    proposed_entities: list[ProposedEntity] = Field(default_factory=list)
     entities_updated: list[EntityUpdate] = Field(default_factory=list)
     entities_removed: list[EntityRemoval] = Field(default_factory=list)
 
@@ -400,7 +405,7 @@ def get_extraction_tool_schema() -> dict:
 class CharactersExtraction(BaseModel):
     """Output of the characters extractor — character CRUD + ambient + facts."""
 
-    entities_created: list[EntityCreation] = Field(default_factory=list)
+    proposed_entities: list[ProposedEntity] = Field(default_factory=list)
     entities_updated: list[EntityUpdate] = Field(default_factory=list)
     entities_removed: list[EntityRemoval] = Field(default_factory=list)
     ambient_updates: list[AmbientUpdate] = Field(default_factory=list)
@@ -411,7 +416,7 @@ class CharactersExtraction(BaseModel):
 class LocationsExtraction(BaseModel):
     """Output of the locations extractor — location CRUD + ambient + facts."""
 
-    entities_created: list[EntityCreation] = Field(default_factory=list)
+    proposed_entities: list[ProposedEntity] = Field(default_factory=list)
     entities_updated: list[EntityUpdate] = Field(default_factory=list)
     ambient_updates: list[AmbientUpdate] = Field(default_factory=list)
     facts: list[FactData] = Field(default_factory=list)
@@ -420,7 +425,7 @@ class LocationsExtraction(BaseModel):
 class OrganizationsExtraction(BaseModel):
     """Output of the organizations extractor — org CRUD + ambient + facts."""
 
-    entities_created: list[EntityCreation] = Field(default_factory=list)
+    proposed_entities: list[ProposedEntity] = Field(default_factory=list)
     entities_updated: list[EntityUpdate] = Field(default_factory=list)
     ambient_updates: list[AmbientUpdate] = Field(default_factory=list)
     facts: list[FactData] = Field(default_factory=list)

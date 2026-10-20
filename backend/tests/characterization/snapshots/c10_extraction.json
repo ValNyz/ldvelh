@@ -17,7 +17,7 @@
     "director_commitments": 0,
     "director_plans": 1,
     "entity_aliases": 38,
-    "entity_mentions": 0,
+    "entity_mentions": 5,
     "entity_merges": 0,
     "entity_registry": 15,
     "events": 1,
@@ -43,8 +43,8 @@
   },
   "llm_calls": [
     "extract:extract_characters",
-    "narration",
-    "resolver"
+    "identity",
+    "narration"
   ],
   "registry": [
     {

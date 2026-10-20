@@ -11,8 +11,8 @@
     "  Café correct, sans plus. Le proprio n\\'est pas du genre bavard."
   ],
   "llm_calls_turn_c": [
-    "narration",
-    "resolver"
+    "identity",
+    "narration"
   ],
   "sse_turn_c": [
     "chunk*",

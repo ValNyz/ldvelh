@@ -42,8 +42,7 @@ class InventoryExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_text: str, cycle: int,
-        resolution_map=None,
+        self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         known_objs = [
             {"name": o["name"], "category": o.get("category", "misc")}
@@ -57,11 +56,6 @@ class InventoryExtractor(BaseExtractor):
             known_objects=known_objs or None,
             engine_object_addon=self._engine.get_object_prompt_addon() or None,
         )
-        if resolution_map:
-            from prompts.extraction.shared import RESOLUTION_SECTION_HEADER
-            section = resolution_map.to_prompt_section("object")
-            if section:
-                user_prompt += f"\n\n{RESOLUTION_SECTION_HEADER}{section}"
         return inventory_prompt.SYSTEM_PROMPT, user_prompt
 
     def _get_tool_schema(self) -> dict:
@@ -102,5 +96,5 @@ class InventoryExtractor(BaseExtractor):
 
     async def _change_inventory(self, conn: Connection, ic_data: dict, cycle: int) -> bool:
         ic = InventoryChange.model_validate(ic_data)
-        await self.populator._process_inventory_change(conn, ic, cycle)
+        await self.populator.process_inventory_change(conn, ic, cycle)
         return True

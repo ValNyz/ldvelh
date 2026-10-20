@@ -42,9 +42,15 @@ class Lexicon:
         self.reveal_cues = keys(lang.reveal_cues)
         self.source_cues = keys(lang.source_cues)
         self.min_distinctive_token_len = lang.min_distinctive_token_len
+        examples = genre.identity.prompt_examples
         self.prompt_examples: list[Example] = (
-            genre.identity.prompt_examples.get("identity")
-            or lang.prompt_examples.identity
+            examples.get("identity") or lang.prompt_examples.identity
+        )
+        self.extraction_examples: list[Example] = (
+            examples.get("extraction") or lang.prompt_examples.extraction
+        )
+        self.entity_type_vocab: dict[str, list[str]] = dict(
+            genre.identity.entity_type_vocab
         )
 
 

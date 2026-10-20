@@ -180,10 +180,11 @@ async def test_every_llm_call_of_a_turn_is_linked_to_it(harness, world_game, tes
             """SELECT turn_id, user_id, purpose FROM llm_calls
                WHERE game_id = $1 AND created_at < $2""",
             game_id, first_turn)
-    harness.llm._responses["resolver"] = payloads.RESOLVER_NEW_CHARACTER
-    harness.llm._responses["extract:extract_characters"] = payloads.EXTRACT_CHARACTERS_NEW
+    harness.llm._responses["identity"] = payloads.IDENTITY_NEW_CHARACTER
+    harness.llm._responses["extract:extract_characters"] = payloads.extract_characters_new
     harness.llm._responses["narration"] = narration_with(
-        day_transition={"new_cycle": 12, "new_date": "Jour 12"})
+        day_transition={"new_cycle": 12, "new_date": "Jour 12"},
+        narrative_text=payloads.NEW_CHARACTER_TEXT)
 
     events = await harness.chat(world_game, "Je dors jusqu'au matin.")
     await harness.drain()

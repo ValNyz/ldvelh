@@ -17,6 +17,8 @@ from .base import BaseExtractor
 if TYPE_CHECKING:
     from asyncpg import Connection
 
+    from domain.identity import SceneEntity
+
 logger = logging.getLogger(__name__)
 
 
@@ -27,7 +29,8 @@ class ProgressionExtractor(BaseExtractor):
     writes_entity_refs = False  # engine stats only
 
     async def run(self, message_content: str, narrator_deltas: dict, trigger_cycle: int,
-                  resolution_map=None, *, source_message_id: UUID | None = None,
+                  scene_entities: list[SceneEntity] | None = None, *,
+                  source_message_id: UUID | None = None,
                   turn_id: UUID | None = None) -> dict:
         """Override run() to short-circuit for engines without progression."""
         async with self.pool.acquire() as conn:
@@ -48,7 +51,7 @@ class ProgressionExtractor(BaseExtractor):
 
         # Delegate to BaseExtractor template
         return await super().run(message_content, narrator_deltas, trigger_cycle,
-                                 resolution_map, source_message_id=source_message_id,
+                                 scene_entities, source_message_id=source_message_id,
                                  turn_id=turn_id)
 
     async def _build_context(
@@ -63,8 +66,7 @@ class ProgressionExtractor(BaseExtractor):
         }
 
     def _build_prompts(
-        self, context: dict, narrative_text: str, cycle: int,
-        resolution_map=None,
+        self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         system_prompt = self._engine.get_progression_system_prompt()
         user_prompt = self._engine.build_progression_user_prompt(

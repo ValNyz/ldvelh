@@ -6,9 +6,9 @@ Handles arcs, relations (cross-entity), events, segment summary, and world-state
 from schema import PROTAGONIST_REF
 from schema.extraction import NarrativeArcsExtraction
 
-from .shared import CORE_RULES, ENTITY_MATCHING_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur d'ARCS NARRATIFS d'un jeu de rôle narratif sur une station spatiale.
+SYSTEM_PROMPT = f"""Tu es l'extracteur d'ARCS NARRATIFS d'un jeu de rôle narratif.
 Tu analyses les textes narratifs et extrais les arcs, relations, événements, et le résumé du segment.
 
 ## FORMAT DE SORTIE
@@ -17,13 +17,13 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
 {{
     "arcs_created": [
         {{
-            "title": "Les rumeurs de rachat",
+            "title": "<title of the new arc>",
             "domain": "professional",
-            "description": "Marie mentionne des rumeurs sur un rachat de Symbiose par un investisseur.",
-            "involved_entities": ["Marie", "Symbiose Tech"],
+            "description": "<what the arc is about>",
+            "involved_entities": ["E12", "E9"],
             "intensity": 3,
-            "potential_triggers": ["réunion générale", "rumeurs"],
-            "stakes": "Indépendance de l'entreprise",
+            "potential_triggers": ["<trigger>"],
+            "stakes": "<what is at stake>",
             "deadline_cycle": null
         }}
     ],
@@ -37,8 +37,8 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
     ],
     "arcs_resolved": [
         {{
-            "arc_title": "Promesse d'aide sur le rapport",
-            "resolution": "Rapport terminé ensemble, Marie reconnaissante"
+            "arc_title": "<EXACT title of the resolved arc>",
+            "resolution": "<how it ended>"
         }}
     ],
     "relations_created": [
@@ -46,53 +46,53 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
             "cycle": 5,
             "relation": {{
                 "source_ref": "{PROTAGONIST_REF}",
-                "target_ref": "Marie",
+                "target_ref": "E12",
                 "relation_type": "knows",
                 "known_by_protagonist": true,
                 "level": 3,
-                "context": "Collègues de travail"
+                "context": "<how they know each other>"
             }}
         }}
     ],
     "relations_updated": [
         {{
             "source_ref": "{PROTAGONIST_REF}",
-            "target_ref": "Marie",
+            "target_ref": "E12",
             "relation_type": "knows",
             "new_level": 4,
-            "new_context": "Confidents",
+            "new_context": "<new context>",
             "now_known": true
         }}
     ],
     "relations_ended": [
         {{
             "source_ref": "{PROTAGONIST_REF}",
-            "target_ref": "Ancien collègue",
+            "target_ref": "E14",
             "relation_type": "colleague_of",
             "cycle": 5,
-            "reason": "A quitté l'entreprise"
+            "reason": "<why the relation ended>"
         }}
     ],
     "events_scheduled": [
         {{
             "event_type": "appointment",
-            "title": "Déjeuner avec Marie",
-            "description": "RDV informel au Quart de Cycle",
+            "title": "<what is planned>",
+            "description": "<details>",
             "planned_cycle": 7,
             "time": "12h30",
-            "location_ref": "Le Quart de Cycle",
-            "participants": ["Marie"]
+            "location_ref": "E7",
+            "participants": ["E12"]
         }}
     ],
     "facts": [
         {{
             "fact_type": "decision",
-            "description": "Kira décide d'aider Marie avec le rapport",
-            "semantic_key": "kira:decide:aider_marie_rapport",
+            "description": "<what the protagonist decided>",
+            "semantic_key": "<subject>:<verb>:<object>",
             "importance": 3,
             "participants": [
                 {{"entity_ref": "{PROTAGONIST_REF}", "role": "actor"}},
-                {{"entity_ref": "Marie", "role": "target"}}
+                {{"entity_ref": "E12", "role": "target"}}
             ]
         }}
     ],
@@ -127,7 +127,7 @@ Focus on the most important narrative developments.
 
 {STRICT_KEYS_RULE}
 
-{ENTITY_MATCHING_RULE}
+{ENTITY_REFERENCE_RULE}
 
 {FACT_RULES}
 
@@ -139,7 +139,7 @@ Focus on the most important narrative developments.
 2. Do NOT create "owns" relations (possession is handled by inventory)
 3. Relations level: 1=seen once, 3=acquaintance, 5=close friend, 7=intimate
 4. Extract world-state/narrative facts (decisions, promises, events, interactions)
-5. segment_summary is MANDATORY — always provide one"""
+5. segment_summary is required — always provide one"""
 
 
 def build_user_prompt(
