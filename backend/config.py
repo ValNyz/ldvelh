@@ -51,7 +51,6 @@ class Settings(BaseSettings):
     max_tokens_init: int = 10000
     max_tokens_narration: int = 4000
     max_tokens_extraction: int = 3000
-    max_tokens_summary: int = 500
     max_tokens_mechanical: int = 500
     max_tokens_world_enhance: int = 3000
     temperature: float = 0.8
@@ -82,10 +81,6 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000")
-
-    # Entity resolution (Phase 1 — pre-extraction disambiguation)
-    max_tokens_resolution: int = 1000
-    resolution_context_window: int = 10
 
     # Background job supervisor (#19, #94)
     # Read from their env var when Settings() is built (checked by the validators below).
@@ -214,4 +209,4 @@ def get_identity_config() -> IdentityConfig:
 
 
 # Constants
-DEFAULT_STATS = {"energy": 4.0, "morale": 3.0, "health": 5.0, "credits": 1400}
+DEFAULT_STATS = {"credits": 1400}

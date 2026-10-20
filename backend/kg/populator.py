@@ -157,15 +157,6 @@ class KnowledgeGraphPopulator:
             "UPDATE games SET updated_at = NOW() WHERE id = $1", target_id
         )
 
-    async def deactivate_game(
-        self, conn: Connection, game_id: UUID | None = None
-    ) -> None:
-        target_id = game_id or self.game_id
-        await conn.execute(
-            "UPDATE games SET active = false, updated_at = NOW() WHERE id = $1",
-            target_id,
-        )
-
     # =========================================================================
     # WORLD (stored on games table)
     # =========================================================================

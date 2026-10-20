@@ -81,7 +81,7 @@ class TestSSEEvent:
 
     def test_enum_values(self):
         """All expected event types exist."""
-        expected = {"chunk", "progress", "extracting", "done", "saved", "error", "warning", "state", "roll_result", "roll_pending", "status"}
+        expected = {"chunk", "progress", "done", "saved", "error", "warning", "roll_result", "roll_pending", "status"}
         actual = {e.value for e in SSEEvent}
         assert actual == expected
 
@@ -178,23 +178,6 @@ class TestSSEWriterSend:
         payload = w._queue.get_nowait()
         assert payload["displayText"] is None
         assert payload["state"] is None
-
-    @pytest.mark.asyncio
-    async def test_send_extracting(self):
-        """send_extracting enqueues an EXTRACTING event."""
-        w = SSEWriter()
-        await w.send_extracting("Extracting now...")
-        payload = w._queue.get_nowait()
-        assert payload["type"] == "extracting"
-        assert payload["displayText"] == "Extracting now..."
-
-    @pytest.mark.asyncio
-    async def test_send_extracting_none(self):
-        """send_extracting accepts None as display text."""
-        w = SSEWriter()
-        await w.send_extracting(None)
-        payload = w._queue.get_nowait()
-        assert payload["displayText"] is None
 
     @pytest.mark.asyncio
     async def test_send_saved(self):

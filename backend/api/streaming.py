@@ -25,12 +25,10 @@ class SSEEvent(str, Enum):
 
     CHUNK = "chunk"
     PROGRESS = "progress"
-    EXTRACTING = "extracting"
     DONE = "done"
     SAVED = "saved"
     ERROR = "error"
     WARNING = "warning"
-    STATE = "state"
     ROLL_RESULT = "roll_result"
     ROLL_PENDING = "roll_pending"
     STATUS = "status"
@@ -83,7 +81,7 @@ class SSEWriter:
             self._done_queued = True  # The turn is committed: never cancel it from here on.
 
         # Log pour événements importants
-        if event_type in (SSEEvent.DONE, SSEEvent.ERROR, SSEEvent.EXTRACTING):
+        if event_type in (SSEEvent.DONE, SSEEvent.ERROR):
             elapsed = time.perf_counter() - self._start_time
             logger.info(
                 f"[SSE:{self._stream_id}] {event_type.value.upper()} après {elapsed:.2f}s "
@@ -99,13 +97,6 @@ class SSEWriter:
         """Envoie la progression du JSON (mode init)"""
         self._bytes_sent += len(raw_json.encode("utf-8"))
         await self.send(SSEEvent.PROGRESS, {"rawJson": raw_json})
-
-    async def send_extracting(self, display_text: str | None) -> None:
-        """
-        Signale que le narratif est terminé et l'extraction en cours.
-        Le client peut afficher le texte final et permettre la saisie.
-        """
-        await self.send(SSEEvent.EXTRACTING, {"displayText": display_text})
 
     async def send_done(
         self, display_text: str | None, state: dict | None = None, *, world: bool = False

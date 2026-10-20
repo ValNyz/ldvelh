@@ -165,23 +165,12 @@ def normalize_game_state(
     game_data: Optional[dict] = None,
     player_data: Optional[dict] = None,
     ai_data: Optional[dict] = None,
-    flat_data: Optional[dict] = None,
 ) -> GameState:
     """
     Normalize the full game state.
 
-    Can receive either structured data (game_data, player_data, ai_data),
-    or a flat dict (flat_data) to parse.
+    Receives structured data (game_data, player_data, ai_data).
     """
-    if flat_data:
-        if "game" in flat_data or "player" in flat_data:
-            game_data = flat_data.get("game")
-            player_data = flat_data.get("player")
-            ai_data = flat_data.get("ai")
-        else:
-            game_data = extract_game_fields(flat_data)
-            player_data = extract_player_fields(flat_data)
-
     return GameState(
         game=normalize_game_session(game_data),
         player=normalize_player(player_data),
@@ -225,93 +214,6 @@ def extract_player_fields(data: dict) -> dict:
 # =============================================================================
 
 
-def merge_game_states(prev: GameState, update: dict) -> GameState:
-    """
-    Merge an existing state with a partial update.
-    Useful for SSE updates that contain only some fields.
-    """
-    update_state = normalize_game_state(flat_data=update)
-
-    update_game_keys = set()
-    update_player_keys = set()
-    update_ai_keys = set()
-
-    if "game" in update and update["game"]:
-        update_game_keys = set(update["game"].keys())
-    if "player" in update and update["player"]:
-        update_player_keys = set(update["player"].keys())
-    if "ai" in update and update["ai"]:
-        update_ai_keys = set(update["ai"].keys())
-
-    # Merge game session
-    new_game = None
-    if prev.game or update_state.game:
-        prev_dict = prev.game.model_dump() if prev.game else {}
-        if update_state.game and update_game_keys:
-            update_dict = update_state.game.model_dump()
-            update_dict = {
-                k: v
-                for k, v in update_dict.items()
-                if k in update_game_keys and v is not None
-            }
-            merged = {**prev_dict, **update_dict}
-        else:
-            merged = prev_dict
-        new_game = GameSessionState(**merged)
-
-    # Merge player
-    new_player = merge_player(
-        prev.player, update_state.player, update_player_keys
-    )
-
-    # Merge AI
-    new_ai = None
-    if prev.ai or update_state.ai:
-        prev_dict = prev.ai.model_dump() if prev.ai else {}
-        if update_state.ai and update_ai_keys:
-            update_dict = update_state.ai.model_dump()
-            update_dict = {
-                k: v
-                for k, v in update_dict.items()
-                if k in update_ai_keys and v is not None
-            }
-            merged = {**prev_dict, **update_dict}
-            new_ai = AIState(**merged)
-        else:
-            new_ai = prev.ai
-
-    return GameState(game=new_game, player=new_player, ai=new_ai)
-
-
-def merge_player(
-    prev: PlayerState, update: PlayerState, update_keys: set[str] | None = None
-) -> PlayerState:
-    """
-    Merge player stats.
-    Only updates keys explicitly present in update_keys.
-    """
-    if update_keys is None:
-        return PlayerState(
-            credits=update.credits
-            if update.credits != DEFAULT_STATS["credits"]
-            else prev.credits,
-            inventory=update.inventory if update.inventory else prev.inventory,
-            engine_stats=update.engine_stats if update.engine_stats else prev.engine_stats,
-            sheet=update.sheet if update.sheet else prev.sheet,
-        )
-
-    return PlayerState(
-        credits=update.credits if "credits" in update_keys else prev.credits,
-        inventory=update.inventory
-        if "inventory" in update_keys
-        else prev.inventory,
-        engine_stats=update.engine_stats
-        if "engine_stats" in update_keys
-        else prev.engine_stats,
-        sheet=update.sheet if "sheet" in update_keys else prev.sheet,
-    )
-
-
 # =============================================================================
 # SERIALIZATION HELPERS
 # =============================================================================
@@ -321,7 +223,3 @@ def game_state_to_dict(state: GameState) -> dict:
     """Convert a GameState to a dict for JSON serialization."""
     return state.model_dump(exclude_none=True, mode="json")
 
-
-def game_state_to_json(state: GameState) -> str:
-    """Convert a GameState to a JSON string."""
-    return state.model_dump_json(exclude_none=True)

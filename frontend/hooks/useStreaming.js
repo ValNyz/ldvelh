@@ -21,7 +21,7 @@ export function useStreaming() {
 	 * @param {Object} opts
 	 * @param {*} [opts.key] - starting a stream cancels the in-flight one of the same key only;
 	 *   callers without a key share the `null` slot (pass one to run streams side by side)
-	 * @param {Object} opts.callbacks - { onChunk, onProgress, onExtracting, onDone, onSaved,
+	 * @param {Object} opts.callbacks - { onChunk, onProgress, onDone, onSaved,
 	 *   onSaveUnconfirmed, onError, onRollResult, onRollPending, onStatus, onWarning }
 	 */
 	const startStream = useCallback(async (url, body, { key = null, callbacks = {} } = {}) => {
@@ -31,7 +31,7 @@ export function useStreaming() {
 		controllers.set(key, controller);
 		let fullJson = '';
 		const {
-			onChunk, onProgress, onExtracting, onDone, onSaved, onSaveUnconfirmed, onError,
+			onChunk, onProgress, onDone, onSaved, onSaveUnconfirmed, onError,
 			onRollResult, onRollPending, onStatus, onWarning,
 		} = callbacks;
 
@@ -42,7 +42,6 @@ export function useStreaming() {
 					fullJson = data.rawJson || fullJson;
 					onProgress?.(fullJson);
 					break;
-				case 'extracting': onExtracting?.(data.displayText); break;
 				case 'done': onDone?.(data.displayText, data.state); break;
 				case 'saved': onSaved?.(); break;
 				case 'save_unconfirmed': onSaveUnconfirmed?.(); break;

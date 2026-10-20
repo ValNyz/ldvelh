@@ -12,7 +12,6 @@ from services.state_normalizer import (
     normalize_game_session,
     normalize_ai,
     normalize_game_state,
-    merge_game_states,
     game_state_to_dict,
     InventoryItem,
     PlayerState,
@@ -233,64 +232,6 @@ class TestNormalizeGameState:
         assert state.game.current_cycle == 2
         assert state.player.credits == 1000
         assert state.ai.name == "ARIA"
-
-    def test_flat_input_already_structured(self):
-        """flat_data already structured with game/player keys"""
-        state = normalize_game_state(
-            flat_data={
-                "game": {"name": "Flat Test"},
-                "player": {"credits": 500},
-                "ai": {"name": "BOT"},
-            }
-        )
-        assert state.game.name == "Flat Test"
-        assert state.player.credits == 500
-        assert state.ai.name == "BOT"
-
-    def test_flat_input_raw(self):
-        """flat_data raw (from DB directly)"""
-        state = normalize_game_state(
-            flat_data={
-                "name": "Direct",
-                "credits": 800,
-            }
-        )
-        assert state.player.credits == 800
-
-
-# =============================================================================
-# TESTS MERGE
-# =============================================================================
-
-
-class TestMergeGameStates:
-    """Tests for merge_game_states"""
-
-    def test_merge_partial_update(self):
-        """Partial update"""
-        prev = GameState(
-            game=GameSessionState(name="Test", current_cycle=1, current_location="Bar"),
-            player=PlayerState(credits=1000),
-        )
-        merged = merge_game_states(prev, {"game": {"current_cycle": 2}})
-
-        # Updated values
-        assert merged.game.current_cycle == 2
-        # Preserved values
-        assert merged.game.name == "Test"
-        assert merged.game.current_location == "Bar"
-        assert merged.player.credits == 1000
-
-    def test_merge_preserves_ai(self):
-        """Merge preserves AI if not in update"""
-        prev = GameState(
-            player=PlayerState(),
-            ai=AIState(name="ARIA", personality=["cool"]),
-        )
-        merged = merge_game_states(prev, {"player": {"credits": 500}})
-
-        assert merged.ai.name == "ARIA"
-        assert merged.ai.personality == ["cool"]
 
 
 # =============================================================================

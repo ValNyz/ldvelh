@@ -82,16 +82,6 @@ class KnowledgeGraphReader:
         game["engine"] = coerce_engine(game["engine"], game_id).value
         return game
 
-    async def game_exists(self, conn: Connection, active_only: bool = True) -> bool:
-        if active_only:
-            return await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM games WHERE id = $1 AND active = true)",
-                self.game_id,
-            )
-        return await conn.fetchval(
-            "SELECT EXISTS(SELECT 1 FROM games WHERE id = $1)", self.game_id
-        )
-
     # =========================================================================
     # WORLD STATE
     # =========================================================================
@@ -102,13 +92,6 @@ class KnowledgeGraphReader:
             "SELECT EXISTS(SELECT 1 FROM protagonists WHERE game_id = $1)",
             self.game_id,
         )
-
-    async def get_current_cycle(self, conn: Connection) -> int:
-        result = await conn.fetchval(
-            "SELECT COALESCE(current_cycle, 0) FROM games WHERE id = $1",
-            self.game_id,
-        )
-        return result or 0
 
     async def get_current_date(self, conn: Connection) -> str | None:
         return await conn.fetchval(
@@ -223,9 +206,6 @@ class KnowledgeGraphReader:
         return dict(row) if row else None
 
     # Keep old name as alias for backward compatibility during migration
-    async def get_personal_assistant(self, conn: Connection) -> dict | None:
-        return await self.get_companion(conn)
-
     # =========================================================================
     # CHARACTERS
     # =========================================================================
@@ -525,19 +505,6 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
-    async def fact_exists(
-        self, conn: Connection, cycle: int, semantic_key: str
-    ) -> bool:
-        return await conn.fetchval(
-            """SELECT EXISTS(
-                SELECT 1 FROM facts
-                WHERE game_id = $1 AND cycle = $2 AND semantic_key = $3
-            )""",
-            self.game_id,
-            cycle,
-            semantic_key,
-        )
-
     # =========================================================================
     # NARRATIVE ARCS (via view v_active_arcs)
     # =========================================================================
@@ -558,19 +525,6 @@ class KnowledgeGraphReader:
             self.game_id,
         )
         return [dict(r) for r in rows]
-
-    async def find_arc_by_title(self, conn: Connection, title: str) -> dict | None:
-        """Find an arc by partial title match."""
-        row = await conn.fetchrow(
-            """SELECT id, title, domain, description, resolved
-               FROM narrative_arcs
-               WHERE game_id = $1 AND resolved = false
-                 AND title ILIKE '%' || $2 || '%'
-               LIMIT 1""",
-            self.game_id,
-            title[:50],
-        )
-        return dict(row) if row else None
 
     # =========================================================================
     # EVENTS (via view v_upcoming_events)
@@ -593,54 +547,9 @@ class KnowledgeGraphReader:
         )
         return [dict(r) for r in rows]
 
-    async def get_events(
-        self,
-        conn: Connection,
-        from_cycle: int | None = None,
-        limit: int | None = None,
-        pending_only: bool = True,
-    ) -> list[dict]:
-        """Get events with basic filters."""
-        query = """
-            SELECT id, title, description, planned_cycle,
-                   time, location_id, type, completed, cancelled
-            FROM events WHERE game_id = $1
-        """
-        params: list = [self.game_id]
-
-        if pending_only:
-            query += " AND completed = false AND cancelled = false"
-
-        if from_cycle is not None:
-            params.append(from_cycle)
-            query += f" AND planned_cycle >= ${len(params)}"
-
-        query += " ORDER BY planned_cycle ASC"
-
-        if limit:
-            params.append(limit)
-            query += f" LIMIT ${len(params)}"
-
-        rows = await conn.fetch(query, *params)
-        return [dict(r) for r in rows]
-
     # =========================================================================
     # MESSAGES & CONVERSATIONS
     # =========================================================================
-
-    async def get_conversations(
-        self, conn: Connection, active_only: bool = True
-    ) -> list[dict]:
-        """Get conversation segments."""
-        query = """
-            SELECT id, start_cycle, end_cycle, compacted, created_at
-            FROM conversations WHERE game_id = $1
-        """
-        if active_only:
-            query += " AND compacted = false"
-        query += " ORDER BY created_at DESC"
-        rows = await conn.fetch(query, self.game_id)
-        return [dict(r) for r in rows]
 
     async def get_messages(
         self,
@@ -688,11 +597,6 @@ class KnowledgeGraphReader:
             self.game_id,
         )
         return dict(row) if row else None
-
-    async def get_message_count(self, conn: Connection) -> int:
-        return await conn.fetchval(
-            "SELECT COUNT(*) FROM messages WHERE game_id = $1", self.game_id
-        )
 
     # =========================================================================
     # NARRATIVE SEEDS
@@ -742,12 +646,6 @@ class KnowledgeGraphReader:
 
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
-
-    async def get_chronology_entry(self, conn: Connection, cycle: int) -> dict | None:
-        results = await self.get_chronology(conn, max_cycle=cycle, limit=1)
-        if results and results[0]["cycle"] == cycle:
-            return results[0]
-        return None
 
     # =========================================================================
     # ARRIVAL EVENT (reconstructed from facts + chronology)
@@ -925,19 +823,6 @@ class KnowledgeGraphReader:
             "SELECT engine FROM games WHERE id = $1", self.game_id
         )
         return coerce_engine(result, self.game_id).value
-
-    async def get_world_config(self, conn: Connection) -> dict | None:
-        """Get the world configuration for this game."""
-        return await conn.fetchval(
-            "SELECT world_config FROM games WHERE id = $1", self.game_id
-        )
-
-    async def is_engine_locked(self, conn: Connection) -> bool:
-        """Check if engine is locked (no longer changeable)."""
-        result = await conn.fetchval(
-            "SELECT engine_locked FROM games WHERE id = $1", self.game_id
-        )
-        return bool(result)
 
     async def get_mechanic_rolls(
         self,
