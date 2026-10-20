@@ -962,3 +962,40 @@ async def test_a_second_pass_in_the_same_turn_records_no_new_event(
     assert first == ["noop", "noop", "conflict", "merge_refused"]
     assert second == ["noop", "noop", "known_only", "merge_refused"]
     assert again == events
+
+
+async def test_revealing_a_homonym_by_its_own_descriptor_keeps_its_suffix(
+    test_pool, game, service
+):
+    """A rename whose bare label does not change is a no-op on the label: an unnamed
+    homonym revealed with its own descriptor keeps its suffix, gets no « … (3) », no
+    former name of its suffixed label and no second label_suffixed event."""
+    async with test_pool.acquire() as conn:
+        guards = [
+            await service.create_entity(
+                conn,
+                NewEntitySpec("character", "Garde du sas", "descriptor"),
+                turn_id=None,
+                source="extractor",
+                trap=True,
+            )
+            for _ in range(2)
+        ]
+        handle = await entities.handle_of(conn, guards[1])
+        before = await _character_row(conn, guards[1])
+        outcome = await service.reveal(
+            conn, _ref(f"E{handle}"), "Garde du sas", turn_id=None, source="reveal"
+        )
+        row = await _character_row(conn, guards[1])
+        suffix = await conn.fetchval(
+            "SELECT label_suffix FROM characters WHERE id = $1", guards[1]
+        )
+        aliases = await _aliases(conn, game, guards[1])
+        suffixed = await _events(conn, game, "label_suffixed")
+    assert outcome.kind == "applied"
+    assert (suffix, row["label"]) == ("2", before["label"])
+    assert (row["true_name"], row["known"]) == ("Garde du sas", True)
+    assert {a: k for a, k in aliases.items() if "(" in a} == {
+        "Garde du sas (2)": ("label", False)
+    }
+    assert [e["entity_id"] for e in suffixed] == [guards[1]]

@@ -658,8 +658,8 @@ async def event_recorded(
     turn_id: UUID | None,
     payload: dict,
 ) -> bool:
-    """An identity_events row of this kind, entity and payload (jsonb equality) exists in this turn
-    (without a turn: in this transaction)."""
+    """An identity_events row of this kind, entity and payload (jsonb equality) exists
+    in this turn (without a turn: in this transaction)."""
     return await conn.fetchval(
         """SELECT EXISTS (SELECT 1 FROM identity_events
                            WHERE game_id = $1 AND kind = $2

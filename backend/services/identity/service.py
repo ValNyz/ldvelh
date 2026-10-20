@@ -194,14 +194,24 @@ class IdentityService:
         return {**names, **spec.fields}
 
     async def _free_suffix(
-        self, conn, entity_type: str, label: str, scene_location_id: UUID | None
+        self,
+        conn,
+        entity_type: str,
+        label: str,
+        scene_location_id: UUID | None,
+        *,
+        exclude: UUID | None = None,
     ) -> tuple[str, str]:
         """(suffix, where it comes from): the scene location's name when the label it makes
-        is free, else the first free homonym number (classify.free_suffix, ruling R9)."""
+        is free, else the first free homonym number (classify.free_suffix, ruling R9).
+        `exclude`: an entity being renamed, whose own label takes nothing."""
         place = None
         if scene_location_id is not None:
             place = await entities.display_for_player(conn, scene_location_id)
-        taken = await entities.label_holders(conn, self.game_id, entity_type, label)
+        holders = await entities.label_holders(conn, self.game_id, entity_type, label)
+        taken = {
+            norm: ids - {exclude} for norm, ids in holders.items() if ids - {exclude}
+        }
         suffix = free_suffix(label, place or None, taken, self.normalizer)
         return suffix, "scene_location" if place and suffix == place else "counter"
 
@@ -356,10 +366,10 @@ class IdentityService:
         IdentityWriteMiss. A new name keeps the old one as a former name (the triggers) and
         gets its derived aliases (a former name it takes back is its name again); an
         internal label suffix no homonym needs any more goes, in the same write. With
-        `suffix_if_held`, a new
-        name that another entity of the type holds as its registry label without being
-        the same entity (an unnamed character's descriptor) gets an internal label suffix
-        in the same write (R14, event 'label_suffixed'), never shown to the player.
+        `suffix_if_held`, a new name that another entity of the type holds as its
+        registry label without being the same entity (an unnamed character's descriptor)
+        gets an internal label suffix in the same write (R14, event 'label_suffixed'),
+        never shown to the player. A bare label that does not change keeps its suffix.
         known_by_protagonist is the reveal's (explicit reveals only): refused here."""
         if _KNOWN_FLAG in fields:
             raise ValueError(f"{_KNOWN_FLAG} is written by a reveal, not update_entity")
@@ -428,14 +438,20 @@ class IdentityService:
         current = await entities.domain_row(conn, entity_type, entity_id) or {}
         merged = {**current, **fields}
         bare = next((merged[n] for n in names if merged.get(n)), None)
-        if not bare:
+        before = next((current[n] for n in names if current.get(n)), None)
+        if not bare or (
+            before and self.normalizer.norm(before) == self.normalizer.norm(bare)
+        ):
+            # The bare label does not change: nor does its suffix.
             return None
         if await entities.label_held_by_other(
             conn, self.game_id, entity_type, bare, entity_id
         ):
             if not suffix_if_held:
                 return None
-            suffix, origin = await self._free_suffix(conn, entity_type, bare, None)
+            suffix, origin = await self._free_suffix(
+                conn, entity_type, bare, None, exclude=entity_id
+            )
             return entities.SuffixChange(suffix, origin)
         if current.get("label_suffix"):
             return entities.SuffixChange(None, None)
