@@ -77,6 +77,8 @@ npm run dev
 
 The schema is the baseline migration (`db/migrations/20260413000000_baseline.sql`) plus the later ones in `db/migrations/` (dbmate format). They are applied at backend boot inside the container (`docker compose up`); never run dbmate from the host against a real database.
 
+Identity data (#152): after `dbmate up` the entrypoint runs `python -m scripts.identity_backfill` (languages, norms, mentions, classification of unknown characters; idempotent, honours `IDENTITY_BACKFILL_EXCEPTIONS`), preceded by `scripts.sync_lang_packs` before the migrations. `scripts/test-backend.sh` does the pack sync too. See "Deploying the identity migration".
+
 Turn journal (#105): every table holding world state must be attached to the journal in the migration that creates it, with `SELECT ldvelh_journal('<table>');` (optionally a second argument, the column list of `UPDATE OF`). Without it, the rollback of P5b cannot undo the writes to that table. Tables that are not world state (accounting such as `llm_calls`, users, catalog, the journal itself) go in `NOT_JOURNALED` of `tests/test_journal.py::test_journal_is_attached_to_every_world_table`, which fails for any table with a `game_id` that is neither attached nor excluded (world tables without a `game_id`, the pivots, go in `PIVOTS` of the same test). Writes that must be journaled run inside `repos.uow.uow(conn, turn_id)`, the outermost transaction of the connection.
 
 ## Environment variables
@@ -191,7 +193,7 @@ Images: both run as an unprivileged user (backend `app`, uid 10001; frontend `no
 
 ### Before a data migration
 
-Take a backup before deploying a migration that changes data (not required for purely additive DDL such as an empty table, a column or triggers, which the P5a migrations are; recommended before any migration touching many tables):
+Take a backup before deploying a migration that changes data (not required for purely additive DDL such as an empty table, a column or triggers, which the P5a migrations are; recommended before any migration touching many tables; **required** for `20261020000001_entity_identity.sql`, which rewrites ids and the journal: follow "Deploying the identity migration" below):
 
 ```bash
 docker compose exec -T db pg_dump -U ldvelh -Fc ldvelh > ldvelh-$(date +%F).dump

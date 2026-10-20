@@ -126,7 +126,7 @@ F-xx touched: none. This phase adds an offline evaluation harness (#151): the id
 - [x] Baseline of the legacy resolver committed (`tests/reports/identity/2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md|json`; answers from subagents, not the API path)
 - [ ] Manual smoke: not required (no runtime change)
 
-### Phase 6b (identity schema, PR 1a)
+### Phase 6b1 (identity schema)
 
 F-xx touched: F-06, F-15, F-18, F-19, F-20, F-23, F-24 (columns updated above for F-15, F-23, F-24). Task 10 (#152) runs the application on the identity schema: every entity reference goes through the typed `find_entity` (`repos/entities.py`), characters carry `true_name`/`descriptor` (no `unknown_name`), objects dedupe by their label and aliases (no `canonical_name`).
 
@@ -140,6 +140,9 @@ F-xx touched: F-06, F-15, F-18, F-19, F-20, F-23, F-24 (columns updated above fo
 - [x] Snapshot changed only in C-20 beyond the counts: the annotation spans carry `display_for_player` instead of the resolver's label, and the character tooltip `name` is `display_for_player` instead of the query: the unidentified NPCs "Ossek" and "Dr. Yuki Tanaka" show the language pack's label "Inconnu(e)". The snapshot's `annotations` rows read the renamed wire key `label` (fix round 1: `entity_id`, `handle` and `surface` added to the payload, not pinned in the snapshot). Fix round 2: the character tooltip of the unidentified "Dr. Yuki Tanaka" loses its "Métier: directrice technique Symbiose Tech" line (occupation dropped for an unidentified NPC). No other key changes.
 - [x] Prompt snapshots unchanged: the scripted scenarios print no `unknown_name` and no canonical key (the extraction prompts now say `descriptor` and list object labels).
 - [x] Legacy fixture (C-19) replayed: the identity migration's data section converts the legacy rows (registry re-identified to the domain ids, companion registered, aliases, fact flags, journal rewritten) and `load_legacy_game` then runs `scripts/identity_backfill.py` as the entrypoint does (language, norms, orphans, collisions, mentions, classification of the unknown characters, derived aliases). `legacy_invariants` checks the identity invariants (`identity_invariants`: registry at the domain id, no orphan, norms, an alias of each name, consistent character names, mentions on live ids, companion registered, no old registry id in edges or journal). The two strict xfails are gone; new: `test_c19_legacy_reveal_by_descriptor_works_after_migration`, `test_c19_world_changes_ids_are_rewritten` (a turn journaled before the migration is rewritten and undone exactly), and `tests/identity/test_migration.py` (idempotence, dry-run report, collisions, mentions, exceptions, startup check). No snapshot changed.
+- [x] Dry-run report of the identity migration produced on the dev database (read-only, `scripts/identity_migration_report.py`) and attached to the PR
+- [ ] Backup taken before deploying `20261020000001_entity_identity.sql` (owner to tick; it rewrites ids and the journal, so it is required, see CONTRIBUTING.md "Before a data migration" and "Deploying the identity migration"); the production report is read before any deploy beyond `dev` (D28)
+- [x] Known issue #163 (a flaky test, not caused by this phase): a single rerun of the full suite is accepted
 - [ ] Manual smoke: recommended after PR 1a (tooltips on an unidentified NPC, world panel, a reveal)
 
 ## Comment mettre à jour un snapshot
