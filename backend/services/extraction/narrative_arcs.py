@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from kg import refs
 from prompts.extraction import narrative_arcs_prompt
 from prompts.extraction.shared import handled
+from prompts.identity_prompt import format_handle
 from schema import RelationType
 from schema.extraction import (
     EventScheduledExtraction,
@@ -26,6 +27,9 @@ if TYPE_CHECKING:
     from asyncpg import Connection
 
 logger = logging.getLogger(__name__)
+
+# Entity types the context never lists (spec §4.10).
+_RESERVED_TYPES = frozenset({"protagonist", "companion"})
 
 
 def _parse_participant_names(raw: list) -> list[str]:
@@ -53,9 +57,12 @@ class NarrativeArcsExtractor(BaseExtractor):
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         entities = await self.reader.get_entities(conn)
+        # The prompt names the protagonist PROTAGONIST, never by name or handle; the
+        # companion is not listed either (spec §4.10).
         known_entities = [
-            handled(e["name"], f"E{e['handle']}" if e.get("handle") else None)
+            handled(e["name"], format_handle(e["handle"]) if e.get("handle") else None)
             for e in entities
+            if e["entity_type"] not in _RESERVED_TYPES
         ]
 
         active_arcs = await self.reader.get_active_arcs(conn)

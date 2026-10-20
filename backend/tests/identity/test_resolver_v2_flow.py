@@ -636,8 +636,19 @@ async def test_a_link_follows_a_merge_committed_after_the_decision(test_pool, ga
             "SELECT entity_id FROM entity_aliases WHERE kind = 'nickname' AND game_id = $1",
             game,
         )
+        redirected = await conn.fetch(
+            """SELECT entity_id, payload FROM identity_events
+               WHERE game_id = $1 AND kind = 'tombstone_redirected'""",
+            game,
+        )
     assert mention == keep and nickname == keep
     assert [line.label for line in resolution.scene_entities] == ["Tobias Renn"]
+    # The merge caught at write time is recorded like one caught at decision time.
+    assert [
+        (r["entity_id"], json.loads(r["payload"]) if isinstance(r["payload"], str)
+         else r["payload"])
+        for r in redirected
+    ] == [(keep, {"from": str(drop)})]
 
 
 async def test_a_link_to_an_entity_gone_since_the_decision_is_dropped(test_pool, game):

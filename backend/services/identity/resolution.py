@@ -337,7 +337,12 @@ async def apply(
     """Apply a turn's decisions (see the module docstring); returns what was done."""
     decisions = decided.decisions
     application = _Application(identity, conn, turn, scene)
-    linked = await application.link(await application.current(decisions.decisions))
+    # The decisions as they stand now: a merge caught here is recorded like one caught
+    # at decision time (tombstone_redirected).
+    decisions = replace(
+        decisions, decisions=await application.current(decisions.decisions)
+    )
+    linked = await application.link(decisions.decisions)
     mentions = mention_rows(narration, linked, identity.normalizer)
     await entities.insert_mentions(
         conn, identity.game_id, turn.message_id, turn.turn_id, mentions

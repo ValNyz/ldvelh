@@ -571,3 +571,51 @@ async def test_known_entities_are_listed_by_handle(test_pool, test_user):
     extractor._call_llm = fake_call
     await extractor.run("texte", {}, 1)
     assert f"- {handle} · Maëlle Corvin" in prompts[0]
+
+
+async def test_arcs_context_lists_entities_by_handle_but_never_the_pc_or_companion(
+    test_pool, test_user
+):
+    """The arcs extractor's known entities go by handle; the protagonist (PROTAGONIST in
+    the rules) and the companion are never listed by name or handle."""
+    from config import get_identity_config
+    from domain.identity import NewEntitySpec
+    from llm.session import LLMSession
+    from repos import entities
+    from services.extraction.narrative_arcs import NarrativeArcsExtractor
+    from services.game_service import GameService
+    from services.identity.service import IdentityService
+    from tests.test_llm_session import FakeProvider
+
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    service = IdentityService(game_id, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        await entities.insert_domain_row(
+            conn, game_id, "protagonist", {"name": "Rafe Orlan"}, label_suffix=None)
+        await entities.insert_domain_row(
+            conn, game_id, "companion", {"name": "Célimène"}, label_suffix=None)
+        smith = await service.create_entity(
+            conn, NewEntitySpec("character", "Maëlle Corvin", "proper_name"),
+            turn_id=None, source="world_gen")
+        reserved = [
+            "E" + str(h) for h in await conn.fetchval(
+                """SELECT array_agg(handle) FROM entity_registry WHERE game_id = $1
+                   AND entity_type IN ('protagonist', 'companion')""", game_id)
+        ]
+        handle = await conn.fetchval(
+            "SELECT 'E' || handle FROM entity_registry WHERE id = $1", smith)
+    extractor = NarrativeArcsExtractor(
+        test_pool, game_id, LLMSession.from_provider(FakeProvider()))
+    prompts = []
+
+    async def fake_call(system_prompt, user_prompt, schema):
+        prompts.append(user_prompt)
+        return {}, None
+
+    extractor._call_llm = fake_call
+    await extractor.run("texte", {}, 1)
+    known = next(line for line in prompts[0].splitlines()
+                 if line.startswith("- Known entities:"))
+    assert f"{handle} · Maëlle Corvin" in known
+    assert "Rafe" not in known and "Célimène" not in known
+    assert len(reserved) == 2 and not any(f"{h} ·" in known for h in reserved)
