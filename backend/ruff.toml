@@ -1,5 +1,5 @@
 # Lint gate run by CI: `cd backend && ruff check .`
-exclude = ["tests", "tests/benchmark"]  # linting tests/ is tracked in #75
+extend-exclude = ["tests"]  # linting tests/ (benchmark included) is tracked in #75
 
 [lint]
 select = ["C901", "F401", "F841"]

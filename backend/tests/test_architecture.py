@@ -29,24 +29,33 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
 }
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
 LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)
-KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, imported package): frozen debt, may only shrink
-    ("api/dependencies.py", "main"),                   # lot H task 3
-    ("kg/item_writes.py", "services"),                 # lot H task 3: services.identity.types moves to domain
-    ("kg/populator.py", "services"),                   # #108: services.identity.service
-    ("kg/refs.py", "services"),                        # lot H task 3 (identity.types) and #108 (identity.service)
-    ("kg/specialized_populator.py", "services"),       # lot H task 3 (identity.types, aliases) and #108 (identity.classify)
-    ("llm/session.py", "services"),                    # #172
-    ("llm/usage.py", "services"),                      # #172
-    ("packs/loader.py", "services"),                   # #169: normalisation moves with the packs work
-    ("prompts/mechanical_prompt.py", "services"),      # P7 (#101): services.engine
-    ("prompts/narrator_prompt.py", "services"),        # P7 (#101): services.engine
-    ("prompts/world_enhance_prompt.py", "services"),   # P7 (#101): services.engine
-    ("prompts/world_generation_prompt.py", "services"),  # P7 (#101): services.engine
-    ("repos/games.py", "kg"),                          # #108
-    ("repos/llm_models.py", "services"),               # #172: services.pricing
-    ("repos/turns.py", "kg"),                          # lot H task 2
-    ("repos/turns.py", "services"),                    # lot H task 2
-    ("schema/narration.py", "packs"),                  # #169
+KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, imported module, full dotted name): frozen debt, may only shrink
+    ("api/dependencies.py", "main"),                              # lot H task 3
+    ("kg/item_writes.py", "services.identity.types"),             # lot H task 3
+    ("kg/populator.py", "services.identity.service"),             # #108
+    ("kg/refs.py", "services.identity.service"),                  # #108
+    ("kg/refs.py", "services.identity.types"),                    # lot H task 3
+    ("kg/specialized_populator.py", "services.identity.aliases"), # lot H task 3
+    ("kg/specialized_populator.py", "services.identity.classify"),# #108
+    ("kg/specialized_populator.py", "services.identity.service"), # #108
+    ("kg/specialized_populator.py", "services.identity.types"),   # lot H task 3
+    ("llm/session.py", "services.llm_providers"),                 # #172
+    ("llm/usage.py", "services.llm_providers"),                   # #172
+    ("llm/usage.py", "services.pricing"),                         # #172
+    ("packs/loader.py", "services.identity.normalize"),           # #169
+    ("prompts/mechanical_prompt.py", "services.engine.engine_data"),# P7 (#101)
+    ("prompts/narrator_prompt.py", "services.engine"),            # P7 (#101)
+    ("prompts/world_enhance_prompt.py", "services.engine.engine_data"),# P7 (#101)
+    ("prompts/world_generation_prompt.py", "services.engine.engine_data"),# P7 (#101)
+    ("repos/games.py", "kg.reader"),                              # #108
+    ("repos/llm_models.py", "services.pricing"),                  # #172
+    ("repos/turns.py", "kg"),                                     # lot H task 2
+    ("repos/turns.py", "kg.item_writes"),                         # lot H task 2
+    ("repos/turns.py", "kg.populator"),                           # lot H task 2
+    ("repos/turns.py", "kg.reader"),                              # lot H task 2
+    ("repos/turns.py", "services.identity.service"),              # lot H task 2
+    ("repos/turns.py", "services.identity.types"),                # lot H task 2
+    ("schema/narration.py", "packs.loader"),                      # #169
 }
 SQL_IN_API_ALLOWED: set[str] = {   # api/ files still holding SQL: frozen debt, may only shrink
     "api/auth.py",          # #108
@@ -72,19 +81,22 @@ def _source_files():
         yield path, rel
 
 
-def _imported_packages(tree):
-    """Top-level package of every import in the module."""
+def _imported_modules(tree):
+    """Full dotted name of every module imported in the file."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                yield alias.name.split(".")[0]
+                yield alias.name
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            yield node.module.split(".")[0]
+            yield node.module
 
 
 def forbidden_imports(source, forbidden):
-    """Forbidden top-level packages imported anywhere in the source, lazy and TYPE_CHECKING imports included."""
-    return set(_imported_packages(ast.parse(source))) & forbidden
+    """Imported modules (full dotted name) whose top-level package is forbidden.
+
+    Lazy and TYPE_CHECKING imports included. Rules match the top-level package; the freeze keys the module.
+    """
+    return {m for m in _imported_modules(ast.parse(source)) if m.split(".")[0] in forbidden}
 
 
 def collect_violations():
@@ -93,8 +105,8 @@ def collect_violations():
         forbidden = LAYER_RULES.get(rel.parts[0])
         if not forbidden or len(rel.parts) < 2 or rel.as_posix() in LAYER_EXEMPT_FILES:
             continue
-        for package in forbidden_imports(path.read_text(encoding="utf-8"), forbidden):
-            violations.add((rel.as_posix(), package))
+        for module in forbidden_imports(path.read_text(encoding="utf-8"), forbidden):
+            violations.add((rel.as_posix(), module))
     return violations
 
 
@@ -149,7 +161,14 @@ def test_lazy_and_type_checking_imports_are_detected():
         "if TYPE_CHECKING:\n    import services.x\n"
         "def f():\n    from main import pool\n    return pool\n"
     )
-    assert forbidden_imports(source, {"main", "services", "api"}) == {"main", "services"}
+    assert forbidden_imports(source, {"main", "services", "api"}) == {"main", "services.x"}
+
+
+def test_new_import_in_a_frozen_file_is_reported():
+    source = "from services.identity.types import A\nimport services.engine\n"
+    frozen = {("kg/x.py", "services.identity.types")}
+    found = {("kg/x.py", m) for m in forbidden_imports(source, {"services"})}
+    assert found - frozen == {("kg/x.py", "services.engine")}
 
 
 def test_layers_respect_the_dependency_rule():
@@ -164,7 +183,7 @@ def test_known_violations_are_still_real():
 
 def _api_files_with_sql():
     return {rel.as_posix() for _, rel in _source_files()
-            if rel.parts[0] == "api" and len(rel.parts) == 2 and functions_with_sql(rel)}
+            if rel.parts[0] == "api" and functions_with_sql(rel)}
 
 
 def test_no_sql_in_api():

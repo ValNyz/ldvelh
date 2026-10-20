@@ -87,6 +87,7 @@ jobs:
           DEBUG: "true"
 
       - name: Upload coverage to Codecov
+        if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v6
         with:
           files: backend/coverage.xml
