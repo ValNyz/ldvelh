@@ -180,6 +180,9 @@ class IdentityConfig(BaseSettings):
     # The strong model's tier (§4.5.5): False keeps the small model's decisions, risky ones
     # included (the cheap tier of the evaluation, `--tier cheap`).
     escalation: bool = True
+    # Words before an exact name in which a word announcing another entity (the pack's
+    # other_markers) keeps the prepass from linking it.
+    other_marker_reach: int = 2
     # Share of turns escalated to the strong model: target and alert level (D29).
     escalation_target_rate: float = 0.20
     escalation_alert_rate: float = 0.25
@@ -195,7 +198,7 @@ class IdentityConfig(BaseSettings):
 
     @field_validator("rich_min_chars", "token_min_len", "lev_min_chars", "context_messages",
                      "max_candidates", "before_words", "evidence_max_words",
-                     "decision_max_tokens")
+                     "decision_max_tokens", "other_marker_reach")
     @classmethod
     def _at_least_one(cls, value: int, info: ValidationInfo) -> int:
         if value < 1:

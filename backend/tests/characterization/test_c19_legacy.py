@@ -389,7 +389,9 @@ async def test_legacy_game_new_turn_rolls_back_through_the_journal(
     """#22: a turn played on a legacy game is journaled and undone like any other."""
     game_id, _ = legacy_game
     h = ChatHarness(client, test_pool, legacy_token, scripted_llm)
-    ignored = {"turns", "llm_calls"}  # llm_calls: paid calls are kept (#106)
+    # llm_calls: paid calls are kept (#106); identity_events: telemetry, never journaled
+    # (the turn's reveal event outlives its rollback, Documentation §7).
+    ignored = {"turns", "llm_calls", "identity_events"}
     before = {
         k: v for k, v in (await h.db_summary(game_id)).items() if k not in ignored
     }

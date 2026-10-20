@@ -58,10 +58,13 @@ _RULES = """\
 You link the mentions of a story passage to the entities of a game.
 
 Find every mention in the NARRATION that names or describes a character, a location, an \
-organization or an object, and decide for each one:
-- MATCH: it names a candidate; give that candidate's handle.
-- ALIAS: it names a candidate by a form its card does not list yet; give the handle and \
-the alias_kind.
+organization or an object, and decide for each one. A common noun phrase that refers back \
+to a candidate (a description, a possessive phrase, a shortened reference) is a mention \
+too: decide it.
+- MATCH: it names or describes a candidate; give that candidate's handle.
+- ALIAS: it names a candidate by a name its card does not list yet (a short form, a \
+nickname, a true name); give the handle and the alias_kind. A description that designates \
+a candidate is MATCH, not ALIAS.
 - NEW: a really new entity; give new_type and new_kind (proper_name or descriptor). Never \
 write a label: the code takes the surface.
 - UNSURE: you cannot tell. An abstention is always better than a guess.

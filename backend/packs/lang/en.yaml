@@ -20,6 +20,9 @@ source_cues: [badge, plaque, register, signboard]
 negative_answers: ["no"]
 plural_markers: [s]
 ordinal_markers: ["no.", number]
+# Words announcing another entity of a kind already named ("a second key"): an exact
+# name right after one is not the entity of that name (the identity prepass leaves it).
+other_markers: [second, third, fourth, another]
 apostrophes: ["'", "’"]
 
 unknown_character_label: "Unknown person"

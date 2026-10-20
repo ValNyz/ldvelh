@@ -125,8 +125,9 @@ async def test_a_turn_writes_mentions_and_the_legacy_narrator_context(harness, w
         [r["start_pos"], r["end_pos"], labels[r["entity_id"]], types[r["entity_id"]]]
         for r in rows
     ]
-    # An NPC the PC has not identified: the annotation carries what the player may read.
-    assert labels[ossek] != "Ossek"
+    # An NPC the PC had not identified, named exactly by the narration: the name is
+    # revealed (spec §4.5.5 prepass), so the annotation now shows it.
+    assert labels[ossek] == "Ossek"
 
 
 async def test_new_entity_is_created_by_the_service_not_the_extractor(harness, world_game):
@@ -300,12 +301,12 @@ async def test_resolver_output_never_reaches_the_player(harness, world_game):
     context = json.loads(raw) if isinstance(raw, str) else raw
     spans = [a for a in context if text[a[0] : a[1]] == surface]
     assert spans and all(a[2] == shown for a in spans)
-    assert all(a[2] not in (surface, "Ossek") for a in context)
+    assert all(a[2] != surface for a in context)
     r = await harness.client.get(
         "/api/tooltips/annotations", params={"gameId": world_game}, headers=harness.headers
     )
     labels = {a["label"] for m in r.json()["messages"] for a in m["annotations"]}
-    assert surface not in labels and "Ossek" not in labels
+    assert surface not in labels
 
 
 # --- proposals of the extractors (spec §4.6) --------------------------------------------

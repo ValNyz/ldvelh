@@ -392,7 +392,8 @@ async def test_v2_adapter_runs_a_scene_with_a_scripted_session(test_pool):
     assert olbert.deterministic
     short = by_start[scene.narration.index("Olbert", 500)]  # the model's link
     assert (short.decision, short.entity_id) == ("MATCH", "character_maitre_olbert")
-    assert not short.deterministic and short.escalated
+    # « Olbert » also names the shop, but Olbert holds it too: a homonym, no escalation.
+    assert not short.deterministic and not short.escalated
     escalated = by_start[scene.narration.index("ta lame")]
     assert (escalated.decision, escalated.escalated) == ("SKIP", True)
     assert by_start[scene.narration.index("la garde")].decision == "SKIP"
@@ -586,3 +587,21 @@ async def test_a_cheap_only_directory_is_not_called_a_cascade(
     note = json.loads(report.read_text("utf-8"))["header_note"]
     assert eval_identity.CHEAP_NOTE in note
     assert eval_identity.CHEAP_REPLAY_NOTE not in note
+
+
+def test_a_secret_name_the_world_already_shows_elsewhere_is_no_leak():
+    data = _scene()
+    pilgrim = {"id": "character_pilgrim", "type": "character", "label": "Le pèlerin",
+               "known": False, "secret": True, "true_name": "Ysmer Vael",
+               "aliases": [{"text": "Ysmer", "kind": "short", "known": False,
+                            "secret": True}]}  # fmt: skip
+    lantern = {"id": "object_lantern", "type": "object", "label": "Lanterne d'Ysmer",
+               "known": True,
+               "aliases": [{"text": "Lanterne d'Ysmer", "kind": "label",
+                            "known": True}]}  # fmt: skip
+    scene = Scene.model_validate(
+        {**data, "world": [*data["world"], pilgrim, lantern],
+         "scene": {**data["scene"], "secrets": ["character_pilgrim"]}}
+    )  # fmt: skip
+    assert "Ysmer" not in leaks.secret_names(scene)
+    assert leaks.leak_count(scene, ['E9 · object · "Lanterne d\'Ysmer"'], []) == 0

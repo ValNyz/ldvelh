@@ -176,6 +176,7 @@ F-xx touched: see the F-xx rows above changed by tasks 16-18 (#154). Tasks 16-19
 - [x] F-xx touched are listed above
 - [ ] Full suite green (`scripts/test-backend.sh`), ruff gate green, e2e green (`scripts/test-e2e.sh`)
 - [x] Snapshots changed only in C-12: `rollback_result.undone_changes` 6 -> 10 (the turn's journaled `entity_mentions` and the stub the service creates before the extractor enriches it, R29)
+- [ ] Tuning 1 (pending a controller ruling): the prepass reveals a name the protagonist does not know when the narration writes it exactly (ALIAS true_name, spec §4.5.5; the gold's REVEAL category). The scripted arrival narration names the unidentified NPC « Ossek », so: `db_counts.identity_events` 0 -> 1 in 15 snapshots (one `reveal_applied` event, telemetry, kept by a rollback); C-20 tooltip label `Inconnu(e)` -> `Ossek` (twice); C-15 counts `npcs` 0 -> 1 and 1 -> 2 and its `item_keys` gain `npcs` (the test now compares the panel with the known characters instead of an empty list); C-19 legacy rollback ignores `identity_events` like `llm_calls`. No other key changed.
 - [x] Legacy fixture (C-19) replayed through the migrations of the PR
 - [x] Blocking gate: turn-set recall ≥ 0.98 on dev + test (`tests/identity/test_candidates.py::test_blocking_recall_of_the_turn_set_on_the_whole_corpus`)
 - [ ] Tuning on dev, at least three cycles (D27), each summarised in the PR: **[DEV CYCLES: to be filled]**

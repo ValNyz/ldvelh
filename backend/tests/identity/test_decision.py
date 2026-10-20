@@ -352,6 +352,119 @@ def test_prepass_resolves_unique_exact_matches_without_llm():
     assert found[0].handle == "E3"
 
 
+def test_prepass_reveals_an_exact_name_the_pc_does_not_know():
+    """An unknown true name read exactly is revealed (ALIAS true_name, deterministic, the
+    stored name to reveal), a later short form of it is an ALIAS short, a known name a
+    MATCH, and an unknown short form of no unknown name a plain MATCH."""
+    vela = _candidate(
+        4,
+        "la femme au manteau",
+        aliases=[
+            _alias("Vela Sorn", "true_name", known=False),
+            _alias("Sorn", "short", known=False),
+        ],
+    )
+    blade = _candidate(
+        5,
+        "la lame sans garde",
+        "object",
+        aliases=[_alias("lame", "short", known=False)],
+    )
+    keswil = _candidate(3, "Odran Keswil")
+    exact = {
+        NORMALIZER.norm(form): c
+        for form, c in (("Vela Sorn", vela), ("Sorn", vela), ("lame", blade),
+                        ("Odran Keswil", keswil))
+    }  # fmt: skip
+    text = "Odran Keswil salue Vela Sorn. Plus tard, Sorn pose sa lame."
+    found = decision.prepass(
+        text,
+        _set(vela, blade, keswil, exact=exact),
+        normalizer=NORMALIZER,
+        config=CONFIG,
+    )
+    by_surface = {d.surface: d for d in found}
+    assert by_surface["Odran Keswil"].decision == "MATCH"
+    first = by_surface["Vela Sorn"]
+    assert (first.decision, first.alias_kind, first.revealed_name) == (
+        "ALIAS",
+        "true_name",
+        "Vela Sorn",
+    )
+    later = by_surface["Sorn"]
+    assert (later.decision, later.alias_kind, later.revealed_name) == (
+        "ALIAS",
+        "short",
+        "Vela Sorn",
+    )
+    assert by_surface["sa lame"].decision == "MATCH"
+    assert all(d.deterministic for d in found)
+    # Out of the scene, an exact stored name still designates its entity.
+    checked = _verify(found, _set(vela, blade, keswil, exact=exact), text)
+    assert {d.surface: d.decision for d in checked}["Vela Sorn"] == "ALIAS"
+    # The first mention of an unknown short form reveals the name that holds it.
+    [only] = decision.prepass(
+        "Sorn attend.", _set(vela, exact=exact), normalizer=NORMALIZER, config=CONFIG
+    )
+    assert (only.alias_kind, only.revealed_name) == ("true_name", "Vela Sorn")
+
+
+def test_prepass_leaves_a_name_the_text_continues_or_announces_as_another():
+    guild = _candidate(6, "Guilde des Pilotes", "organization",
+                       aliases=[_alias("Guilde", "short")])  # fmt: skip
+    quay = _candidate(7, "Quai 6", "location", aliases=[_alias("Quai", "short")])
+    voss = _candidate(8, "Rizka Voss", aliases=[_alias("Voss", "short")])
+    key = _candidate(9, "la clé d'os", "object",
+                     aliases=[_alias("la clé d'os", "descriptor")])  # fmt: skip
+    exact = {
+        NORMALIZER.norm(form): c
+        for form, c in (("Guilde", guild), ("Quai", quay), ("Voss", voss),
+                        ("la clé d'os", key))
+    }  # fmt: skip
+    candidates = _set(guild, quay, voss, key, exact=exact)
+    text = (
+        "Elle rejoint la Guilde des Convoyeurs au Quai 9, puis parle avec Elara Voss. "
+        "On lui tend une seconde clé d'os."
+    )
+    found = decision.prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG)
+    assert found == []
+    plain = "La Guilde attend au Quai. Voss sourit. La clé d'os brille."
+    found = decision.prepass(plain, candidates, normalizer=NORMALIZER, config=CONFIG)
+    assert [d.entity_id for d in found] == [
+        guild.entity_id,
+        quay.entity_id,
+        voss.entity_id,
+        key.entity_id,
+    ]
+
+
+def test_a_homonym_link_is_not_a_merge_and_an_abstention_shows_every_card():
+    shop = _candidate(
+        3, "Échoppe d'Olbert", "location", aliases=[_alias("Olbert", "short")]
+    )
+    olbert = _candidate(4, "Maître Olbert", aliases=[_alias("Olbert", "short")])
+    other = _candidate(5, "Mira Tassel")
+    held = _d("Olbert", "MATCH", "E4", entity_id=olbert.entity_id)
+    assert not decision._names_another(held, [shop, olbert, other], NORMALIZER)
+    lacking = _d("Mira Tassel", "MATCH", "E4", entity_id=olbert.entity_id)
+    assert decision._names_another(lacking, [shop, olbert, other], NORMALIZER)
+
+
+async def test_the_strong_model_sees_every_candidate_for_an_abstention():
+    keswil = _candidate(3, "Odran Keswil")
+    far = _candidate(9, "le recruteur borgne", "character",
+                     aliases=[_alias("le recruteur borgne", "descriptor")])  # fmt: skip
+    text = "Le recruteur hoche la tête."
+    first = {"mentions": [_mention("Le recruteur", "UNSURE")]}
+    strong = {"mentions": [_mention("Le recruteur", "MATCH", "E9")]}
+    turn, provider = await _decide(
+        {"identity": [first], "identity_strong": [strong]}, _set(keswil, far), text
+    )
+    assert provider.purposes() == ["identity", "identity_strong"]
+    [d] = turn.decisions
+    assert (d.decision, d.entity_id, d.escalated) == ("MATCH", far.entity_id, True)
+
+
 # --- parsing -------------------------------------------------------------------------
 
 
@@ -960,7 +1073,7 @@ def test_card_and_user_prompt_render_the_candidate():
     ):
         assert part in card
     assert "PROTAGONIST" in render_card(stranger, protagonist=True, companion=False)
-    assert "la femme âgée\" (unknown" not in card  # a known descriptor label
+    assert 'la femme âgée" (unknown' not in card  # a known descriptor label
     user = build_identity_user_prompt(
         "Le texte.", [card], ['"x" = E3'], ["present: E17"]
     )

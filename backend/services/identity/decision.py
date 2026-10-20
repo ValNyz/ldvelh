@@ -2,8 +2,10 @@
 turn over the turn's candidates, every answer checked by code, a deterministic prepass
 before it, one escalation to the strong model and a fallback.
 
-The cascade: the prepass links the unique exact names of the text without the model; the
-small model (Purpose.IDENTITY) decides the rest, with one retry on an invalid output; the
+The cascade: the prepass links the unique exact names of the text without the model (an
+exact name the protagonist does not know yet is revealed, ALIAS true_name; a name that the
+text continues, or that follows a word announcing another entity, is left to the model);
+the small model (Purpose.IDENTITY) decides the rest, with one retry on an invalid output; the
 strong model (Purpose.IDENTITY_STRONG) is called once at most, for the abstentions, the
 revealed true names and the links that would merge two entities only (never when
 IdentityConfig.escalation is off: the small model's decisions stand). When the small model
@@ -56,6 +58,10 @@ logger = logging.getLogger(__name__)
 
 MATCH, ALIAS, NEW, UNSURE, SKIP = DECISIONS
 TRUE_NAME = "true_name"
+SHORT = "short"
+# Stored kinds of a name (not a description nor a short form): unknown, it is the name the
+# narration reveals.
+UNKNOWN_NAME_KINDS = frozenset({TRUE_NAME, "label"})
 # Types a resolver links but never changes (spec §4.10).
 RESERVED_TYPES = frozenset({"protagonist", "companion"})
 # Context sources that put an entity in the scene for a self-introduction (§4.5.4).
@@ -199,7 +205,13 @@ def _check_link(
             d = replace(d, decision=MATCH, alias_kind=None, rejection=ALIAS_ON_RESERVED)
         elif d.alias_kind is None:
             d = replace(d, decision=MATCH, rejection=ALIAS_KIND_MISSING)
-        elif d.alias_kind == TRUE_NAME and not _in_scene(c, scene):
+        elif (
+            d.alias_kind == TRUE_NAME
+            and not d.deterministic
+            and not _in_scene(c, scene)
+        ):
+            # A self-introduction needs its speaker in the scene; an exact stored name
+            # (the prepass) designates its entity wherever it is.
             return _downgrade(d, TRUE_NAME_ABSENT)
     live = redirects.get(c.entity_id)
     if live is not None and live != c.entity_id:
@@ -371,6 +383,116 @@ def _joins(normalizer: Normalizer) -> re.Pattern[str]:
     return re.compile(rf"[\s{allowed}]*")
 
 
+def _capitalised(word: str) -> bool:
+    return word[:1].isupper()
+
+
+class _Runs:
+    """The words of a text and what stands around a run of them, for the prepass."""
+
+    def __init__(self, text: str, normalizer: Normalizer, reach: int) -> None:
+        self.text, self.normalizer, self.reach = text, normalizer, reach
+        self.words = list(_WORD.finditer(text))
+        self.joins = _joins(normalizer)
+        pack = normalizer.pack
+        self.articles = set(normalizer.folded_entries([*pack.articles, *pack.elisions]))
+        self.titles = set(normalizer.folded_entries(pack.titles))
+        self.others = set(normalizer.folded_entries(pack.other_markers))
+        self.capitals = pack.proper_name_uses_capitals
+
+    def joined(self, left: int, right: int) -> bool:
+        """Words `left` and `right` (= left + 1) are one run: nothing but joins between."""
+        gap = self.text[self.words[left].end() : self.words[right].start()]
+        return bool(self.joins.fullmatch(gap))
+
+    def folded(self, i: int) -> str:
+        return self.normalizer.fold(self.words[i].group()).strip()
+
+    def continued(self, first: int, end: int) -> bool:
+        """The name in words [first, end) is part of a longer one the text writes: a
+        number right after it, or (in a language that capitalises proper names) a
+        capitalised word right after it (past articles), or before it in mid-sentence (a
+        title aside)."""
+        after = end
+        while after < len(self.words) and self.joined(after - 1, after):
+            word = self.words[after].group()
+            if word[:1].isdigit():
+                return True
+            if not self.capitals:
+                break
+            if self.folded(after) not in self.articles:
+                if _capitalised(word):
+                    return True
+                break
+            after += 1
+        return self.capitals and self._capitalised_before(first)
+
+    def _capitalised_before(self, first: int) -> bool:
+        before = first - 1
+        if before < 1 or not self.joined(before, first):
+            return False
+        word = self.words[before].group()
+        mid_sentence = self.joined(before - 1, before)
+        return (
+            mid_sentence
+            and _capitalised(word)
+            and self.folded(before) not in self.titles
+        )
+
+    def announced_other(self, first: int) -> bool:
+        """One of the `reach` words before the run announces another entity of its kind."""
+        reach = range(max(0, first - self.reach), first)
+        return any(
+            self.folded(i) in self.others
+            and all(self.joined(j, j + 1) for j in range(i, first))
+            for i in reach
+        )
+
+
+def _revealed_name(c: Candidate, norm: str) -> str | None:
+    """The unknown name an exact form of `c` discloses: the form itself when it is a name
+    the protagonist does not know (a true name, a label), the unknown name holding all its
+    words when it is an unknown short form of one; None for a known form."""
+    alias = next((a for a in c.aliases if a.alias_norm == norm), None)
+    if alias is None or alias.known:
+        return None
+    names = [a for a in c.aliases if not a.known and a.kind in UNKNOWN_NAME_KINDS]
+    if alias.kind in UNKNOWN_NAME_KINDS:
+        return alias.alias
+    words = set(norm.split())
+    holder = next((a for a in names if words <= set(a.alias_norm.split())), None)
+    return holder.alias if holder is not None else None
+
+
+def _exact(
+    surface: str,
+    before: str,
+    c: Candidate,
+    norm: str,
+    revealed: set[UUID],
+) -> MentionDecision:
+    """The prepass decision on an exact form of `c`: MATCH, or, for a name the protagonist
+    does not know, ALIAS true_name at its entity's first such mention in the turn (later
+    ones: the form's own kind, a short form as short)."""
+    name = _revealed_name(c, norm)
+    base = MentionDecision(
+        surface=surface,
+        decision=MATCH,
+        before=before,
+        handle=format_handle(c.handle),
+        entity_id=c.entity_id,
+        verified=True,
+        deterministic=True,
+    )
+    if name is None:
+        return base
+    alias = next(a for a in c.aliases if a.alias_norm == norm)
+    first = c.entity_id not in revealed
+    revealed.add(c.entity_id)
+    kind = SHORT if not first and alias.kind == SHORT else TRUE_NAME
+    return replace(base, decision=ALIAS, alias_kind=kind, revealed_name=name)
+
+
 def prepass(
     text: str,
     candidates: CandidateSet,
@@ -378,45 +500,39 @@ def prepass(
     normalizer: Normalizer,
     config: IdentityConfig | None = None,
 ) -> list[MentionDecision]:
-    """MATCH, without the model, every run of words of `text` whose normalised form names
-    exactly one entity (`candidates.exact`), longest run first, left to right."""
+    """Link, without the model, every run of words of `text` whose normalised form names
+    exactly one entity (`candidates.exact`), longest run first, left to right; a run the
+    text continues into a longer name, or that a word announcing another entity precedes,
+    is left to the model (see the module docstring)."""
     if not candidates.exact:
         return []
     config = config or get_identity_config()
     longest = max(len(norm.split()) for norm in candidates.exact)
     # A name's words, plus as many glued or leading words (article, elision, ordinal).
     reach = longest + longest + 1
-    joins = _joins(normalizer)
-    words = list(_WORD.finditer(text))
-    found = []
+    runs = _Runs(text, normalizer, config.other_marker_reach)
+    words = runs.words
+    found: list[MentionDecision] = []
+    revealed: set[UUID] = set()
     i = 0
     while i < len(words):
         hit = None
         for last in range(i, min(len(words), i + reach)):
-            if last > i and not joins.fullmatch(
-                text[words[last - 1].end() : words[last].start()]
-            ):
+            if last > i and not runs.joined(last - 1, last):
                 break
             surface = text[words[i].start() : words[last].end()]
-            c = candidates.exact.get(normalizer.norm(surface))
+            norm = normalizer.norm(surface)
+            c = candidates.exact.get(norm)
             if c is not None:
-                hit = (last + 1, surface, c)
+                hit = (last + 1, surface, c, norm)
         if hit is None:
             i += 1
             continue
-        end, surface, c = hit
-        start = max(0, i - config.before_words)
-        found.append(
-            MentionDecision(
-                surface=surface,
-                decision=MATCH,
-                before=" ".join(w.group() for w in words[start:i]),
-                handle=format_handle(c.handle),
-                entity_id=c.entity_id,
-                verified=True,
-                deterministic=True,
-            )
-        )
+        end, surface, c, norm = hit
+        if not runs.continued(i, end) and not runs.announced_other(i):
+            start = max(0, i - config.before_words)
+            before = " ".join(w.group() for w in words[start:i])
+            found.append(_exact(surface, before, c, norm, revealed))
         i = end
     return found
 
@@ -558,15 +674,20 @@ class _Prompt:
 def _names_another(
     d: MentionDecision, candidates: list[Candidate], normalizer: Normalizer
 ) -> bool:
-    """The link would merge: its surface is a name of another candidate."""
+    """The link would merge: its surface is a name of another candidate that the linked
+    one does not hold."""
     if d.decision not in (MATCH, ALIAS) or d.entity_id is None:
         return False
     norm = normalizer.norm(d.surface)
     linked = {d.entity_id, d.redirected_from}
-    return any(
-        c.entity_id not in linked and norm in {a.alias_norm for a in c.aliases}
-        for c in candidates
-    )
+
+    def holds(c: Candidate) -> bool:
+        return norm in {normalizer.norm(c.label), *(a.alias_norm for a in c.aliases)}
+
+    # A name the linked entity holds too is a homonym chosen, not a merge (§4.5.5).
+    if any(c.entity_id in linked and holds(c) for c in candidates):
+        return False
+    return any(c.entity_id not in linked and holds(c) for c in candidates)
 
 
 def _risky(d: MentionDecision, candidates: list[Candidate], normalizer) -> bool:
@@ -583,8 +704,12 @@ def _theirs(
     normalizer: Normalizer,
     config: IdentityConfig,
 ) -> list[Candidate]:
-    """The candidates the strong model sees: those the risky mentions link to, those
-    whose names are close to theirs, and the entities in the scene."""
+    """The candidates the strong model sees: every candidate when one of the risky
+    mentions is an abstention (the first pass named nobody, any card may be the one);
+    else those the risky mentions link to, those whose names are close to theirs, and the
+    entities in the scene."""
+    if any(d.decision == UNSURE for d in risky):
+        return list(prompt.candidates)
     linked = {d.entity_id for d in risky} | {d.redirected_from for d in risky}
     norms = [normalizer.norm(d.surface) for d in risky]
 

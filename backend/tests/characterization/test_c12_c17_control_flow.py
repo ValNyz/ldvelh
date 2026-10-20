@@ -220,15 +220,21 @@ async def test_c15_world_panel(harness, world_game):
     assert r.status_code == 200
     data = r.json()
     counts_unknown = {k: len(v) for k, v in sorted(data.items())}
-    assert data["npcs"] == []  # the panel lists only characters known by the protagonist
     async with harness.pool.acquire() as conn:
+        # The arrival narration names one NPC exactly: the resolver revealed it (#154).
+        known = {r["name"] for r in await conn.fetch(
+            "SELECT name FROM characters WHERE game_id = $1 AND known_by_protagonist",
+            world_game)}  # fmt: skip
+        # The panel lists only characters known by the protagonist.
+        assert {n["name"] for n in data["npcs"]} == known
         name = await conn.fetchval(
             "UPDATE characters SET known_by_protagonist = true WHERE id = ("
-            "SELECT id FROM characters WHERE game_id = $1 ORDER BY name LIMIT 1) RETURNING name",
+            "SELECT id FROM characters WHERE game_id = $1 AND NOT known_by_protagonist"
+            " ORDER BY name LIMIT 1) RETURNING name",
             world_game)
     r2 = await harness.client.get(f"/api/games/{world_game}/world", headers=harness.headers)
-    npcs = r2.json()["npcs"]
-    assert [n["name"] for n in npcs] == [name]
+    npcs = [n for n in r2.json()["npcs"] if n["name"] == name]
+    assert {n["name"] for n in r2.json()["npcs"]} == known | {name}
     assert_snapshot("c15_world_panel", {
         "keys": sorted(data.keys()),
         "counts_all_unknown": counts_unknown,

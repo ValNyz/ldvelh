@@ -66,7 +66,14 @@ def _check_entries(field: str, value: list[str], *, one_word: bool) -> list[str]
     return value
 
 
-_ONE_WORD_KEYS = ("articles", "elisions", "titles", "ordinal_markers", "plural_markers")
+_ONE_WORD_KEYS = (
+    "articles",
+    "elisions",
+    "titles",
+    "ordinal_markers",
+    "other_markers",
+    "plural_markers",
+)
 _PHRASE_KEYS = (
     "stop_words",
     "descriptor_heads",
@@ -90,6 +97,7 @@ class LangPack(_Strict):
     negative_answers: list[str]
     plural_markers: list[str]
     ordinal_markers: list[str]
+    other_markers: list[str]
     apostrophes: list[str]
     unknown_character_label: str
     proper_name_uses_capitals: bool

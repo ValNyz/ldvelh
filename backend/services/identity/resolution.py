@@ -189,7 +189,7 @@ class _Application:
                 lambda: identity.reveal(
                     conn,
                     EntityRef(str(entity_id), registry.entity_type),
-                    d.surface,
+                    d.revealed_name or d.surface,
                     turn_id=self.turn.turn_id,
                     source=SOURCE,
                     evidence=d.evidence or None,

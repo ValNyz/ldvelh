@@ -210,7 +210,9 @@ class MentionDecision:
     decision named, kept for that event. `ignored`: its surface is not in the text, nothing applies.
     `same_as`: index, in the turn's list, of the NEW this one repeats. `probable_duplicate`:
     a candidate of the same type with a close name (the NEW is still created).
-    `deterministic`: decided by the prepass; `escalated`: decided by the strong model."""
+    `deterministic`: decided by the prepass; `escalated`: decided by the strong model.
+    `revealed_name`: the stored name a prepass ALIAS true_name discloses (the unknown name
+    the exact form belongs to), revealed in place of the surface."""
 
     surface: str
     decision: str
@@ -233,6 +235,7 @@ class MentionDecision:
     rejected_entity_id: UUID | None = None
     deterministic: bool = False
     escalated: bool = False
+    revealed_name: str | None = None
 
 
 @dataclass(frozen=True)

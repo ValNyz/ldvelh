@@ -1,13 +1,13 @@
 {
   "counts_all_unknown": {
     "locations": 6,
-    "npcs": 0,
+    "npcs": 1,
     "organizations": 1,
     "quests": 4
   },
   "counts_one_known": {
     "locations": 6,
-    "npcs": 1,
+    "npcs": 2,
     "organizations": 1,
     "quests": 4
   },
@@ -19,6 +19,15 @@
       "parent",
       "sector",
       "type"
+    ],
+    "npcs": [
+      "description",
+      "id",
+      "location",
+      "name",
+      "occupation",
+      "relation_level",
+      "relationship"
     ],
     "organizations": [
       "domain",

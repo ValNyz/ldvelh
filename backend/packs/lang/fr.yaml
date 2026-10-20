@@ -67,6 +67,9 @@ negative_answers: [non, aucune, aucun]
 plural_markers: [s, x]
 # Number markers ldvelh_norm drops before a number (« Quai n°9 » = « Quai 9 »).
 ordinal_markers: ["n°", "nº", "no", numéro]
+# Words announcing another entity of a kind already named (« une seconde clé »): an exact
+# name right after one is not the entity of that name (the identity prepass leaves it).
+other_markers: [second, seconde, deuxième, troisième, quatrième, autre]
 # Apostrophe characters folded into the first one.
 apostrophes: ["'", "’", "ʼ", "‘"]
 
