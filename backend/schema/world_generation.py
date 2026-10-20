@@ -211,7 +211,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
 
     @model_validator(mode="before")
     @classmethod
-    def normalize_and_ensure_defaults(cls, data: dict) -> dict:
+    def normalize_and_ensure_defaults(cls, data: dict) -> dict:  # noqa: C901 - P6, frozen complexity debt: split normalize/validate of world generation
         """Normalize LLM output structure and create defaults for missing fields."""
         if not isinstance(data, dict):
             return data
@@ -586,7 +586,7 @@ class WorldGeneration(BaseModel, TemporalValidationMixin):
         return self
 
     @model_validator(mode="after")
-    def validate_references_soft(self) -> "WorldGeneration":
+    def validate_references_soft(self) -> "WorldGeneration":  # noqa: C901 - P6, frozen complexity debt: split normalize/validate of world generation
         """
         Validate all entity references — soft mode.
         Optional refs: set to None if invalid.

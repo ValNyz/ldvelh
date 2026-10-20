@@ -2,9 +2,9 @@
 
 import pytest
 
+from domain.identity import AliasSpec
 from packs.loader import GenreIdentity, GenrePack, load_genre, load_lang
 from services.identity import lexicon as lexicon_mod
-from domain.identity import AliasSpec
 from services.identity.aliases import derive
 from services.identity.lexicon import Lexicon
 from services.identity.normalize import Normalizer

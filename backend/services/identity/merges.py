@@ -14,8 +14,8 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from repos import entities
 from domain.identity import MergeOutcome
+from repos import entities
 
 if TYPE_CHECKING:
     from services.identity.service import IdentityService

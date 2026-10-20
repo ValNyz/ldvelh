@@ -10,6 +10,7 @@ import logging
 from uuid import UUID
 
 from config import get_settings
+from domain.identity import NewEntitySpec
 from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg import refs
 from kg.item_writes import write_item
@@ -19,7 +20,6 @@ from schema import DEFAULT_GAME_TIME
 from schema.narration import NarrationOutput
 from services.identity.reveals import apply_entity_reveals
 from services.identity.service import IdentityService
-from domain.identity import NewEntitySpec
 from utils.log_safe import log_cause
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,7 @@ async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict
                 new_fp,
                 game_id,
             )
-    except Exception as e:  # noqa: BLE001 - a failed compel never aborts the commit
+    except Exception as e:  # a failed compel never aborts the commit
         log_cause(
             logger,
             logging.WARNING,

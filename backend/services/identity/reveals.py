@@ -37,11 +37,11 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from domain.identity import EntityRef, FactRef, RevealOutcome
 from kg.item_writes import write_item
 from repos import entities
 from services.identity import merges
 from services.identity.aliases import derive
-from domain.identity import EntityRef, FactRef, RevealOutcome
 
 if TYPE_CHECKING:
     from schema.narration import EntityReveal

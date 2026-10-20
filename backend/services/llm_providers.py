@@ -54,7 +54,7 @@ async def close_shared_clients() -> None:
     for client in clients:
         closer = getattr(client, "close", None) or getattr(client, "aclose", None)
         if closer is None and hasattr(client, "__aexit__"):  # e.g. Mistral client
-            closer = lambda c=client: c.__aexit__(None, None, None)  # noqa: E731
+            closer = lambda c=client: c.__aexit__(None, None, None)
         if closer is None:
             continue
         try:

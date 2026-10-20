@@ -443,7 +443,7 @@ async def refresh_provider(conn, provider_name: str, api_key: str, *, auto_enabl
     return report
 
 
-async def _apply(conn, provider: str, listed: dict[str, dict], plan: _Plan, outcomes: dict,
+async def _apply(conn, provider: str, listed: dict[str, dict], plan: _Plan, outcomes: dict,  # noqa: C901 - P6, frozen complexity debt: split _apply
                  report: RefreshReport, *, auto_enable: bool) -> None:
     """Re-read the rows under lock (an operator may have acted meanwhile) and apply the run."""
     rows = await _read_rows(conn, provider, lock=True)

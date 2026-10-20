@@ -2,7 +2,6 @@
 LDVELH - FastAPI Dependencies
 """
 
-
 import asyncpg
 import jwt
 from fastapi import Depends, Header, HTTPException, Request

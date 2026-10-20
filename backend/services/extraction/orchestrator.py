@@ -106,7 +106,7 @@ async def _compute_triggers(
     return narrator | inferred
 
 
-async def run_resolve_and_extract(
+async def run_resolve_and_extract(  # noqa: C901 - P6, frozen complexity debt: split run_resolve_and_extract
     pool: asyncpg.Pool,
     game_id: UUID,
     trigger_cycle: int,

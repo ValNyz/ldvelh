@@ -23,14 +23,6 @@ import logging
 from uuid import UUID
 
 from config import IdentityConfig, get_identity_config
-from packs.loader import load_lang
-from repos import entities
-from repos.uow import current_turn_id
-from services.identity import lexicon as lexicons
-from services.identity import merges, reveals
-from services.identity.aliases import derive
-from services.identity.classify import free_suffix
-from services.identity.normalize import Normalizer
 from domain.identity import (
     AmbiguousLabel,
     EntityRef,
@@ -42,6 +34,14 @@ from domain.identity import (
     ResolvedRef,
     RevealOutcome,
 )
+from packs.loader import load_lang
+from repos import entities
+from repos.uow import current_turn_id
+from services.identity import lexicon as lexicons
+from services.identity import merges, reveals
+from services.identity.aliases import derive
+from services.identity.classify import free_suffix
+from services.identity.normalize import Normalizer
 
 logger = logging.getLogger(__name__)
 

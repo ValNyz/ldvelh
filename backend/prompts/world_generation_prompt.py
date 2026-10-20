@@ -285,7 +285,7 @@ def fill_protagonist_name(example: str, protagonist_name: str | None) -> str:
     return example.replace(PROTAGONIST_NAME_SLOT, protagonist_name or INVENTED_NAME_MARKER)
 
 
-def build_world_generation_user_prompt(
+def build_world_generation_user_prompt(  # noqa: C901 - P6, frozen complexity debt: split the world generation prompt builder
     protagonist_name: str | None = None,
     mandatory_npcs: list[dict] | None = None,
     theme_preferences: str | None = None,

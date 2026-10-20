@@ -36,8 +36,8 @@ from .item_writes import write_item
 if TYPE_CHECKING:
     from asyncpg import Connection
 
-    from services.identity.service import IdentityService
     from domain.identity import ResolvedRef
+    from services.identity.service import IdentityService
 
 
 async def resolve(

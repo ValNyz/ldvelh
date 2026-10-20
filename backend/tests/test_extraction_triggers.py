@@ -7,11 +7,11 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
+from domain.identity import EntityRef, ResolvedRef
 from repos import entities
 from services.extraction import orchestrator
 from services.extraction.orchestrator import EXTRACTOR_MAP, resolver_triggers
 from services.extraction.resolver import MentionMapping, ResolutionMap
-from domain.identity import EntityRef, ResolvedRef
 
 pytestmark = pytest.mark.integration
 

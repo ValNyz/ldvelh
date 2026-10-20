@@ -15,9 +15,9 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from config import get_settings
+from domain.identity import IdentityFailure
 from repos.entities import insert_event
 from repos.uow import current_turn_id
-from domain.identity import IdentityFailure
 from utils.log_safe import log_cause, safe_text
 
 if TYPE_CHECKING:
@@ -63,7 +63,7 @@ async def write_item(
         await _record_identity_failure(conn, label, e)
         logger.info(f"{log_prefix}{label} item dropped: {e.code}")
         return None
-    except Exception as e:  # noqa: BLE001 - any failure of one item is rolled back alone
+    except Exception as e:  # any failure of one item is rolled back alone
         await savepoint.rollback()
         errors.append(f"{label}: {safe_text(e)}")
         log_cause(
@@ -96,7 +96,7 @@ async def _record_identity_failure(
                 turn_id=await current_turn_id(conn),
                 payload={"item": label, **error.payload()},
             )
-    except Exception as e:  # noqa: BLE001 - telemetry must never abort the turn
+    except Exception as e:  # telemetry must never abort the turn
         log_cause(logger, logging.WARNING, f"[IDENTITY] {error.code} event lost", e)
 
 

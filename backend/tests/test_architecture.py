@@ -29,7 +29,7 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
 }
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
 LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)
-KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, imported module, full dotted name): frozen debt, may only shrink
+KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, full dotted name of the imported module): frozen debt, may only shrink
     ("kg/populator.py", "services.identity.service"),             # #108
     ("kg/refs.py", "services.identity.service"),                  # #108
     ("kg/specialized_populator.py", "services.identity.classify"),# #108

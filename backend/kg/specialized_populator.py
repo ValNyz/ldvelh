@@ -17,6 +17,13 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from domain.identity import (
+    AliasSpec,
+    AmbiguousLabel,
+    EntityRef,
+    NewEntitySpec,
+    UpdateRefused,
+)
 from repos import entities as entity_repo
 from repos.uow import current_turn_id
 from schema import (
@@ -37,13 +44,6 @@ from schema import (
 )
 from schema.entity_changes import bound_changes
 from services.identity.classify import extracted_character_names
-from domain.identity import (
-    AliasSpec,
-    AmbiguousLabel,
-    EntityRef,
-    NewEntitySpec,
-    UpdateRefused,
-)
 
 from . import refs
 from .item_writes import write_item

@@ -205,7 +205,6 @@ class KnowledgeGraphReader:
         )
         return dict(row) if row else None
 
-    # Keep old name as alias for backward compatibility during migration
     # =========================================================================
     # CHARACTERS
     # =========================================================================

@@ -2,15 +2,8 @@
 extend-exclude = ["tests"]  # linting tests/ (benchmark included) is tracked in #75
 
 [lint]
-select = ["C901", "F401", "F841"]
+# RUF100 makes a stale `# noqa: C901` fail: remove it once its function is at 15 or below.
+select = ["C901", "F401", "F841", "RUF100"]
 
 [lint.mccabe]
 max-complexity = 15
-
-[lint.per-file-ignores]
-# Frozen complexity debt: remove an entry when its function drops to 15 or below.
-"prompts/narrator_prompt.py" = ["C901"]           # P6: split the narrator prompt builders
-"schema/world_generation.py" = ["C901"]           # P6: split normalize/validate of world generation
-"scripts/refresh_model_catalog.py" = ["C901"]     # P6: split _apply
-"services/extraction/orchestrator.py" = ["C901"]  # P6: split run_resolve_and_extract
-"prompts/world_generation_prompt.py" = ["C901"]   # P6: split build_world_generation_user_prompt

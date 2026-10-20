@@ -273,7 +273,7 @@ NARRATOR_SYSTEM_PROMPT = build_narrator_system_prompt()
 # =============================================================================
 
 
-def build_narrator_context_prompt(
+def build_narrator_context_prompt(  # noqa: C901 - P6, frozen complexity debt: split the narrator prompt builders
     context: "NarrationContext",
     engine_type: str | None = None,
     mechanical_result: "MechanicalResult | None" = None,
@@ -562,7 +562,7 @@ def build_narrator_context_prompt(
 # =============================================================================
 
 
-def _append_npc_section(lines: list[str], context: "NarrationContext") -> None:
+def _append_npc_section(lines: list[str], context: "NarrationContext") -> None:  # noqa: C901 - P6, frozen complexity debt: split the narrator prompt builders
     """Append the unified NPC section to the context prompt."""
     present_names = {npc.name for npc in context.npcs_present}
     present_by_name = {npc.name: npc for npc in context.npcs_present}
