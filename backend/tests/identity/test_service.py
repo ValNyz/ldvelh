@@ -11,6 +11,7 @@ from repos.uow import uow
 from services.identity.aliases import AliasSpec
 from services.identity.service import IdentityService
 from services.identity.types import (
+    AmbiguousLabel,
     IdentityWriteMiss,
     NewEntitySpec,
     RefUnresolved,
@@ -193,7 +194,9 @@ async def test_create_entity_reuses_an_existing_label_unless_trap(
         trapped: ("Garde du sas (Quai 9)", "Garde du sas", "Quai 9", "Garde du sas"),
         third: ("Garde du sas (2)", "Garde du sas", "2", "Garde du sas"),
     }
-    assert [e["entity_id"] for e in reused] == [first]
+    assert [(e["entity_id"], e["payload"]) for e in reused] == [
+        (first, {"entity_type": "character", "contested": False, "source": "resolver"})
+    ]
     assert [(e["entity_id"], e["payload"]["suffix_from"]) for e in suffixed] == [
         (trapped, "scene_location"),
         (third, "counter"),
@@ -241,15 +244,48 @@ async def test_label_suffix_is_internal_for_every_entity_type(test_pool, game, s
         "label": "Le Bar du coin (2)",
         "shown": "Le Bar du coin",
     }
-    assert {k: v[0] for k, v in twin_aliases.items()} == {
-        "Le Bar du coin": "label",
-        "Le Bar du coin (2)": "label",
+    # The suffixed label is internal: an alias the protagonist never knows (M7).
+    assert {k: (v[0], v[2]) for k, v in twin_aliases.items()} == {
+        "Le Bar du coin": ("label", True),
+        "Le Bar du coin (2)": ("label", False),
     }
     assert by_suffixed_label == twin
     assert label_after_update == "Le Bar du coin (2)"
 
 
-async def test_create_descriptor_entity_is_known_and_has_no_true_name(
+async def test_rename_drops_a_suffix_no_homonym_needs_any_more(
+    test_pool, game, service
+):
+    async with test_pool.acquire() as conn:
+        spec = NewEntitySpec("location", "Le Bar du coin", "descriptor")
+        await service.create_entity(conn, spec, turn_id=None, source="extractor")
+        twin = await service.create_entity(
+            conn, spec, turn_id=None, source="extractor", trap=True
+        )
+        third = await service.create_entity(
+            conn, spec, turn_id=None, source="extractor", trap=True
+        )
+        # A new name still held by another entity keeps the suffix.
+        await service.update_entity(conn, third, "location", {"name": "Le bar du coin"})
+        await service.update_entity(conn, twin, "location", {"name": "La Taverne"})
+        rows = {
+            r["id"]: (r["name"], r["label_suffix"], r["label"])
+            for r in await conn.fetch(
+                "SELECT l.id, l.name, l.label_suffix, er.name AS label"
+                " FROM locations l JOIN entity_registry er ON er.id = l.id"
+                " WHERE l.id = ANY($1::uuid[])",
+                [twin, third],
+            )
+        }
+    assert rows == {
+        twin: ("La Taverne", None, "La Taverne"),
+        third: ("Le bar du coin", "3", "Le bar du coin (3)"),
+    }
+
+
+# Brief name: test_create_descriptor_entity_is_known_and_has_no_true_name. Its descriptor
+# is known; known_by_protagonist (the true name is known) stays false: there is none.
+async def test_create_descriptor_entity_has_a_known_descriptor_and_no_true_name(
     test_pool, game, service
 ):
     async with test_pool.acquire() as conn:
@@ -465,3 +501,161 @@ async def test_require_ref_raises_and_is_counted_by_write_item(
         ),
     ]
     assert sector == "Est"
+
+
+async def test_create_entity_sets_its_turn_outside_a_unit_of_work(
+    test_pool, game, service
+):
+    async with test_pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game)
+        quay = await service.create_entity(
+            conn,
+            NewEntitySpec("location", "Quai 9", "proper_name"),
+            turn_id=turn_id,
+            source="extractor",
+        )
+        created = await conn.fetchval(
+            "SELECT created_turn_id FROM entity_registry WHERE id = $1", quay
+        )
+    assert created == turn_id
+
+
+async def test_create_entity_refuses_an_ambiguous_label_unless_trap(
+    test_pool, game, service
+):
+    """I1: a label only aliases of several entities hold names none of them: nothing is
+    created, write_item counts it (create_ambiguous) and its event survives the rollback;
+    a verified trap creates it, with a create_contested event."""
+    from kg.item_writes import write_items
+
+    voss = NewEntitySpec("character", "Voss", "proper_name")
+    async with test_pool.acquire() as conn:
+        for name in ("Ana Voss", "Bo Voss"):
+            await service.create_entity(
+                conn,
+                NewEntitySpec("character", name, "proper_name"),
+                turn_id=None,
+                source="world_gen",
+            )
+        with pytest.raises(AmbiguousLabel) as refused:
+            await service.create_entity(conn, voss, turn_id=None, source="resolver")
+        assert "Voss" not in str(refused.value)
+        assert refused.value.candidates == 2
+
+        async def create(item):
+            return await service.create_entity(
+                conn, item, turn_id=None, source="resolver"
+            )
+
+        stats = {"errors": []}
+        turn_id = await turns.open_turn(conn, game)
+        async with uow(conn, turn_id):
+            await write_items(conn, stats, "proposed_entity", [voss], create)
+        refused_events = await _events(conn, game, "create_ambiguous")
+        before_trap = await conn.fetchval(
+            "SELECT count(*) FROM characters WHERE game_id = $1", game
+        )
+        trapped = await service.create_entity(
+            conn, voss, turn_id=None, source="resolver", trap=True
+        )
+        contested = await _events(conn, game, "create_contested")
+    assert stats == {
+        "errors": [{"code": "create_ambiguous", "item": "proposed_entity"}]
+    }
+    assert [(e["turn_id"], e["payload"]) for e in refused_events] == [
+        (
+            turn_id,
+            {
+                "item": "proposed_entity",
+                "entity_type": "character",
+                "candidates": 2,
+                "source": "resolver",
+            },
+        )
+    ]
+    assert before_trap == 2
+    assert [(e["entity_id"], e["payload"]) for e in contested] == [
+        (trapped, {"entity_type": "character", "candidates": 2, "source": "resolver"})
+    ]
+
+
+async def test_an_ambiguous_required_ref_is_dropped_with_its_candidates(
+    test_pool, game, service
+):
+    """M4: the ambiguous_ref event of a dropped item goes with it; ref_dropped keeps the
+    count."""
+    from kg.item_writes import write_items
+
+    async with test_pool.acquire() as conn:
+        for name in ("Ana Voss", "Bo Voss"):
+            await service.create_entity(
+                conn,
+                NewEntitySpec("character", name, "proper_name"),
+                turn_id=None,
+                source="world_gen",
+            )
+
+        async def write(ref):
+            await service.require_ref(conn, ref, "character")
+
+        stats = {"errors": []}
+        turn_id = await turns.open_turn(conn, game)
+        async with uow(conn, turn_id):
+            await write_items(conn, stats, "fact", ["Voss"], write)
+        events = await conn.fetch(
+            "SELECT kind, payload FROM identity_events"
+            " WHERE game_id = $1 AND kind IN ('ref_dropped', 'ambiguous_ref')",
+            game,
+        )
+    assert stats == {"errors": [{"code": "ref_dropped", "item": "fact"}]}
+    assert [(e["kind"], e["payload"]) for e in events] == [
+        ("ref_dropped", {"item": "fact", "entity_type": "character", "candidates": 2})
+    ]
+
+
+async def test_a_failing_failure_event_does_not_abort_the_other_items(
+    test_pool, game, service, monkeypatch
+):
+    """M3: the identity event of a dropped item is written in its own savepoint."""
+    from kg import item_writes
+
+    async def broken_event(conn, *args, **kwargs):
+        await conn.execute("SELECT 1 / 0")
+
+    monkeypatch.setattr(item_writes, "insert_event", broken_event)
+    async with test_pool.acquire() as conn:
+        quay = await service.create_entity(
+            conn,
+            NewEntitySpec("location", "Quai 9", "proper_name"),
+            turn_id=None,
+            source="extractor",
+        )
+
+        async def write(ref):
+            await service.require_ref(conn, ref, "location")
+            await service.update_entity(conn, quay, "location", {"sector": ref})
+            return True
+
+        stats = {"errors": []}
+        turn_id = await turns.open_turn(conn, game)
+        async with uow(conn, turn_id):
+            await item_writes.write_items(
+                conn, stats, "event", ["Nulle part", "Quai 9"], write, counter="written"
+            )
+        sector = await conn.fetchval("SELECT sector FROM locations WHERE id = $1", quay)
+    assert stats == {"errors": [{"code": "ref_dropped", "item": "event"}], "written": 1}
+    assert sector == "Quai 9"
+
+
+async def test_update_entity_refuses_the_known_flag(test_pool, game, service):
+    async with test_pool.acquire() as conn:
+        tesk = await service.create_entity(
+            conn,
+            NewEntitySpec("character", "Tesk Vahrun", "proper_name", known=False),
+            turn_id=None,
+            source="world_gen",
+        )
+        with pytest.raises(ValueError):
+            await service.update_entity(
+                conn, tesk, "character", {"known_by_protagonist": True}
+            )

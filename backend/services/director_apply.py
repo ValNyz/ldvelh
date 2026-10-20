@@ -22,8 +22,14 @@ logger = logging.getLogger(__name__)
 
 
 async def apply_director_plan(
-    conn: Connection, game_id: UUID, plan: DirectorOutput, *,
-    cycle: int, ig_time: str, source_message_id: UUID | None, turn_id: UUID | None,
+    conn: Connection,
+    game_id: UUID,
+    plan: DirectorOutput,
+    *,
+    cycle: int,
+    ig_time: str,
+    source_message_id: UUID | None,
+    turn_id: UUID | None,
 ) -> bool:
     """Store the plan, last_director_time and arc updates in the turn's unit of work.
 
@@ -36,12 +42,15 @@ async def apply_director_plan(
         async with uow(conn, turn_id, source_message_id=source_message_id):
             await _insert_plan(conn, game_id, plan, cycle, ig_time)
             await _update_last_director_time(conn, game_id, ig_time)
-            errors: list[str] = []
+            errors: list[str | dict] = []
             for arc_update in plan.arc_updates:
                 await write_item(
-                    conn, errors, "arc",
+                    conn,
+                    errors,
+                    "arc",
                     lambda arc_update=arc_update: _apply_arc_update(
-                        conn, game_id, arc_update, cycle),
+                        conn, game_id, arc_update, cycle
+                    ),
                     "[DIRECTOR] ",
                 )
     except SourceMessageGone:
@@ -68,7 +77,8 @@ async def _insert_plan(conn, game_id, plan, cycle, ig_time):
 async def _update_last_director_time(conn, game_id, ig_time):
     await conn.execute(
         "UPDATE games SET last_director_time = $2 WHERE id = $1",
-        game_id, ig_time,
+        game_id,
+        ig_time,
     )
 
 
@@ -81,7 +91,8 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
         existing = await conn.fetchval(
             """SELECT id FROM narrative_arcs
                WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false""",
-            game_id, title,
+            game_id,
+            title,
         )
         if existing:
             # Same open arc proposed again: update it instead of duplicating it
@@ -90,7 +101,9 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
                    SET description = COALESCE(NULLIF($2, ''), description),
                        intensity = COALESCE($3, intensity), updated_at = now()
                    WHERE id = $1""",
-                existing, arc_update.description or "", arc_update.intensity,
+                existing,
+                arc_update.description or "",
+                arc_update.intensity,
             )
             logger.info(f"[DIRECTOR] Arc already open, updated: '{title}'")
             return
@@ -99,7 +112,8 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
             """INSERT INTO narrative_arcs
                    (game_id, title, description, domain, intensity, created_cycle)
                VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
-            game_id, title,
+            game_id,
+            title,
             arc_update.description or "",
             arc_update.domain or "personal",
             arc_update.intensity or 3,
@@ -114,13 +128,16 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
                 if found:
                     await conn.execute(
                         "INSERT INTO arc_participants (arc_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        arc_id, found[0],
+                        arc_id,
+                        found[0],
                     )
                 else:
                     unresolved += 1
             if unresolved:
                 # The refs are story text (#77): only their count is logged.
-                logger.warning(f"[DIRECTOR] participant unresolved (count={unresolved})")
+                logger.warning(
+                    f"[DIRECTOR] participant unresolved (count={unresolved})"
+                )
         logger.info(f"[DIRECTOR] Arc created: '{title}'")
 
     elif action == "update":
@@ -147,6 +164,9 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
             """UPDATE narrative_arcs
                SET resolved = true, resolved_cycle = $3, resolution = $4, updated_at = now()
                WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false""",
-            game_id, title, cycle, arc_update.resolution or "",
+            game_id,
+            title,
+            cycle,
+            arc_update.resolution or "",
         )
         logger.info(f"[DIRECTOR] Arc resolved: '{title}'")

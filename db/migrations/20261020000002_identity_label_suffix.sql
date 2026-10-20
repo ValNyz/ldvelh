@@ -29,6 +29,8 @@ $$;
 -- entity's name (its bare label, known), plus the suffixed label of any entity that has a
 -- label_suffix (internal lookup). True names, descriptors and bare names stay suffix-free:
 -- homonyms share them. Invariant: every entity has an alias of its current name_norm.
+-- A suffixed label alias is internal: never known (the PC never reads that form), never
+-- shown by any reader (ruling R14).
 -- The services add the derived aliases (short forms, titles).
 CREATE OR REPLACE FUNCTION public.identity_name_aliases(p_type text, p_row jsonb, p_turn uuid)
         RETURNS void
@@ -48,9 +50,7 @@ CREATE OR REPLACE FUNCTION public.identity_name_aliases(p_type text, p_row jsonb
                'descriptor', true),
               (CASE WHEN p_row ->> 'label_suffix' IS NOT NULL
                     THEN public.identity_label(p_type, p_row) END,
-               'label',
-               p_type <> 'character' OR p_row ->> 'true_name' IS NULL
-                   OR COALESCE((p_row ->> 'known_by_protagonist')::boolean, false))
+               'label', false)
            ) AS forms (alias, kind, known)
      WHERE forms.alias IS NOT NULL
     ON CONFLICT DO NOTHING
@@ -405,9 +405,10 @@ END $$;
 
 -- The displayed suffixes the identity migration wrote (identity_legacy_normalise step c,
 -- games that had a language): a name ending with " (<number>)" whose bare form is the label
--- of another live entity of its type becomes that bare name with the internal suffix
--- <number>; its registry label does not change. The bare name, a former name since that
--- step, is the entity's label alias again. A game without language is not normalised yet:
+-- of another live entity of its type, and a former name of its own (step c renamed it),
+-- becomes that bare name with the internal suffix <number>; its registry label does not
+-- change. The bare name is the entity's label alias again; the suffixed label alias of
+-- every suffixed entity, characters included, becomes internal (not known). A game without language is not normalised yet:
 -- the backfill runs the step above on it.
 DO $$
 DECLARE
@@ -427,6 +428,13 @@ BEGIN
                  ) AS split
                  WHERE gm.language IS NOT NULL AND dom.label_suffix IS NULL
                    AND split.parts IS NOT NULL
+                   -- The trace step c left: its rename demoted the bare name to a former
+                   -- name of this entity; a name created with its brackets has none.
+                   AND EXISTS (
+                       SELECT 1 FROM public.entity_aliases AS al
+                        WHERE al.entity_id = dom.id AND al.kind = 'former_name'
+                          AND al.alias_norm
+                              = public.ldvelh_norm_for_game(dom.game_id, split.parts[1]))
                    AND EXISTS (
                        SELECT 1 FROM public.entity_registry AS er
                         WHERE er.game_id = dom.game_id AND er.entity_type = %2$L
@@ -444,6 +452,11 @@ BEGIN
                AND al.alias_norm = public.ldvelh_norm_for_game(dom.game_id, dom.name)
             $sql$, v_table);
     END LOOP;
+    UPDATE public.entity_aliases AS al SET known = false
+      FROM public.entity_registry AS er
+     WHERE al.entity_id = er.id AND al.kind = 'label' AND al.known
+       AND al.alias_norm = er.name_norm
+       AND public.identity_domain_row(er.entity_type, er.id) ->> 'label_suffix' IS NOT NULL;
 END $$;
 
 
@@ -838,6 +851,17 @@ UPDATE public.protagonists SET name = name || ' (' || label_suffix || ')'
  WHERE label_suffix IS NOT NULL;
 UPDATE public.companions SET name = name || ' (' || label_suffix || ')'
  WHERE label_suffix IS NOT NULL;
+
+-- The suffixed label aliases get PR 1a's known flag back: a displayed name for the types
+-- other than characters, known with the name for a character.
+UPDATE public.entity_aliases AS al
+   SET known = (er.entity_type <> 'character' OR ch.true_name IS NULL
+                OR COALESCE(ch.known_by_protagonist, false))
+  FROM public.entity_registry AS er
+  LEFT JOIN public.characters AS ch ON ch.id = er.id
+ WHERE al.entity_id = er.id AND al.kind = 'label' AND NOT al.known
+   AND al.alias_norm = er.name_norm
+   AND public.identity_domain_row(er.entity_type, er.id) ->> 'label_suffix' IS NOT NULL;
 
 DROP FUNCTION public.identity_label(text, jsonb);
 ALTER TABLE public.companions DROP COLUMN label_suffix;

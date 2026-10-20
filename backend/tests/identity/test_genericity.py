@@ -296,20 +296,24 @@ _SQL_FUNCTION = re.compile(
 
 
 def test_sql_identity_functions_contain_no_pack_word():
+    """Every function body of every identity migration: unquoted tokens and literals."""
     words = _pack_words()
-    sql = _sql_without_comments(
-        (REPO / "db" / "migrations" / "20261020000001_entity_identity.sql").read_text(
-            encoding="utf-8"
-        )
-    )
-    bodies = {m.group(1): m.group(3) for m in _SQL_FUNCTION.finditer(sql)}
-    assert {"ldvelh_unaccent", "ldvelh_norm", "ldvelh_norm_for_game"} <= set(bodies)
-    found = {}
-    for name, body in bodies.items():
-        unquoted = _SQL_QUOTED.sub(" ", body)
-        tokens = set(_WORD.findall(unquoted.casefold())) - SQL_KEYWORDS
-        if hits := (tokens | _sql_literal_words(body)) & words:
-            found[name] = sorted(hits)
+    found, scanned = {}, set()
+    for path in _identity_sql_files():
+        sql = _sql_without_comments(path.read_text(encoding="utf-8"))
+        bodies = [(m.group(1), m.group(3)) for m in _SQL_FUNCTION.finditer(sql)]
+        scanned |= {name for name, _ in bodies}
+        for name, body in bodies:
+            unquoted = _SQL_QUOTED.sub(" ", body)
+            tokens = set(_WORD.findall(unquoted.casefold())) - SQL_KEYWORDS
+            if hits := (tokens | _sql_literal_words(body)) & words:
+                found[f"{path.name}: {name}"] = sorted(hits)
+    assert {
+        "ldvelh_unaccent",
+        "ldvelh_norm",
+        "ldvelh_norm_for_game",
+        "identity_label",
+    } <= (scanned)
     assert found == {}
 
 

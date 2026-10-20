@@ -79,7 +79,7 @@ class Reclassification:
 
 
 def label_of(base: str, suffix: str | None) -> str:
-    """The internal label of a character: its name, then its homonym suffix."""
+    """The internal label of an entity (any type): its name, then its homonym suffix."""
     return f"{base} ({suffix})" if suffix else base
 
 
@@ -89,9 +89,11 @@ def free_suffix(
     taken: dict[str, set[UUID]],
     normalizer: Normalizer,
 ) -> str | None:
-    """`suffix` when the label it makes is free in `taken` (norm -> the other characters
-    holding it), else the first free homonym number: the n-th holder of a label is its
-    homonym (n), the first keeps it bare (ruling R9)."""
+    """`suffix` when the label it makes is free in `taken` (norm -> the other entities of
+    the type holding it), else the first free homonym number: the n-th holder of a label is
+    its homonym (n), the first keeps it bare (ruling R9). Shared by the backfill's
+    reclassification and IdentityService's trap creations; SQL step c applies the same
+    rule (identity_legacy_normalise)."""
     rank = len(taken.get(normalizer.norm(base), ())) + 1
     while taken.get(normalizer.norm(label_of(base, suffix))):
         suffix = str(rank)

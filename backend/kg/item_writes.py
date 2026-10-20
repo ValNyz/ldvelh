@@ -3,7 +3,8 @@ LDVELH - Per-item writes inside a larger transaction.
 
 Each extracted item is written in its own SAVEPOINT: a failed item (validation, unique
 violation, FK, CHECK...) is rolled back alone and recorded, the other items still commit.
-An identity failure (a required reference unresolved, a write by id that found no row) is
+An identity failure (services.identity.types.IdentityFailure: a required reference
+unresolved, a write by id that found no row, a creation under an ambiguous label) is
 recorded by its code, {"code": ..., "item": <label>}, and in identity_events.
 """
 
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from config import get_settings
 from repos.entities import insert_event
 from repos.uow import current_turn_id
-from services.identity.types import IdentityWriteMiss, RefUnresolved
+from services.identity.types import IdentityFailure
 from utils.log_safe import log_cause, safe_text
 
 if TYPE_CHECKING:
@@ -47,15 +48,16 @@ async def write_item(
     any savepoint), the SAVEPOINT itself fails and the error propagates: nothing can commit
     any more, so the caller's whole transaction must be reported as failed.
 
-    RefUnresolved and IdentityWriteMiss are recorded as {"code": "ref_dropped" |
-    "write_miss", "item": label} (no story text) and as an identity_events row of the game.
+    An IdentityFailure is recorded as {"code": <its code>, "item": label} (no story text)
+    and as an identity_events row of the game, written after the rollback so that it
+    survives, in its own savepoint so that a failure to write it never aborts the turn.
     """
     savepoint = conn.transaction()
     await savepoint.start()
     try:
         result = await write()
         await conn.execute("SELECT 1")  # raises if write() left the savepoint aborted
-    except (RefUnresolved, IdentityWriteMiss) as e:
+    except IdentityFailure as e:
         await savepoint.rollback()
         errors.append({"code": e.code, "item": label})
         await _record_identity_failure(conn, label, e)
@@ -77,30 +79,25 @@ async def write_item(
 
 
 async def _record_identity_failure(
-    conn: Connection, label: str, error: RefUnresolved | IdentityWriteMiss
+    conn: Connection, label: str, error: IdentityFailure
 ) -> None:
-    """The identity_events row of a dropped item: ids, types and codes only."""
-    if isinstance(error, RefUnresolved):
-        payload = {
-            "item": label,
-            "entity_type": error.entity_type,
-            "candidates": error.candidates,
-        }
-        logger.debug(f"[IDENTITY] {label} reference dropped: {error.ref!r}")
-    else:
-        payload = {
-            "item": label,
-            "table": error.table,
-            "entity_id": str(error.entity_id),
-        }
-    if error.game_id is not None:
-        await insert_event(
-            conn,
-            error.game_id,
-            error.code,
-            turn_id=await current_turn_id(conn),
-            payload=payload,
-        )
+    """The identity_events row of a dropped item (ids, types, counts and codes only), in
+    its own savepoint: a failure to write it is logged and leaves the transaction usable."""
+    if (detail := error.debug_detail()) is not None:
+        logger.debug(f"[IDENTITY] {label} item dropped ({error.code}): {detail}")
+    if error.game_id is None:
+        return
+    try:
+        async with conn.transaction():
+            await insert_event(
+                conn,
+                error.game_id,
+                error.code,
+                turn_id=await current_turn_id(conn),
+                payload={"item": label, **error.payload()},
+            )
+    except Exception as e:  # noqa: BLE001 - telemetry must never abort the turn
+        log_cause(logger, logging.WARNING, f"[IDENTITY] {error.code} event lost", e)
 
 
 async def write_items(

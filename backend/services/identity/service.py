@@ -18,7 +18,6 @@ Logs carry ids, handles, counts and event codes; references and names only at DE
 from __future__ import annotations
 
 import logging
-from itertools import count
 from uuid import UUID
 
 from config import IdentityConfig, get_identity_config
@@ -27,9 +26,10 @@ from repos import entities
 from repos.uow import current_turn_id
 from services.identity import lexicon as lexicons
 from services.identity.aliases import derive
-from services.identity.classify import label_of
+from services.identity.classify import free_suffix
 from services.identity.normalize import Normalizer
 from services.identity.types import (
+    AmbiguousLabel,
     IdentityWriteMiss,
     NewEntitySpec,
     RefUnresolved,
@@ -42,9 +42,11 @@ CHARACTER = "character"
 # Types the service creates; the protagonist and the companion are made by game creation.
 CREATABLE_TYPES = frozenset({CHARACTER, "location", "organization", "object"})
 # Columns the service sets itself from the spec: never taken from spec.fields.
-_NAME_COLUMNS = frozenset({"name", "true_name", "descriptor", "known_by_protagonist"})
-# Homonym counter (ruling R9): the first holder of a label keeps it bare, the n-th is (n).
-_BARE_LABEL_RANK = 1
+_KNOWN_FLAG = "known_by_protagonist"
+_NAME_COLUMNS = frozenset({"name", "true_name", "descriptor", _KNOWN_FLAG})
+# Columns a character's bare label comes from (true name first), another entity's.
+_CHARACTER_NAMES = ("true_name", "descriptor")
+_OTHER_NAMES = ("name",)
 
 
 class IdentityService:
@@ -109,6 +111,21 @@ class IdentityService:
                 },
             )
             return target.entity_id
+        contested = target.entity_id is not None or target.ambiguous
+        candidates = (
+            await self._label_candidates(conn, label, spec.entity_type)
+            if contested
+            else 0
+        )
+        if target.ambiguous and not trap:
+            # Dans le doute, on ne crée pas (spec §2): write_item counts it.
+            raise AmbiguousLabel(
+                label,
+                spec.entity_type,
+                self.game_id,
+                candidates=candidates,
+                source=source,
+            )
         suffix, suffix_from = None, None
         if trap and await entities.label_taken(
             conn, self.game_id, spec.entity_type, label
@@ -134,6 +151,19 @@ class IdentityService:
                 entity_id,
                 {"entity_type": spec.entity_type, "suffix_from": suffix_from},
             )
+        elif contested:
+            # A verified trap whose label is free but names others through their aliases.
+            await self._event(
+                conn,
+                "create_contested",
+                turn_id,
+                entity_id,
+                {
+                    "entity_type": spec.entity_type,
+                    "candidates": candidates,
+                    "source": source,
+                },
+            )
         logger.info(
             f"[IDENTITY] {spec.entity_type} created game={self.game_id} id={entity_id}"
             f" source={source}"
@@ -157,20 +187,19 @@ class IdentityService:
         self, conn, entity_type: str, label: str, scene_location_id: UUID | None
     ) -> tuple[str, str]:
         """(suffix, where it comes from): the scene location's name when the label it makes
-        is free, else the first free homonym number (ruling R9)."""
+        is free, else the first free homonym number (classify.free_suffix, ruling R9)."""
+        place = None
         if scene_location_id is not None:
             place = await entities.display_for_player(conn, scene_location_id)
-            if place and not await entities.label_taken(
-                conn, self.game_id, entity_type, label_of(label, place)
-            ):
-                return place, "scene_location"
-        for number in count(_BARE_LABEL_RANK + 1):
-            suffix = str(number)
-            if not await entities.label_taken(
-                conn, self.game_id, entity_type, label_of(label, suffix)
-            ):
-                return suffix, "counter"
-        raise AssertionError("unreachable")
+        taken = await entities.label_holders(conn, self.game_id, entity_type, label)
+        suffix = free_suffix(label, place or None, taken, self.normalizer)
+        return suffix, "scene_location" if place and suffix == place else "counter"
+
+    async def _label_candidates(self, conn, label: str, entity_type: str) -> int:
+        counts = await entities.candidate_counts(
+            conn, self.game_id, label, (entity_type,)
+        )
+        return counts.get(entity_type, 0)
 
     async def _add_creation_aliases(
         self,
@@ -195,13 +224,12 @@ class IdentityService:
             normalizer=self.normalizer,
             lexicon=self.lexicon,
         )
-        if spec.entity_type != CHARACTER or spec.secret:
-            # A character's name aliases already follow known_by_protagonist.
+        # A character's name aliases already follow known_by_protagonist; another entity's
+        # are known (its suffixed label aside, internal) unless the spec says otherwise.
+        unknown = spec.entity_type != CHARACTER and not spec.known
+        if unknown or spec.secret:
             await entities.mark_aliases(
-                conn,
-                entity_id,
-                known=None if spec.entity_type == CHARACTER else spec.known,
-                secret=spec.secret,
+                conn, entity_id, known=False if unknown else None, secret=spec.secret
             )
         for alias in [*derived, *spec.aliases]:
             await self.add_alias(
@@ -314,13 +342,17 @@ class IdentityService:
     ) -> None:
         """Write `fields` on the entity's domain row, by id (merges followed). No row:
         IdentityWriteMiss. A new name keeps the old one as a former name (the triggers) and
-        gets its derived aliases."""
+        gets its derived aliases; an internal label suffix no homonym needs any more goes.
+        known_by_protagonist is the reveal's (explicit reveals only): refused here."""
+        if _KNOWN_FLAG in fields:
+            raise ValueError(f"{_KNOWN_FLAG} is written by a reveal, not update_entity")
         live_id = await entities.follow_merge(conn, entity_id) or entity_id
         table, row = await entities.update_domain_row(
             conn, self.game_id, entity_type, live_id, fields
         )
         if row is None:
             raise IdentityWriteMiss(table, entity_id, self.game_id)
+        await self._drop_needless_suffix(conn, entity_type, live_id, fields, row)
         renamed = "true_name" if entity_type == CHARACTER else "name"
         if fields.get(renamed):
             known = entity_type != CHARACTER or bool(row.get("known_by_protagonist"))
@@ -343,6 +375,19 @@ class IdentityService:
                     turn_id=turn_id,
                     entity_type=entity_type,
                 )
+
+    async def _drop_needless_suffix(
+        self, conn, entity_type: str, entity_id: UUID, fields: dict, row: dict
+    ) -> None:
+        """A renamed entity keeps its label suffix only while its new bare label is held."""
+        names = _CHARACTER_NAMES if entity_type == CHARACTER else _OTHER_NAMES
+        if not row.get("label_suffix") or not set(fields).intersection(names):
+            return
+        bare = next((row[n] for n in names if row.get(n)), None)
+        if bare and not await entities.label_taken(
+            conn, self.game_id, entity_type, bare
+        ):
+            await entities.clear_label_suffix(conn, entity_type, entity_id)
 
     # --- telemetry ----------------------------------------------------------------------
 

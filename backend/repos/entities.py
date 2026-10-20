@@ -374,6 +374,33 @@ async def label_taken(conn, game_id: UUID, entity_type: str, label: str) -> bool
     )
 
 
+async def label_holders(
+    conn, game_id: UUID, entity_type: str, label: str
+) -> dict[str, set[UUID]]:
+    """{label norm: live entities of the type holding it} for the labels whose norm starts
+    with `label`'s (its suffixed forms included): what a homonym suffix must avoid."""
+    rows = await conn.fetch(
+        """SELECT id, name_norm FROM entity_registry
+           WHERE game_id = $1 AND entity_type = $2 AND merged_into IS NULL
+             AND starts_with(name_norm, ldvelh_norm_for_game($1, $3))""",
+        game_id,
+        str(entity_type),
+        label,
+    )
+    holders: dict[str, set[UUID]] = {}
+    for r in rows:
+        holders.setdefault(r["name_norm"], set()).add(r["id"])
+    return holders
+
+
+async def clear_label_suffix(conn, entity_type: str, entity_id: UUID) -> None:
+    """Drop an entity's internal label suffix (its triggers update the registry label)."""
+    table, _ = await domain_table(conn, entity_type)
+    await conn.execute(
+        f"UPDATE {table} SET label_suffix = NULL WHERE id = $1", entity_id
+    )
+
+
 async def set_created_turn(conn, entity_id: UUID, turn_id: UUID) -> None:
     """The turn that created an entity, when the transaction's own turn did not set it."""
     await conn.execute(

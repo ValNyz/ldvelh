@@ -17,10 +17,9 @@ import asyncpg
 
 from config import get_settings
 from domain.errors import SourceMessageGone
-from llm.session import LLMSession
-
 from kg.item_writes import write_item
 from kg.populator import KnowledgeGraphPopulator
+from llm.session import LLMSession
 from repos.uow import uow
 from utils.log_safe import log_exception, safe_repr, safe_text
 
@@ -30,7 +29,7 @@ from .locations import LocationsExtractor
 from .narrative_arcs import NarrativeArcsExtractor
 from .organizations import OrganizationsExtractor
 from .progression import ProgressionExtractor
-from .resolver import ResolutionMap, resolve_entities, build_span_annotations
+from .resolver import ResolutionMap, build_span_annotations, resolve_entities
 
 logger = logging.getLogger(__name__)
 
@@ -55,29 +54,42 @@ async def _apply_entity_reveals(
     conn: asyncpg.Connection, populator: KnowledgeGraphPopulator, entity_reveals: list
 ) -> None:
     """Each reveal in its own savepoint: a failing one is rolled back alone and logged."""
-    errors: list[str] = []
+    errors: list[str | dict] = []
     for reveal in entity_reveals:
         etype = reveal.get("entity_type")
         current_name = reveal.get("current_name")
         if etype == "character" and current_name:
             real = reveal.get("real_name")
-            await write_item(conn, errors, "entity_reveal character",
-                             lambda name=current_name, real=real:
-                             populator.mark_character_known(conn, name, real),
-                             "[EXTRACTION] ")
+            await write_item(
+                conn,
+                errors,
+                "entity_reveal character",
+                lambda name=current_name, real=real: populator.mark_character_known(
+                    conn, name, real
+                ),
+                "[EXTRACTION] ",
+            )
         elif etype == "location" and current_name:
-            await write_item(conn, errors, "entity_reveal location",
-                             lambda name=current_name:
-                             populator.mark_location_accessible(conn, name),
-                             "[EXTRACTION] ")
+            await write_item(
+                conn,
+                errors,
+                "entity_reveal location",
+                lambda name=current_name: populator.mark_location_accessible(
+                    conn, name
+                ),
+                "[EXTRACTION] ",
+            )
 
 
 async def resolver_triggers(
     conn: asyncpg.Connection, game_id: UUID, resolution_map: ResolutionMap
 ) -> set[str]:
     """Extractors implied by mappings that are new and not yet in the game's registry."""
-    candidates = [m for m in resolution_map.mappings
-                  if m.is_new and m.entity_type in TYPE_TO_EXTRACTOR]
+    candidates = [
+        m
+        for m in resolution_map.mappings
+        if m.is_new and m.entity_type in TYPE_TO_EXTRACTOR
+    ]
     if not candidates:
         return set()
     pairs = list({(m.canonical, m.entity_type) for m in candidates})
@@ -85,11 +97,16 @@ async def resolver_triggers(
         """SELECT ref.canonical, ref.entity_type
            FROM unnest($2::text[], $3::text[]) AS ref (canonical, entity_type)
            WHERE find_entity($1, ref.canonical, ref.entity_type) IS NOT NULL""",
-        game_id, [p[0] for p in pairs], [p[1] for p in pairs],
+        game_id,
+        [p[0] for p in pairs],
+        [p[1] for p in pairs],
     )
     known = {(r["canonical"], r["entity_type"]) for r in rows}
-    return {TYPE_TO_EXTRACTOR[m.entity_type] for m in candidates
-            if (m.canonical, m.entity_type) not in known}
+    return {
+        TYPE_TO_EXTRACTOR[m.entity_type]
+        for m in candidates
+        if (m.canonical, m.entity_type) not in known
+    }
 
 
 async def _compute_triggers(
@@ -106,9 +123,13 @@ async def _compute_triggers(
             async with pool.acquire() as conn:
                 inferred = await resolver_triggers(conn, game_id, resolution_map)
         except Exception as e:
-            log_exception(logger, logging.WARNING,
-                          "[EXTRACTION] Resolver trigger lookup failed, using narrator triggers only",
-                          e, debug_detail=get_settings().log_prompts)
+            log_exception(
+                logger,
+                logging.WARNING,
+                "[EXTRACTION] Resolver trigger lookup failed, using narrator triggers only",
+                e,
+                debug_detail=get_settings().log_prompts,
+            )
     logger.info(
         f"[EXTRACTION] Triggers for game {game_id}: "
         f"narrator={sorted(narrator)} resolver={sorted(inferred)}"
@@ -153,7 +174,8 @@ async def run_resolve_and_extract(
                            WHERE game_id = $1 AND role = 'assistant'
                              AND id != $2
                            ORDER BY sequence DESC LIMIT 1""",
-                        game_id, assistant_message_id,
+                        game_id,
+                        assistant_message_id,
                     )
 
                 if prev_msg and prev_msg["content"]:
@@ -166,7 +188,8 @@ async def run_resolve_and_extract(
 
                 if prev_text:
                     resolution_map, resolver_cost = await resolve_entities(
-                        pool, game_id,
+                        pool,
+                        game_id,
                         previous_response=prev_text,
                         previous_annotations=prev_annotations,
                         current_response=message_content,
@@ -185,9 +208,9 @@ async def run_resolve_and_extract(
         # Phase 2: Extractors
         # Combine narrator triggers + resolver-inferred triggers from new entities
         # =====================================================================
-        valid_triggers = sorted(await _compute_triggers(
-            pool, game_id, triggers, resolution_map
-        ))
+        valid_triggers = sorted(
+            await _compute_triggers(pool, game_id, triggers, resolution_map)
+        )
 
         if valid_triggers and message_content:
             logger.info(
@@ -196,7 +219,12 @@ async def run_resolve_and_extract(
             )
 
             # Phase 2a: entity extractors (no cross-entity references)
-            ENTITY_EXTRACTORS = {"characters", "locations", "organizations", "inventory"}
+            ENTITY_EXTRACTORS = {
+                "characters",
+                "locations",
+                "organizations",
+                "inventory",
+            }
             # Phase 2b: relation extractors (reference entities created in 2a)
             RELATION_EXTRACTORS = {"narrative_arcs", "progression"}
 
@@ -215,7 +243,12 @@ async def run_resolve_and_extract(
                     )
                     for t in trigger_names
                 ]
-                return list(zip(trigger_names, await asyncio.gather(*tasks, return_exceptions=True)))
+                return list(
+                    zip(
+                        trigger_names,
+                        await asyncio.gather(*tasks, return_exceptions=True),
+                    )
+                )
 
             all_results = []
             if phase_a:
@@ -225,15 +258,22 @@ async def run_resolve_and_extract(
 
             for trigger, ext_result in all_results:
                 if isinstance(ext_result, Exception):
-                    log_exception(logger, logging.ERROR,
-                                  f"[EXTRACTION] {trigger} raised exception", ext_result,
-                                  debug_detail=get_settings().log_prompts)
+                    log_exception(
+                        logger,
+                        logging.ERROR,
+                        f"[EXTRACTION] {trigger} raised exception",
+                        ext_result,
+                        debug_detail=get_settings().log_prompts,
+                    )
                     result["extractors"][trigger] = {
-                        "success": False, "error": safe_text(ext_result)
+                        "success": False,
+                        "error": safe_text(ext_result),
                     }
                 else:
                     result["extractors"][trigger] = ext_result
-                    cost = ext_result.get("cost") if isinstance(ext_result, dict) else None
+                    cost = (
+                        ext_result.get("cost") if isinstance(ext_result, dict) else None
+                    )
                     if cost and isinstance(cost, dict):
                         total_cost += cost.get("cost_usd", 0)
 
@@ -259,21 +299,25 @@ async def run_resolve_and_extract(
                     # Share-lock the source message: a rollback deleting it waits for
                     # these writes, and reveals of an already-deleted turn are skipped.
                     try:
-                        async with uow(conn, turn_id, source_message_id=assistant_message_id):
+                        async with uow(
+                            conn, turn_id, source_message_id=assistant_message_id
+                        ):
                             await _apply_entity_reveals(conn, populator, entity_reveals)
                     except SourceMessageGone:
-                        logger.info("[EXTRACTION] Source message gone, entity_reveals skipped")
+                        logger.info(
+                            "[EXTRACTION] Source message gone, entity_reveals skipped"
+                        )
         except Exception as e:
-            logger.warning(f"[EXTRACTION] Re-apply entity_reveals failed: {safe_repr(e)}")
+            logger.warning(
+                f"[EXTRACTION] Re-apply entity_reveals failed: {safe_repr(e)}"
+            )
 
         # =====================================================================
         # Phase 4: Store annotations (after extractors, so entities exist in DB)
         # =====================================================================
         try:
             if resolution_map and message_content and assistant_message_id:
-                annotations = build_span_annotations(
-                    message_content, resolution_map
-                )
+                annotations = build_span_annotations(message_content, resolution_map)
                 if annotations:
                     async with pool.acquire() as conn:
                         await conn.execute(
@@ -290,8 +334,13 @@ async def run_resolve_and_extract(
         return result
 
     except Exception as e:
-        log_exception(logger, logging.ERROR, "[EXTRACTION] Orchestrator failed", e,
-                      debug_detail=get_settings().log_prompts)
+        log_exception(
+            logger,
+            logging.ERROR,
+            "[EXTRACTION] Orchestrator failed",
+            e,
+            debug_detail=get_settings().log_prompts,
+        )
         return {"success": False, "error": safe_text(e)}
 
 
@@ -347,8 +396,10 @@ def _outcome(ext_result) -> str:
 def _outcome_summary(extractors: dict) -> str:
     """`2 succeeded, 1 partial, 0 failed, 0 skipped (3 extractors)`."""
     outcomes = [_outcome(r) for r in extractors.values()]
-    counts = ", ".join(f"{outcomes.count(o)} {o}"
-                       for o in ("succeeded", "partial", "failed", "skipped"))
+    counts = ", ".join(
+        f"{outcomes.count(o)} {o}"
+        for o in ("succeeded", "partial", "failed", "skipped")
+    )
     return f"{counts} ({len(outcomes)} extractors)"
 
 
