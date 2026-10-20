@@ -83,7 +83,7 @@ min_distinctive_token_len: 4
 # identity.prompt_examples replace them.
 prompt_examples:
   identity:
-    - input: "« Je m'appelle Malo Ferrant », dit l'homme au manteau gris."
-      output: "ALIAS true_name : l'homme au manteau gris présent dans la scène se présente."
-    - input: "La femme au manteau gris s'éloigne ; Ferrant la regarde partir."
-      output: "Deux personnes distinctes : « la femme au manteau gris » n'est pas Ferrant."
+    - input: "« Je m'appelle Malo Ferrant », dit le colporteur aux bottes vertes."
+      output: "ALIAS true_name : le colporteur aux bottes vertes, présent dans la scène, se présente."
+    - input: "La colporteuse aux gants rouges s'éloigne ; Ferrant la regarde partir."
+      output: "Deux personnes distinctes : « la colporteuse aux gants rouges » n'est pas Ferrant."

@@ -49,7 +49,7 @@ from services.identity.normalize import Normalizer
 from services.llm_providers import StructuredOutputMode
 from utils import parse_json_response
 from utils.log_safe import log_cause
-from utils.trigrams import name_similarity
+from utils.trigrams import trigram_name_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +83,8 @@ class DecisionOutputInvalid(ValueError):
 
 def _json_in(text: str, mode: StructuredOutputMode):
     """The decision object of a model's text; in TEXT mode it may sit inside prose (the
-    first object or list that holds decisions), else the whole text is JSON (repaired
-    when it can be)."""
+    first object holding `mentions`, or list of objects), else the whole text is JSON
+    (repaired when it can be)."""
     if mode is StructuredOutputMode.TEXT:
         decoder = json.JSONDecoder()
         for start in (i for i, ch in enumerate(text) if ch in "{["):
@@ -92,9 +92,9 @@ def _json_in(text: str, mode: StructuredOutputMode):
                 value, _ = decoder.raw_decode(text, start)
             except json.JSONDecodeError:
                 continue
-            if isinstance(value, list) or (
-                isinstance(value, dict) and "mentions" in value
-            ):
+            if isinstance(value, dict) and "mentions" in value:
+                return value
+            if isinstance(value, list) and all(isinstance(v, dict) for v in value):
                 return value
     return parse_json_response(text)
 
@@ -166,9 +166,13 @@ def _occurs(phrase: str, folded_text: str) -> bool:
 
 
 def _downgrade(d: MentionDecision, code: str) -> MentionDecision:
+    """`d` refused: UNSURE, with the code of the check and what it named (the first
+    refusal's, when it is checked again)."""
     return replace(
         d,
         decision=UNSURE,
+        rejected_handle=d.rejected_handle or d.handle,
+        rejected_entity_id=d.rejected_entity_id or d.entity_id,
         handle=None,
         entity_id=None,
         alias_kind=None,
@@ -213,7 +217,13 @@ def _check_one(
     if d.ignored:
         return d
     if not _occurs(normalizer.fold(d.surface), folded_text):
-        return replace(d, ignored=True, entity_id=None, rejection=SURFACE_ABSENT)
+        return replace(
+            d,
+            ignored=True,
+            entity_id=None,
+            rejected_handle=d.rejected_handle or d.handle,
+            rejection=SURFACE_ABSENT,
+        )
     if d.decision in (SKIP, UNSURE):
         return replace(d, handle=None, entity_id=None, redirected_from=None)
     if d.decision == NEW:
@@ -255,8 +265,8 @@ def _collapse_news(
     decisions: list[MentionDecision], normalizer: Normalizer
 ) -> list[MentionDecision]:
     """Two NEW of one type and one normalised surface are one entity: the later ones
-    point at the first (`same_as`)."""
-    first: dict[tuple[str, str], int] = {}
+    point at the first (`same_as`), unless the two talk to each other."""
+    first: dict[tuple[str | None, str], int] = {}
     out = []
     for i, d in enumerate(decisions):
         if not _is_new(d):
@@ -264,8 +274,20 @@ def _collapse_news(
             continue
         key = (d.new_type, normalizer.norm(d.surface))
         origin = first.setdefault(key, i)
+        if origin != i and _talking(d, decisions[origin], normalizer):
+            origin = i
         out.append(replace(d, same_as=None if origin == i else origin))
     return out
+
+
+def _talking(a: MentionDecision, b: MentionDecision, normalizer: Normalizer) -> bool:
+    """One of the two mentions lists the other in its talks_to."""
+
+    def lists(x: MentionDecision, y: MentionDecision) -> bool:
+        target = normalizer.fold(y.surface).strip()
+        return any(normalizer.fold(t).strip() == target for t in x.talks_to)
+
+    return lists(a, b) or lists(b, a)
 
 
 def _closest(
@@ -282,7 +304,7 @@ def _closest(
         if c.entity_type != d.new_type:
             continue
         names = {normalizer.norm(c.label), *(a.alias_norm for a in c.aliases)}
-        score = max(name_similarity(norm, n) for n in names)
+        score = max(trigram_name_similarity(norm, n) for n in names)
         if score >= best_score:
             best, best_score = c.entity_id, score
     return best
@@ -300,7 +322,13 @@ def verify(
 ) -> list[MentionDecision]:
     """The decisions after every check of §4.5.4. `redirects`: merge tombstone -> live
     entity, for the candidates merged since the blocking. Idempotent: a checked list
-    checks the same."""
+    checks the same.
+
+    "Type compatible with the decision" (§4.5.4, first check) is read as: a MATCH may
+    link a candidate of any type (cross-type homonyms are the model's call, each card
+    shows its type); an ALIAS never adds a name to the protagonist or the companion
+    (§4.10: linked, never changed), it becomes a MATCH; a NEW must name a creatable type
+    (`NEW_ENTITY_TYPES`: never an arc, the protagonist nor the companion)."""
     config = config or get_identity_config()
     by_handle = {
         format_handle(c.handle): c
@@ -414,7 +442,8 @@ async def _attempt(
     config: IdentityConfig,
     usage: dict,
 ) -> list[MentionDecision] | None:
-    """One call and its parsed decisions; None when it failed or its output is invalid."""
+    """One provider call and its parsed decisions; None when it failed or its output is
+    invalid. Counted in `usage` either way."""
     mode = session.provider_for(purpose).structured_output_mode
     try:
         if mode is StructuredOutputMode.TEXT:
@@ -435,8 +464,11 @@ async def _attempt(
                 0,
                 config.decision_max_tokens,
                 purpose=purpose,
+                # No silent plain-text retry: the retry is the cascade's own (§4.5.5).
+                text_fallback=False,
             )
     except Exception as e:
+        _add_usage(usage, purpose, None)  # a real call, nothing billed or known
         log_cause(
             logger,
             logging.WARNING,
@@ -463,18 +495,17 @@ class _Prompt:
         scene: SceneContext,
         lexicon: Lexicon,
         session: LLMSession,
+        config: IdentityConfig,
     ):
-        self.text, self.scene, self.lexicon, self.session = (
-            text,
-            scene,
-            lexicon,
-            session,
-        )
+        self.text, self.scene, self.lexicon = text, scene, lexicon
+        self.session, self.config = session, config
         everyone = {c.entity_id: c for c in candidates.ranked()}
         for c in candidates.exact.values():
             everyone.setdefault(c.entity_id, c)
         self.candidates = list(everyone.values())
-        self.handle_of = {c.entity_id: format_handle(c.handle) for c in self.candidates}
+        self.handle_of: dict[UUID, str] = {
+            c.entity_id: format_handle(c.handle) for c in self.candidates
+        }
 
     def card(self, c: Candidate) -> str:
         return render_card(
@@ -484,16 +515,16 @@ class _Prompt:
         )
 
     def scene_lines(self) -> list[str]:
-        handle = self.handle_of.get
-        present = [handle(i) for i in self.scene.present_ids if handle(i)]
+        handle_of = self.handle_of
+        present = [handle_of[i] for i in self.scene.present_ids if i in handle_of]
         lines = [f"present: {', '.join(present)}"] if present else []
         for name, entity_id in (
             ("current location", self.scene.location_id),
             ("protagonist", self.scene.protagonist_id),
             ("companion", self.scene.companion_id),
         ):
-            if handle(entity_id):
-                lines.append(f"{name}: {handle(entity_id)}")
+            if entity_id is not None and entity_id in handle_of:
+                lines.append(f"{name}: {handle_of[entity_id]}")
         return lines
 
     def messages(
@@ -504,10 +535,12 @@ class _Prompt:
         *,
         mentions: list[str] | None = None,
     ) -> tuple[str, str, dict]:
-        schema = decision_schema([format_handle(c.handle) for c in chosen])
+        schema = decision_schema(
+            [format_handle(c.handle) for c in chosen], config=self.config
+        )
         mode = self.session.provider_for(purpose).structured_output_mode
         system = build_identity_system_prompt(
-            self.lexicon, strong=purpose is Purpose.IDENTITY_STRONG
+            self.lexicon, strong=purpose is Purpose.IDENTITY_STRONG, config=self.config
         )
         lines = list(dict.fromkeys(f'"{d.surface}" = {d.handle}' for d in resolved))
         user = build_identity_user_prompt(
@@ -556,12 +589,26 @@ def _theirs(
 
     def close(c: Candidate) -> bool:
         names = {normalizer.norm(c.label), *(a.alias_norm for a in c.aliases)}
-        return any(name_similarity(n, a) >= config.s_word for n in norms for a in names)
+        return any(
+            trigram_name_similarity(n, a) >= config.s_word for n in norms for a in names
+        )
 
     return [
         c
         for c in prompt.candidates
         if c.entity_id in linked or _in_scene(c, prompt.scene) or close(c)
+    ]
+
+
+def _shown(answers: list[MentionDecision], chosen: list[Candidate]):
+    """The strong model links only the candidates it was shown (a TEXT-mode answer is not
+    held to the schema's enum): another handle is refused like an unknown one."""
+    allowed = {format_handle(c.handle) for c in chosen}
+    return [
+        _downgrade(a, UNKNOWN_ID)
+        if a.decision in (MATCH, ALIAS) and a.handle not in allowed
+        else a
+        for a in answers
     ]
 
 
@@ -625,7 +672,7 @@ async def decide_turn(
     config = thresholds
     usage: dict = {}
     pre = prepass(text, candidates, normalizer=normalizer, config=config)
-    prompt = _Prompt(text, candidates, scene, lexicon, session)
+    prompt = _Prompt(text, candidates, scene, lexicon, session, config)
     system, user, schema = prompt.messages(prompt.candidates, pre, Purpose.IDENTITY)
     first = await _attempt(
         session, Purpose.IDENTITY, system, user, schema, config, usage
@@ -634,14 +681,8 @@ async def decide_turn(
         first = await _attempt(
             session, Purpose.IDENTITY, system, user, schema, config, usage
         )
-    if first is None:
-        logger.warning(
-            f"[IDENTITY] decision failed twice: prepass only ({len(pre)} mentions)"
-        )
-        return TurnDecisions(pre, escalated=False, fallback=True, usage=usage)
-
     taken = {normalizer.fold(d.surface).strip() for d in pre}
-    model = [d for d in first if normalizer.fold(d.surface).strip() not in taken]
+    model = [d for d in first or [] if normalizer.fold(d.surface).strip() not in taken]
     redirects = await entities.follow_merges(
         conn, _linked([*pre, *model], prompt.candidates)
     )
@@ -656,6 +697,12 @@ async def decide_turn(
             config=config,
             redirects=redirects,
         )
+
+    if first is None:
+        logger.warning(
+            f"[IDENTITY] decision failed twice: prepass only ({len(pre)} mentions)"
+        )
+        return TurnDecisions(checked(pre), escalated=False, fallback=True, usage=usage)
 
     decided = checked([*pre, *model])
     _debug("first pass", decided)
@@ -677,10 +724,11 @@ async def decide_turn(
     answers = await _attempt(
         session, Purpose.IDENTITY_STRONG, system, user, schema, config, usage
     )
+    answers = _shown(answers or [], chosen)
     if answers:
         redirects |= await entities.follow_merges(
             conn, _linked(answers, prompt.candidates)
         )
-    decided = checked(_settle(decided, risky, answers or [], normalizer))
+    decided = checked(_settle(decided, risky, answers, normalizer))
     _debug("escalation", decided)
     return TurnDecisions(decided, escalated=True, fallback=False, usage=usage)

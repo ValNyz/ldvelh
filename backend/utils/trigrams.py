@@ -39,8 +39,11 @@ def word_run_similarity(a: str, b: str) -> float:
     )
 
 
-def name_similarity(a: str, b: str) -> float:
-    """How alike two names are: their similarity, or one inside the other."""
+def trigram_name_similarity(a: str, b: str) -> float:
+    """How alike two names are: the best of their similarity() and of the run similarity
+    of each inside the other. Symmetric, and broader than pg_trgm's word_similarity
+    (repos.entities.name_similarity is the SQL one): « Keswil » and « Odran Keswil »
+    score 1 either way round."""
     return max(
         trigram_similarity(a, b), word_run_similarity(a, b), word_run_similarity(b, a)
     )

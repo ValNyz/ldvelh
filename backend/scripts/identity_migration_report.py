@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from utils.trigrams import name_similarity, word_run_similarity
+from utils.trigrams import trigram_name_similarity, word_run_similarity
 
 SECTIONS = (
     "Ré-identification",
@@ -399,7 +399,7 @@ def _duplicate_reason(
     (similarity, or one name inside the other), the same occupation at the same place, or
     a character's descriptor that names the other's occupation."""
     a, b = norm(left.name), norm(right.name)
-    score = name_similarity(a, b)
+    score = trigram_name_similarity(a, b)
     if score >= threshold:
         return f"noms proches ({score:.2f})"
     if left.type != "character":

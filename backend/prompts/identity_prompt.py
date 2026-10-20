@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
-from config import get_identity_config
+from config import IdentityConfig, get_identity_config
 from domain.identity import (
     ALIAS_KINDS,
     DECISIONS,
@@ -93,11 +93,15 @@ out every other mention."""
 
 
 def build_identity_system_prompt(
-    lexicon: IdentityLexicon, *, strong: bool = False
+    lexicon: IdentityLexicon,
+    *,
+    strong: bool = False,
+    config: IdentityConfig | None = None,
 ) -> str:
     """The system prompt of the identity decision; `strong`: the escalation's, which
-    decides only the mentions it lists."""
-    config = get_identity_config()
+    decides only the mentions it lists. `config`: the limits it states (the caller's,
+    else the global one)."""
+    config = config or get_identity_config()
     pack = lexicon.lang
     pronouns = [
         *pack.pronouns.personal,
@@ -200,10 +204,12 @@ def _optional(values: tuple[str, ...]) -> dict:
     return {"type": ["string", "null"], "enum": [*values, None]}
 
 
-def decision_schema(handles: list[str]) -> dict:
+def decision_schema(
+    handles: list[str], *, config: IdentityConfig | None = None
+) -> dict:
     """JSON schema of the decision output: `handle` can only be one of `handles` (or
     null), so the model cannot invent an id; no confidence field (UNSURE abstains)."""
-    config = get_identity_config()
+    config = config or get_identity_config()
     item = {
         "type": "object",
         "properties": {

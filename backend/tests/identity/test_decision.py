@@ -11,9 +11,23 @@ import pytest
 import yaml
 
 from config import IdentityConfig
-from domain.identity import Candidate, CandidateAlias, CandidateSet, SceneContext
+from domain.identity import (
+    Candidate,
+    CandidateAlias,
+    CandidateSet,
+    SceneContext,
+    TurnDecisions,
+)
 from llm.session import LLMSession
-from packs.loader import PACKS_DIR, GenrePack, LangPack, load_lang
+from packs.loader import (
+    PACKS_DIR,
+    GenrePack,
+    LangPack,
+    available_genres,
+    available_langs,
+    load_genre,
+    load_lang,
+)
 from prompts.identity_prompt import (
     IDENTITY_PROMPT_MARKER,
     build_identity_system_prompt,
@@ -24,7 +38,9 @@ from prompts.identity_prompt import (
 from services.identity import decision
 from services.identity.decision import MentionDecision
 from services.identity.lexicon import Lexicon, for_game
+from repos import entities
 from services.identity.normalize import Normalizer
+from services.identity.service import IdentityService
 from services.llm_providers import StructuredOutputMode
 from tests.characterization.scripted_llm import ScriptedLLMProvider, classify_call
 
@@ -238,6 +254,86 @@ def test_match_to_a_tombstone_is_redirected():
     assert out.verified
 
 
+def _events(decisions) -> list:
+    return TurnDecisions(decisions, escalated=False, fallback=False, usage={}).events()
+
+
+def test_rejection_events_keep_what_was_rejected():
+    known = _candidate(3, "Odran Keswil")
+    guard = _candidate(4, "garde", aliases=[_alias("garde", "descriptor")])
+    absent = _candidate(5, "la femme au manteau", sources={"trgm"})
+    text = "Odran Keswil voit le garde parler au vieux garde. « Je suis Vela Sorn », dit-on."
+    decided = _verify(
+        [
+            _d("Odran Keswil", "MATCH", "E99"),
+            _d("Odran", "MATCH", "E3"),
+            _d("le garde", "MATCH", "E4", talks_to=("vieux garde",)),
+            _d("vieux garde", "MATCH", "E4"),
+            _d("Vela Sorn", "ALIAS", "E5", alias_kind="true_name"),
+        ],
+        _set(known, guard, absent),
+        text,
+    )
+    unsure = {"decision": "UNSURE", "handle": None}
+    assert _events(decided) == [
+        ("unknown_id_downgraded", None, {**unsure, "rejected_handle": "E99"}),
+        ("talks_to_same_id", guard.entity_id, {**unsure, "rejected_handle": "E4"}),
+        ("talks_to_same_id", guard.entity_id, {**unsure, "rejected_handle": "E4"}),
+        (
+            "true_name_not_present",
+            absent.entity_id,
+            {**unsure, "rejected_handle": "E5"},
+        ),
+    ]
+    # « Odran » is in « Odran Keswil »: not absent. An absent surface keeps its handle.
+    [ignored] = _verify([_d("Keswila", "MATCH", "E3")], _set(known), text)
+    assert _events([ignored]) == [
+        (
+            "surface_absent",
+            None,
+            {"decision": "MATCH", "handle": "E3", "rejected_handle": "E3"},
+        )
+    ]
+
+
+def test_flag_and_redirect_events():
+    keswil = _candidate(7, "Odran Keswil")
+    old = _candidate(9, "Mira Tassel")
+    live = uuid4()
+    decided = _verify(
+        [
+            _d("Keswil", "NEW", new_type="character", new_kind="proper_name"),
+            _d("Mira Tassel", "MATCH", "E9"),
+        ],
+        _set(keswil, old),
+        "Keswil croise Mira Tassel.",
+        redirects={old.entity_id: live},
+    )
+    assert _events(decided) == [
+        ("probable_duplicate", keswil.entity_id, {"new_type": "character"}),
+        ("tombstone_redirected", live, {"from": str(old.entity_id)}),
+    ]
+
+
+def test_two_news_talking_to_each_other_stay_two():
+    text = "Un garde parle à un garde."
+    first, second = _verify(
+        [
+            _d(
+                "Un garde",
+                "NEW",
+                new_type="character",
+                new_kind="descriptor",
+                talks_to=("un garde",),
+            ),
+            _d("un garde", "NEW", new_type="character", new_kind="descriptor"),
+        ],
+        _set(),
+        text,
+    )
+    assert first.same_as is None and second.same_as is None
+
+
 # --- prepass (§4.5.5 step 1) ---------------------------------------------------------
 
 
@@ -279,6 +375,11 @@ def test_text_mode_parses_json_from_prose():
         + "\nThat is all."
     )
     [out] = decision.parse(raw, StructuredOutputMode.TEXT, config=CONFIG)
+    # A stray list before the real object is skipped.
+    [again] = decision.parse(
+        'Candidates ["E3"] considered. ' + raw, StructuredOutputMode.TEXT, config=CONFIG
+    )
+    assert again.handle == "E3"
     assert (out.surface, out.decision, out.handle) == ("Odran", "MATCH", "E3")
     assert len(out.evidence.split()) == CONFIG.evidence_max_words
     with pytest.raises(decision.DecisionOutputInvalid):
@@ -295,10 +396,13 @@ def test_text_mode_parses_json_from_prose():
 
 
 class _Conn:
-    """No merge tombstone: follow_merges finds nothing to redirect."""
+    """follow_merges reads `redirects` (tombstone -> live); none by default."""
 
-    async def fetch(self, *args):
-        return []
+    def __init__(self, redirects: dict | None = None):
+        self.redirects = redirects or {}
+
+    async def fetch(self, sql, ids):
+        return [{"id": i, "live": self.redirects.get(i, i)} for i in ids]
 
 
 def _mention(surface, verdict, handle=None, **fields):
@@ -312,12 +416,22 @@ def _mention(surface, verdict, handle=None, **fields):
     }
 
 
-async def _decide(responses: dict, candidates: CandidateSet, text: str, scene=None):
-    provider = ScriptedLLMProvider(responses, mode=StructuredOutputMode.TOOL_USE)
+async def _decide(
+    responses: dict,
+    candidates: CandidateSet,
+    text: str,
+    scene=None,
+    *,
+    mode: StructuredOutputMode = StructuredOutputMode.TOOL_USE,
+    fail_on: dict | None = None,
+    redirects: dict | None = None,
+):
+    provider = ScriptedLLMProvider(responses, mode=mode)
+    provider.fail_on.update(fail_on or {})
     session = LLMSession.from_provider(provider)
     turn = await decision.decide_turn(
         session,
-        _Conn(),
+        _Conn(redirects),
         text,
         candidates,
         scene or _scene(),
@@ -419,19 +533,207 @@ async def test_two_invalid_json_fall_back_to_the_prepass():
         ("Odran Keswil", True)
     ]
     assert ("resolver_fallback", None, {"prepass": 1}) in turn.events()
+    assert turn.usage["identity"]["calls"] == 2
+
+
+async def test_the_fallback_still_follows_merges():
+    keswil = _candidate(3, "Odran Keswil")
+    live = uuid4()
+    turn, _ = await _decide(
+        {"identity": [{"nope": True}]},
+        _set(keswil, exact={"odran keswil": keswil}),
+        "Odran Keswil salue le garde.",
+        redirects={keswil.entity_id: live},
+    )
+    assert turn.fallback
+    [d] = turn.decisions
+    assert d.entity_id == live and d.redirected_from == keswil.entity_id
+
+
+async def test_a_failing_structured_call_is_retried_once_without_a_text_fallback():
+    """§4.5.5: at most two IDENTITY calls and one IDENTITY_STRONG call per turn; the
+    session's silent plain-text retry is off for them, and usage counts every call."""
+    keswil = _candidate(3, "Odran Keswil")
+    candidates = _set(keswil, exact={"odran keswil": keswil})
+    text = "Odran Keswil salue le garde."
+    turn, provider = await _decide(
+        {}, candidates, text, fail_on={"identity": RuntimeError("down")}
+    )
+    assert provider.purposes() == ["identity", "identity"]
+    assert [c.method for c in provider.calls] == ["complete_with_tools"] * 2
+    assert turn.fallback and turn.usage["identity"]["calls"] == 2
+
+    # A schema answer that does not parse: retried by the cascade, not as plain text.
+    turn, provider = await _decide(
+        {"identity": ["not json", "still not json"]},
+        candidates,
+        text,
+        mode=StructuredOutputMode.JSON_SCHEMA,
+    )
+    assert provider.purposes() == ["identity", "identity"]
+    assert [c.method for c in provider.calls] == ["complete_with_schema"] * 2
+    assert turn.fallback and turn.usage["identity"]["calls"] == 2
+
+    # The strong call fails: one call, no retry.
+    stranger = _candidate(4, "la femme au manteau", sources={"present"})
+    first = {"mentions": [_mention("Vela Sorn", "ALIAS", "E4", alias_kind="true_name")]}
+    turn, provider = await _decide(
+        {"identity": [first]},
+        _set(stranger),
+        "« Je suis Vela Sorn », dit la femme au manteau.",
+        fail_on={"identity_strong": RuntimeError("down")},
+    )
+    assert provider.purposes() == ["identity", "identity_strong"]
+    assert turn.usage["identity_strong"]["calls"] == 1
+    assert turn.decisions[0].rejection == "escalation_unconfirmed"
+
+
+async def test_a_retry_that_succeeds_applies_its_decisions():
+    guard = _candidate(5, "le garde", aliases=[_alias("le garde", "descriptor")])
+    valid = {"mentions": [_mention("le garde", "MATCH", "E5")]}
+    turn, provider = await _decide(
+        {"identity": [{"nope": True}, valid]}, _set(guard), "Le marin salue le garde."
+    )
+    assert provider.purposes() == ["identity", "identity"]
+    assert not turn.fallback
+    [d] = turn.decisions
+    assert d.verified and d.entity_id == guard.entity_id
+
+
+async def test_text_mode_decides_from_a_plain_completion():
+    guard = _candidate(5, "le garde", aliases=[_alias("le garde", "descriptor")])
+    valid = {"mentions": [_mention("le garde", "MATCH", "E5")]}
+    turn, provider = await _decide(
+        {"identity": ["Here it is: " + json.dumps(valid)]},
+        _set(guard),
+        "Le marin salue le garde.",
+        mode=StructuredOutputMode.TEXT,
+    )
+    assert [(c.method, c.purpose) for c in provider.calls] == [("complete", "identity")]
+    [d] = turn.decisions
+    assert d.verified and d.entity_id == guard.entity_id
+
+
+async def test_the_strong_model_links_only_the_candidates_it_was_shown():
+    keswil = _candidate(3, "Odran Keswil", sources={"trgm"})
+    stranger = _candidate(4, "la femme au manteau", sources={"present"})
+    text = "« Je suis Vela Sorn », dit la femme au manteau."
+    first = {"mentions": [_mention("Vela Sorn", "ALIAS", "E4", alias_kind="true_name")]}
+    strong = {"mentions": [_mention("Vela Sorn", "MATCH", "E3")]}
+    turn, _ = await _decide(
+        {"identity": [first], "identity_strong": [strong]},
+        _set(keswil, stranger),
+        text,
+    )
+    [d] = turn.decisions
+    assert d.decision == "UNSURE" and d.rejection == "unknown_id_downgraded"
+    assert d.rejected_handle == "E3" and d.escalated
+
+
+async def test_a_redirected_match_emits_its_event():
+    old = _candidate(9, "Odran Keswil")
+    guard = _candidate(5, "le garde", aliases=[_alias("le garde", "descriptor")])
+    live = uuid4()
+    first = {"mentions": [_mention("le garde", "MATCH", "E5")]}
+    turn, _ = await _decide(
+        {"identity": [first]},
+        _set(old, guard, exact={"odran keswil": old}),
+        "Odran Keswil salue le garde.",
+        redirects={old.entity_id: live},
+    )
+    [d] = [d for d in turn.decisions if d.deterministic]
+    assert d.entity_id == live
+    assert ("tombstone_redirected", live, {"from": str(old.entity_id)}) in turn.events()
+
+
+@pytest.mark.integration
+async def test_follow_merges_redirects_a_tombstone_chain_to_the_live_entity(
+    test_pool, test_user
+):
+    async with test_pool.acquire() as conn:
+        game = await conn.fetchval(
+            "INSERT INTO games (user_id, language) VALUES ($1, 'fr') RETURNING id",
+            test_user["id"],
+        )
+        service = IdentityService(game, lang="fr", config=CONFIG)
+        first, second, third = [
+            await conn.fetchval(
+                "INSERT INTO characters (game_id, true_name) VALUES ($1, $2) RETURNING id",
+                game,
+                name,
+            )
+            for name in ("Orin Kell", "Tesk Vahrun", "Ilsa Morn")
+        ]
+        assert (
+            await service.merge(conn, second, third, reason="t", turn_id=None)
+        ).merge_id
+        assert (
+            await service.merge(conn, first, second, reason="t", turn_id=None)
+        ).merge_id
+        found = await entities.follow_merges(conn, [first, second, third])
+        missing = await entities.follow_merges(conn, [uuid4()])
+    assert found == {second: first, third: first}
+    assert missing == {}
 
 
 # --- prompt (§4.5.3, §4.12) ----------------------------------------------------------
 
 
-def _corpus_names() -> set[str]:
-    names = set()
-    for path in sorted((FIXTURES / "scenes").glob("*.yaml")):
+def _corpus_labels() -> set[str]:
+    """Every label, true name, descriptor and alias of the gold corpus (scenes and
+    sequences, every split), and the surface of every gold NEW mention."""
+    labels: set[str] = set()
+    paths = [
+        *sorted((FIXTURES / "scenes").glob("*.yaml")),
+        *sorted((FIXTURES / "sequences").glob("*.yaml")),
+    ]
+    for path in paths:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-        for entity in raw.get("world", []):
-            names |= {entity["label"], entity.get("true_name") or ""}
-            names |= {a["text"] for a in entity.get("aliases", [])}
-    return {n for n in names if n}
+        for scene in raw.get("turns", [raw]):
+            for e in scene.get("world", []):
+                labels |= {
+                    e["label"],
+                    e.get("true_name") or "",
+                    e.get("descriptor") or "",
+                }
+                labels |= {a["text"] for a in e.get("aliases", [])}
+            for m in scene.get("gold", []):
+                if m["expected"].startswith("NEW"):
+                    labels.add(m["surface"])
+    return {label for label in labels if label.strip()}
+
+
+def _form(text: str) -> str:
+    """Words of `text`, folded (case, accents, apostrophes): what the comparison reads."""
+    return " ".join(re.findall(r"\w+", NORMALIZER.fold(text)))
+
+
+def _heads() -> set[str]:
+    """Leading words a label may start with (articles, elisions) in every pack."""
+    heads = set()
+    for lang in available_langs():
+        pack = load_lang(lang)
+        heads |= {_form(w) for w in pack.articles + pack.elisions}
+    return heads - {""}
+
+
+def _core(label: str, heads: set[str]) -> str:
+    words = _form(label).split()
+    if len(words) > 1 and words[0] in heads:
+        words = words[1:]
+    return " ".join(words)
+
+
+def _all_examples() -> list[str]:
+    examples = [
+        e
+        for lang in available_langs()
+        for e in load_lang(lang).prompt_examples.identity
+    ]
+    for slug in available_genres():
+        for group in load_genre(slug).identity.prompt_examples.values():
+            examples += group
+    return [f"{e.input} {e.output}" for e in examples]
 
 
 def _occurs(phrase: str, text: str) -> bool:
@@ -449,15 +751,23 @@ def _rendered(lexicon) -> str:
 
 
 def test_prompt_examples_contain_no_corpus_name():
-    names = _corpus_names()
-    assert len(names) > 100
-    prompt = _rendered(for_game("fr", None))
-    # Proper names only: a descriptor alias (« le garde ») may well be a common word.
-    proper = {n for n in names if any(w[:1].isupper() for w in n.split())}
+    """No label, alias or descriptor of the gold corpus (any split) in an example of any
+    pack nor in a rendered prompt: the examples must never teach a held-out case. Only a
+    label that is a single pack word (« le garde ») may appear."""
+    heads = _heads()
+    common = set().union(*(_pack_words(lang) for lang in available_langs()))
+    cores = {
+        core
+        for label in _corpus_labels()
+        if (core := _core(label, heads)) and not (" " not in core and core in common)
+    }
+    assert len(cores) > 300
+    texts = _all_examples() + [
+        _rendered(for_game(lang, None)) for lang in available_langs()
+    ]
+    assert len(texts) > len(available_langs())
     leaked = {
-        n
-        for n in proper
-        if _occurs(n, prompt) and NORMALIZER.key(n) not in _pack_words("fr")
+        core for core in cores for text in texts if f" {core} " in f" {_form(text)} "
     }
     assert leaked == set()
 

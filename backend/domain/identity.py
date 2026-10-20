@@ -190,7 +190,8 @@ class MentionDecision:
     the code fills the others. `entity_id`: the linked entity (MATCH, ALIAS), merges
     followed (`redirected_from`: the tombstone the handle named). `verified`: every check
     passed unchanged; `rejection`: the code of the check that downgraded it (also its
-    identity_events kind). `ignored`: its surface is not in the text, nothing applies.
+    identity_events kind); `rejected_handle` and `rejected_entity_id`: what the refused
+    decision named, kept for that event. `ignored`: its surface is not in the text, nothing applies.
     `same_as`: index, in the turn's list, of the NEW this one repeats. `probable_duplicate`:
     a candidate of the same type with a close name (the NEW is still created).
     `deterministic`: decided by the prepass; `escalated`: decided by the strong model."""
@@ -212,6 +213,8 @@ class MentionDecision:
     same_as: int | None = None
     probable_duplicate: UUID | None = None
     redirected_from: UUID | None = None
+    rejected_handle: str | None = None
+    rejected_entity_id: UUID | None = None
     deterministic: bool = False
     escalated: bool = False
 
@@ -231,9 +234,13 @@ class TurnDecisions:
         and counts only, never story text."""
         rows = []
         for d in self.decisions:
-            payload = {"decision": d.decision, "handle": d.handle}
             if d.rejection is not None:
-                rows.append((d.rejection, d.entity_id, payload))
+                payload = {
+                    "decision": d.decision,
+                    "handle": d.handle,
+                    "rejected_handle": d.rejected_handle,
+                }
+                rows.append((d.rejection, d.entity_id or d.rejected_entity_id, payload))
             if d.probable_duplicate is not None:
                 rows.append(
                     (

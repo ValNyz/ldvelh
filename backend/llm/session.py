@@ -267,8 +267,13 @@ class LLMSession:
     async def extract_structured(self, system_prompt: str, user_message: str, tool_name: str,
                                  tool_description: str, schema: dict, temperature: float,
                                  max_tokens: int, *,
-                                 purpose: Purpose = Purpose.EXTRACTION) -> LLMCall:
-        """Structured extraction dispatched on the provider's mode, with a text fallback."""
+                                 purpose: Purpose = Purpose.EXTRACTION,
+                                 text_fallback: bool = True) -> LLMCall:
+        """Structured extraction dispatched on the provider's mode, with a text fallback.
+
+        `text_fallback=False`: no plain-text retry when the structured call fails; the
+        failure reaches the caller, and a JSON_SCHEMA answer comes back as its raw text
+        (billed even if unparsable, the caller parses it)."""
         provider = self.provider_for(purpose)
         messages = [{"role": "user", "content": user_message}]
         mode = provider.structured_output_mode
@@ -290,10 +295,16 @@ class LLMSession:
                     temperature=temperature, max_tokens=max_tokens,
                 )
                 cost = self._record(purpose, provider, result.usage)  # billed even if unparsable
+                if not text_fallback:
+                    return LLMCall(result.content, cost)
                 return LLMCall(replace_lone_surrogates(json.loads(result.content)), cost)
         except NotImplementedError:
+            if not text_fallback:
+                raise
             logger.info(f"[LLM] {self.provider_name} has no {mode.value} support, using text")
         except Exception as e:
+            if not text_fallback:
+                raise
             logger.warning(f"[LLM] {mode.value} extraction failed: {safe_repr(e)}, falling back to text")
         return await self.complete_json(purpose, system_prompt, user_message,
                                         temperature, max_tokens)
