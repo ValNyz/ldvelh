@@ -321,6 +321,15 @@ class Responses:
         return [s.stale for s in scripts if s.stale is not None]
 
 
+def holds_purpose(directory: Path, purpose: Purpose) -> bool:
+    """A request of `purpose` was written under `directory` (its runs included)."""
+    return any(
+        json.loads(path.read_text(encoding="utf-8")).get("purpose") == purpose.value
+        for path in directory.rglob("*.json")
+        if path.name != PENDING_INDEX
+    )
+
+
 def write_pending_index(root: Path, pending: list[Pending]) -> Path:
     """`<root>/pending.json`: one entry per pending request (file relative to `root`,
     purpose, model), what a dispatcher routes to its responder."""

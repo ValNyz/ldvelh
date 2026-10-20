@@ -494,9 +494,11 @@ async def test_v2_staged_replay_asks_each_stage_then_scores(
         stale.unlink()
     assert await _main([*replay, "--tier", "cheap"]) == 0
     (report,) = out.glob("*.json")
-    assert json.loads(report.read_text("utf-8"))["models"] == {
-        "identity": "claude-haiku-5-5"
-    }
+    cheap = json.loads(report.read_text("utf-8"))
+    assert cheap["models"] == {"identity": "claude-haiku-5-5"}
+    assert (
+        eval_identity.CHEAP_REPLAY_NOTE in cheap["header_note"]
+    )  # a cascade's answers
 
     # An answer to a request the code no longer builds is refused.
     stored = io / f"{TOKEN}.1.json"
@@ -562,3 +564,25 @@ def test_a_tap_tells_card_lines_from_the_rest_of_a_request():
     tap = Tap("scene", calls=[Call("identity", request, '{"mentions": []}')])
     assert tap.card_lines() == ['E7 · character · "Le passeur"']
     assert "E7 arrive." in tap.texts() and '{"mentions": []}' in tap.texts()
+
+
+async def test_a_cheap_only_directory_is_not_called_a_cascade(
+    tmp_path, test_pool, monkeypatch
+):
+    monkeypatch.setenv("TEST_DATABASE_URL", TEST_DB_URL)
+    root = _corpus(tmp_path, V2_SCENE)
+    io, out = tmp_path / "io", tmp_path / "out"
+    cheap = ["--tier", "cheap"]
+    assert await _main(_v2_args(root, *cheap, "--emit-prompts", str(io))) == 0
+    first = json.loads((io / f"{TOKEN}.1.json").read_text("utf-8"))
+    answer = _first_pass(first["messages"][0]["content"])
+    (io / f"{TOKEN}.1.txt").write_text(json.dumps(answer), "utf-8")
+    args = _v2_args(
+        root, *cheap, "--import-responses", str(io), "--responder",
+        "subagent:claude-haiku", "--out", str(out), "--iterations", "20",
+    )  # fmt: skip
+    assert await _main(args) == 0
+    (report,) = out.glob("*.json")
+    note = json.loads(report.read_text("utf-8"))["header_note"]
+    assert eval_identity.CHEAP_NOTE in note
+    assert eval_identity.CHEAP_REPLAY_NOTE not in note

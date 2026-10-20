@@ -68,6 +68,7 @@ from evals.identity.calls import (
     Responses,
     Tap,
     dumps_request,
+    holds_purpose,
     tapped_session,
     write_pending_index,
 )
@@ -92,6 +93,7 @@ PROVIDERS = sorted(get_provider_catalog()["providers"])
 PENDING_EXIT = 3  # --import-responses with requests still to answer: nothing scored
 SUBAGENT = "subagent"
 SUBAGENT_NOTE = "subagent responders, to confirm with 3 API runs when a key exists"
+CHEAP_NOTE = "Cheap tier: the small model's answers replayed, without the escalation."
 CHEAP_REPLAY_NOTE = (
     "Cheap tier: the small model's answers of the cascade's responses replayed "
     "(the same stage-1 samples), without the escalation."
@@ -423,7 +425,8 @@ async def _run_v2(
 async def _report(args, adapter, scores_by_run, models: dict[str, str], **extra) -> int:
     notes = [import_note(args.responder)] if args.import_responses else []
     if args.import_responses and args.tier == "cheap":
-        notes.append(CHEAP_REPLAY_NOTE)
+        cascade = holds_purpose(args.import_responses, Purpose.IDENTITY_STRONG)
+        notes.append(CHEAP_REPLAY_NOTE if cascade else CHEAP_NOTE)
     if extra.get("sequence_results_by_run"):
         notes.append(adapter.sequence_note)
     if adapter.candidates_note:
