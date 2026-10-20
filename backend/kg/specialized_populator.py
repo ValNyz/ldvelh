@@ -714,17 +714,35 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     # =========================================================================
 
     async def _process_entity_update(
-        self, conn: Connection, update: EntityUpdate, cycle: int
+        self, conn: Connection, errors: list, update: EntityUpdate, cycle: int
     ) -> None:
         """Apply an extracted update to the entity its reference names (require_ref:
-        RefUnresolved when none or several do, counted by the caller's savepoint)."""
+        RefUnresolved when none or several do, counted by the caller's savepoint).
+        Extractors never update the companion, nor the protagonist beyond its skills
+        (spec §4.10): the refused part is counted (`update_refused`), the skills of a
+        protagonist update are still applied."""
         identity = await self.identity(conn)
         entity_type = update.entity_type
         resolved = await refs.resolve(
             identity, conn, update.entity_ref, entity_type and entity_type.value
         )
+        reserved = resolved.entity_type or entity_type.value
+        if reserved == "companion" or (
+            reserved == EntityType.PROTAGONIST.value and not update.skills_changed
+        ):
+            raise UpdateRefused(reserved)
+        if reserved == EntityType.PROTAGONIST.value:
+            if update.changes or update.removed or update.now_known:
+                await _count_refusal(identity, conn, errors, resolved.entity_id)
+            await self._update_entity_skills(
+                conn,
+                EntityType.PROTAGONIST,
+                resolved.entity_id,
+                update.skills_changed,
+                cycle,
+            )
+            return
         changes = dict(update.changes)
-        _refuse_reserved(update, resolved.entity_type or entity_type.value, changes)
         entity_type = entity_type or EntityType(resolved.entity_type)
         # Only an explicit reveal changes what the protagonist knows: a known flag among
         # the changes is one (without a name), never a demotion. The flag is read as its
@@ -872,14 +890,16 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         return event_id
 
 
-def _refuse_reserved(update: EntityUpdate, entity_type: str, changes: dict) -> None:
-    """Extractors never update the companion, nor the protagonist beyond its skills
-    (spec §4.10): a coded refusal (UpdateRefused), counted by the item's savepoint."""
-    if entity_type == "companion" or (
-        entity_type == EntityType.PROTAGONIST.value
-        and (changes or update.removed or update.now_known)
-    ):
-        raise UpdateRefused(entity_type)
+async def _count_refusal(
+    identity: IdentityService, conn: Connection, errors: list, entity_id: UUID
+) -> None:
+    """The refused part of an update whose allowed part is still applied: counted in
+    `errors` and identity_events, like an UpdateRefused item (no story text)."""
+    refusal = UpdateRefused(EntityType.PROTAGONIST.value, identity.game_id)
+    errors.append({"code": refusal.code, "item": "update"})
+    await identity.record_event(
+        conn, refusal.code, None, entity_id, {"item": "update", **refusal.payload()}
+    )
 
 
 async def _turn_of(conn: Connection) -> UUID | None:

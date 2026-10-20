@@ -507,24 +507,17 @@ async def _remove(conn, table, game_id, name):
     )
 
 
-async def test_a_turn_at_a_removed_location_is_never_stamped_with_it(
-    test_pool, test_user
-):
-    """I1: the narrated place of a turn is a live location: a removed one is replaced by a
-    fresh location of the same name (internal suffix), which the game and the messages
-    carry; a fact naming the removed place is kept without it, counted."""
+async def _turn_at(conn, game_id, place, *, save=False):
+    """One turn whose narration is at `place` (state applied, messages saved when
+    `save`), journaled under its own turn; (turn id, state, assistant message id)."""
     from repos import turns
     from repos.uow import uow
-    from services.extraction.characters import CharactersExtractor
 
-    game_id = await _world(test_pool, test_user)
-    async with test_pool.acquire() as conn:
-        removed = await _remove(conn, "locations", game_id, "Le Quart de Cycle")
-        turn_id = await turns.open_turn(conn, game_id)
-        async with uow(conn, turn_id):
-            state = await turns.apply_narration_state(
-                conn, game_id, _narration("Le Quart de Cycle"), 1
-            )
+    turn_id = await turns.open_turn(conn, game_id)
+    assistant_id = None
+    async with uow(conn, turn_id):
+        state = await turns.apply_narration_state(conn, game_id, _narration(place), 1)
+        if save:
             _, assistant_id = await turns.save_turn_messages(
                 conn,
                 game_id,
@@ -535,18 +528,89 @@ async def test_a_turn_at_a_removed_location_is_never_stamped_with_it(
                 engine_snapshot=None,
                 turn_id=turn_id,
             )
+    return turn_id, state, assistant_id
+
+
+async def _identity_rows(conn, game_id) -> dict:
+    return {
+        "locations": sorted(
+            tuple(r)
+            for r in await conn.fetch(
+                "SELECT id, name, label_suffix, removed_cycle FROM locations"
+                " WHERE game_id = $1",
+                game_id,
+            )
+        ),
+        "registry": await conn.fetchval(
+            "SELECT count(*) FROM entity_registry WHERE game_id = $1", game_id
+        ),
+        "aliases": await conn.fetchval(
+            "SELECT count(*) FROM entity_aliases WHERE game_id = $1", game_id
+        ),
+        "current": await conn.fetchval(
+            "SELECT current_location_id FROM games WHERE id = $1", game_id
+        ),
+    }
+
+
+async def test_a_turn_at_a_removed_location_gets_a_fresh_suffixed_one_undone_by_rollback(
+    test_pool, test_user
+):
+    """R21: a removed location is never the turn's place: a fresh location of the same
+    name is created with an internal label suffix (event label_suffixed, the player reads
+    the bare name); rolling the turn back (world_changes_undo) restores the world."""
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        removed = await _remove(conn, "locations", game_id, "Le Quart de Cycle")
+        before = await _identity_rows(conn, game_id)
+        turn_id, state, _ = await _turn_at(conn, game_id, "Le Quart de Cycle")
+        fresh = await conn.fetchrow(
+            "SELECT id, name, label_suffix, removed_cycle,"
+            " display_for_player(id) AS shown FROM locations WHERE id = $1",
+            state.location_id,
+        )
         current = await conn.fetchval(
             "SELECT current_location_id FROM games WHERE id = $1", game_id
+        )
+        suffixed = await _events(conn, game_id, "label_suffixed")
+        await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [turn_id])
+        after = await _identity_rows(conn, game_id)
+    assert fresh["id"] not in (None, removed)
+    assert current == fresh["id"]
+    assert (fresh["name"], fresh["removed_cycle"], fresh["shown"]) == (
+        "Le Quart de Cycle",
+        None,
+        "Le Quart de Cycle",
+    )
+    assert fresh["label_suffix"] is not None
+    assert suffixed == [{"entity_type": "location", "suffix_from": "counter"}]
+    assert after == before
+
+
+async def test_the_fresh_location_is_the_place_of_the_next_turns_without_ambiguity(
+    test_pool, test_user
+):
+    """N1: once a fresh location replaced a removed one, the next turn at that name
+    resolves the live one and records no ambiguous_ref; the message is stamped with it,
+    and a reference by the removed location's handle is counted, never attached."""
+    from services.extraction.characters import CharactersExtractor
+
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        removed = await _remove(conn, "locations", game_id, "Le Quart de Cycle")
+        handle = await conn.fetchval(
+            "SELECT handle FROM entity_registry WHERE id = $1", removed
+        )
+        _, first, _ = await _turn_at(conn, game_id, "Le Quart de Cycle")
+        _, second, assistant_id = await _turn_at(
+            conn, game_id, "le quart de cycle", save=True
         )
         stamped = await conn.fetchval(
             "SELECT location_id FROM messages WHERE id = $1", assistant_id
         )
-        live = await conn.fetchrow(
-            "SELECT name, removed_cycle FROM locations WHERE id = $1", current
-        )
-    assert current != removed
-    assert tuple(live) == ("Le Quart de Cycle", None)
-    assert stamped == current
+        ambiguous = await _events(conn, game_id, "ambiguous_ref")
+    assert second.location_id == first.location_id == stamped
+    assert ambiguous == []
 
     stats = await _run(
         CharactersExtractor,
@@ -554,11 +618,82 @@ async def test_a_turn_at_a_removed_location_is_never_stamped_with_it(
         game_id,
         {
             "facts": [
-                {**_fact("PROTAGONIST", key="pc:boit:cafe"), "location_ref": "E999999"}
+                {
+                    **_fact("PROTAGONIST", key="pc:boit:cafe"),
+                    "location_ref": f"E{handle}",
+                }
             ]
         },
     )
     assert stats["errors"] == [{"code": "ref_dropped", "item": "fact location"}]
+
+
+async def test_an_unresolved_turn_place_is_counted_once(test_pool, test_user):
+    """N2: a place two live locations share is counted once per turn (the commit), the
+    message stamp does not resolve it again."""
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        ids = [
+            await conn.fetchval(
+                "INSERT INTO locations (game_id, name) VALUES ($1, $2) RETURNING id",
+                game_id,
+                name,
+            )
+            for name in ("Dock Est", "Dock Ouest")
+        ]
+        for location_id in ids:
+            await conn.execute(
+                "INSERT INTO entity_aliases (game_id, entity_id, entity_type, alias, kind,"
+                " known, source) VALUES ($1, $2, 'location', 'Dock', 'label', true,"
+                " 'extractor')",
+                game_id,
+                location_id,
+            )
+        _, state, assistant_id = await _turn_at(conn, game_id, "Dock", save=True)
+        stamped = await conn.fetchval(
+            "SELECT location_id FROM messages WHERE id = $1", assistant_id
+        )
+        dropped = await _events(conn, game_id, "ref_dropped")
+        ambiguous = await _events(conn, game_id, "ambiguous_ref")
+    assert (state.location_id, stamped) == (None, None)
+    assert dropped == []
+    assert len(ambiguous) == 1
+
+
+async def test_a_protagonist_update_applies_its_skills_and_counts_the_rest(
+    test_pool, test_user
+):
+    """N3: a protagonist update mixing skills and other changes applies the skills and
+    refuses (counts) only the rest."""
+    from services.extraction.characters import CharactersExtractor
+
+    game_id = await _world(test_pool, test_user)
+    stats = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {
+            "entities_updated": [
+                {
+                    "entity_ref": "PROTAGONIST",
+                    "entity_type": None,
+                    "changes": {"mood": "épuisé"},
+                    "skills_changed": [{"name": "pilotage", "level": 3}],
+                }
+            ]
+        },
+    )
+    async with test_pool.acquire() as conn:
+        level = await conn.fetchval(
+            "SELECT level FROM skills WHERE game_id = $1 AND protagonist_id IS NOT NULL"
+            " AND name = 'pilotage' AND end_cycle IS NULL",
+            game_id,
+        )
+        refused = await _events(conn, game_id, "update_refused")
+    assert level == 3
+    assert stats["entities_updated"] == 1
+    assert stats["errors"] == [{"code": "update_refused", "item": "update"}]
+    assert refused == [{"item": "update", "entity_type": "protagonist"}]
 
 
 async def test_a_reference_to_a_removed_place_is_counted(test_pool, test_user):

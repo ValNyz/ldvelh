@@ -389,6 +389,23 @@ class IdentityService:
             candidates = counts.get(entity_type, 0)
         return None, await self._unresolved(conn, ref, entity_type, candidates)
 
+    async def resolve_live_ref(
+        self, conn, ref: str, entity_type: str
+    ) -> tuple[ResolvedRef | None, int]:
+        """(the live entity of `entity_type` that `ref` names, None when none or several;
+        the live candidates): a write target. An entity removed from the world never
+        counts, and its name shared with a live homonym is no ambiguity: 'ambiguous_ref'
+        is recorded only when two live entities or more match."""
+        entity_id = await entities.find_entity(conn, self.game_id, ref, entity_type)
+        if entity_id is not None and await entities.is_live(
+            conn, entity_type, entity_id
+        ):
+            return await self.resolved_ref(conn, entity_id, entity_type), 1
+        live = await entities.live_candidates(conn, self.game_id, ref, entity_type)
+        if len(live) == 1:
+            return await self.resolved_ref(conn, live[0], entity_type), 1
+        return None, await self._unresolved(conn, ref, entity_type, len(live))
+
     async def require_any_ref(self, conn, ref: str) -> ResolvedRef:
         """The entity of any type that `ref` names (a fact participant, a relation end):
         only when exactly one type knows it, once (`find_any`); RefUnresolved (type

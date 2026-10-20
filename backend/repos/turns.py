@@ -11,7 +11,6 @@ from config import get_settings
 from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
-from repos import entities as entity_repo
 from schema import DEFAULT_GAME_TIME
 from schema.engine import RollResult
 from schema.narration import NarrationOutput
@@ -40,41 +39,32 @@ async def _resolve_location(
     from services.identity.types import NewEntitySpec
 
     identity = await populator.identity(conn)
-    resolved = await identity.resolve_ref(conn, location, "location")
-    if resolved is not None and await entity_repo.is_live(
-        conn, "location", resolved.entity_id
-    ):
+    resolved, candidates = await identity.resolve_live_ref(conn, location, "location")
+    if resolved is not None:
         location_id = resolved.entity_id
     else:
-        live = await entity_repo.live_candidates(
-            conn, populator.game_id, location, "location"
-        )
-        if len(live) > 1:
+        if candidates > 1:
             return None
-        location_id = (
-            live[0]
-            if live
-            else await write_item(
+        location_id = await write_item(
+            conn,
+            # No list kept: an IdentityFailure is an identity_events row, logged without
+            # story text; the commit goes on without a location.
+            [],
+            "narrated location",
+            lambda: identity.create_entity(
                 conn,
-                # No list kept: an IdentityFailure is an identity_events row, logged without
-                # story text; the commit goes on without a location.
-                [],
-                "narrated location",
-                lambda: identity.create_entity(
-                    conn,
-                    NewEntitySpec(
-                        "location",
-                        location,
-                        "descriptor",
-                        fields={"created_cycle": new_cycle},
-                    ),
-                    turn_id=None,
-                    source="system",
-                    # No live location has the name: only removed ones may hold it.
-                    trap=True,
+                NewEntitySpec(
+                    "location",
+                    location,
+                    "descriptor",
+                    fields={"created_cycle": new_cycle},
                 ),
-                "[COMMIT] ",
-            )
+                turn_id=None,
+                source="system",
+                # No live location has the name: only removed ones may hold it.
+                trap=True,
+            ),
+            "[COMMIT] ",
         )
         if location_id is None:
             return None
@@ -138,6 +128,7 @@ async def apply_narration_state(
         npcs_present=narration.npcs_present or [],
         date=new_date,
         location_id=location_id,
+        location_resolved=True,
     )
 
 
@@ -292,8 +283,10 @@ async def save_turn_messages(
         "cycle": state.cycle,
         "time": state.time,
         "game_date": state.date,
+        # The commit resolved (and counted) the turn's place once: never again here.
         "location_id": state.location_id
-        or await _place(conn, populator, "message location", state.location),
+        if state.location_resolved
+        else await _place(conn, populator, "message location", state.location),
     }
     user_id = await populator.save_message(
         conn,

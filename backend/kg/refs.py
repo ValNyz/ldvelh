@@ -24,7 +24,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from repos import entities as entity_repo
 from services.identity.types import RefUnresolved
 
 from .item_writes import write_item
@@ -51,17 +50,10 @@ async def resolve(
         return await identity.require_any_ref(conn, ref)
     if not live:
         return await identity.require_ref(conn, ref, entity_type)
-    resolved = await identity.resolve_ref(conn, ref, entity_type)
-    if resolved is not None and await entity_repo.is_live(
-        conn, entity_type, resolved.entity_id
-    ):
-        return resolved
-    candidates = await entity_repo.live_candidates(
-        conn, identity.game_id, ref, entity_type
-    )
-    if len(candidates) == 1:
-        return await identity.resolved_ref(conn, candidates[0], entity_type)
-    raise RefUnresolved(ref, entity_type, identity.game_id, candidates=len(candidates))
+    resolved, candidates = await identity.resolve_live_ref(conn, ref, entity_type)
+    if resolved is None:
+        raise RefUnresolved(ref, entity_type, identity.game_id, candidates=candidates)
+    return resolved
 
 
 async def required(

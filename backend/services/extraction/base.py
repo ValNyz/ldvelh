@@ -210,7 +210,8 @@ class BaseExtractor(ABC):
                                                               entity_type),
                                 "entities_created")
         await self._write_items(conn, stats, "update", raw_result.get("entities_updated"),
-                                lambda d: self._update_entity(conn, d, cycle, entity_type),
+                                lambda d: self._update_entity(conn, stats, d, cycle,
+                                                              entity_type),
                                 "entities_updated")
         await self._write_items(conn, stats, "ambient", raw_result.get("ambient_updates"),
                                 lambda d: self._update_ambient(conn, d, entity_type),
@@ -232,11 +233,12 @@ class BaseExtractor(ABC):
             conn, stats["errors"], ec, cycle))
 
     async def _update_entity(
-        self, conn: Connection, eu_data: dict, cycle: int, entity_type: EntityType
+        self, conn: Connection, stats: dict, eu_data: dict, cycle: int,
+        entity_type: EntityType,
     ) -> bool:
         eu_data.setdefault("entity_type", entity_type.value)
         await self.populator._process_entity_update(
-            conn, EntityUpdate.model_validate(eu_data), cycle)
+            conn, stats["errors"], EntityUpdate.model_validate(eu_data), cycle)
         return True
 
     async def _update_ambient(

@@ -7,8 +7,9 @@ from uuid import UUID
 @dataclass(frozen=True)
 class NarrationState:
     """Game state after the narration was applied: cycle, time, place, NPCs, date.
-    `location_id`: the live location the place resolved to (None: unresolved, or a state
-    built without the commit: the message stamp resolves `location` then)."""
+    `location_id`: the live location the place resolved to; `location_resolved`: the
+    commit resolved it (and counted a failure), so the message stamp takes `location_id`
+    as it is; a state built elsewhere (tests) has the stamp resolve `location`."""
 
     cycle: int
     time: str
@@ -16,6 +17,7 @@ class NarrationState:
     npcs_present: list[str]
     date: str | None
     location_id: UUID | None = None
+    location_resolved: bool = False
 
 
 @dataclass(frozen=True)
