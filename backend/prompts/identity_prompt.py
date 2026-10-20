@@ -58,16 +58,19 @@ _RULES = """\
 You link the mentions of a story passage to the entities of a game.
 
 Find every mention in the NARRATION that names or describes a character, a location, an \
-organization or an object, and decide for each one. A common noun phrase that refers back \
-to a candidate (a description, a possessive phrase, a shortened reference) is a mention \
-too: decide it.
+organization or an object, and decide for each one. A common noun phrase that designates \
+one of the CANDIDATES (a description, a possessive phrase, a shortened reference) is a \
+mention too: decide it.
 - MATCH: it names or describes a candidate; give that candidate's handle.
 - ALIAS: it names a candidate by a name its card does not list yet (a short form, a \
 nickname, a true name); give the handle and the alias_kind. A description that designates \
 a candidate is MATCH, not ALIAS.
-- NEW: a really new entity; give new_type and new_kind (proper_name or descriptor). Never \
-write a label: the code takes the surface.
-- UNSURE: you cannot tell. An abstention is always better than a guess.
+- NEW: a really new entity the story follows: a person, a place, a group, or an object \
+that is named, given, taken or used; give new_type and new_kind (proper_name or \
+descriptor). Never write a label: the code takes the surface.
+- UNSURE: two or more candidates fit, or a candidate and a new entity are equally likely. \
+An abstention is better than a guess between them; when no candidate fits, decide NEW \
+or SKIP instead.
 - SKIP: nothing to link.
 
 Rules:
@@ -82,12 +85,17 @@ scene is ALIAS with alias_kind true_name for that entity. Phrases that introduce
 5. A name read in the world ({source_cues}) reveals the name of what bears it, like a \
 self-introduction.
 6. Pronouns ({pronouns}), body parts and anonymous crowds are SKIP.
-7. Objects only seen, never named nor handled, are SKIP.
+7. Objects only seen, never named nor handled, are SKIP; so are the belongings and \
+clothes a person merely has or wears in passing.
 8. The PROTAGONIST card is the player's character, the COMPANION card its companion: \
 MATCH them, never create them.
 9. The mentions under ALREADY RESOLVED are decided: do not repeat them.
+10. A part of an entity (the handle of a tool, the lid of a box) is not that entity: SKIP.
+11. Members of a group, counted or described one by one, are not the group itself: SKIP \
+unless the text names the group.
 
-For each mention give: surface (the exact text of the narration), before (the \
+For each mention give: surface (the exact words of the mention in the narration, \
+not the words before it), before (the \
 {before_words} words just before it), category, decision, handle (a handle of the \
 CANDIDATES, or null), alias_kind, new_type, new_kind, evidence (at most \
 {evidence_max_words} words) and talks_to (the surfaces it speaks with), when relevant."""
