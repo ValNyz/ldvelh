@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
 	TURN_STATUS, TURN_KIND, startLiveTurn, nextTurnStatus, withTurnEvent, turnActivity,
-	withChunk, withExtracting, withAnswer, withLiveTurn, reopenTurn,
+	withChunk, withAnswer, withLiveTurn, reopenTurn,
 } from '../lib/game/liveTurn.mjs';
 
 const history = [
@@ -20,7 +20,6 @@ function streamed(turn, text) {
 	let out = withTurnEvent(turn, 'chunk', { edit: m => withChunk(m, text.slice(0, 4)) });
 	return withTurnEvent(out, 'chunk', { edit: m => withChunk(m, text.slice(4)) });
 }
-const extracted = (turn, text) => withTurnEvent(streamed(turn, text), 'extracting', { edit: m => withExtracting(m, text) });
 const answered = (turn, text, data = { meta: IDS, game_state: GAME_STATE }) =>
 	withTurnEvent(streamed(turn, text), 'done', { edit: m => withAnswer(m, text, data), gameState: data.game_state });
 
@@ -41,8 +40,7 @@ test('status follows the stream events', () => {
 	const s = TURN_STATUS;
 	assert.equal(nextTurnStatus(s.STREAMING, 'chunk'), s.STREAMING);
 	assert.equal(nextTurnStatus(s.STREAMING, 'progress'), s.STREAMING);
-	assert.equal(nextTurnStatus(s.STREAMING, 'extracting'), s.EXTRACTING);
-	assert.equal(nextTurnStatus(s.EXTRACTING, 'done'), s.SAVING);
+	assert.equal(nextTurnStatus(s.STREAMING, 'done'), s.SAVING);
 	assert.equal(nextTurnStatus(s.SAVING, 'saved'), s.ENDED);
 	assert.equal(nextTurnStatus(s.SAVING, 'save_unconfirmed'), s.ENDED);
 	assert.equal(nextTurnStatus(s.STREAMING, 'error'), s.DROPPED);
@@ -69,10 +67,9 @@ test('an event moves the status, edits the messages and keeps what it carried', 
 
 test('activity of an action follows its status; no turn: free to send', () => {
 	const activity = (status) => turnActivity({ ...action(), status });
-	assert.deepEqual(activity(TURN_STATUS.STREAMING), { loading: true, sending: true, extracting: false, saving: true });
-	assert.deepEqual(activity(TURN_STATUS.EXTRACTING), { loading: true, sending: true, extracting: true, saving: true });
-	assert.deepEqual(activity(TURN_STATUS.SAVING), { loading: false, sending: false, extracting: false, saving: true });
-	const idle = { loading: false, sending: false, extracting: false, saving: false };
+	assert.deepEqual(activity(TURN_STATUS.STREAMING), { loading: true, sending: true, saving: true });
+	assert.deepEqual(activity(TURN_STATUS.SAVING), { loading: false, sending: false, saving: true });
+	const idle = { loading: false, sending: false, saving: false };
 	assert.deepEqual(activity(TURN_STATUS.ENDED), idle);
 	assert.deepEqual(activity(TURN_STATUS.DROPPED), idle);
 	assert.deepEqual(turnActivity(null), idle);
@@ -80,8 +77,8 @@ test('activity of an action follows its status; no turn: free to send', () => {
 
 test('activity of a protocol turn: loading only, as when it started', () => {
 	const init = startLiveTurn('g1', { kind: TURN_KIND.INIT });
-	assert.deepEqual(turnActivity(init), { loading: true, sending: false, extracting: false, saving: false });
-	assert.deepEqual(turnActivity({ ...init, status: TURN_STATUS.SAVING }), { loading: false, sending: false, extracting: false, saving: true });
+	assert.deepEqual(turnActivity(init), { loading: true, sending: false, saving: false });
+	assert.deepEqual(turnActivity({ ...init, status: TURN_STATUS.SAVING }), { loading: false, sending: false, saving: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -94,13 +91,6 @@ test('chunks build one streaming answer; the roll goes on its first chunk', () =
 	messages = withChunk(messages, 'sautes.', { total: 9 });
 	assert.deepEqual(messages[1], { role: 'assistant', content: 'Tu sautes.', streaming: true, roll });
 	assert.equal(messages.length, 2);
-});
-
-test('extracting shows the final text; without an answer: unchanged', () => {
-	assert.deepEqual(withExtracting(withChunk([], 'Tu sau'), 'Tu sautes.').at(-1),
-		{ role: 'assistant', content: 'Tu sautes.', streaming: false, extracting: true });
-	const users = [{ role: 'user', content: 'Je sors.' }];
-	assert.equal(withExtracting(users, 'x'), users);
 });
 
 test('done: final answer with the turn details and both ids', () => {
@@ -145,13 +135,8 @@ test('the history already holds the committed turn (by id): not shown twice', ()
 	assert.equal(withLiveTurn(committed, answered(action(), 'Il pleut.')), committed);
 });
 
-test('extracting, ids not known yet, history already ending with that action and answer: not shown twice', () => {
-	assert.equal(withLiveTurn(committed, extracted(action(), 'Il pleut.')), committed);
-	// A different answer, or an answer still streaming, is not the committed one.
-	assert.notEqual(withLiveTurn(committed, extracted(action(), 'Il neige.')), committed);
+test('ids not known yet: a streaming answer is not taken for the committed turn', () => {
 	assert.notEqual(withLiveTurn(committed, streamed(action(), 'Il pleut.')), committed);
-	// Same answer after another action: not this turn.
-	assert.notEqual(withLiveTurn(committed, extracted(action('Je reste.'), 'Il pleut.')), committed);
 });
 
 test('dropped turn: nothing again, except the action of a failed turn', () => {
@@ -265,24 +250,4 @@ test('reopen while the arrival runs: starting, with its narration so far', () =>
 	assert.equal(chunked.starting, true);
 	assert.equal(chunked.messages[0].content, 'Bienvenue');
 	assert.equal(chunked.action, null);
-});
-
-test('a turn that failed after its commit (between extracting and done): never replayed nor offered for retry', () => {
-	const failed = withTurnEvent(extracted(action(), 'Il pleut.'), 'error', { error: { message: 'Connexion interrompue.' } });
-	assert.equal(failed.status, TURN_STATUS.DROPPED);
-	assert.equal(withLiveTurn(committed, failed), committed);
-	const plan = reopenTurn(committed, failed);
-	assert.equal(plan.messages, committed);
-	assert.equal(plan.action, null);
-	assert.equal(plan.error, null);
-	// Not committed (the load lacks it): the failed action comes back with its error.
-	assert.equal(reopenTurn(history, failed).error.message, 'Connexion interrompue.');
-});
-
-test('reopen while extracting, load already holding the commit: the turn stays attached until done', () => {
-	const plan = reopenTurn(committed, extracted(action(), 'Il pleut.'));
-	assert.equal(plan.messages, committed);
-	assert.equal(plan.attached, true);
-	assert.equal(plan.action, null);
-	assert.deepEqual(plan.activity, { loading: true, sending: true, extracting: true, saving: true });
 });

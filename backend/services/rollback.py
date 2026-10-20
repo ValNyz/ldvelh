@@ -22,24 +22,20 @@ class RollbackPlan:
     has_legacy_message: bool  # a message saved before the journal (turn_id NULL)
 
 
-def _cutoff(messages: list[dict], message_id: UUID | None) -> int | None:
+def _cutoff(messages: list[dict], message_id: UUID) -> int | None:
     """Index of the first message to delete, None when the target is unknown."""
-    if not message_id:
-        return None
     return next(
         (i for i, m in enumerate(messages) if str(m["id"]) == str(message_id)), None
     )
 
 
-def plan_rollback(messages: list[dict], message_id: UUID | None) -> RollbackPlan | None:
+def plan_rollback(messages: list[dict], message_id: UUID) -> RollbackPlan | None:
     """The rollback of `messages` (ascending) from `message_id`; None when there is
     nothing to delete."""
     keep_until_index = _cutoff(messages, message_id)
     if keep_until_index is None:
         return None
     messages_to_delete = messages[keep_until_index:]
-    if not messages_to_delete:
-        return None
     # The arrival pair (protocol token + first narration) is never rolled back:
     # doing so would target cycle 0 and wipe the initial world (#11).
     if keep_until_index < 2:

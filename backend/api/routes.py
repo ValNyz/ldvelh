@@ -90,7 +90,7 @@ class ChatRequest(WizardForm):
 class RollbackRequest(BaseModel):
     """Requête de rollback"""
 
-    messageId: UUID | None = None  # UUID of the message to rollback from
+    messageId: UUID  # UUID of the message to rollback from
 
 
 class RenameRequest(BaseModel):
@@ -284,11 +284,8 @@ async def rollback_game(
             game_id, timeout=settings.supervisor_cancel_timeout)
         if cancelled:
             logger.info(f"[ROLLBACK] game={game_id} cancelled {cancelled} background job(s)")
-        msg_id = request.messageId
         try:
-            result = await service.rollback_to_message(
-                game_id, message_id=msg_id
-            )
+            result = await service.rollback_to_message(game_id, message_id=request.messageId)
         except RollbackRejected as e:
             detail = ROLLBACK_REJECTED_MESSAGES.get(e.reason, ROLLBACK_REJECTED_DEFAULT)
             raise HTTPException(status_code=400, detail=detail) from e

@@ -14,7 +14,6 @@ import { withTurnIds } from './chatHistory.mjs';
 
 export const TURN_STATUS = Object.freeze({
 	STREAMING: 'streaming', // waiting for the narration (or receiving it)
-	EXTRACTING: 'extracting', // narration shown, the server extracts the state
 	SAVING: 'saving', // done: committed, waiting for 'saved'
 	ENDED: 'ended', // committed and over
 	DROPPED: 'dropped', // not committed: error, roll waiting for an invocation, cancel
@@ -46,7 +45,6 @@ export function startLiveTurn(gameId, { kind = TURN_KIND.ACTION, playerMessage =
 /** Status after the stream event `type` (unchanged for the events that do not move it). */
 export function nextTurnStatus(status, type) {
 	switch (type) {
-		case 'extracting': return TURN_STATUS.EXTRACTING;
 		case 'done': return TURN_STATUS.SAVING;
 		case 'saved':
 		case 'save_unconfirmed': return TURN_STATUS.ENDED;
@@ -71,10 +69,10 @@ export function withTurnEvent(turn, type, { edit = null, ...fields } = {}) {
 	};
 }
 
-const isRunning = (turn) => turn?.status === TURN_STATUS.STREAMING || turn?.status === TURN_STATUS.EXTRACTING;
+const isRunning = (turn) => turn?.status === TURN_STATUS.STREAMING;
 
 /**
- * Turn flags for its game, from its status: `loading` (not over), `extracting`, `saving`
+ * Turn flags for its game, from its status: `loading` (not over), `saving`
  * and `sending` (the player cannot send yet). As when the turn started: an action sets them
  * all, a protocol turn only `loading` (and `saving` once done).
  */
@@ -82,12 +80,11 @@ export function turnActivity(turn) {
 	const running = isRunning(turn);
 	const saving = turn?.status === TURN_STATUS.SAVING;
 	if (turn && turn.kind !== TURN_KIND.ACTION) {
-		return { loading: running, sending: false, extracting: false, saving };
+		return { loading: running, sending: false, saving };
 	}
 	return {
 		loading: running,
 		sending: running,
-		extracting: turn?.status === TURN_STATUS.EXTRACTING,
 		saving: running || saving,
 	};
 }
@@ -99,18 +96,6 @@ export function withChunk(messages, content, roll = null) {
 		return [...messages.slice(0, -1), { ...last, content: last.content + content }];
 	}
 	return [...messages, { role: 'assistant', content, streaming: true, ...(roll ? { roll } : {}) }];
-}
-
-/** The narration is over and the state is being extracted: final text shown. */
-export function withExtracting(messages, displayText) {
-	const last = messages[messages.length - 1];
-	if (last?.role !== 'assistant') return messages;
-	return [...messages.slice(0, -1), {
-		...last,
-		content: displayText || last.content,
-		streaming: false,
-		extracting: true,
-	}];
 }
 
 /**
@@ -133,7 +118,6 @@ export function withAnswer(messages, displayText, data) {
 		...last,
 		content: displayText || last.content,
 		streaming: false,
-		extracting: false,
 		cost: meta?.narration_cost || null,
 		cycle: game?.current_cycle || null,
 		time: game?.time || null,
@@ -148,8 +132,7 @@ export function withAnswer(messages, displayText, data) {
  * - nothing for a dropped turn, except its action when it failed with an error (shown with
  *   the error, to retry it);
  * - nothing when the history holds the committed turn (never shown nor retried twice): by
- *   its answer's id, or, before its ids are known (narration over: committed or about to
- *   be), by the same action and answer at the end of the history.
+ *   its answer's id.
  * An unsaved action at the end of the history (a pending roll's, #32) that the turn shows
  * too is not repeated.
  */
@@ -167,17 +150,11 @@ export function withLiveTurn(history, turn) {
 	return [...(sameUnsavedAction ? history.slice(0, -1) : history), ...shown];
 }
 
-// The history holds the committed turn: by its answer's id, or, before the ids are known,
-// by the same action and final answer at its end (the narration is over: extracting, or
-// failed after it, so possibly committed).
+// The history holds the committed turn: by its answer's id.
 function holdsTurn(history, turn) {
 	const answer = turn.messages.find(m => m.role === 'assistant');
 	if (answer?.id) return history.some(m => m.id === answer.id);
-	if (!answer?.extracting) return false;
-	const action = turn.messages.find(m => m.role === 'user');
-	const [before, last] = history.slice(-2);
-	return last?.role === 'assistant' && last.content === answer.content
-		&& (!action || (before?.role === 'user' && before.content === action.content));
+	return false;
 }
 
 /**

@@ -43,7 +43,6 @@ const PROTOCOL = {
  * @param {Object} deps.preferences - { activeProvider }
  */
 export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, world, preferences }) {
-	const [isExtracting, setIsExtracting] = useState(false);
 	const [editingIndex, setEditingIndex] = useState(null);
 	const [lastUserMessage, setLastUserMessage] = useState('');
 	const [invocationData, setInvocationData] = useState(null);
@@ -56,7 +55,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		sendingRef.current = false;
 		gs.setLoading(false);
 		gs.setSaving(saving);
-		setIsExtracting(false);
 	}, [gs]);
 
 	// =========================================================================
@@ -80,7 +78,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		sendingRef.current = activity.sending;
 		gs.setLoading(activity.loading);
 		gs.setSaving(activity.saving);
-		setIsExtracting(activity.extracting);
 	}, [gs]);
 
 	// The world generation is done: its world and state on screen.
@@ -402,7 +399,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 	// =========================================================================
 
 	const handleSendMessage = useCallback(async (content) => {
-		if (!gs.gameId || sendingRef.current || isExtracting) return;
+		if (!gs.gameId || sendingRef.current) return;
 		sendingRef.current = true;
 
 		setLastUserMessage(content);
@@ -412,7 +409,7 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 		gs.setSaving(true);
 
 		await sendChat({ message: content }, { playerMessage: content });
-	}, [isExtracting, sendChat, gs]);
+	}, [sendChat, gs]);
 
 	const handleCancel = useCallback(() => {
 		const live = turnsRef.current.get(gs.gameId);
@@ -421,11 +418,10 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 			endTurn();
 			gs.setMessages(prev => {
 				const last = prev[prev.length - 1];
-				if (last?.streaming || last?.extracting) {
+				if (last?.streaming) {
 					return [...prev.slice(0, -1), {
 						...last,
 						streaming: false,
-						extracting: false,
 						content: last.content + MESSAGES.CANCELLED_SUFFIX
 					}];
 				}
@@ -522,7 +518,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 
 	return {
 		// State
-		isExtracting,
 		editingIndex,
 		invocationData,
 		storedInitParams,

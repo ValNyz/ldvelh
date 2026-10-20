@@ -114,6 +114,17 @@ class TestAtomicRollback:
         assert await _state(test_pool, game_id) == before
 
     @pytest.mark.asyncio
+    async def test_route_requires_a_message_id(self, client, test_user, test_pool):
+        game_id, _, _ = await _two_cycles_with_stub_location(client, test_user, test_pool)
+        before = await _state(test_pool, game_id)
+        r = await client.post(
+            f"/api/games/{game_id}/rollback", json={},
+            headers={"Authorization": f"Bearer {test_user['token']}"},
+        )
+        assert r.status_code == 422
+        assert await _state(test_pool, game_id) == before
+
+    @pytest.mark.asyncio
     async def test_route_returns_400_for_arrival_rollback(self, client, test_user, test_pool):
         game_id, _, _ = await _two_cycles_with_stub_location(client, test_user, test_pool)
         r = await client.post(

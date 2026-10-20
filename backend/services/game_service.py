@@ -588,7 +588,7 @@ class GameService:
     # ROLLBACK
     # =========================================================================
 
-    async def rollback_to_message(self, game_id: UUID, message_id: UUID | None = None) -> dict:
+    async def rollback_to_message(self, game_id: UUID, message_id: UUID) -> dict:
         """Rollback: delete a message and everything after it, and undo their turns.
 
         The journal replay runs by default; ROLLBACK_ENGINE=cycle keeps the legacy

@@ -357,7 +357,7 @@ User types message
 **File:** `frontend/hooks/useGameOrchestrator.js` — `handleSendMessage(content)`
 
 ```
-1. Guard: check gameId, sendingRef, isExtracting
+1. Guard: check gameId, sendingRef
 2. sendingRef.current = true (prevent concurrent sends)
 3. setLastUserMessage(content) (for retry after an error, and the roll resume)
 4. Add user message to UI immediately
@@ -548,7 +548,6 @@ SSE events dispatched to callbacks in `useGameOrchestrator`. A stream that is no
 | `chunk` | `onChunk` | Appends text to last assistant message (streaming: true) |
 | `roll_result` | `onRollResult` | Stores in `pendingRollRef` for attachment to next message |
 | `roll_pending` | `onRollPending` | Shows aspect invocation modal (Fate Core) |
-| `extracting` | `onExtracting` | Sets message to extracting state |
 | `done` | `onDone` | Finalizes message (streaming: false), updates game state |
 | `saved` | `onSaved` | Stops saving spinner, refreshes tooltips + world sidebar |
 | `error` | `onError` | Shows error message |
@@ -761,7 +760,7 @@ Frontend: gamesHook.loadGames()
 
 All three go through `rollbackThenSend(messageId, content)`: rollback to the action, then send `content` in its place. A message without id (not saved) is refused with "Ce message n'est pas encore enregistré : recharge la partie pour le reprendre." (not recoverable: no "Réessayer"). Loaded messages carry their ids; a turn played in the session gets them from `done.state.meta` (`withTurnIds`, `frontend/lib/game/chatHistory.mjs`): the answer, and the action just before it (#55).
 
-`rollbackTo(messageId)` calls `stateApi.rollback` (`POST /games/{id}/rollback {messageId}`), then shows the returned `messages` and `state`; the invocation modal follows `state.pending_roll` (null after a rollback, which expires the pending roll, #80). A refused rollback shows the server's French message (not recoverable) and sends nothing.
+`rollbackTo(messageId)` calls `stateApi.rollback` (`POST /games/{id}/rollback {messageId}`, `messageId` required: 422 without it), then shows the returned `messages` and `state`; the invocation modal follows `state.pending_roll` (null after a rollback, which expires the pending roll, #80). A refused rollback shows the server's French message (not recoverable) and sends nothing.
 
 **Edit (modify text):** `handleSubmitEdit(content)`: `rollbackThenSend(messages[editingIndex].id, content)` (new text).
 
@@ -998,7 +997,6 @@ GameState:
 |-------|---------|------|
 | `chunk` | `{content}` | Each text delta during narration streaming |
 | `progress` | `{rawJson}` | Partial JSON during world generation (every ~500 chars) |
-| `extracting` | `{displayText}` | Narration done, extraction starting |
 | `done` | `{displayText, state}` | Final result with full game state. `state = {game_state, meta, ui?}` (`SSEDonePayload`). On a turn's done, `meta = {narration_cost?, mechanical_cost?, user_message_id, assistant_message_id}` is always present: the two ids (UUID strings) name the turn's saved messages, for edit / resend / regenerate (#55). The world-generation done has `world_info` and no message ids (it saves no messages) |
 | `saved` | `{}` | DB save confirmed |
 | `error` | `{error, details, recoverable, code, ref}` | Error occurred; `code` and `ref` on turn errors (see 3.2) |
@@ -1019,7 +1017,7 @@ Async queue-based writer. Events are pushed via typed methods (`send_chunk`, `se
 2. A non-2xx answer becomes one `error` event (`status`, FastAPI `detail`)
 3. If response is `text/event-stream`: reads via `ReadableStream` reader, parses `data: ` events (`lib/sse.mjs`, partial events buffered)
 4. No terminal event before the end → synthetic recoverable `error` (`interrupted: true`); `done` without `saved` → `save_unconfirmed`
-5. Dispatches to callbacks: `onChunk`, `onProgress`, `onExtracting`, `onDone`, `onSaved`, `onSaveUnconfirmed`, `onError(message, details, { status, interrupted })`, `onRollResult`, `onRollPending`
+5. Dispatches to callbacks: `onChunk`, `onProgress`, `onDone`, `onSaved`, `onSaveUnconfirmed`, `onError(message, details, { status, interrupted })`, `onRollResult`, `onRollPending`
 6. Returns `{success, fullJson}`, `{success: false, interrupted}` or `{success: false, aborted}` on cancel
 
 Cancellation: `cancel()` aborts the `AbortController`, frontend updates message with "*(Annulé)*" suffix.
@@ -1111,7 +1109,7 @@ All game business logic lives in `useGameOrchestrator`. It:
 - Exposes game handlers (handleNewGame, handleLoadGame, handleDeleteGame, etc.)
 - Exposes message handlers (handleSendMessage, handleCancel, handleEdit, handleResend, handleRegenerate)
 - Exposes world generation handlers (handleStartAdventure, handleWizardComplete, handleRetryWorld)
-- Manages local state: `isExtracting`, `editingIndex`, `lastUserMessage`, `invocationData`
+- Manages local state: `editingIndex`, `lastUserMessage`, `invocationData`
 
 ### Phase Routing
 
