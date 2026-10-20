@@ -13,7 +13,8 @@ here, per game, in one transaction (`run`):
    characters rows included (scripts/identity_journal.py);
 3. the exceptions the user wrote after reading the report (scripts/identity_exceptions.py);
 4. the derived aliases (short forms, titles: services/identity/aliases.derive) of every
-   entity, once (ON CONFLICT DO NOTHING), corrected names included.
+   entity, once (ON CONFLICT DO NOTHING), corrected names included; on a game already
+   backfilled (a late exception), of the corrected characters only.
 An `identity_events` row ('identity_backfill') marks every game a run touched as done
 (durable state, see identity_event_is_state in the migration). Idempotent: a second
 run changes nothing. Run by backend/entrypoint.sh after `dbmate up`, with the exceptions
@@ -126,17 +127,20 @@ async def run(
             counts["characters_reclassified"] = await _classify(
                 conn, game_id, normalizer, lexicon
             )
-        counts["exceptions"], skipped = await apply_exceptions(
+        corrected, skipped = await apply_exceptions(
             conn, game_id, exceptions or {}, normalizer
         )
+        counts["exceptions"] = len(corrected)
         counts["exceptions_skipped"] = len(skipped)
         for character_id in skipped:
             print(
                 f"[IDENTITY_BACKFILL] game={game_id} exception skipped for {character_id}:"
                 " the player knows another true name since"
             )
+        # A game already backfilled: only the characters just corrected (its other
+        # entities are live, their aliases the game's own).
         counts["derived_aliases"] = await _derive_aliases(
-            conn, game_id, normalizer, lexicon
+            conn, game_id, normalizer, lexicon, corrected if done else None
         )
         # The live aliases added above may clash with the alias rows of the journal.
         counts["journal_alias_conflicts"] = await conn.fetchval(
@@ -226,9 +230,13 @@ async def _classify(conn, game_id: UUID, normalizer, lexicon) -> int:
     return changed
 
 
-async def _derive_aliases(conn, game_id: UUID, normalizer, lexicon) -> int:
-    """Step 3: the short forms and titles of every live entity's names (aliases.derive);
-    a form already there (same norm) is kept as it is."""
+async def _derive_aliases(
+    conn, game_id: UUID, normalizer, lexicon, only: list[UUID] | None = None
+) -> int:
+    """Step 4: the short forms and titles of every live entity's names (aliases.derive),
+    or of the entities `only` lists; a form already there (same norm) is kept as it is."""
+    if only is not None and not only:
+        return 0
     from services.identity.aliases import derive
 
     entities = await conn.fetch(
@@ -239,8 +247,10 @@ async def _derive_aliases(conn, game_id: UUID, normalizer, lexicon) -> int:
                       AS secret
              FROM entity_registry AS er LEFT JOIN characters AS ch ON ch.id = er.id
             WHERE er.game_id = $1 AND er.merged_into IS NULL
+              AND ($2::uuid[] IS NULL OR er.id = ANY($2::uuid[]))
             ORDER BY er.handle""",
         game_id,
+        only,
     )
     rows = []
     for entity in entities:

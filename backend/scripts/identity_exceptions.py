@@ -4,10 +4,10 @@ A YAML file `{character id: {true_name: …} | {descriptor: …}}`, read by the 
 (`--exceptions`, or IDENTITY_BACKFILL_EXCEPTIONS at deploy). A correction follows the
 rules of the classification itself:
 - `true_name: X` makes X the character's true name. The known descriptor alias of that
-  form goes first (a true name the PC does not know is not known); a descriptor that spells
-  X (the classification's copy of a name with no seen descriptor) goes with its alias, so
-  the player reads the pack's unknown label, never the hidden name (the CHECK holds: the
-  true name is set);
+  form goes first (a true name the PC does not know is not known); a descriptor whose
+  normalised words contain X's goes with its alias (the classification's copy of a name
+  with no seen descriptor, and a seen descriptor that names X too), so the player reads
+  the pack's unknown label, never the hidden name (the CHECK holds: the true name is set);
   the true name's alias is secret when the character is mandatory and unknown (§5.2 step 4).
 - `descriptor: Y` makes Y the descriptor and drops the true name and its forms.
 - the new label takes a homonym suffix when another character already holds it (R9);
@@ -94,13 +94,13 @@ async def _suffix(conn, game_id: UUID, character_id: UUID, base: str, normalizer
 
 async def apply_exceptions(
     conn, game_id: UUID, exceptions: Mapping[UUID, Mapping[str, str]], normalizer
-) -> tuple[int, list[UUID]]:
-    """The corrections for the characters of this game not applied yet: (the number
-    applied, the characters skipped because the player knows another true name). An id
+) -> tuple[list[UUID], list[UUID]]:
+    """The corrections for the characters of this game not applied yet: (the characters
+    corrected, the characters skipped because the player knows another true name). An id
     of another game is left to that game's run."""
     from scripts.identity_journal import follow_model
 
-    applied, skipped = 0, []
+    applied, skipped = [], []
     for character_id, correction in exceptions.items():
         payload = json.dumps(dict(correction), sort_keys=True)
         pending = await conn.fetchval(
@@ -176,5 +176,5 @@ async def apply_exceptions(
             character_id,
             payload,
         )
-        applied += 1
+        applied.append(character_id)
     return applied, skipped

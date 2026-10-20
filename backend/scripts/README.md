@@ -186,7 +186,8 @@ CONTRIBUTING.md, "Deploying the identity migration".
 - `identity_backfill.py`: run by the entrypoint after `dbmate up`. Per game, in one
   transaction: language, norms, orphans, collisions and mentions (the legacy pass,
   skipped for a game already backfilled), classification of the unknown characters,
-  the owner's exceptions, derived aliases. Idempotent; marks each game with an
+  the owner's exceptions, derived aliases (of the corrected characters only on a late
+  correction). Idempotent; marks each game with an
   `identity_events` row. A missing or malformed exceptions file stops it with one line.
   `DATABASE_URL=… python -m scripts.identity_backfill [--game ID] [--exceptions FILE.yaml]`
   (default: `$IDENTITY_BACKFILL_EXCEPTIONS`)

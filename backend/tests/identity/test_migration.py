@@ -765,7 +765,8 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
     """N5: a correction that arrives after play is skipped for a character the player
     knows under another true name, and rewrites only the journal of the turns played
     before the migration. M2: the legacy pass (norms, collisions, mentions rebuilt from
-    narrator_context) leaves the live game alone."""
+    narrator_context) leaves the live game alone; N3: only the corrected characters get
+    derived aliases."""
     from scripts.identity_backfill import run as identity_backfill
     from scripts.identity_exceptions import load_exceptions
 
@@ -801,6 +802,11 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
             game_id,
             conversation,
         )
+        # A derived alias the game no longer has: a late correction never re-adds it.
+        await conn.execute(
+            "DELETE FROM entity_aliases WHERE entity_id = $1::uuid AND alias = 'Tanaka'",
+            TANAKA,
+        )
         path = tmp_path / "late.yaml"
         path.write_text(
             f"{SELA}: {{true_name: Autre Nom}}\n{MARN}: {{true_name: Vieux Marn}}\n",
@@ -813,6 +819,14 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
         late_mentions = await conn.fetchval(
             "SELECT count(*) FROM entity_mentions WHERE message_id = $1", message
         )
+        derived = {
+            (str(r["entity_id"]), r["alias"])
+            for r in await conn.fetch(
+                "SELECT entity_id, alias FROM entity_aliases"
+                " WHERE entity_id = ANY($1::uuid[]) AND kind = 'short'",
+                [UUID(TANAKA), UUID(MARN)],
+            )
+        }
         journal = sorted(
             r["row"]
             for r in await conn.fetch(
@@ -822,6 +836,7 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
         )
     assert (counts["exceptions"], counts["exceptions_skipped"]) == (1, 1)
     assert "mentions" not in counts and late_mentions == 0
+    assert (MARN, "Marn") in derived and (TANAKA, "Tanaka") not in derived
     assert sela == "Sela Voor"
     assert journal == sorted(
         [
@@ -987,3 +1002,27 @@ def test_a_bad_exceptions_file_stops_the_backfill_with_one_line(
     assert code == 2
     assert len(err) == 1
     assert "IDENTITY_BACKFILL_EXCEPTIONS" in err[0] and str(path) in err[0]
+
+
+def test_report_span_fallback_never_masks_a_character_ambiguity():
+    """N2, as identity_find_span_entity: a `character` span no character knows is the
+    companion; one that two characters share is dropped as ambiguous."""
+    from uuid import uuid4
+
+    from scripts.identity_migration_report import Entity, _resolve_span
+
+    def norm(text):
+        return " ".join(text.lower().split())
+
+    companion = Entity(uuid4(), "companion", "Célimène", None)
+    twins = [Entity(uuid4(), "character", "Célimène", None) for _ in range(2)]
+    other = Entity(uuid4(), "character", "Ossek", None)
+
+    assert _resolve_span([companion, other], "Célimène", "character", norm) == (
+        companion,
+        None,
+    )
+    assert _resolve_span([companion, *twins], "Célimène", "character", norm) == (
+        None,
+        "ambiguë",
+    )

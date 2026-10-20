@@ -720,18 +720,32 @@ END $$;
 
 -- The entity a span of the legacy resolver names (annotations, mentions rebuilt from
 -- narrator_context; PR 2 replaces that resolver): its types know no companion or
--- protagonist, which it tags 'character', so a character ref no character matches is
--- looked up as the companion, then the protagonist (one row each: no new ambiguity).
+-- protagonist, which it tags 'character', so a character ref that no character knows is
+-- looked up as the companion, then the protagonist (one row each: no new ambiguity). A ref
+-- that several characters share stays unresolved (R10): it never falls back.
 CREATE FUNCTION public.identity_find_span_entity(p_game uuid, p_ref text, p_type text)
         RETURNS uuid
-    LANGUAGE sql STABLE
+    LANGUAGE plpgsql STABLE
     AS $$
-    SELECT COALESCE(public.find_entity(p_game, p_ref, p_type),
-                    CASE WHEN p_type = 'character'
-                         THEN COALESCE(public.find_entity(p_game, p_ref, 'companion'),
-                                       public.find_entity(p_game, p_ref, 'protagonist'))
-                    END)
-$$;
+DECLARE
+    v_id uuid := public.find_entity(p_game, p_ref, p_type);
+    v_norm text;
+BEGIN
+    IF v_id IS NOT NULL OR p_type IS DISTINCT FROM 'character' THEN
+        RETURN v_id;
+    END IF;
+    v_norm := public.ldvelh_norm_for_game(p_game, btrim(p_ref, E' \t\r\n'));
+    IF EXISTS (SELECT 1 FROM public.entity_registry AS er
+                WHERE er.game_id = p_game AND er.entity_type = p_type
+                  AND er.name_norm = v_norm)
+       OR EXISTS (SELECT 1 FROM public.entity_aliases AS al
+                   WHERE al.game_id = p_game AND al.entity_type = p_type
+                     AND al.alias_norm = v_norm) THEN
+        RETURN NULL;
+    END IF;
+    RETURN COALESCE(public.find_entity(p_game, p_ref, 'companion'),
+                    public.find_entity(p_game, p_ref, 'protagonist'));
+END $$;
 
 -- Participants are ids resolved by the caller: [{"entity_id": "<uuid>", "role": "actor"}];
 -- an id outside the game, or not an id, is skipped; a merged one stands for its live entity.

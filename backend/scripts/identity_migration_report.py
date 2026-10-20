@@ -262,8 +262,8 @@ def _resolve_span(
     entities: list[Entity], ref: str, entity_type: str, norm
 ) -> tuple[Entity | None, str | None]:
     """identity_find_span_entity: the entity a legacy resolver span names (a character
-    ref no character matches is looked up as the companion, then the protagonist), else
-    why the mention is dropped."""
+    ref that no character knows is looked up as the companion, then the protagonist; one
+    that several characters share stays ambiguous), else why the mention is dropped."""
     types = (
         (entity_type, *SPAN_FALLBACK_TYPES)
         if entity_type == "character"
@@ -274,7 +274,9 @@ def _resolve_span(
         found = _candidates(entities, ref, candidate_type, norm)
         if len(found) == 1:
             return found[0], None
-        ambiguous = ambiguous or len(found) > 1
+        if len(found) > 1:
+            ambiguous = True
+            break
     if not any(e.type == entity_type for e in entities):
         return None, "aucune entité de ce type"
     return None, "ambiguë" if ambiguous else "non résolue"

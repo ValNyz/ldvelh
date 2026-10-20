@@ -280,3 +280,37 @@ async def test_companion_and_protagonist_spans_typed_character_keep_their_names(
     assert load_lang("fr").unknown_character_label not in json.dumps(
         annotations, ensure_ascii=False
     )
+
+
+async def test_an_ambiguous_character_span_never_falls_back_to_the_companion(
+    client, test_user, test_pool
+):
+    """N2: two characters share the companion's name; the `character` span is ambiguous
+    among them (R10) and stays unresolved, never taken for the companion."""
+    from packs.loader import load_lang
+
+    game_id = await _world(client, test_user, test_pool)
+    async with test_pool.acquire() as conn:
+        for suffix in ("Quai 9", "Bar"):
+            await conn.execute(
+                "INSERT INTO characters (game_id, true_name, label_suffix) VALUES ($1, $2, $3)",
+                game_id,
+                "Célimène",
+                suffix,
+            )
+    await _store_spans(test_pool, game_id, [[0, 4, "Célimène", "character"]])
+
+    annotations = (
+        await client.get(
+            "/api/tooltips/annotations",
+            params={"gameId": str(game_id)},
+            headers=auth_headers(test_user["token"]),
+        )
+    ).json()
+
+    [span] = annotations["messages"][0]["annotations"]
+    assert (span["label"], span["entity_type"], span["entity_id"]) == (
+        load_lang("fr").unknown_character_label,
+        "character",
+        None,
+    )
