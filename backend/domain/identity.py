@@ -13,7 +13,13 @@ from dataclasses import dataclass, field
 from typing import Literal
 from uuid import UUID
 
-from services.identity.aliases import AliasSpec
+
+@dataclass(frozen=True)
+class AliasSpec:
+    text: str
+    kind: str
+    known: bool
+    secret: bool = False
 
 
 @dataclass(frozen=True)

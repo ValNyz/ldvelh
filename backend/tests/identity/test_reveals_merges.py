@@ -10,7 +10,7 @@ from config import get_identity_config
 from repos import entities, turns
 from repos.uow import uow
 from services.identity.service import IdentityService
-from services.identity.types import EntityRef, FactRef, NewEntitySpec
+from domain.identity import EntityRef, FactRef, NewEntitySpec
 
 pytestmark = pytest.mark.integration
 

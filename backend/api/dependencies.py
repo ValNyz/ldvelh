@@ -7,16 +7,14 @@ from uuid import UUID
 
 import asyncpg
 import jwt
-from fastapi import Depends, Header, HTTPException, Query
+from fastapi import Depends, Header, HTTPException, Query, Request
 
 from config import Settings, get_settings
 
 
-async def get_pool() -> asyncpg.Pool:
-    """Récupère le pool de connexions depuis main"""
-    from main import get_db_pool
-
-    return get_db_pool()
+async def get_pool(request: Request) -> asyncpg.Pool:
+    """Récupère le pool de connexions posé sur app.state par le lifespan"""
+    return request.app.state.pool
 
 
 async def get_connection(pool: asyncpg.Pool = Depends(get_pool)) -> AsyncGenerator[asyncpg.Connection, None]:

@@ -8,9 +8,9 @@ import pytest
 from config import get_identity_config
 from repos import entities, turns
 from repos.uow import uow
-from services.identity.aliases import AliasSpec
 from services.identity.service import IdentityService
-from services.identity.types import (
+from domain.identity import (
+    AliasSpec,
     AmbiguousLabel,
     IdentityWriteMiss,
     NewEntitySpec,

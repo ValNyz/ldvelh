@@ -161,11 +161,11 @@ class FateCoreEngine(BaseEngine):
             game_id,
         )
 
-        from schema.core import _coerce_json_list, _coerce_json_dict
+        from schema.coerce import coerce_json_dict, coerce_json_list
 
         aspects = await load_aspects(conn, game_id)
-        stunts = _coerce_json_list(char["stunts"])
-        consequences = _coerce_json_dict(char["consequences"])
+        stunts = coerce_json_list(char["stunts"])
+        consequences = coerce_json_dict(char["consequences"])
 
         return {
             "aspects": aspects,
@@ -214,9 +214,9 @@ class FateCoreEngine(BaseEngine):
 
     async def create_character(self, conn, game_id: UUID, data: dict) -> None:
         """Create character_fate row, aspects (with their kind) and initial skills."""
-        from schema.core import _coerce_json_list
+        from schema.coerce import coerce_json_list
 
-        stunts = _coerce_json_list(data.get("stunts"))
+        stunts = coerce_json_list(data.get("stunts"))
         fate_points = data.get("fate_points", 3)
         refresh = data.get("refresh", 3)
 
@@ -269,14 +269,14 @@ class FateCoreEngine(BaseEngine):
         )
         if not row:
             return {}
-        from schema.core import _coerce_json_list, _coerce_json_dict
+        from schema.coerce import coerce_json_dict, coerce_json_list
         return {
-            "aspects": _coerce_json_list(row["aspects"]),
-            "skills": _coerce_json_dict(row["skills"]),
-            "stunts": _coerce_json_list(row["stunts"]),
+            "aspects": coerce_json_list(row["aspects"]),
+            "skills": coerce_json_dict(row["skills"]),
+            "stunts": coerce_json_list(row["stunts"]),
             "stress_physical": list(row["stress_physical"]),
             "stress_mental": list(row["stress_mental"]),
-            "consequences": _coerce_json_dict(row["consequences"]),
+            "consequences": coerce_json_dict(row["consequences"]),
             "fate_points": row["fate_points"],
         }
 
@@ -750,8 +750,8 @@ Inclure un encadré markdown après la narration de la complication :
                 "SELECT stunts FROM character_fate WHERE game_id = $1", game_id
             )
             if row:
-                from schema.core import _coerce_json_list
-                stunts = _coerce_json_list(row["stunts"])
+                from schema.coerce import coerce_json_list
+                stunts = coerce_json_list(row["stunts"])
                 stunts.append({"name": stunt.get("name", ""), "description": stunt.get("description", "")})
                 await conn.execute(
                     "UPDATE character_fate SET stunts = $1, updated_at = now() WHERE game_id = $2",

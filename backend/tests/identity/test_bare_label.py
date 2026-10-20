@@ -8,7 +8,7 @@ import pytest
 from config import get_identity_config
 from kg.reader import KnowledgeGraphReader
 from services.identity.service import IdentityService
-from services.identity.types import NewEntitySpec
+from domain.identity import NewEntitySpec
 
 pytestmark = pytest.mark.integration
 

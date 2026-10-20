@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from repos import entities
-from services.identity.types import MergeOutcome
+from domain.identity import MergeOutcome
 
 if TYPE_CHECKING:
     from services.identity.service import IdentityService

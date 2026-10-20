@@ -66,8 +66,8 @@ class NarrativeEngine(BaseEngine):
         )
         if not row:
             return {}
-        from schema.core import _coerce_json_list
-        traits = _coerce_json_list(row["traits"])
+        from schema.coerce import coerce_json_list
+        traits = coerce_json_list(row["traits"])
         return {"traits": traits}
 
     async def create_npc_stats(self, conn, character_id: UUID, data: dict) -> None:

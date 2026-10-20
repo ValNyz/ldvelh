@@ -19,7 +19,7 @@ from schema import DEFAULT_GAME_TIME
 from schema.narration import NarrationOutput
 from services.identity.reveals import apply_entity_reveals
 from services.identity.service import IdentityService
-from services.identity.types import NewEntitySpec
+from domain.identity import NewEntitySpec
 from utils.log_safe import log_cause
 
 logger = logging.getLogger(__name__)

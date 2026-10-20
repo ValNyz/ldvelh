@@ -10,7 +10,7 @@ from kg.populator import KnowledgeGraphPopulator
 from repos import turns
 from repos.uow import uow
 from services.identity.service import IdentityService
-from services.identity.types import EntityRef
+from domain.identity import EntityRef
 from tests.test_game_and_populator import _setup_game_with_world
 
 pytestmark = pytest.mark.integration

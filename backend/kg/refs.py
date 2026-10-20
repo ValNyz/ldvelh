@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from asyncpg import Connection
 
     from services.identity.service import IdentityService
-    from services.identity.types import ResolvedRef
+    from domain.identity import ResolvedRef
 
 
 async def resolve(

@@ -11,7 +11,7 @@ from config import get_identity_config
 from repos import entities, turns
 from repos.uow import uow
 from services.identity.service import IdentityService
-from services.identity.types import EntityRef
+from domain.identity import EntityRef
 
 pytestmark = pytest.mark.integration
 

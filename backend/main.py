@@ -11,7 +11,14 @@ import asyncpg
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from api.auth import router as auth_router
+from api.genres import router as genres_router
+from api.http_errors import register_domain_error_handlers
+from api.routes import router
+from api.tooltips import router as tooltips_router
+from api.world import router as world_router
 from config import get_settings
+from services.subscribers import register_defaults
 from startup_checks import (
     check_identity_backfill,
     check_lang_packs,
@@ -55,14 +62,9 @@ POOL_SERVER_SETTINGS = {
     "statement_timeout": "60000",
 }
 
-# Pool de connexions global
-db_pool: asyncpg.Pool | None = None
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gestion du cycle de vie de l'application"""
-    global db_pool
-
     settings = get_settings()
 
     check_startup_config(settings)  # weak JWT_SECRET / missing ENCRYPTION_KEY: refuse to start
@@ -79,7 +81,7 @@ async def lifespan(app: FastAPI):
             "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
         )
 
-    db_pool = await asyncpg.create_pool(
+    pool = app.state.pool = await asyncpg.create_pool(
         settings.database_url, min_size=2, max_size=10,
         command_timeout=60, init=_init_connection,
         server_settings=POOL_SERVER_SETTINGS,
@@ -87,16 +89,16 @@ async def lifespan(app: FastAPI):
     print("[STARTUP] Pool de connexions créé")
 
     try:
-        count = await sync_language_packs(db_pool)
-        await check_identity_backfill(db_pool)  # names without norm: refuse to start
+        count = await sync_language_packs(pool)
+        await check_identity_backfill(pool)  # names without norm: refuse to start
     except BaseException:
-        await db_pool.close()
+        await pool.close()
         raise
     logger.info("[STARTUP] %d language packs synchronised", count)
 
     # Seed dev user if debug mode is enabled
     if settings.debug:
-        await _seed_dev_user(db_pool, settings)
+        await _seed_dev_user(pool, settings)
 
     try:
         yield
@@ -106,20 +108,20 @@ async def lifespan(app: FastAPI):
         try:
             await supervisor.drain(settings.supervisor_drain_timeout)
         finally:
-            await _close_resources()
+            await _close_resources(app)
         print("[SHUTDOWN] Terminé")
 
 
-async def _close_resources() -> None:
-    global db_pool
+async def _close_resources(app: FastAPI) -> None:
     from services.llm_providers import close_shared_clients
 
     try:
         print("[SHUTDOWN] Fermeture du pool de connexions...")
-        if db_pool:
-            await db_pool.close()
+        pool = getattr(app.state, "pool", None)
+        if pool:
+            await pool.close()
     finally:
-        db_pool = None
+        app.state.pool = None
         await close_shared_clients()
 
 
@@ -143,22 +145,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-
-def get_db_pool() -> asyncpg.Pool:
-    """Récupère le pool de connexions"""
-    if db_pool is None:
-        raise RuntimeError("Database pool not initialized")
-    return db_pool
-
-
-# Import des routes après la création de l'app pour éviter les imports circulaires
-from api.routes import router
-from api.auth import router as auth_router
-from api.tooltips import router as tooltips_router
-from api.genres import router as genres_router
-from api.world import router as world_router
-from api.http_errors import register_domain_error_handlers
-from services.subscribers import register_defaults
 
 register_defaults()  # post-turn hooks: scheduled Director, new-cycle work (#95)
 

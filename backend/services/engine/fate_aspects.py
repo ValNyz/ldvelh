@@ -5,7 +5,7 @@ Each aspect stores its kind: one high concept, one trouble, any number of others
 
 from uuid import UUID
 
-from schema.core import _coerce_json_list
+from schema.coerce import coerce_json_list
 
 KINDS = ("high_concept", "trouble", "other")
 # Player- and narrator-facing labels of the kinds
@@ -29,7 +29,7 @@ def aspect_pairs(raw) -> list[tuple[str, str]]:
         pairs += [("other", _text(o)) for o in (raw.get("other") or [])]
     else:
         pairs = []
-        for item in _coerce_json_list(raw):
+        for item in coerce_json_list(raw):
             if isinstance(item, dict):
                 kind = item.get("type") if item.get("type") in KINDS else "other"
                 pairs.append((kind, _text(item.get("name")) or _text(item.get("text"))))

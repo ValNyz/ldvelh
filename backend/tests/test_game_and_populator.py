@@ -28,7 +28,7 @@ from helpers import (
 from repos import turns
 from repos.uow import uow
 from services.identity.service import IdentityService
-from services.identity.types import EntityRef
+from domain.identity import EntityRef
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
 pytestmark = pytest.mark.integration

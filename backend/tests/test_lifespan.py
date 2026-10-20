@@ -68,7 +68,7 @@ async def test_lifespan_drains_before_closing_the_pool(fake_pool, monkeypatch):
     async with main.lifespan(main.app):
         pass
     assert fake_pool[1:] == ["drain", "pool.close", "clients.close"]
-    assert main.db_pool is None
+    assert main.app.state.pool is None
     assert fake_pool[0][1]["server_settings"] == main.POOL_SERVER_SETTINGS
 
 

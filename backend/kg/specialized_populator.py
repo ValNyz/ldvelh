@@ -36,9 +36,9 @@ from schema import (
     is_protagonist_ref,
 )
 from schema.entity_changes import bound_changes
-from services.identity.aliases import AliasSpec
 from services.identity.classify import extracted_character_names
-from services.identity.types import (
+from domain.identity import (
+    AliasSpec,
     AmbiguousLabel,
     EntityRef,
     NewEntitySpec,

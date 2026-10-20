@@ -41,7 +41,7 @@ from kg.item_writes import write_item
 from repos import entities
 from services.identity import merges
 from services.identity.aliases import derive
-from services.identity.types import EntityRef, FactRef, RevealOutcome
+from domain.identity import EntityRef, FactRef, RevealOutcome
 
 if TYPE_CHECKING:
     from schema.narration import EntityReveal

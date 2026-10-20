@@ -31,7 +31,7 @@ from services.identity import merges, reveals
 from services.identity.aliases import derive
 from services.identity.classify import free_suffix
 from services.identity.normalize import Normalizer
-from services.identity.types import (
+from domain.identity import (
     AmbiguousLabel,
     EntityRef,
     FactRef,

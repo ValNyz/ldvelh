@@ -11,7 +11,7 @@ from repos import entities
 from services.extraction import orchestrator
 from services.extraction.orchestrator import EXTRACTOR_MAP, resolver_triggers
 from services.extraction.resolver import MentionMapping, ResolutionMap
-from services.identity.types import EntityRef, ResolvedRef
+from domain.identity import EntityRef, ResolvedRef
 
 pytestmark = pytest.mark.integration
 

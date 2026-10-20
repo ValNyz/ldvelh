@@ -30,15 +30,10 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
 LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)
 KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, imported module, full dotted name): frozen debt, may only shrink
-    ("api/dependencies.py", "main"),                              # lot H task 3
-    ("kg/item_writes.py", "services.identity.types"),             # lot H task 3
     ("kg/populator.py", "services.identity.service"),             # #108
     ("kg/refs.py", "services.identity.service"),                  # #108
-    ("kg/refs.py", "services.identity.types"),                    # lot H task 3
-    ("kg/specialized_populator.py", "services.identity.aliases"), # lot H task 3
     ("kg/specialized_populator.py", "services.identity.classify"),# #108
     ("kg/specialized_populator.py", "services.identity.service"), # #108
-    ("kg/specialized_populator.py", "services.identity.types"),   # lot H task 3
     ("llm/session.py", "services.llm_providers"),                 # #172
     ("llm/usage.py", "services.llm_providers"),                   # #172
     ("llm/usage.py", "services.pricing"),                         # #172
@@ -219,3 +214,20 @@ def test_sql_regex(text, is_sql):
 def test_layer_exempt_files_exist():
     missing = {f for f in LAYER_EXEMPT_FILES if not (BACKEND / f).is_file()}
     assert not missing, f"LAYER_EXEMPT_FILES entries that do not exist: {sorted(missing)}"
+
+
+def test_identity_types_live_in_domain():
+    assert not (BACKEND / "services/identity/types.py").exists()
+    tree = ast.parse((BACKEND / "domain/identity.py").read_text(encoding="utf-8"))
+    assert "IdentityFailure" in {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+
+
+def test_no_private_schema_helper_imported_outside_schema():
+    found = []
+    for path, rel in _source_files():
+        if rel.parts[0] == "schema":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("schema."):
+                found += [f"{rel}: {node.module}.{a.name}" for a in node.names if a.name.startswith("_")]
+    assert not found, f"private schema helpers imported outside schema/: {found}"

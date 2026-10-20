@@ -3,7 +3,7 @@ LDVELH - Per-item writes inside a larger transaction.
 
 Each extracted item is written in its own SAVEPOINT: a failed item (validation, unique
 violation, FK, CHECK...) is rolled back alone and recorded, the other items still commit.
-An identity failure (services.identity.types.IdentityFailure: a required reference
+An identity failure (domain.identity.IdentityFailure: a required reference
 unresolved, a write by id that found no row, a creation under an ambiguous label) is
 recorded by its code, {"code": ..., "item": <label>}, and in identity_events.
 """
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from config import get_settings
 from repos.entities import insert_event
 from repos.uow import current_turn_id
-from services.identity.types import IdentityFailure
+from domain.identity import IdentityFailure
 from utils.log_safe import log_cause, safe_text
 
 if TYPE_CHECKING:

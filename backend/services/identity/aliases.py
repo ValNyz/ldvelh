@@ -11,21 +11,13 @@ norm are kept once (first wins), since the registry is unique on (entity, alias_
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import Literal
 
+from domain.identity import AliasSpec
 from services.identity.lexicon import Lexicon
 from services.identity.normalize import Normalizer
 
 _EDGE_PUNCTUATION = re.compile(r"^[\W_]+|[\W_]+$")
-
-
-@dataclass(frozen=True)
-class AliasSpec:
-    text: str
-    kind: str
-    known: bool
-    secret: bool = False
 
 
 def derive(

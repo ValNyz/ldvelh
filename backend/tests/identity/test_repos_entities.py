@@ -277,7 +277,7 @@ async def test_an_ambiguous_name_creates_no_location(test_pool, game):
     from kg.specialized_populator import ExtractionPopulator
     from services.turn_effects import _resolve_location
     from schema import EntityCreation
-    from services.identity.types import AmbiguousLabel
+    from domain.identity import AmbiguousLabel
 
     async with test_pool.acquire() as conn:
         for name in ("Dock Est", "Dock Ouest"):
@@ -333,7 +333,7 @@ async def test_a_reveal_never_deletes_through_another_characters_alias(test_pool
     entity (spec §4.7: labels, true-name and label aliases): nothing is merged nor
     deleted, the other character is untouched."""
     from services.identity.service import IdentityService
-    from services.identity.types import EntityRef
+    from domain.identity import EntityRef
 
     async with test_pool.acquire() as conn:
         elder = await _character(conn, game, descriptor="La Kethari âgée")
@@ -397,7 +397,7 @@ async def test_a_reveal_without_real_name_marks_the_true_name_alias_known(
     test_pool, game
 ):
     from services.identity.service import IdentityService
-    from services.identity.types import EntityRef
+    from domain.identity import EntityRef
 
     async with test_pool.acquire() as conn:
         tesk = await _character(

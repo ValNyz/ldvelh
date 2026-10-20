@@ -239,10 +239,8 @@ async def play_game(
     """
     import asyncpg
     from main import app
-    import main
-
     # Inject the test pool into the app
-    main.db_pool = pool
+    app.state.pool = pool
 
     if snapshot_at is None:
         snapshot_at = [50, 100, 150, num_turns]

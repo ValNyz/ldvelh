@@ -484,7 +484,7 @@ async def test_c19_legacy_reveal_by_descriptor_works_after_migration(test_pool):
     descriptor by the migration; a reveal naming it with an article finds it, sets its
     true name, marks it known and renames its registry row by id."""
     from services.identity.service import IdentityService
-    from services.identity.types import EntityRef
+    from domain.identity import EntityRef
 
     async def hook(conn):
         await add_legacy_character(conn, "Kethari âgée", "La Kethari âgée")

@@ -52,8 +52,7 @@ async def run_latency_test(num_turns: int = 8, provider: str = "wandb"):
     )
 
     from main import app
-    import main
-    main.db_pool = pool
+    app.state.pool = pool
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),

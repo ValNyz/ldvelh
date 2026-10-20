@@ -66,3 +66,11 @@ def test_no_lazy_import_breaks_a_cycle_in_the_former_cycle_modules():
         if found:
             lazy[module] = sorted(found)
     assert not lazy, f"function-level imports of the former cycle: {lazy}"
+
+
+def test_api_modules_import_without_main():
+    code = "import sys, api.dependencies; sys.exit('main' in sys.modules)"
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=BACKEND, capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, result.stderr

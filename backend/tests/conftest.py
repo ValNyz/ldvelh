@@ -411,10 +411,9 @@ async def client(test_pool, monkeypatch):
     """httpx.AsyncClient with ASGI transport, using the test DB pool."""
     import httpx
     from main import app
-    import main
     from services import auth_service
 
-    monkeypatch.setattr(main, "db_pool", test_pool)
+    monkeypatch.setattr(app.state, "pool", test_pool, raising=False)
 
     # Mock email sending for all HTTP-based registration tests
     async def _noop_send(*args, **kwargs):

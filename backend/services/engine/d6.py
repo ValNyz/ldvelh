@@ -130,9 +130,9 @@ class D6Engine(BaseEngine):
             game_id,
         )
 
-        from schema.core import _coerce_json_dict
-        attributes = _coerce_json_dict(char["attributes"])
-        wounds = _coerce_json_dict(char["wounds"])
+        from schema.coerce import coerce_json_dict
+        attributes = coerce_json_dict(char["attributes"])
+        wounds = coerce_json_dict(char["wounds"])
 
         return {
             "attributes": attributes,
@@ -209,11 +209,11 @@ class D6Engine(BaseEngine):
         )
         if not row:
             return {}
-        from schema.core import _coerce_json_dict
+        from schema.coerce import coerce_json_dict
         return {
-            "attributes": _coerce_json_dict(row["attributes"]),
-            "skills": _coerce_json_dict(row["skills"]),
-            "wounds": _coerce_json_dict(row["wounds"]),
+            "attributes": coerce_json_dict(row["attributes"]),
+            "skills": coerce_json_dict(row["skills"]),
+            "wounds": coerce_json_dict(row["wounds"]),
             "force_points": row["force_points"],
         }
 
@@ -244,8 +244,8 @@ class D6Engine(BaseEngine):
                 game_id,
             )
             if char:
-                from schema.core import _coerce_json_dict
-                wounds = _coerce_json_dict(char["wounds"])
+                from schema.coerce import coerce_json_dict
+                wounds = coerce_json_dict(char["wounds"])
                 wounds[wound_level] = True
                 await conn.execute(
                     """
