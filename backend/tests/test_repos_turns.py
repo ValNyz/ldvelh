@@ -4,7 +4,14 @@ info requests, message pair and mechanic rolls, all on the caller's connection."
 from uuid import UUID
 
 import pytest
-from helpers import apply_deltas, apply_state, auth_headers, log_roll, make_roll
+from helpers import (
+    apply_deltas,
+    apply_state,
+    auth_headers,
+    log_roll,
+    make_roll,
+    resolve_place,
+)
 
 from domain.turn import NarrationState
 from repos import turns
@@ -35,7 +42,7 @@ async def _save(
             game_id,
             user_message=user_message,
             assistant_message=assistant_message,
-            state=await turn_effects.resolve_place(conn, game_id, state or _state()),
+            state=await resolve_place(conn, game_id, state or _state()),
             narrator_deltas=narrator_deltas or {},
             engine_snapshot=None,
             turn_id=None,
@@ -912,6 +919,56 @@ async def test_unusable_time_with_no_stored_time_falls_back_to_the_default(
 
     assert state.time == DEFAULT_GAME_TIME
     assert (await service.load_game_state(game_id))["game"]["time"] == DEFAULT_GAME_TIME
+
+
+async def _messages(pool, game_id) -> list:
+    async with pool.acquire() as conn:
+        return await conn.fetch(
+            "SELECT location_id FROM messages WHERE game_id = $1", game_id
+        )
+
+
+async def test_an_unresolved_place_is_refused_and_writes_no_message(
+    test_pool, test_user
+):
+    """#168: the stamp never resolves a place itself; an unresolved one is an error,
+    never a message silently stamped without its location."""
+    from services.game_service import GameService
+
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    with pytest.raises(ValueError):
+        async with test_pool.acquire() as conn:
+            await turns.save_turn_messages(
+                conn,
+                game_id,
+                user_message="Je pars.",
+                assistant_message="Tu pars.",
+                state=_state(location="Quai"),
+                narrator_deltas={},
+                engine_snapshot=None,
+                turn_id=None,
+            )
+    assert await _messages(test_pool, game_id) == []
+
+
+@pytest.mark.parametrize("place", [None, "  "])
+async def test_no_place_needs_no_resolution(test_pool, test_user, place):
+    from services.game_service import GameService
+
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    async with test_pool.acquire() as conn:
+        await turns.save_turn_messages(
+            conn,
+            game_id,
+            user_message="Je pars.",
+            assistant_message="Tu pars.",
+            state=_state(location=place),
+            narrator_deltas={},
+            engine_snapshot=None,
+            turn_id=None,
+        )
+    rows = await _messages(test_pool, game_id)
+    assert [r["location_id"] for r in rows] == [None, None]
 
 
 # =============================================================================

@@ -7,7 +7,6 @@ own rows (messages, rolls, turns) is in repos/turns.py.
 """
 
 import logging
-from dataclasses import replace
 from uuid import UUID
 
 from config import get_settings
@@ -140,18 +139,6 @@ async def _place(conn, populator, label: str, location: str | None) -> UUID | No
     return await refs.optional(
         await populator.identity(conn), conn, [], label, location, "location", live=True
     )
-
-
-async def resolve_place(conn, game_id: UUID, state: NarrationState) -> NarrationState:
-    """The state with its place resolved, for the message stamp: as it is when the commit
-    resolved (and counted) it already, else `location` resolved now (a state built
-    outside the commit: tests, fixtures)."""
-    if state.location_resolved:
-        return state
-    location_id = await _place(
-        conn, _populator(game_id), "message location", state.location
-    )
-    return replace(state, location_id=location_id, location_resolved=True)
 
 
 async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict | None:

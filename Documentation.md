@@ -64,12 +64,13 @@ ldvelh/
 │   │   ├── supervisor.py      # Per-game background job queue (enqueue, wait_idle, cancel_game, drain)
 │   │   └── game_locks.py      # Per-game turn lock (hold, is_held), idle entries purged
 │   ├── llm/                   # LLMSession, usage, call_log.py (CallLog: buffered llm_calls rows, flushed once per phase, #106)
-│   ├── repos/                 # SQL: games.py, turns.py (the turn transaction, turns table), uow.py (unit of work: transaction journaled under a turn), llm_calls.py (call log), users.py, llm_models.py
+│   ├── repos/                 # SQL: games.py, turns.py (SQL of the turn's own rows: messages, rolls, turns), uow.py (unit of work: transaction journaled under a turn), llm_calls.py (call log), users.py, llm_models.py
 │   ├── services/
 │   │   ├── game_service.py    # Game CRUD, state loading, messages, rollback
 │   │   ├── context_builder.py # Builds NarrationContext from DB
 │   │   ├── state_normalizer.py# Normalizes game state for frontend
 │   │   ├── hooks.py           # Post-turn hooks: on_turn_committed, on_new_cycle (registry, runners)
+│   │   ├── turn_effects.py    # What a narration changes at commit: state, location, stub events, credit, reveals, compel
 │   │   ├── subscribers.py     # Default subscribers: scheduled Director, engine new-cycle work, seed archiving
 │   │   ├── director_service.py# Director run: collect, LLM call, apply
 │   │   ├── director_context.py# Director run, collect step (reads, no connection kept during the call)
@@ -389,7 +390,7 @@ LIGHT mode is the default when `world_created == True` (the first turn after wor
 | `respond` | Sends `done` then `saved`; `done.state.meta` carries `user_message_id` and `assistant_message_id`, the turn's saved messages (#55) |
 | `schedule` | Starts extraction and the Director in the background |
 
-**Transaction.** The roll is *computed* before the narration (the narrator needs it) but *applied* at commit. `commit_turn` writes roll effects (stress, fate points), narration state, narrator deltas, engine snapshot, both messages, the roll log (or the claim of the resumed pending roll) and the engine lock in a single transaction (`repos/turns.py`). A failure or a cancellation anywhere before it leaves nothing behind (#16, #20). Credit deltas are stored as the ledger applied them (`applied`, `error`), not as the narrator asked (#33); a refused debit is reported to the narrator on the next turn.
+**Transaction.** The roll is *computed* before the narration (the narrator needs it) but *applied* at commit. `commit_turn` writes roll effects (stress, fate points), narration state, narrator deltas, engine snapshot, both messages, the roll log (or the claim of the resumed pending roll) and the engine lock in a single transaction (`pipeline/steps/commit.py`: effects in `services/turn_effects.py`, SQL in `repos/turns.py`). A failure or a cancellation anywhere before it leaves nothing behind (#16, #20). Credit deltas are stored as the ledger applied them (`applied`, `error`), not as the narrator asked (#33); a refused debit is reported to the narrator on the next turn.
 
 **Lenient narration parsing** (`schema/narration.py`, `parse_narration`). An optional field that is invalid (for example a malformed `day_transition` object) is ignored instead of discarding the turn; in an optional list (`entity_reveals`, `inventory_hints`, ...) only the invalid elements are dropped and the valid ones kept (logged as `entity_reveals[1]`), the whole list only when it is not a list (#80); `day_transition` accepts `true`, a string or a partial object; `false`, `0`, `0.0` and the strings `null`, `false`, `none`, `aucune`, `non`, `no` (any case) mean no transition. A narration that cannot be used at all raises `narration_invalid`. Narrator clock times (`time.new_time`, event `planned_time`, extractor `time`) go through the `GameTime` type (`schema/core.py`): `9h5`, `09:05`, `21H30` become `09h05`; anything else (`vers 10h`, `24h00`) becomes `None`, logged as `[GameTime] <field>: unusable time ignored` (no value at WARNING), and the commit step keeps the game's previous time (#86). A world-generation `arrival_event.time` that is unusable falls back to `DEFAULT_GAME_TIME` (`08h00`, `schema/core.py`) with a warning, so world creation never fails on it. A bare-string or non-object `time` in the narration is tolerated too. `day_transition.new_date` is a `Tag` (50 chars, the column width): longer dates are truncated.
 

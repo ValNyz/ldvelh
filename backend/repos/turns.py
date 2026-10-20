@@ -89,13 +89,11 @@ async def save_turn_messages(
 ) -> tuple[UUID, UUID]:
     """User + assistant message pair of the turn; returns (user_id, assistant_id).
 
-    `state`: its place resolved (the commit's, or services.turn_effects.resolve_place);
-    a place left unresolved raises ValueError rather than stamping no location.
+    `state`: its place resolved (and counted) by the commit; a place left unresolved
+    raises ValueError rather than stamping no location.
     `turn_id`: the turn the pair belongs to (None outside a turn: tests, fixtures)."""
     if not state.location_resolved and state.location and state.location.strip():
-        raise ValueError(
-            "the state's place is not resolved (turn_effects.resolve_place)"
-        )
+        raise ValueError("the state's place is not resolved")
     conv_id = await active_conversation(conn, game_id)
     if not conv_id:
         conv_id = await create_conversation(conn, game_id, state.cycle)

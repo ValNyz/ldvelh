@@ -82,23 +82,39 @@ async def store_requests(pool, game_id, requests):
         await turns.store_info_requests(conn, game_id, requests)
 
 
+async def resolve_place(conn, game_id, state):
+    """The state with its place resolved for the message stamp, as the commit does it: a
+    live location, else counted (`ref_dropped`, identity_events) and stamped None."""
+    from dataclasses import replace
+
+    from kg import refs
+    from services.identity.service import IdentityService
+
+    if state.location_resolved:
+        return state
+    identity = await IdentityService.for_game(conn, game_id)
+    location_id = await refs.optional(
+        identity, conn, [], "message location", state.location, "location", live=True
+    )
+    return replace(state, location_id=location_id, location_resolved=True)
+
+
 async def save_pair(pool, game_id, user_message, assistant_message, *, cycle=1, time="",
                     game_date=None, location_ref=None, narrator_deltas=None,
                     engine_snapshot=None, turn_id=None):
     """repos.turns.save_turn_messages with an explicit state, journaled under `turn_id`
-    (`location_ref` resolved by turn_effects.resolve_place); returns (user_id, assistant_id).
+    (`location_ref` resolved by resolve_place); returns (user_id, assistant_id).
 
     `time` defaults to "" like a narration without a time block (NarrationState.time is a str).
     """
     from domain.turn import NarrationState
     from repos import turns
     from repos.uow import uow
-    from services import turn_effects
 
     state = NarrationState(cycle=cycle, time=time, location=location_ref, npcs_present=[],
                            date=game_date)
     async with pool.acquire() as conn, uow(conn, turn_id):
-        state = await turn_effects.resolve_place(conn, game_id, state)
+        state = await resolve_place(conn, game_id, state)
         return await turns.save_turn_messages(
             conn, game_id, user_message=user_message, assistant_message=assistant_message,
             state=state, narrator_deltas=narrator_deltas or {}, engine_snapshot=engine_snapshot,
