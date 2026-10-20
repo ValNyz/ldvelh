@@ -79,6 +79,10 @@ unknown_character_label: "Inconnu(e)"
 
 # The script has letter case: a multi-word name has a capital after its first word.
 proper_name_uses_capitals: true
+# Letter case tells a name from a common noun (false for a script without case, or a
+# language that capitalises every noun): the identity prepass reads a capitalised form as
+# a name use; without it, a short form never links alone and is left to the model.
+case_marks_names: true
 # Shortest token that can single out an entity in a text (leak guard, implicit reveals).
 min_distinctive_token_len: 4
 

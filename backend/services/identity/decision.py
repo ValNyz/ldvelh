@@ -399,7 +399,7 @@ class _Runs:
         self.articles = set(normalizer.folded_entries([*pack.articles, *pack.elisions]))
         self.titles = set(normalizer.folded_entries(pack.titles))
         self.others = set(normalizer.folded_entries(pack.other_markers))
-        self.capitals = pack.proper_name_uses_capitals
+        self.capitals = pack.case_marks_names
 
     def joined(self, left: int, right: int) -> bool:
         """Words `left` and `right` (= left + 1) are one run: nothing but joins between."""
@@ -411,7 +411,7 @@ class _Runs:
 
     def continued(self, first: int, end: int) -> bool:
         """The name in words [first, end) is part of a longer one the text writes: a
-        number right after it, or (in a language that capitalises proper names) a
+        number right after it, or (where letter case marks names) a
         capitalised word right after it (past articles), or before it in mid-sentence (a
         title aside)."""
         after = end
@@ -441,12 +441,15 @@ class _Runs:
         )
 
     def common_use(self, surface: str, c: Candidate, norm: str) -> bool:
-        """A short form written as a common noun: in a language that capitalises proper
-        names, a capitalised stored short form (a word of a name or of a label) the text
-        writes in lower case is not used as a name."""
+        """A short form maybe written as a common noun. Where letter case marks names
+        (the pack's case_marks_names), a capitalised stored short form (a word of a name
+        or of a label) the text writes in lower case is not used as a name; where it does
+        not, a short form can never be told from a common noun, so it never links alone."""
         alias = next((a for a in c.aliases if a.alias_norm == norm), None)
-        if not self.capitals or alias is None or alias.kind != SHORT:
+        if alias is None or alias.kind != SHORT:
             return False
+        if not self.capitals:
+            return True
         stored, written = alias.alias.split(), surface.split()
         return any(
             _capitalised(a) and b[:1].islower()

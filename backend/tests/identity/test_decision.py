@@ -463,6 +463,26 @@ def test_prepass_leaves_a_short_form_written_as_a_common_noun():
     ]
 
 
+def test_without_case_marking_names_a_short_form_never_links_alone():
+    caseless = Normalizer(
+        load_lang("fr").model_copy(update={"case_marks_names": False}), CONFIG
+    )
+    case = _candidate(6, "Valise souple", "object", aliases=[_alias("Valise", "short")])
+    keswil = _candidate(3, "Odran Keswil")
+    exact = {
+        caseless.norm(f): c for f, c in (("Valise", case), ("Odran Keswil", keswil))
+    }
+    text = (
+        "Odran Keswil pose la Valise. Il ouvre la Valise souple, puis le Keswil Bleu."
+    )
+    found = decision.prepass(
+        text, _set(case, keswil, exact=exact), normalizer=caseless, config=CONFIG
+    )
+    # Names of the other kinds still link, and no capital is read as a continuation.
+    assert [d.surface for d in found] == ["Odran Keswil"]
+    assert load_lang("fr").case_marks_names and load_lang("en").case_marks_names
+
+
 def test_a_surface_that_repeats_its_context_keeps_only_the_mention():
     voss = _candidate(4, "Rizka Voss", aliases=[_alias("Voss", "short")])
     text = "Si tu cherches Voss, va au sas."

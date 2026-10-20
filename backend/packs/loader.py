@@ -101,6 +101,7 @@ class LangPack(_Strict):
     apostrophes: list[str]
     unknown_character_label: str
     proper_name_uses_capitals: bool
+    case_marks_names: bool
     min_distinctive_token_len: int
     prompt_examples: LangExamples
 

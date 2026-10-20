@@ -28,6 +28,10 @@ apostrophes: ["'", "’"]
 unknown_character_label: "Unknown person"
 
 proper_name_uses_capitals: true
+# Letter case tells a name from a common noun (false for a script without case, or a
+# language that capitalises every noun): the identity prepass reads a capitalised form as
+# a name use; without it, a short form never links alone and is left to the model.
+case_marks_names: true
 min_distinctive_token_len: 4
 
 prompt_examples:
