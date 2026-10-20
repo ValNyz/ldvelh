@@ -174,6 +174,50 @@ async def test_edge_preview_matches_what_the_merge_moves(test_pool, test_user):
     assert preview["fact_participants.entity_id"] == 1
 
 
+@pytest.mark.parametrize("keep_has_one", [False, True])
+async def test_edge_preview_lists_the_engine_rows_moved_or_left_behind(
+    test_pool, test_user, keep_has_one
+):
+    """I3: drop's stat block moves to keep when keep has none; when both have one, the
+    preview and moved_edges list drop's as left behind and dropped_row keeps a copy."""
+    from repos import entities
+
+    async with test_pool.acquire() as conn:
+        _game, keep, drop, _other = await _setup(conn, test_user["id"])
+        owners = [keep, drop] if keep_has_one else [drop]
+        for owner in owners:
+            await conn.execute(
+                "INSERT INTO npc_fate (character_id, fate_points) VALUES ($1, 3)", owner
+            )
+        drop_fate = await conn.fetchval(
+            "SELECT id FROM npc_fate WHERE character_id = $1", drop
+        )
+        preview = await entities.edge_preview(conn, keep, drop, "character")
+        merge_id = await conn.fetchval(
+            "SELECT merge_entities($1, $2, 't', NULL)", keep, drop
+        )
+        row = await conn.fetchrow(
+            "SELECT moved_edges, dropped_row FROM entity_merges WHERE id = $1", merge_id
+        )
+        survivors = await conn.fetchval(
+            "SELECT count(*) FROM npc_fate WHERE character_id = $1", keep
+        )
+    moved, dropped = (
+        value if isinstance(value, dict) else json.loads(value)
+        for value in (row["moved_edges"], row["dropped_row"])
+    )
+    assert preview == {k: len(v) for k, v in moved.items() if v}
+    assert survivors == 1
+    if keep_has_one:
+        assert preview["npc_fate.dropped"] == 1
+        assert "npc_fate.character_id" not in preview
+        assert dropped["engine"]["npc_fate"]["id"] == str(drop_fate)
+    else:
+        assert preview["npc_fate.character_id"] == 1
+        assert "npc_fate.dropped" not in preview
+        assert "engine" not in dropped
+
+
 async def test_a_guard_refusal_exits_without_prompt_event_or_write(
     test_pool, test_user, monkeypatch, capsys
 ):
@@ -210,3 +254,42 @@ async def test_a_failed_connection_prints_no_url_and_no_traceback(capsys):
     assert await merge_entities._main(args) == 2
     err = capsys.readouterr().err
     assert "Cannot connect" in err and "secretpw" not in err and "Traceback" not in err
+
+
+async def test_the_engine_rows_migration_goes_down_and_up(test_pool, test_user):
+    """The down restores the PR 1a merge (drop's engine row not listed), the up gives the
+    audited one back."""
+    from pathlib import Path
+
+    migration = next(
+        (Path(__file__).resolve().parents[3] / "db" / "migrations").glob(
+            "*_identity_merge_engine_rows.sql"
+        )
+    )
+    up, down = migration.read_text(encoding="utf-8").split("-- migrate:down", 1)
+    up = up.split("-- migrate:up", 1)[1]
+
+    async def merged_keys(conn) -> set[str]:
+        _game, keep, drop, _other = await _setup(conn, test_user["id"])
+        for owner in (keep, drop):
+            await conn.execute("INSERT INTO npc_fate (character_id) VALUES ($1)", owner)
+        merge_id = await conn.fetchval(
+            "SELECT merge_entities($1, $2, 't', NULL)", keep, drop
+        )
+        moved = await conn.fetchval(
+            "SELECT moved_edges FROM entity_merges WHERE id = $1", merge_id
+        )
+        return set(moved if isinstance(moved, dict) else json.loads(moved))
+
+    async with test_pool.acquire() as conn:
+        tx = conn.transaction()
+        await tx.start()
+        try:
+            await conn.execute(down)
+            after_down = await merged_keys(conn)
+            await conn.execute(up)
+            after_up = await merged_keys(conn)
+        finally:
+            await tx.rollback()
+    assert "npc_fate.dropped" not in after_down
+    assert "npc_fate.dropped" in after_up

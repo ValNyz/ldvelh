@@ -96,12 +96,21 @@ async def _main(args: argparse.Namespace) -> int:
             print(f"The guards refuse this merge ({refused}): nothing was changed.")
             return 1
         kind = (await entities.get_registry(conn, args.game, keep)).entity_type
-        moved = await entities.edge_preview(conn, keep, drop, kind)
+        preview = await entities.edge_preview(conn, keep, drop, kind)
+        moved = {k: n for k, n in preview.items() if not k.endswith(".dropped")}
+        left = {k: n for k, n in preview.items() if k.endswith(".dropped")}
         print("Edges that move from DROP to KEEP (duplicates are closed or merged):")
         for key, count in sorted(moved.items()):
             print(f"  {key}: {count}")
         if not moved:
             print("  none")
+        if left:
+            print(
+                "Engine rows of DROP replaced by KEEP's own (copied into"
+                " entity_merges.dropped_row, key 'engine'):"
+            )
+            for key, count in sorted(left.items()):
+                print(f"  {key}: {count}")
         if not args.yes:
             answer = await asyncio.to_thread(input, "Merge DROP into KEEP? [y/N] ")
             if answer.strip().lower() not in ("y", "yes"):
