@@ -926,14 +926,24 @@ CANDIDATES_TRGM_SQL = f"""
                JOIN entity_aliases AS al
                     ON al.game_id = $1 AND given.word <% al.alias_norm),
          aliases AS ({_BLOCKING_ALIASES}),
-         covered AS (
-             SELECT aliases.alias_id, aliases.entity_id,
-                    least(1, sum(word_similarity(aliases.alias_norm, near.word))) AS score
+         pairs AS (
+             SELECT aliases.alias_id, aliases.entity_id, aliases.alias_norm, near.word
                FROM near JOIN aliases ON aliases.alias_id = near.id
               WHERE (length(aliases.alias_norm) >= $4
                      OR cardinality(string_to_array(aliases.alias_norm, ' ')) > 1)
-                AND strict_word_similarity(near.word, aliases.alias_norm) >= $5
-              GROUP BY aliases.alias_id, aliases.entity_id)
+                AND strict_word_similarity(near.word, aliases.alias_norm) >= $5),
+         parts AS (
+             SELECT pairs.alias_id, pairs.entity_id, part.pos,
+                    max(word_similarity(part.word, pairs.word)) AS best,
+                    cardinality(show_trgm(part.word)) AS weight
+               FROM pairs,
+                    unnest(string_to_array(pairs.alias_norm, ' '))
+                        WITH ORDINALITY AS part (word, pos)
+              GROUP BY pairs.alias_id, pairs.entity_id, part.pos, part.word),
+         covered AS (
+             SELECT alias_id, entity_id,
+                    sum(best * weight)::float / nullif(sum(weight), 0) AS score
+               FROM parts GROUP BY alias_id, entity_id)
     SELECT entity_id, max(score) AS score FROM covered GROUP BY entity_id"""
 
 _TRGM_THRESHOLD = "pg_trgm.word_similarity_threshold"
@@ -961,9 +971,10 @@ async def candidates_trgm(
     index finds the aliases in which a word reaches the word similarity `s_word`
     (`word <% alias_norm`); the word must also match whole words of the alias with a strict
     word similarity of at least `s_sim`. The score of an alias is the share of it the
-    matched words cover together (`word_similarity(alias_norm, word)` summed over its
-    words, at most 1), so that a name whose every word is misspelled scores like its
-    exact form would, not 1/n of it.
+    matched words cover together: each alias word takes its best match among them
+    (`word_similarity(alias_word, word)`, credited once however many inflections the
+    narration holds), weighted by its trigrams. A name whose every word is misspelled
+    scores close to its exact form, not 1/n of it; a partial name stays below 1.
 
     Matching is per word: a word the caller left out (shorter than `token_min_len`, a
     stop word, a title, an article) cannot reach an alias here, and evidence spread over

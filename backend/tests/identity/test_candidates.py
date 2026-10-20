@@ -380,6 +380,28 @@ async def test_a_fuzzy_multi_word_name_stays_within_the_cap(test_pool, game, ser
     assert candidates.TRGM in found.turn[0].sources
 
 
+async def test_two_inflections_of_one_word_credit_it_once(test_pool, game, service):
+    """« halle » and « halles » both match the word « halle » of « Halle Nord »: it is
+    credited once, so the partial name stays below an exact match."""
+    async with test_pool.acquire() as conn:
+        north = await conn.fetchval(
+            "INSERT INTO locations (game_id, name) VALUES ($1, 'Halle Nord') RETURNING id",
+            game,
+        )
+        scores = dict(
+            await entities.candidates_trgm(
+                conn, game, ["halle", "halles"], service.config, disclosed=[]
+            )
+        )
+        exact = dict(
+            await entities.candidates_trgm(
+                conn, game, ["halle", "nord"], service.config, disclosed=[]
+            )
+        )
+    assert 0 < scores[north] < 1
+    assert exact[north] == pytest.approx(1)
+
+
 async def test_a_secret_name_of_another_entity_makes_no_homonym(
     test_pool, game, service
 ):

@@ -8,7 +8,12 @@
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 CREATE INDEX idx_entity_aliases_game_norm_trgm ON public.entity_aliases
     USING gin (game_id, alias_norm public.gin_trgm_ops);
+-- It replaces the trigram index on alias_norm alone: that lookup is its only user, and
+-- every alias write would otherwise maintain two trigram indexes.
+DROP INDEX public.idx_entity_aliases_norm_trgm;
 
 -- migrate:down
+CREATE INDEX idx_entity_aliases_norm_trgm ON public.entity_aliases
+    USING gin (alias_norm public.gin_trgm_ops);
 DROP INDEX IF EXISTS public.idx_entity_aliases_game_norm_trgm;
 DROP EXTENSION IF EXISTS btree_gin;

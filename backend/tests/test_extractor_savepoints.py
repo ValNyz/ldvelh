@@ -260,6 +260,37 @@ async def test_extraction_log_of_a_turn_rolled_back_meanwhile_is_dropped(
             "SELECT count(*) FROM extraction_logs WHERE game_id = $1", game_id) == 0
 
 
+async def test_a_failed_game_check_keeps_the_warning_and_the_success(
+    test_pool, test_user, caplog, monkeypatch
+):
+    """The game check after a turn-key failure raises (connection lost): the audit path
+    keeps its WARNING and never fails the committed extraction."""
+    from repos import games, turns
+
+    extractor, game_id = await extractor_for(
+        test_pool, test_user, {"entities_created": [{"name": "Lambda"}]})
+    async with test_pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game_id)
+    real_log = extractor.populator.log_extraction
+
+    async def log_after_rollback(conn, cycle, stats, turn_id=None):
+        async with test_pool.acquire() as other:
+            await other.execute("DELETE FROM turns WHERE id = $1", turn_id)
+        return await real_log(conn, cycle, stats, turn_id)
+
+    async def check_fails(conn, game_id):
+        raise ConnectionError("connection lost")
+
+    extractor.populator.log_extraction = log_after_rollback
+    monkeypatch.setattr(games, "game_exists", check_fails)
+    with caplog.at_level(logging.INFO, logger="services.extraction.base"):
+        result = await extractor.run("texte", {}, 1, turn_id=turn_id)
+
+    assert result["success"] is True
+    assert any("Log failed" in r.getMessage()
+               for r in caplog.records if r.levelno == logging.WARNING)
+
+
 async def test_extraction_log_of_a_deleted_game_still_warns(test_pool, test_user, caplog):
     """#105: a failing turn key means "turn rolled back" only while the game exists; a
     deleted game is a real error and keeps the WARNING, whichever key PostgreSQL names."""

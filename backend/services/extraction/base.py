@@ -167,7 +167,7 @@ class BaseExtractor(ABC):
                 if (
                     turn_id is not None
                     and _turn_rolled_back(log_err)
-                    and await games.game_exists(conn, self.game_id)
+                    and await self._game_exists(conn)
                 ):
                     # The turn was deleted since the commit: its log would go with it.
                     logger.info(f"[{et}] Turn rolled back, extraction log dropped")
@@ -175,6 +175,15 @@ class BaseExtractor(ABC):
                     log_cause(logger, logging.WARNING, f"[{et}] Log failed", log_err,
                               debug_detail=get_settings().log_prompts)
         return stats, error
+
+    async def _game_exists(self, conn: Connection) -> bool:
+        """The game still exists; a failed check counts as gone (the audit path keeps its
+        WARNING and never raises)."""
+        try:
+            return await games.game_exists(conn, self.game_id)
+        except Exception as check_err:
+            log_exception(logger, logging.DEBUG, "Game check failed", check_err)
+            return False
 
     async def _write_item(
         self, conn: Connection, stats: dict, label: str,
