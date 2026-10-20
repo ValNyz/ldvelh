@@ -554,7 +554,8 @@ async def test_pipeline_is_parametrizable_with_the_en_stub_pack(test_pool, test_
             genre=None,
         )
         session = LLMSession.from_provider(provider)
-        decided = await service.decide(conn, session, text, scene)
+        candidates = await service.block(conn, text, scene)
+        decided = await service.decide(conn, session, text, scene, candidates)
         resolution = await service.apply_resolution(
             conn, TurnRef(None, message, 1), text, scene, decided
         )

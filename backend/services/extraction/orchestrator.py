@@ -3,8 +3,8 @@ LDVELH - Extraction Orchestrator
 
 Post-turn background job, queued per game by the supervisor (pipeline/post_turn.py), one
 function per phase:
-1. Resolver v2 (always): the scene of the turn, the identity decisions (model calls
-   outside any transaction), then their application in the turn's unit of work,
+1. Resolver v2 (always): the scene of the turn and its candidates, the identity
+   decisions (model calls with no pool connection held), then their application in the turn's unit of work,
    share-locking the source message: stubs created by the identity service,
    entity_mentions and the legacy narrator_context, identity_events (#154).
 2. Extractors: run for the entity types the turn really created or left bare, plus the
@@ -26,6 +26,7 @@ from domain.errors import SourceMessageGone
 from domain.identity import SceneEntity, TurnRef, TurnResolution
 from llm.session import LLMSession
 from repos import messages
+from repos.pooled import PooledReads
 from repos.uow import uow
 from services.identity.reveals import apply_entity_reveals
 from services.identity.scene import collect_scene_context
@@ -153,16 +154,21 @@ async def resolve_phase(
     narration: str | None,
     deltas: dict,
 ) -> TurnResolution | None:
-    """The turn's identity resolution (spec §4.5): decided outside any transaction,
-    applied in the turn's unit of work. None when there is nothing to resolve, when the
-    source message is gone (rolled back) or when it failed (the turn goes on)."""
+    """The turn's identity resolution (spec §4.5): the scene and the candidates read on
+    a connection, the model cascade with none held (#94), the application in the turn's
+    unit of work. None when there is nothing to resolve, when the source message is gone
+    (rolled back) or when it failed (the turn goes on)."""
     if turn is None or not narration:
         return None
     try:
         async with pool.acquire() as conn:
             identity = await IdentityService.for_game(conn, game_id)
             scene = await collect_scene_context(conn, game_id, turn.message_id, deltas)
-            decided = await identity.decide(conn, session, narration, scene)
+            candidates = await identity.block(conn, narration, scene)
+        decided = await identity.decide(
+            PooledReads(pool), session, narration, scene, candidates
+        )
+        async with pool.acquire() as conn:
             async with uow(conn, turn.turn_id, source_message_id=turn.message_id):
                 return await identity.apply_resolution(
                     conn, turn, narration, scene, decided

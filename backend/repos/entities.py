@@ -1281,37 +1281,28 @@ async def set_alias_flags(
 # Resolver v2 application and extractor proposals (spec §4.5.6, §4.6).
 
 
-async def similar_live_entity(
-    conn, game_id: UUID, entity_type: str, label: str, threshold: float
-) -> UUID | None:
-    """The one live entity of the type with a non-secret label or alias whose normalised
-    form is close to `label` (pg_trgm word similarity, either way round, from
-    `threshold`); None when none is, or when two are equally close (no pick)."""
-    if label is None or not label.strip():
-        return None
+# Alias kinds that hold an entity's whole name (never a derived short or untitled form).
+FULL_NAME_KINDS = ("true_name", "label", "descriptor")
+
+
+async def full_name_aliases(
+    conn, game_id: UUID, entity_type: str
+) -> list[tuple[UUID, str]]:
+    """(live entity, alias) of the non-secret whole-name aliases (FULL_NAME_KINDS) of the
+    live entities of the type, merges followed."""
     rows = await conn.fetch(
-        """WITH ref AS (SELECT ldvelh_norm_for_game($1, $3) AS norm),
-                scored AS (
-                    SELECT entity_follow_merge(al.entity_id) AS id,
-                           GREATEST(word_similarity(ref.norm, al.alias_norm),
-                                    word_similarity(al.alias_norm, ref.norm)) AS score
-                      FROM entity_aliases AS al, ref
-                     WHERE al.game_id = $1 AND al.entity_type = $2 AND NOT al.secret)
-           SELECT id, max(score) AS score FROM scored
-            WHERE score >= $4
-              AND identity_domain_row($2, id) IS NOT NULL
-              AND (identity_domain_row($2, id) ->> 'removed_cycle') IS NULL
-            GROUP BY id
-            ORDER BY score DESC
-            LIMIT 2""",
+        """SELECT DISTINCT live.id AS entity_id, al.alias
+             FROM entity_aliases AS al
+            CROSS JOIN LATERAL (SELECT entity_follow_merge(al.entity_id) AS id) AS live
+            WHERE al.game_id = $1 AND al.entity_type = $2 AND NOT al.secret
+              AND al.kind = ANY($3::text[])
+              AND identity_domain_row($2, live.id) IS NOT NULL
+              AND (identity_domain_row($2, live.id) ->> 'removed_cycle') IS NULL""",
         game_id,
         str(entity_type),
-        label,
-        threshold,
+        list(FULL_NAME_KINDS),
     )
-    if not rows or (len(rows) > 1 and rows[1]["score"] == rows[0]["score"]):
-        return None
-    return rows[0]["id"]
+    return [(r["entity_id"], r["alias"]) for r in rows]
 
 
 async def bare_entities(conn, entity_ids: list[UUID]) -> dict[UUID, str]:
@@ -1400,3 +1391,78 @@ async def reference_labels(conn, game_id: UUID) -> list[tuple[str, str]]:
         game_id,
     )
     return [(r["name"], r["entity_type"]) for r in rows]
+
+
+async def existing_entities(conn, game_id: UUID, entity_ids: list[UUID]) -> set[UUID]:
+    """The ids of `entity_ids` that are entities of the game, not merge tombstones."""
+    if not entity_ids:
+        return set()
+    rows = await conn.fetch(
+        """SELECT id FROM entity_registry
+            WHERE game_id = $1 AND id = ANY($2::uuid[]) AND merged_into IS NULL""",
+        game_id,
+        list(entity_ids),
+    )
+    return {r["id"] for r in rows}
+
+
+# Relations that give a character a usual place.
+PLACE_RELATIONS = ("works_at", "frequents", "lives_at")
+
+
+async def known_places(conn, entity_ids: list[UUID]) -> dict[UUID, set[UUID]]:
+    """The usual places of each character of `entity_ids`: its workplace, its residence
+    and the targets of its open place relations (none: absent from the result)."""
+    if not entity_ids:
+        return {}
+    rows = await conn.fetch(
+        """SELECT c.id, place.id AS place
+             FROM characters AS c
+            CROSS JOIN LATERAL (VALUES (c.workplace_id), (c.residence_id)) AS place (id)
+            WHERE c.id = ANY($1::uuid[]) AND place.id IS NOT NULL
+           UNION
+           SELECT r.source_id, r.target_id
+             FROM relations AS r
+            WHERE r.source_id = ANY($1::uuid[]) AND r.type::text = ANY($2::text[])
+              AND r.end_cycle IS NULL""",
+        list(entity_ids),
+        list(PLACE_RELATIONS),
+    )
+    places: dict[UUID, set[UUID]] = {}
+    for r in rows:
+        places.setdefault(r["id"], set()).add(r["place"])
+    return places
+
+
+async def characters_at(conn, game_id: UUID, location_id: UUID) -> list[UUID]:
+    """The characters, not removed from the world, whose open place relation (works at,
+    frequents, lives at) points at the location."""
+    rows = await conn.fetch(
+        """SELECT DISTINCT c.id
+             FROM characters AS c
+             JOIN relations AS r ON r.source_id = c.id AND r.target_id = $2
+                  AND r.type::text = ANY($3::text[]) AND r.end_cycle IS NULL
+            WHERE c.game_id = $1 AND c.removed_cycle IS NULL""",
+        game_id,
+        location_id,
+        list(PLACE_RELATIONS),
+    )
+    return [r["id"] for r in rows]
+
+
+async def mentioned_elsewhere(
+    conn, game_id: UUID, entity_ids: list[UUID], message_id: UUID
+) -> set[UUID]:
+    """The ids of `entity_ids` that a message other than `message_id` mentions (merges
+    followed)."""
+    if not entity_ids:
+        return set()
+    rows = await conn.fetch(
+        """SELECT DISTINCT entity_follow_merge(entity_id) AS id FROM entity_mentions
+            WHERE game_id = $3 AND message_id <> $2
+              AND entity_follow_merge(entity_id) = ANY($1::uuid[])""",
+        list(entity_ids),
+        message_id,
+        game_id,
+    )
+    return {r["id"] for r in rows}

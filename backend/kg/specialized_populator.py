@@ -570,9 +570,10 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     ) -> UUID | None:
         """The entity an extractor proposes (proposed_entities), through
         IdentityService.create_from_extractor: its fields bounded by the type's data
-        model and its references resolved to ids first. A reused entity holding the label
-        takes the non-blank fields (#87); an object is never put in the inventory here,
-        only `acquired` does that (F18). None when nothing was written."""
+        model and its references resolved to ids first. An entity reused on its exact
+        label takes the non-blank fields (#87), one reused on a close name is left
+        untouched; an object is never put in the inventory here, only `acquired` does
+        that (F18). None when nothing was written."""
         et = proposed.entity_type
         if is_protagonist_ref(proposed.label):
             logger.warning(
@@ -632,14 +633,14 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             base_value=obj_creation.base_value,
         )
         identity = await self.identity(conn)
-        obj_id = await identity.create_from_extractor(
+        # Exact label or alias only (spec C9): an acquired object is never folded into
+        # another by a close name.
+        obj_id = await identity.create_entity(
             conn,
-            ProposedEntity(
-                entity_type=EntityType.OBJECT,
-                label=obj_creation.name,
-                fields=_columns(obj_data, cycle),
-            ),
+            _named_spec(EntityType.OBJECT, obj_data, cycle),
             turn_id=await _turn_of(conn),
+            source="extractor",
+            refill=True,
         )
         if not await self.is_live(conn, EntityType.OBJECT, obj_id):
             return None

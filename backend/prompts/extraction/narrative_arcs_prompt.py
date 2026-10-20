@@ -8,10 +8,10 @@ from schema.extraction import NarrativeArcsExtraction
 
 from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur d'ARCS NARRATIFS d'un jeu de rôle narratif.
-Tu analyses les textes narratifs et extrais les arcs, relations, événements, et le résumé du segment.
+SYSTEM_PROMPT = f"""You are the NARRATIVE ARCS extractor of a narrative role-playing game.
+You read narrative texts and extract the arcs, relations, events and the segment summary.
 
-## FORMAT DE SORTIE
+## OUTPUT FORMAT
 
 ```json
 {{
@@ -29,10 +29,10 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
     ],
     "arcs_updated": [
         {{
-            "arc_title": "Titre EXACT de l'arc existant",
+            "arc_title": "<EXACT title of the existing arc>",
             "intensity": 4,
             "progress": 40,
-            "situation": "Nouvelle situation après les événements de ce cycle"
+            "situation": "<the new situation after this cycle's events>"
         }}
     ],
     "arcs_resolved": [
@@ -96,7 +96,7 @@ Tu analyses les textes narratifs et extrais les arcs, relations, événements, e
             ]
         }}
     ],
-    "segment_summary": "Résumé du cycle en 1-3 phrases (max 500 car.)"
+    "segment_summary": "<summary of the cycle in 1-3 sentences, max 500 chars>"
 }}
 ```
 

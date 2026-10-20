@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from kg import refs
 from prompts.extraction import narrative_arcs_prompt
+from prompts.extraction.shared import handled
 from schema import RelationType
 from schema.extraction import (
     EventScheduledExtraction,
@@ -52,7 +53,10 @@ class NarrativeArcsExtractor(BaseExtractor):
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
         entities = await self.reader.get_entities(conn)
-        known_entities = [e["name"] for e in entities]
+        known_entities = [
+            handled(e["name"], f"E{e['handle']}" if e.get("handle") else None)
+            for e in entities
+        ]
 
         active_arcs = await self.reader.get_active_arcs(conn)
         arcs_list = []

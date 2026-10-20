@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from prompts.extraction import inventory_prompt
+from prompts.extraction.shared import handled
 from schema.extraction import InventoryChange, ObjectCreation
 from services.engine import get_engine
 
@@ -26,7 +27,7 @@ class InventoryExtractor(BaseExtractor):
     tool_description = "Extract inventory changes from narrative text"
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
-        objects = await self.reader.get_objects(conn)
+        objects = await self._with_handles(conn, await self.reader.get_objects(conn))
 
         # Load engine for object extensions
         engine_type = await self.reader.get_engine_type(conn)
@@ -45,13 +46,14 @@ class InventoryExtractor(BaseExtractor):
         self, context: dict, narrative_text: str, cycle: int
     ) -> tuple[str, str]:
         known_objs = [
-            {"name": o["name"], "category": o.get("category", "misc")}
+            {"name": o["name"], "category": o.get("category", "misc"),
+             "handle": o.get("handle")}
             for o in context["objects"]
         ]
         user_prompt = inventory_prompt.build_user_prompt(
             narrative_text=narrative_text,
             cycle=cycle,
-            existing_labels=[o["name"] for o in context["objects"]],
+            existing_labels=[handled(o["name"], o.get("handle")) for o in context["objects"]],
             inventory_hints=context.get("inventory_hints") or None,
             known_objects=known_objs or None,
             engine_object_addon=self._engine.get_object_prompt_addon() or None,

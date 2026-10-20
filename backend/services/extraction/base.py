@@ -271,6 +271,14 @@ class BaseExtractor(ABC):
             conn, entity_id, amb.entity_type, {"ambient": amb.ambient}
         )
 
+    async def _with_handles(self, conn: Connection, rows: list[dict]) -> list[dict]:
+        """`rows` (entities read with their `id`) with the `handle` the prompts name them
+        by (E<n>)."""
+        identity = await self.populator.identity(conn)
+        handles = await identity.handles_for_prompt(
+            conn, [r["id"] for r in rows if r.get("id")])
+        return [{**r, "handle": handles.get(r.get("id"))} for r in rows]
+
     async def _call_llm(
         self, system_prompt: str, user_prompt: str, schema: dict
     ) -> tuple[dict | None, dict | None]:

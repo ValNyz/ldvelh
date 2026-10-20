@@ -44,7 +44,8 @@ class OrganizationsExtractor(BaseExtractor):
     tool_description = "Extract organization changes from narrative text"
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
-        organizations = await self.reader.get_organizations(conn)
+        organizations = await self._with_handles(
+            conn, await self.reader.get_organizations(conn))
         active_arcs = await self.reader.get_active_arcs(conn)
 
         arcs_with_orgs = []
@@ -68,6 +69,7 @@ class OrganizationsExtractor(BaseExtractor):
         known_orgs = [
             {
                 "name": org["name"],
+                "handle": org.get("handle"),
                 "org_type": org.get("org_type"),
                 "domain": org.get("domain"),
                 "ambient": org.get("ambient"),

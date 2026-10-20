@@ -5,12 +5,18 @@ Handles location CRUD, stub enrichment, ambient updates, and location-related fa
 
 from schema.extraction import LocationsExtraction
 
-from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import (
+    CORE_RULES,
+    ENTITY_REFERENCE_RULE,
+    FACT_RULES,
+    STRICT_KEYS_RULE,
+    handled,
+)
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur de LIEUX d'un jeu de rôle narratif.
-Tu analyses les textes narratifs et extrais les changements relatifs aux lieux.
+SYSTEM_PROMPT = f"""You are the LOCATIONS extractor of a narrative role-playing game.
+You read narrative texts and extract the changes about the locations.
 
-## FORMAT DE SORTIE
+## OUTPUT FORMAT
 
 ```json
 {{
@@ -119,7 +125,7 @@ def build_user_prompt(
         sector = loc.get("sector", "")
         loc_type = loc.get("location_type", "")
         ambient = loc.get("ambient", "")
-        line = f"- {name}"
+        line = f"- {handled(name, loc.get('handle'))}"
         if sector:
             line += f" [{sector}]"
         if loc_type:

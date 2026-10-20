@@ -5,12 +5,18 @@ Handles organization CRUD, ambient updates, and organization-related facts.
 
 from schema.extraction import OrganizationsExtraction
 
-from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import (
+    CORE_RULES,
+    ENTITY_REFERENCE_RULE,
+    FACT_RULES,
+    STRICT_KEYS_RULE,
+    handled,
+)
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur d'ORGANISATIONS d'un jeu de rôle narratif.
-Tu analyses les textes narratifs et extrais les changements relatifs aux organisations.
+SYSTEM_PROMPT = f"""You are the ORGANIZATIONS extractor of a narrative role-playing game.
+You read narrative texts and extract the changes about the organizations.
 
-## FORMAT DE SORTIE
+## OUTPUT FORMAT
 
 ```json
 {{
@@ -106,7 +112,7 @@ def build_user_prompt(
         org_type = org.get("org_type", "")
         domain = org.get("domain", "")
         ambient = org.get("ambient", "")
-        line = f"- {name}"
+        line = f"- {handled(name, org.get('handle'))}"
         if org_type:
             line += f" ({org_type})"
         if domain:

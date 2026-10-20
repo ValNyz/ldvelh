@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from prompts.extraction import locations_prompt
+from prompts.extraction.shared import handled
 from schema import EntityType
 
 from .base import BaseExtractor
@@ -44,8 +45,12 @@ class LocationsExtractor(BaseExtractor):
     tool_description = "Extract location changes from narrative text"
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
-        locations = await self.reader.get_locations(conn)
-        stub_locations = await self.reader.get_stub_locations(conn)
+        locations = await self._with_handles(conn, await self.reader.get_locations(conn))
+        handle_of = {loc["name"]: loc.get("handle") for loc in locations}
+        stub_locations = [
+            handled(name, handle_of.get(name))
+            for name in await self.reader.get_stub_locations(conn)
+        ]
         active_arcs = await self.reader.get_active_arcs(conn)
 
         arcs_with_locs = []
@@ -70,6 +75,7 @@ class LocationsExtractor(BaseExtractor):
         known_locs = [
             {
                 "name": loc["name"],
+                "handle": loc.get("handle"),
                 "sector": loc.get("sector"),
                 "location_type": loc.get("location_type"),
                 "ambient": loc.get("ambient"),

@@ -3,8 +3,8 @@ is there, what the previous narrator messages named, what the narrator revealed 
 the Director plans to bring in.
 
 The current place is the message's own, else the game's; the characters present are those
-the knowledge graph places there (get_npcs_at_location) and those the narrator lists as
-present. Recent messages are the K = IdentityConfig.context_messages narrator messages
+whose place relations point there (entities.characters_at) and those the narrator lists
+as present. Recent messages are the K = IdentityConfig.context_messages narrator messages
 before this one, whose entity_mentions the context generator reads.
 """
 
@@ -14,7 +14,6 @@ from uuid import UUID
 
 from config import IdentityConfig, get_identity_config
 from domain.identity import SceneContext
-from kg.reader import KnowledgeGraphReader
 from repos import entities, games, messages
 
 CHARACTER = "character"
@@ -30,9 +29,7 @@ async def _present(
     """Characters at the place (by its id) and the ones the narrator lists, once each."""
     present: list[UUID] = []
     if location_id is not None:
-        reader = KnowledgeGraphReader(None, game_id)
-        for npc in await reader.get_npcs_at_location(conn, str(location_id)):
-            present.append(npc["id"])
+        present += await entities.characters_at(conn, game_id, location_id)
     for name in _names(narrator_deltas.get("npcs_present")):
         entity_id = await entities.find_entity(conn, game_id, name, CHARACTER)
         if entity_id is not None:

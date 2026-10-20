@@ -473,3 +473,342 @@ async def test_an_alias_is_learned_and_a_true_name_is_revealed(test_pool, game):
     assert resolution.escalated
     # A linked stub without description is worth an extraction (enrichable).
     assert resolution.new_types == {"character"}
+
+
+# --- review round 1: strict close names, fresh links, traps, bounded enrichment -------
+
+
+def _lexicon_normalizer():
+    from services.identity.lexicon import for_game
+
+    return for_game("fr", None), Normalizer(load_lang("fr"), get_identity_config())
+
+
+@pytest.mark.parametrize(
+    "proposal, existing",
+    [
+        ("Jon Kessler", "Mira Kessler"),
+        ("Carte niveau 3", "Carte niveau 2"),
+        ("Clé rouillée", "Clé"),
+        ("Garde du sas", "Garde"),
+    ],
+)
+def test_close_names_never_fold_distinct_entities(proposal, existing):
+    from services.identity.proposals import close_entity
+
+    lexicon, normalizer = _lexicon_normalizer()
+    assert (
+        close_entity(
+            proposal,
+            [(UUID(int=1), existing)],
+            threshold=get_identity_config().create_from_extractor,
+            normalizer=normalizer,
+            lexicon=lexicon,
+        )
+        is None
+    )
+
+
+def test_a_close_name_differing_by_stop_words_only_is_the_same_entity():
+    from services.identity.proposals import close_entity
+
+    lexicon, normalizer = _lexicon_normalizer()
+    assert close_entity(
+        "Halle Cordiers",
+        [(UUID(int=1), "la Halle aux Cordiers"), (UUID(int=2), "Pont des Tanneurs")],
+        threshold=get_identity_config().create_from_extractor,
+        normalizer=normalizer,
+        lexicon=lexicon,
+    ) == UUID(int=1)
+
+
+@pytest.mark.parametrize(
+    "entity_type, existing, proposal",
+    [
+        ("character", "Mira Kessler", "Jon Kessler"),
+        ("object", "Carte niveau 2", "Carte niveau 3"),
+        ("object", "Clé", "Clé rouillée"),
+    ],
+)
+async def test_a_proposal_close_to_a_short_alias_or_a_number_creates_its_own_entity(
+    test_pool, game, entity_type, existing, proposal
+):
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        first = await service.create_entity(
+            conn,
+            NewEntitySpec(entity_type, existing, "proper_name"),
+            turn_id=None,
+            source="world_gen",
+        )
+        second = await service.create_from_extractor(
+            conn, ProposedEntity(entity_type=entity_type, label=proposal)
+        )
+    assert second != first
+
+
+async def test_an_acquired_object_is_never_folded_into_a_close_one(test_pool, test_user):
+    from schema.extraction import ObjectCreation
+    from kg.specialized_populator import ExtractionPopulator
+    from services.game_service import GameService
+
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    populator = ExtractionPopulator(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        two = await populator.create_object_by_label(
+            conn, ObjectCreation(name="Carte niveau 2", from_hint="carte"), 1
+        )
+        three = await populator.create_object_by_label(
+            conn, ObjectCreation(name="Carte niveau 3", from_hint="carte"), 1
+        )
+    assert two is not None and three is not None and two != three
+
+
+async def _message(conn, game, text: str) -> UUID:
+    from repos import messages
+
+    conversation = await messages.insert_conversation(conn, game, 1)
+    sequence = await conn.fetchval(
+        "SELECT coalesce(max(sequence), 0) + 1 FROM messages WHERE game_id = $1", game
+    )
+    return await messages.insert_message(
+        conn, game, conversation, "assistant", text, sequence
+    )
+
+
+def _scene(location_id=None, present=()):
+    from domain.identity import SceneContext
+
+    return SceneContext(
+        location_id=location_id,
+        present_ids=list(present),
+        recent_message_ids=[],
+        reveal_refs=[],
+        planned_npc_handles=[],
+        open_disclosure_ids=[],
+        protagonist_id=None,
+        companion_id=None,
+        genre=None,
+    )
+
+
+async def _apply(conn, game, text, decisions, scene=None):
+    """apply_resolution on crafted decisions (no blocking, no model)."""
+    from domain.identity import CandidateSet, TurnDecisions, TurnRef
+    from services.identity.resolution import DecidedTurn
+
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    message = await _message(conn, game, text)
+    decided = DecidedTurn(
+        CandidateSet([], [], {}),
+        TurnDecisions(decisions, escalated=False, fallback=False, usage={}),
+    )
+    resolution = await service.apply_resolution(
+        conn, TurnRef(None, message, 2), text, scene or _scene(), decided
+    )
+    return resolution, message
+
+
+async def test_a_link_follows_a_merge_committed_after_the_decision(test_pool, game):
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        keep = await service.create_entity(
+            conn, NewEntitySpec("character", "Tobias Renn", "proper_name"),
+            turn_id=None, source="world_gen",
+        )
+        drop = await service.create_entity(
+            conn, NewEntitySpec("character", "Toby Renn", "proper_name"),
+            turn_id=None, source="world_gen",
+        )
+        decided_on_drop = [
+            MentionDecision(surface="Grand Tob", decision="ALIAS",
+                            alias_kind="nickname", entity_id=drop, verified=True),
+        ]
+        merged = await service.merge(conn, keep, drop, reason="test", turn_id=None)
+        assert merged.refused is None
+        resolution, message = await _apply(
+            conn, game, "Grand Tob salue.", decided_on_drop
+        )
+        mention = await conn.fetchval(
+            "SELECT entity_id FROM entity_mentions WHERE message_id = $1", message
+        )
+        nickname = await conn.fetchval(
+            "SELECT entity_id FROM entity_aliases WHERE kind = 'nickname' AND game_id = $1",
+            game,
+        )
+    assert mention == keep and nickname == keep
+    assert [line.label for line in resolution.scene_entities] == ["Tobias Renn"]
+
+
+async def test_a_link_to_an_entity_gone_since_the_decision_is_dropped(test_pool, game):
+    from uuid import uuid4
+
+    async with test_pool.acquire() as conn:
+        resolution, message = await _apply(
+            conn,
+            game,
+            "Toby salue.",
+            [MentionDecision(surface="Toby", decision="MATCH", entity_id=uuid4(),
+                             verified=True)],
+        )
+        stale = await _count(conn, game, "identity_events", "kind = $2", "link_stale")
+    assert resolution.mentions == [] and stale == 1
+
+
+def _new_guard(**fields) -> MentionDecision:
+    return MentionDecision(surface="le garde", decision="NEW", new_type="character",
+                           new_kind="descriptor", verified=True, **fields)
+
+
+async def _guards(conn, game) -> list:
+    return await conn.fetch(
+        """SELECT c.id, er.name FROM characters AS c JOIN entity_registry AS er
+           ON er.id = c.id WHERE c.game_id = $1 AND c.descriptor = 'Garde'""",
+        game,
+    )
+
+
+async def _guard_and_places(conn, service, *, works_at: bool):
+    dock = await service.create_entity(
+        conn, NewEntitySpec("location", "Quai Nord", "proper_name"),
+        turn_id=None, source="world_gen",
+    )
+    hall = await service.create_entity(
+        conn, NewEntitySpec("location", "Halle aux Cordiers", "proper_name"),
+        turn_id=None, source="world_gen",
+    )
+    guard = await service.create_entity(
+        conn,
+        NewEntitySpec("character", "Garde", "descriptor",
+                      fields={"workplace_id": dock} if works_at else {}),
+        turn_id=None, source="world_gen",
+    )
+    return guard, dock, hall
+
+
+async def test_a_descriptor_seen_elsewhere_than_its_holder_is_a_second_entity(
+    test_pool, game
+):
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        guard, _, hall = await _guard_and_places(conn, service, works_at=True)
+        resolution, _ = await _apply(
+            conn, game, "Le garde te barre la route.", [_new_guard()], _scene(hall)
+        )
+        guards = await _guards(conn, game)
+    assert len(guards) == 2
+    newcomer = next(r for r in guards if r["id"] != guard)
+    assert newcomer["name"] != "Garde"  # internal suffix, never shown to the player
+    assert [i for i, _ in resolution.created] == [newcomer["id"]]
+
+
+async def test_a_descriptor_whose_holder_has_no_known_place_is_that_holder(
+    test_pool, game
+):
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        guard, _, hall = await _guard_and_places(conn, service, works_at=False)
+        resolution, message = await _apply(
+            conn, game, "Le garde te barre la route.", [_new_guard()], _scene(hall)
+        )
+        guards = await _guards(conn, game)
+        mention = await conn.fetchval(
+            "SELECT entity_id FROM entity_mentions WHERE message_id = $1", message
+        )
+    assert [r["id"] for r in guards] == [guard] and mention == guard
+    assert resolution.created == []
+
+
+async def test_a_descriptor_at_its_holders_place_is_that_holder(test_pool, game):
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        guard, dock, _ = await _guard_and_places(conn, service, works_at=True)
+        await _apply(conn, game, "Le garde te barre la route.", [_new_guard()],
+                     _scene(dock))
+        guards = await _guards(conn, game)
+    assert [r["id"] for r in guards] == [guard]
+
+
+async def test_two_people_talking_under_one_descriptor_are_two_entities(test_pool, game):
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        guard, dock, _ = await _guard_and_places(conn, service, works_at=True)
+        await _apply(
+            conn,
+            game,
+            "Le garde parle à Voss.",
+            [_new_guard(talks_to=("Voss",))],
+            _scene(dock, present=[guard]),
+        )
+        guards = await _guards(conn, game)
+    assert len(guards) == 2
+
+
+async def test_a_bare_stub_is_sent_to_its_extractor_once(test_pool, game):
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        stub = await service.create_entity(
+            conn, NewEntitySpec("location", "Quai 9", "proper_name"),
+            turn_id=None, source="resolver",
+        )
+        link = [MentionDecision(surface="Quai 9", decision="MATCH", entity_id=stub,
+                                verified=True)]
+        first, _ = await _apply(conn, game, "Le Quai 9 est vide.", link)
+        second, _ = await _apply(conn, game, "Le Quai 9 est toujours vide.", link)
+    assert first.new_types == {"location"}
+    assert second.new_types == set()
+
+
+async def test_no_pool_connection_is_held_during_the_model_calls(test_pool, test_user):
+    """#94: the resolver's model calls run with no connection of the pool held."""
+    from types import SimpleNamespace
+
+    from domain.identity import TurnRef
+    from llm.session import LLMCall
+    from services.extraction import orchestrator
+    from services.game_service import GameService
+    from services.llm_providers import StructuredOutputMode
+
+    game_id = await GameService(test_pool).create_game(test_user["id"])
+    async with test_pool.acquire() as conn:
+        message = await _message(conn, game_id, TEXT)
+    pool = _CountingPool(test_pool)
+    seen = []
+
+    class _Session:
+        def provider_for(self, purpose):
+            return SimpleNamespace(structured_output_mode=StructuredOutputMode.TOOL_USE)
+
+        async def extract_structured(self, *args, **kwargs):
+            seen.append(pool.in_use)
+            return LLMCall(value={"mentions": []}, cost=None)
+
+    resolution = await orchestrator.resolve_phase(
+        pool, _Session(), game_id, TurnRef(None, message, 1), TEXT, {}
+    )
+    assert seen == [0]
+    assert resolution is not None
+
+
+class _CountingPool:
+    """A real pool whose acquired connections are counted (`in_use`)."""
+
+    def __init__(self, pool):
+        self._pool = pool
+        self.in_use = 0
+
+    def acquire(self):
+        outer = self
+
+        class _Acquire:
+            async def __aenter__(self):
+                self._cm = outer._pool.acquire()
+                conn = await self._cm.__aenter__()
+                outer.in_use += 1
+                return conn
+
+            async def __aexit__(self, *exc):
+                outer.in_use -= 1
+                return await self._cm.__aexit__(*exc)
+
+        return _Acquire()

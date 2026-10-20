@@ -46,7 +46,8 @@ class CharactersExtractor(BaseExtractor):
     tool_description = "Extract character changes from narrative text"
 
     async def _build_context(self, conn: Connection, narrator_deltas: dict) -> dict:
-        characters = await self.reader.get_all_characters(conn)
+        characters = await self._with_handles(
+            conn, await self.reader.get_all_characters(conn))
         active_arcs = await self.reader.get_active_arcs(conn)
 
         # Get companion name to exclude from character extraction
@@ -76,6 +77,7 @@ class CharactersExtractor(BaseExtractor):
         known_chars = [
             {
                 "name": c["name"],
+                "handle": c.get("handle"),
                 # A character known only by its descriptor is named by it already.
                 "descriptor": c.get("descriptor") if c.get("descriptor") != c["name"] else None,
                 "occupation": c.get("occupation"),

@@ -91,6 +91,11 @@ def scene_entities_section(
     return "\n\n".join(parts)
 
 
+def handled(name: str, handle: str | None) -> str:
+    """A known entity as the context lists it: its handle first, when it has one."""
+    return f"{handle}{SEPARATOR}{name}" if handle else name
+
+
 def protagonist_section(name: str | None) -> str:
     """User-prompt section naming the player character, empty before world generation."""
     if not name:
@@ -106,7 +111,7 @@ FACT_RULES = """## FACTS (Entity Knowledge Only)
 Facts are PERMANENT TRUTHS about entities — not narrative events (those go in chronology).
 Only extract facts that will still be true next cycle.
 
-- semantic_key: lowercase ASCII format subject:verb:object (e.g. "ossek:deals_in:codes")
+- semantic_key: lowercase ASCII format subject:verb:object (e.g. "<subject>:deals_in:<object>")
 - importance: minimum 3 (no ambient noise). 5=game-changer, 4=significant, 3=notable
 - participants[]: REQUIRED — each fact MUST have at least one participant (the entity it's about)
 - fact_type values: revelation, trait, secret, ability

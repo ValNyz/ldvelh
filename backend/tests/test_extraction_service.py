@@ -369,12 +369,33 @@ class TestSceneEntitiesSection:
         assert load_lang("fr").prompt_examples.extraction[0].input not in section
 
     def test_no_universe_example_in_the_extraction_prompts(self):
+        """No name of a test world (world generation fixtures, the corpus-free examples
+        of the tests) in any extraction system prompt, as a whole word, whatever the
+        case: an example taken from a world is a universe rule."""
         import importlib
+        import json
+        import re
+        from pathlib import Path
 
+        from tests.characterization import payloads
+        from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
+
+        names = {payloads.NEW_CHARACTER_NAME}
+        for world in (json.loads(payloads.WORLD_GEN), json.loads(WORLD_GENERATION_EXAMPLE)):
+            names.add(world["world"]["name"])
+            names |= {world["protagonist"]["name"], world["companion"]["name"]}
+            for key in ("characters", "locations", "organizations", "inventory"):
+                names |= {item["name"] for item in world.get(key, [])}
+        assert len(names) > 10
         for module in ("characters_prompt", "locations_prompt", "organizations_prompt",
                        "inventory_prompt", "narrative_arcs_prompt"):
             prompt = importlib.import_module(f"prompts.extraction.{module}").SYSTEM_PROMPT
+            found = {n for n in names
+                     if re.search(rf"(?<!\w){re.escape(n.casefold())}(?!\w)",
+                                  prompt.casefold())}
+            assert found == set(), (module, found)
             assert "station spatiale" not in prompt and "IA de bord" not in prompt
+            assert not prompt.startswith("Tu es")  # English instructions
             assert "entities_created" not in prompt
             assert "ENTITY RESOLUTION MAP" not in prompt and "MANDATORY" not in prompt
 
@@ -524,3 +545,29 @@ def test_every_extractor_accepts_the_orchestrator_call():
                 scene_entities=[], source_message_id=None, turn_id=None)
         except TypeError as exc:
             pytest.fail(f"{name}: {exc}")
+
+
+async def test_known_entities_are_listed_by_handle(test_pool, test_user):
+    """The context lists of an extractor name each known entity by its handle first."""
+    from config import get_identity_config
+    from domain.identity import NewEntitySpec
+    from services.identity.service import IdentityService
+    from tests.helpers import extractor_for
+
+    extractor, game_id = await extractor_for(test_pool, test_user, {})
+    service = IdentityService(game_id, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        smith = await service.create_entity(
+            conn, NewEntitySpec("character", "Maëlle Corvin", "proper_name"),
+            turn_id=None, source="world_gen")
+        handle = await conn.fetchval(
+            "SELECT 'E' || handle FROM entity_registry WHERE id = $1", smith)
+    prompts = []
+
+    async def fake_call(system_prompt, user_prompt, schema):
+        prompts.append(user_prompt)
+        return {}, None
+
+    extractor._call_llm = fake_call
+    await extractor.run("texte", {}, 1)
+    assert f"- {handle} · Maëlle Corvin" in prompts[0]

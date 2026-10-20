@@ -47,10 +47,10 @@ from evals.identity.corpus import Scene, WorldEntity
 from evals.identity.lexicon import Lexicon, load_lexicon
 from evals.identity.run import Decision, RunResult
 from llm.session import LLMSession
-from services.extraction.resolver import build_first_turn_reference
 from services.extraction.resolver import (
     MentionMapping,
     ResolutionMap,
+    build_first_turn_reference,
     build_span_annotations,
     resolve_entities,
 )

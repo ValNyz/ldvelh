@@ -6,12 +6,18 @@ Handles character CRUD, ambient updates, skills, and character-related facts.
 from schema import PROTAGONIST_REF
 from schema.extraction import CharactersExtraction
 
-from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import (
+    CORE_RULES,
+    ENTITY_REFERENCE_RULE,
+    FACT_RULES,
+    STRICT_KEYS_RULE,
+    handled,
+)
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur de PERSONNAGES d'un jeu de rôle narratif.
-Tu analyses les textes narratifs et extrais les changements relatifs aux personnages (PNJ).
+SYSTEM_PROMPT = f"""You are the CHARACTERS extractor of a narrative role-playing game.
+You read narrative texts and extract the changes about the characters (NPCs).
 
-## FORMAT DE SORTIE
+## OUTPUT FORMAT
 
 ```json
 {{
@@ -64,7 +70,7 @@ Tu analyses les textes narratifs et extrais les changements relatifs aux personn
         }}
     ],
     "skills_changed": [
-        {{"name": "négociation", "level": 2}}
+        {{"name": "<skill>", "level": 2}}
     ],
     "facts": [
         {{
@@ -136,7 +142,7 @@ def build_user_prompt(
         known = c.get("known_by_protagonist", True)
         mood = c.get("mood", "")
         ambient = c.get("ambient", "")
-        line = f"- {name}"
+        line = f"- {handled(name, c.get('handle'))}"
         if descriptor:
             line += f' (alias: "{descriptor}")'
         if occ:

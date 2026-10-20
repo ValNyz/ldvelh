@@ -6,12 +6,18 @@ Handles object creation deduplicated by object label, inventory changes, and inv
 from schema import PROTAGONIST_REF
 from schema.extraction import InventoryExtraction
 
-from .shared import CORE_RULES, ENTITY_REFERENCE_RULE, FACT_RULES, STRICT_KEYS_RULE
+from .shared import (
+    CORE_RULES,
+    ENTITY_REFERENCE_RULE,
+    FACT_RULES,
+    STRICT_KEYS_RULE,
+    handled,
+)
 
-SYSTEM_PROMPT = f"""Tu es l'extracteur d'INVENTAIRE d'un jeu de rôle narratif.
-Tu analyses les textes narratifs et crées les fiches d'objets acquis et les changements d'inventaire.
+SYSTEM_PROMPT = f"""You are the INVENTORY extractor of a narrative role-playing game.
+You read narrative texts and record the objects acquired and the inventory changes.
 
-## FORMAT DE SORTIE
+## OUTPUT FORMAT
 
 ```json
 {{
@@ -122,7 +128,10 @@ def build_user_prompt(
 
     objects_section = ""
     if known_objects:
-        obj_lines = [f"- {o.get('name', '?')} [{o.get('category', '?')}]" for o in known_objects[:30]]
+        obj_lines = [
+            f"- {handled(o.get('name', '?'), o.get('handle'))} [{o.get('category', '?')}]"
+            for o in known_objects[:30]
+        ]
         objects_section = "\n\nKnown objects in inventory:\n" + "\n".join(obj_lines)
 
     engine_section = ""

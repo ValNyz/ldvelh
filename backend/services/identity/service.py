@@ -24,8 +24,10 @@ from uuid import UUID
 
 from config import IdentityConfig, get_identity_config
 from domain.identity import (
+    NEW_ENTITY_TYPES,
     AliasSpec,
     AmbiguousLabel,
+    CandidateSet,
     EntityRef,
     FactRef,
     IdentityWriteMiss,
@@ -44,7 +46,7 @@ from repos import entities
 from repos.uow import current_turn_id
 from services.identity import lexicon as lexicons
 from schema.extraction import ProposedEntity
-from services.identity import merges, resolution, reveals
+from services.identity import merges, proposals, resolution, reveals
 from services.identity.aliases import derive
 from services.identity.classify import extracted_character_names, free_suffix
 from services.identity.normalize import Normalizer
@@ -53,7 +55,7 @@ logger = logging.getLogger(__name__)
 
 CHARACTER = "character"
 # Types the service creates; the protagonist and the companion are made by game creation.
-CREATABLE_TYPES = frozenset({CHARACTER, "location", "organization", "object"})
+CREATABLE_TYPES = frozenset(NEW_ENTITY_TYPES)
 # Columns the service sets itself from the spec: never taken from spec.fields.
 _KNOWN_FLAG = "known_by_protagonist"
 _NAME_COLUMNS = frozenset({"name", "true_name", "descriptor", _KNOWN_FLAG})
@@ -649,17 +651,30 @@ class IdentityService:
         scene: SceneContext,
     ) -> TurnResolution:
         """Block, decide and apply the identity decisions of a turn's narration
-        (`resolution`): run it in the turn's unit of work. A caller that must not hold
-        the transaction during the model calls runs `decide` then `apply_resolution`."""
-        decided = await self.decide(conn, session, narration, scene)
+        (`resolution`), on one connection: run it in the turn's unit of work. A caller
+        that must hold no connection during the model calls runs `block`, then `decide`
+        with a pooled reader, then `apply_resolution` (the extraction orchestrator)."""
+        candidates = await self.block(conn, narration, scene)
+        decided = await self.decide(conn, session, narration, scene, candidates)
         return await self.apply_resolution(conn, turn, narration, scene, decided)
 
+    async def block(self, conn, narration: str, scene: SceneContext) -> CandidateSet:
+        """The candidates of a narration (SQL, no model call)."""
+        return await resolution.block(self, conn, narration, scene)
+
     async def decide(
-        self, conn, session: LLMSession, narration: str, scene: SceneContext
+        self,
+        reads,
+        session: LLMSession,
+        narration: str,
+        scene: SceneContext,
+        candidates: CandidateSet,
     ) -> resolution.DecidedTurn:
-        """The candidates and the decision cascade of a narration: reads and model calls
-        only, no write."""
-        return await resolution.decide(self, conn, session, narration, scene)
+        """The decision cascade over the candidates: model calls, no write; `reads` (a
+        connection or repos.pooled.PooledReads) only follows merges between calls."""
+        return await resolution.decide(
+            self, reads, session, narration, scene, candidates
+        )
 
     async def apply_resolution(
         self,
@@ -679,9 +694,10 @@ class IdentityService:
     ) -> UUID:
         """The entity an extractor proposes, without a model call (the resolver should
         have seen it; a cost bound): the live entity a label or alias of the type names
-        exactly, else the one live entity of the type whose name is close
-        (`create_from_extractor` similarity, event 'extractor_reused'), else a new one
-        (`create_entity`, source extractor). `proposed.fields` are columns of its row
+        exactly (which takes the non-blank fields of the proposal when it holds the label,
+        #87), else the one live entity of the type whose whole name is close
+        (`proposals.close_entity`, event 'extractor_reused'; left untouched: its name is
+        not the proposal's), else a new one (`create_entity`, source extractor). `proposed.fields` are columns of its row
         (references already ids). A character name that is not a proper name is a
         descriptor; next to a distinct descriptor it is a second descriptor, whose
         holder is reused when it already names a live character. Live entities only
@@ -702,12 +718,12 @@ class IdentityService:
             spec.entity_type,
         )
         if target.entity_id is None and not target.ambiguous:
-            similar = await entities.similar_live_entity(
-                conn,
-                self.game_id,
-                spec.entity_type,
+            similar = proposals.close_entity(
                 spec.label,
-                self.config.create_from_extractor,
+                await entities.full_name_aliases(conn, self.game_id, spec.entity_type),
+                threshold=self.config.create_from_extractor,
+                normalizer=self.normalizer,
+                lexicon=self.lexicon,
             )
             if similar is not None:
                 await self.record_event(
