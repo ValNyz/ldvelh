@@ -2,7 +2,9 @@
 
 A secret name of a scene is a name its gold knowledge marks secret (`kind: name`,
 `state: secret`) or an alias the world flags secret (the alias or its whole entity),
-unless an open name disclosure of the scene lets it through. The resolver leaks it when
+unless an open name disclosure of the scene lets it through, or the world already shows it:
+a name that is a whole word of a known, non-secret name of another entity (a place named
+after a person whose identity is the secret) discloses nothing. The resolver leaks it when
 a candidate card shows it (the app never shows a secret alias without an open
 disclosure, even one the narration contains), or when the rest of a request or a
 model's output holds it while the narration does not (an echo of the text the resolver
@@ -40,11 +42,36 @@ def secret_names(scene: Scene) -> list[str]:
         for k in scene.gold_knowledge
         if k.kind == NAME and k.state == SECRET and k.ref not in disclosed
     ]
+    owner = {
+        k.text: k.ref
+        for k in scene.gold_knowledge
+        if k.kind == NAME and k.state == SECRET
+    }
     for entity in scene.world:
         if entity.id in disclosed:
             continue
-        names += [a.text for a in entity.aliases if a.secret or entity.secret]
-    return list(dict.fromkeys(n for n in names if n.strip()))
+        for a in entity.aliases:
+            if a.secret or entity.secret:
+                names.append(a.text)
+                owner.setdefault(a.text, entity.id)
+    normalizer = _normalizer(scene.language)
+    return [
+        name
+        for name in dict.fromkeys(n for n in names if n.strip())
+        if not _shown_elsewhere(scene, name, owner.get(name), normalizer)
+    ]
+
+
+def _shown_elsewhere(scene: Scene, name: str, holder: str | None, normalizer) -> bool:
+    """`name` is a word of a name the protagonist knows of another, non-secret entity."""
+    shown = [
+        a.text
+        for e in scene.world
+        if e.id != holder and not e.secret
+        for a in e.aliases
+        if a.known and not a.secret
+    ]
+    return _in(name, shown, normalizer)
 
 
 def _in(name: str, texts: list[str], normalizer: Normalizer) -> bool:
