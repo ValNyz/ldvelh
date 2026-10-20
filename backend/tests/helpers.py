@@ -213,6 +213,14 @@ async def last_user_message_id(harness, game_id):
                ORDER BY created_at DESC, sequence DESC LIMIT 1""", game_id)
 
 
+async def message_id_at(pool, game_id, index):
+    """Id of the game's message at `index` in conversation order (None past the end)."""
+    async with pool.acquire() as conn:
+        return await conn.fetchval(
+            "SELECT id FROM messages WHERE game_id = $1 ORDER BY sequence ASC OFFSET $2 LIMIT 1",
+            game_id, index)
+
+
 async def rollback_last_turn(harness, game_id):
     """Roll back to before the latest player message, through the API."""
     user_msg = await last_user_message_id(harness, game_id)

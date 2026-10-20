@@ -588,18 +588,16 @@ class GameService:
     # ROLLBACK
     # =========================================================================
 
-    async def rollback_to_message(
-        self, game_id: UUID, message_id: UUID | None = None, keep_until_index: int | None = None
-    ) -> dict:
+    async def rollback_to_message(self, game_id: UUID, message_id: UUID | None = None) -> dict:
         """Rollback: delete a message and everything after it, and undo their turns.
 
-        Accepts either message_id (preferred) or keep_until_index (legacy). The journal
-        replay runs by default; ROLLBACK_ENGINE=cycle keeps the legacy cycle rollback (#22).
+        The journal replay runs by default; ROLLBACK_ENGINE=cycle keeps the legacy
+        cycle rollback (#22).
         """
         reader = self._get_reader(game_id)
         async with self.pool.acquire() as conn:
             messages = await reader.get_messages(conn, order="asc")
-            plan = plan_rollback(messages, message_id, keep_until_index)
+            plan = plan_rollback(messages, message_id)
             if plan is None:
                 return {"deleted": 0, "target_cycle": None, "rollback_result": {}}
             if get_settings().rollback_engine == "cycle":

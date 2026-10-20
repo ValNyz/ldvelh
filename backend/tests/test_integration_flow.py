@@ -9,7 +9,8 @@ import json
 import pytest
 
 from helpers import (
-    apply_deltas, apply_state, auth_headers, log_roll, make_roll, open_turn, save_pair,
+    apply_deltas, apply_state, auth_headers, log_roll, make_roll, message_id_at, open_turn,
+    save_pair,
 )
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
@@ -257,7 +258,7 @@ async def test_rollback_deletes_messages(
     assert len(messages_before) == 4  # 2 rounds * 2 messages
 
     # Rollback from index 2 (keep first round, remove second)
-    result = await service.rollback_to_message(game_id, keep_until_index=2)
+    result = await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
     assert result["deleted"] == 2
 
     messages_after = await service.load_chat_messages(game_id)
@@ -299,7 +300,7 @@ async def test_rollback_via_api(client, test_user, test_pool, world_gen_data):
     # Rollback second round via API (keep first 2 messages)
     resp = await client.post(
         f"/api/games/{game_id}/rollback",
-        json={"fromIndex": 2},
+        json={"messageId": str(await message_id_at(test_pool, game_id, 2))},
         headers=auth_headers(test_user["token"]),
     )
     assert resp.status_code == 200
@@ -412,7 +413,7 @@ async def test_rollback_cleans_mechanic_rolls(
     assert count == 2
 
     # Rollback second round (keep first 2 messages)
-    await service.rollback_to_message(game_id, keep_until_index=2)
+    await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
 
     # After rollback: second message and its roll are gone (the roll's insert is undone
     # with its turn, #22); the first roll stays linked to its message.

@@ -13,7 +13,7 @@ from services import rollback
 from services.engine import fate_core
 from services.game_service import GameService
 from tests.characterization import payloads
-from tests.helpers import last_user_message_id, narration_with, rollback_last_turn
+from tests.helpers import last_user_message_id, message_id_at, narration_with, rollback_last_turn
 
 BACKEND = Path(__file__).resolve().parents[1]
 MIRA = payloads.NEW_CHARACTER_NAME
@@ -709,7 +709,7 @@ async def test_rollback_to_the_arrival_keeps_the_world(harness, world_game):
 
     r = await harness.client.post(
         f"/api/games/{world_game}/rollback",
-        json={"fromIndex": 2},
+        json={"messageId": str(await message_id_at(harness.pool, world_game, 2))},
         headers=harness.headers,
     )
     assert r.status_code == 200, r.text

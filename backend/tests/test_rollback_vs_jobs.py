@@ -13,7 +13,7 @@ from repos.uow import uow
 from services.extraction.characters import CharactersExtractor
 from tests.characterization import payloads
 from tests.characterization.scripted_llm import classify_call
-from tests.helpers import last_user_message_id, rollback_last_turn
+from tests.helpers import last_user_message_id, message_id_at, rollback_last_turn
 from workers import supervisor
 
 pytestmark = pytest.mark.integration
@@ -164,7 +164,7 @@ async def test_rejected_rollback_still_returns_400(harness, world_game):
         msgs_before = await _messages(harness, world_game)
         r = await harness.client.post(
             f"/api/games/{world_game}/rollback",
-            json={"fromIndex": 0},
+            json={"messageId": str(await message_id_at(harness.pool, world_game, 0))},
             headers=harness.headers,
         )
         assert r.status_code == 400, r.text

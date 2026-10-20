@@ -8,7 +8,7 @@ import { paramsFromServer } from '../lib/game/wizardParams.mjs';
 import { buildChatPayload } from '../lib/game/chatRequest.mjs';
 import { findLastUserMessage } from '../lib/game/chatHistory.mjs';
 import {
-	TURN_KIND, startLiveTurn, withTurnEvent, turnActivity, reopenTurn, withChunk, withExtracting, withAnswer,
+	TURN_KIND, startLiveTurn, withTurnEvent, turnActivity, reopenTurn, withChunk, withAnswer,
 } from '../lib/game/liveTurn.mjs';
 
 // Game content constants (French — the game is in French)
@@ -129,9 +129,6 @@ export function useGameOrchestrator({ gameState: gs, games, phase, tooltips, wor
 				if (!apply('status', { director })) return;
 				phase.setDirectorStatus(director.status);
 				phase.setDirectorLabel(director.label);
-			},
-			onExtracting: (displayText) => {
-				if (apply('extracting', { edit: messages => withExtracting(messages, displayText) })) setIsExtracting(true);
 			},
 			onDone: (displayText, data) => {
 				// INIT mode: world_info present means world was just created

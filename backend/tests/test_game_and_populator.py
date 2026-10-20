@@ -11,6 +11,7 @@ Covers:
 """
 
 import json
+import uuid
 from uuid import UUID
 
 import pytest
@@ -21,6 +22,7 @@ from helpers import (
     apply_deltas,
     apply_state,
     auth_headers,
+    message_id_at,
     open_turn,
     save_pair,
     store_requests,
@@ -138,7 +140,7 @@ class TestRollback:
         assert len(messages_before) == 6  # 3 rounds * 2 messages
 
         # Rollback from index 2 (keep first round only)
-        result = await service.rollback_to_message(game_id, keep_until_index=2)
+        result = await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
         assert result["deleted"] == 4
         assert result["target_cycle"] == 1
 
@@ -193,7 +195,7 @@ class TestRollback:
         )
 
         # Rollback to first round
-        result = await service.rollback_to_message(game_id, keep_until_index=2)
+        result = await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
         assert result["deleted"] == 2
 
         # Verify game state was restored
@@ -208,12 +210,12 @@ class TestRollback:
 
     @pytest.mark.asyncio
     async def test_rollback_beyond_messages_noop(self, client, test_user, test_pool):
-        """Rollback with index >= message count returns deleted=0."""
+        """Rollback with an unknown message id returns deleted=0."""
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
         )
 
-        result = await service.rollback_to_message(game_id, keep_until_index=999)
+        result = await service.rollback_to_message(game_id, message_id=uuid.uuid4())
         assert result["deleted"] == 0
 
     @pytest.mark.asyncio
@@ -282,7 +284,7 @@ class TestRollback:
         assert stats["credits"] == initial_credits - 80
 
         # Rollback: keep only first round (index 2 = keep messages 0,1)
-        await service.rollback_to_message(game_id, keep_until_index=2)
+        await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
 
         # Credits from round 2 (-30) should be reversed
         async with test_pool.acquire() as conn:
@@ -338,7 +340,7 @@ class TestRollback:
             assert count == 1
 
         # Rollback to keep cycle 1 messages (2 msgs), remove cycle 2+ data
-        await service.rollback_to_message(game_id, keep_until_index=2)
+        await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
 
         async with test_pool.acquire() as conn:
             count = await conn.fetchval(
@@ -381,7 +383,7 @@ class TestRollback:
             )
 
         # Rollback to keep only first 2 rounds (4 messages)
-        await service.rollback_to_message(game_id, keep_until_index=4)
+        await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 4))
 
         messages = await service.load_chat_messages(game_id)
         assert len(messages) == 4
@@ -432,7 +434,7 @@ class TestRollback:
             )
 
         # Rollback to keep first round only
-        await service.rollback_to_message(game_id, keep_until_index=2)
+        await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
 
         # Send a new message after rollback
         narration = NarrationOutput.model_validate(_make_narration_output(arrival_loc))
@@ -501,7 +503,7 @@ class TestRollback:
             assert count >= 1
 
         # Rollback to keep cycle 1 messages (2 msgs), remove cycle 2+ data
-        await service.rollback_to_message(game_id, keep_until_index=2)
+        await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
 
         async with test_pool.acquire() as conn:
             count = await conn.fetchval(

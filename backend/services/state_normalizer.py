@@ -178,42 +178,6 @@ def normalize_game_state(
     )
 
 
-def extract_game_fields(data: dict) -> dict:
-    """Extract game session fields from a flat dict."""
-    keys = [
-        "id",
-        "name",
-        "time",
-        "current_location",
-        "npcs_present",
-        "current_cycle",
-        "day",
-        "game_date",
-        "status",
-        "engine",
-        "engine_locked",
-        "created_at",
-        "updated_at",
-    ]
-    return {k: data[k] for k in keys if k in data}
-
-
-def extract_player_fields(data: dict) -> dict:
-    """Extract player fields from a flat dict."""
-    keys = [
-        "credits",
-        "inventory",
-        "engine_stats",
-        "sheet",
-    ]
-    return {k: data[k] for k in keys if k in data}
-
-
-# =============================================================================
-# MERGE HELPERS
-# =============================================================================
-
-
 # =============================================================================
 # SERIALIZATION HELPERS
 # =============================================================================

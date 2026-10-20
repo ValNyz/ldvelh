@@ -90,8 +90,7 @@ class ChatRequest(WizardForm):
 class RollbackRequest(BaseModel):
     """Requête de rollback"""
 
-    messageId: UUID | None = None  # Preferred: UUID of the message to rollback from
-    fromIndex: int | None = None  # Legacy: index-based rollback
+    messageId: UUID | None = None  # UUID of the message to rollback from
 
 
 class RenameRequest(BaseModel):
@@ -288,7 +287,7 @@ async def rollback_game(
         msg_id = request.messageId
         try:
             result = await service.rollback_to_message(
-                game_id, message_id=msg_id, keep_until_index=request.fromIndex
+                game_id, message_id=msg_id
             )
         except RollbackRejected as e:
             detail = ROLLBACK_REJECTED_MESSAGES.get(e.reason, ROLLBACK_REJECTED_DEFAULT)

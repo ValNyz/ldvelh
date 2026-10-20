@@ -26,7 +26,7 @@ GAME_SCOPED_CALLS = {
     ("DELETE", "/api/games/{game_id}"): {},
     ("PATCH", "/api/games/{game_id}"): {"json": {"name": "Volée"}},
     ("GET", "/api/games/{game_id}/world"): {},
-    ("POST", "/api/games/{game_id}/rollback"): {"json": {"fromIndex": 0}},
+    ("POST", "/api/games/{game_id}/rollback"): {"json": {"messageId": "00000000-0000-0000-0000-000000000000"}},
     ("POST", "/api/chat"): {"json": {"gameId": GAME, "message": "Salut"}},
     ("GET", "/api/tooltips/annotations"): {"params": {"gameId": GAME}},
     ("GET", "/api/tooltips/entity"): {

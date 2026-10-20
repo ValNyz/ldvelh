@@ -3,7 +3,7 @@
 import pytest
 
 from domain.errors import RollbackRejected
-from helpers import apply_deltas, apply_state, open_turn, save_pair
+from helpers import apply_deltas, apply_state, message_id_at, open_turn, save_pair
 from repos.uow import uow
 from schema import NarrationOutput
 from services import rollback
@@ -75,7 +75,7 @@ class TestAtomicRollback:
         before = await _state(test_pool, game_id)
         assert before["location"] == "Dock 9" and before["cycle"] == 2 and before["dock9"] == 1
 
-        result = await service.rollback_to_message(game_id, keep_until_index=2)
+        result = await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
 
         after = await _state(test_pool, game_id)
         assert result["deleted"] == 2 and result["target_cycle"] == 1
@@ -100,24 +100,24 @@ class TestAtomicRollback:
 
         monkeypatch.setattr(rollback, "_undo_changes", boom)
         with pytest.raises(RuntimeError, match="KG rollback failed"):
-            await service.rollback_to_message(game_id, keep_until_index=2)
+            await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, 2))
 
         assert await _state(test_pool, game_id) == before
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("index", [0, 1, -1])
+    @pytest.mark.parametrize("index", [0, 1])
     async def test_rolling_back_the_arrival_pair_is_rejected(self, client, test_user, test_pool, index):
         game_id, service, _ = await _two_cycles_with_stub_location(client, test_user, test_pool)
         before = await _state(test_pool, game_id)
         with pytest.raises(RollbackRejected):
-            await service.rollback_to_message(game_id, keep_until_index=index)
+            await service.rollback_to_message(game_id, message_id=await message_id_at(test_pool, game_id, index))
         assert await _state(test_pool, game_id) == before
 
     @pytest.mark.asyncio
     async def test_route_returns_400_for_arrival_rollback(self, client, test_user, test_pool):
         game_id, _, _ = await _two_cycles_with_stub_location(client, test_user, test_pool)
         r = await client.post(
-            f"/api/games/{game_id}/rollback", json={"fromIndex": 0},
+            f"/api/games/{game_id}/rollback", json={"messageId": str(await message_id_at(test_pool, game_id, 0))},
             headers={"Authorization": f"Bearer {test_user['token']}"},
         )
         assert r.status_code == 400

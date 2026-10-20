@@ -22,24 +22,20 @@ class RollbackPlan:
     has_legacy_message: bool  # a message saved before the journal (turn_id NULL)
 
 
-def _cutoff(
-    messages: list[dict], message_id: UUID | None, keep_until_index: int | None
-) -> int | None:
+def _cutoff(messages: list[dict], message_id: UUID | None) -> int | None:
     """Index of the first message to delete, None when the target is unknown."""
-    if message_id:
-        return next(
-            (i for i, m in enumerate(messages) if str(m["id"]) == str(message_id)), None
-        )
-    return keep_until_index
+    if not message_id:
+        return None
+    return next(
+        (i for i, m in enumerate(messages) if str(m["id"]) == str(message_id)), None
+    )
 
 
-def plan_rollback(
-    messages: list[dict], message_id: UUID | None, keep_until_index: int | None
-) -> RollbackPlan | None:
-    """The rollback of `messages` (ascending) from `message_id`, or from `keep_until_index`
-    (legacy); None when there is nothing to delete."""
-    keep_until_index = _cutoff(messages, message_id, keep_until_index)
-    if keep_until_index is None or keep_until_index >= len(messages):
+def plan_rollback(messages: list[dict], message_id: UUID | None) -> RollbackPlan | None:
+    """The rollback of `messages` (ascending) from `message_id`; None when there is
+    nothing to delete."""
+    keep_until_index = _cutoff(messages, message_id)
+    if keep_until_index is None:
         return None
     messages_to_delete = messages[keep_until_index:]
     if not messages_to_delete:

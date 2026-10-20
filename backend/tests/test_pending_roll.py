@@ -7,6 +7,7 @@ from repos import turns
 from tests.characterization import payloads
 from tests.characterization.harness import spy_narration
 from tests.plugins.pending_roll import PENDING_ACTION as ACTION
+from tests.helpers import message_id_at
 
 HIGH_CONCEPT = "Pilote déchu en quête de rédemption"
 TROUBLE = "Je dois de l'argent à tout le monde"
@@ -144,7 +145,7 @@ async def test_invoked_aspects_are_stored_with_their_sheet_name(harness, pending
 async def test_rollback_expires_the_pending_roll(harness, pending):
     """R12: the modal of a rolled-back action does not come back; the next turn rolls anew."""
     game_id, event = pending
-    r = await harness.client.post(f"/api/games/{game_id}/rollback", json={"fromIndex": 2},
+    r = await harness.client.post(f"/api/games/{game_id}/rollback", json={"messageId": str(await message_id_at(harness.pool, game_id, 2))},
                                   headers=harness.headers)
     assert r.status_code == 200, r.text
     assert r.json()["state"]["pending_roll"] is None
