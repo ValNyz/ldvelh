@@ -17,10 +17,11 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
     "services": {"api", "pipeline", "fastapi", "starlette"},
     "repos": {"api", "pipeline", "services", "kg", "fastapi", "starlette"},
     "llm": {"api", "pipeline", "services", "fastapi", "starlette"},
-    "kg": {"api", "pipeline", "fastapi", "starlette"},
+    "kg": {"api", "pipeline", "services", "fastapi", "starlette"},
     "schema": {"api", "pipeline", "packs", "fastapi", "starlette"},
     "prompts": {"api", "pipeline", "services", "fastapi", "starlette"},
     "packs": {"api", "pipeline", "services", "repos", "kg", "llm", "prompts", "fastapi", "starlette"},
+    "api": {"main"},   # api/ gets the pool through dependencies, never from the app module
     "utils": {"fastapi", "starlette"},
     "workers": {"api", "pipeline", "services", "repos", "kg", "llm", "schema", "prompts",
                 "asyncpg", "fastapi", "starlette"},
@@ -29,9 +30,14 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
 LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)
 KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, imported package): frozen debt, may only shrink
+    ("api/dependencies.py", "main"),                   # lot H task 3
+    ("kg/item_writes.py", "services"),                 # lot H task 3: services.identity.types moves to domain
+    ("kg/populator.py", "services"),                   # #108: services.identity.service
+    ("kg/refs.py", "services"),                        # lot H task 3 (identity.types) and #108 (identity.service)
+    ("kg/specialized_populator.py", "services"),       # lot H task 3 (identity.types, aliases) and #108 (identity.classify)
     ("llm/session.py", "services"),                    # #172
     ("llm/usage.py", "services"),                      # #172
-    ("packs/loader.py", "services"),                   # lot H task 3 (services.identity.normalize)
+    ("packs/loader.py", "services"),                   # #169: normalisation moves with the packs work
     ("prompts/mechanical_prompt.py", "services"),      # P7 (#101): services.engine
     ("prompts/narrator_prompt.py", "services"),        # P7 (#101): services.engine
     ("prompts/world_enhance_prompt.py", "services"),   # P7 (#101): services.engine
@@ -40,7 +46,7 @@ KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, impor
     ("repos/llm_models.py", "services"),               # #172: services.pricing
     ("repos/turns.py", "kg"),                          # lot H task 2
     ("repos/turns.py", "services"),                    # lot H task 2
-    ("schema/narration.py", "packs"),                  # lot H task 3
+    ("schema/narration.py", "packs"),                  # #169
 }
 SQL_IN_API_ALLOWED: set[str] = {   # api/ files still holding SQL: frozen debt, may only shrink
     "api/auth.py",          # #108
@@ -76,14 +82,18 @@ def _imported_packages(tree):
             yield node.module.split(".")[0]
 
 
+def forbidden_imports(source, forbidden):
+    """Forbidden top-level packages imported anywhere in the source, lazy and TYPE_CHECKING imports included."""
+    return set(_imported_packages(ast.parse(source))) & forbidden
+
+
 def collect_violations():
     violations = set()
     for path, rel in _source_files():
         forbidden = LAYER_RULES.get(rel.parts[0])
         if not forbidden or len(rel.parts) < 2 or rel.as_posix() in LAYER_EXEMPT_FILES:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for package in set(_imported_packages(tree)) & forbidden:
+        for package in forbidden_imports(path.read_text(encoding="utf-8"), forbidden):
             violations.add((rel.as_posix(), package))
     return violations
 
@@ -131,6 +141,15 @@ def test_evals_layer_is_guarded():
     scanned = {rel.as_posix() for _, rel in _source_files()}
     assert "evals/identity/corpus.py" in scanned   # evals/ is not excluded from the scan
     assert {"api", "pipeline"} <= LAYER_RULES["evals"]
+
+
+def test_lazy_and_type_checking_imports_are_detected():
+    source = (
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n    import services.x\n"
+        "def f():\n    from main import pool\n    return pool\n"
+    )
+    assert forbidden_imports(source, {"main", "services", "api"}) == {"main", "services"}
 
 
 def test_layers_respect_the_dependency_rule():
