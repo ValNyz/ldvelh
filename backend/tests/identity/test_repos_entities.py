@@ -273,6 +273,7 @@ async def test_find_for_upsert_branches(test_pool, game):
 
 
 async def test_an_ambiguous_name_creates_no_location(test_pool, game):
+    from kg.populator import KnowledgeGraphPopulator
     from kg.specialized_populator import ExtractionPopulator
     from repos.turns import _resolve_location
     from schema import EntityCreation
@@ -291,7 +292,9 @@ async def test_an_ambiguous_name_creates_no_location(test_pool, game):
             await ExtractionPopulator(None, game).create_extracted_entity(
                 conn, [], EntityCreation(entity_type="location", name="Dock"), 1
             )
-        stub = await _resolve_location(conn, game, "le Dock", 2)
+        stub = await _resolve_location(
+            conn, KnowledgeGraphPopulator(None, game), "le Dock", 2
+        )
         count = await conn.fetchval(
             "SELECT count(*) FROM locations WHERE game_id = $1", game
         )

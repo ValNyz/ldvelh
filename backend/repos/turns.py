@@ -11,6 +11,7 @@ from config import get_settings
 from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
+from repos import entities as entity_repo
 from schema import DEFAULT_GAME_TIME
 from schema.engine import RollResult
 from schema.narration import NarrationOutput
@@ -26,45 +27,59 @@ def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
 
 
 async def _resolve_location(
-    conn, game_id: UUID, location: str, new_cycle: int
+    conn, populator: KnowledgeGraphPopulator, location: str, new_cycle: int
 ) -> UUID | None:
-    """Id of the narrated location (C10): the location its name or handle resolves to,
-    else a stub created through the identity service (enriched by the extraction). A
-    name that is ambiguous never creates a duplicate: counted (identity_events), None."""
+    """Id of the narrated location (C10): the live location its name or handle resolves
+    to, else a stub created through the identity service (enriched by the extraction).
+    A removed location of that name is never the turn's place: a fresh one is created
+    (internal label suffix, the player reads the bare name). A name two live locations
+    share never creates a duplicate: None."""
     # Lazy: the identity service reads the turn of the transaction (repos.uow, which
     # imports this module).
     from kg.item_writes import write_item
-    from services.identity.service import IdentityService
     from services.identity.types import NewEntitySpec
 
-    identity = await IdentityService.for_game(conn, game_id)
+    identity = await populator.identity(conn)
     resolved = await identity.resolve_ref(conn, location, "location")
-    if resolved is not None:
+    if resolved is not None and await entity_repo.is_live(
+        conn, "location", resolved.entity_id
+    ):
         location_id = resolved.entity_id
     else:
-        location_id = await write_item(
-            conn,
-            # No list kept: an IdentityFailure is an identity_events row, logged without
-            # story text; the commit goes on without a location.
-            [],
-            "narrated location",
-            lambda: identity.create_entity(
+        live = await entity_repo.live_candidates(
+            conn, populator.game_id, location, "location"
+        )
+        if len(live) > 1:
+            return None
+        location_id = (
+            live[0]
+            if live
+            else await write_item(
                 conn,
-                NewEntitySpec(
-                    "location",
-                    location,
-                    "descriptor",
-                    fields={"created_cycle": new_cycle},
+                # No list kept: an IdentityFailure is an identity_events row, logged without
+                # story text; the commit goes on without a location.
+                [],
+                "narrated location",
+                lambda: identity.create_entity(
+                    conn,
+                    NewEntitySpec(
+                        "location",
+                        location,
+                        "descriptor",
+                        fields={"created_cycle": new_cycle},
+                    ),
+                    turn_id=None,
+                    source="system",
+                    # No live location has the name: only removed ones may hold it.
+                    trap=True,
                 ),
-                turn_id=None,
-                source="system",
-            ),
-            "[COMMIT] ",
+                "[COMMIT] ",
+            )
         )
         if location_id is None:
             return None
     old_id = await conn.fetchval(
-        "SELECT current_location_id FROM games WHERE id = $1", game_id
+        "SELECT current_location_id FROM games WHERE id = $1", populator.game_id
     )
     if old_id != location_id:
         # Ids only: a location name is story text.
@@ -98,11 +113,14 @@ async def apply_narration_state(
 
     location_id = None
     if location:
-        location_id = await _resolve_location(conn, game_id, location, new_cycle)
+        location_id = await _resolve_location(conn, populator, location, new_cycle)
 
     for evt in narration.events_mentioned:
         await populator.create_stub_event(
-            conn, evt, new_cycle, await _location_id(conn, populator, evt.location)
+            conn,
+            evt,
+            new_cycle,
+            await _place(conn, populator, "stub event location", evt.location),
         )
 
     await populator.update_game_state(
@@ -119,17 +137,19 @@ async def apply_narration_state(
         location=location,
         npcs_present=narration.npcs_present or [],
         date=new_date,
+        location_id=location_id,
     )
 
 
-async def _location_id(conn, populator, location: str | None) -> UUID | None:
-    """The place of a stub event (C12) or of a message: its location when the name
-    resolves, else none (an ambiguous name is an identity_events row)."""
-    if not location:
-        return None
-    identity = await populator.identity(conn)
-    resolved = await identity.resolve_ref(conn, location, "location")
-    return resolved.entity_id if resolved is not None else None
+async def _place(conn, populator, label: str, location: str | None) -> UUID | None:
+    """A live location the commit writes as a place (a stub event's, C12, or a message's
+    when its state carries none): an unresolved or removed one is counted (`ref_dropped`,
+    identity_events) and the row is written without it."""
+    from kg import refs
+
+    return await refs.optional(
+        await populator.identity(conn), conn, [], label, location, "location", live=True
+    )
 
 
 async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict | None:
@@ -272,7 +292,8 @@ async def save_turn_messages(
         "cycle": state.cycle,
         "time": state.time,
         "game_date": state.date,
-        "location_id": await _location_id(conn, populator, state.location),
+        "location_id": state.location_id
+        or await _place(conn, populator, "message location", state.location),
     }
     user_id = await populator.save_message(
         conn,

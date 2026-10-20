@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from config import get_identity_config
+from repos import entities as entity_repo
 from schema import (
     CompanionData,
     EntityType,
@@ -311,14 +312,7 @@ class KnowledgeGraphPopulator:
         self, conn: Connection, entity_type: EntityType, entity_id: UUID
     ) -> bool:
         """The entity exists and was not removed from the world."""
-        return bool(
-            await conn.fetchval(
-                f"SELECT EXISTS (SELECT 1 FROM {_TABLES[entity_type]}"
-                " WHERE id = $1 AND game_id = $2 AND removed_cycle IS NULL)",
-                entity_id,
-                self.game_id,
-            )
-        )
+        return await entity_repo.is_live(conn, entity_type.value, entity_id)
 
     async def mark_location_accessible(
         self, conn: Connection, location_id: UUID
@@ -580,7 +574,6 @@ class KnowledgeGraphPopulator:
         arc: NarrativeArcData,
         cycle: int,
         participant_ids: list[UUID],
-        owner_id: UUID | None = None,
     ) -> UUID:
         """Create a narrative arc with its participants, by id (dedup by title).
 
@@ -616,16 +609,14 @@ class KnowledgeGraphPopulator:
         else:
             arc_id = await conn.fetchval(
                 """INSERT INTO narrative_arcs (
-                    game_id, title, domain, description, intensity, owner_id,
-                    created_cycle
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7)
+                    game_id, title, domain, description, intensity, created_cycle
+                ) VALUES ($1,$2,$3,$4,$5,$6)
                 RETURNING id""",
                 self.game_id,
                 arc.title,
                 domain,
                 arc.description,
                 arc.intensity,
-                owner_id,
                 cycle,
             )
 

@@ -34,9 +34,15 @@ from schema import (
     OrganizationData,
     is_protagonist_ref,
 )
+from schema.entity_changes import bound_changes
 from services.identity.aliases import AliasSpec
 from services.identity.classify import extracted_character_names
-from services.identity.types import AmbiguousLabel, EntityRef, NewEntitySpec
+from services.identity.types import (
+    AmbiguousLabel,
+    EntityRef,
+    NewEntitySpec,
+    UpdateRefused,
+)
 
 from . import refs
 from .item_writes import write_item
@@ -96,6 +102,11 @@ class WorldPopulator(KnowledgeGraphPopulator):
     Populates the entire game world from a WorldGeneration output: every entity through
     IdentityService.create_entity (true name, descriptor, derived aliases), then the
     references (parents, headquarters, relations, arcs) resolved to ids.
+
+    The lists of a generated world name distinct entities: an entity is reused only on
+    its exact label (never through another one's derived alias), and a reference that is
+    the exact label of an entity this world made is linked to that id (`_made`) before
+    any lookup by alias.
     """
 
     async def populate(
@@ -126,6 +137,9 @@ class WorldPopulator(KnowledgeGraphPopulator):
         written (an unresolved reference, an ambiguous label) is rolled back alone and
         counted in the generation's extraction log."""
         errors: list[str | dict] = []
+        # (entity type, normalised label) -> id of each entity this world made.
+        self._made: dict[tuple[str, str], UUID] = {}
+        location = EntityType.LOCATION.value
         async with conn.transaction():
             # 1. Create game or rename existing
             if self.game_id:
@@ -139,7 +153,6 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 world_gen.world,
                 seed_words=world_gen.generation_seed_words,
             )
-            identity = await self.identity(conn)
 
             # 3. The station: the root location
             await self._create(conn, errors, self._station_spec(world_gen.world))
@@ -159,14 +172,12 @@ class WorldPopulator(KnowledgeGraphPopulator):
                 )
 
             # 8. References between them, now that they all exist
-            await self._link(conn, errors, identity, world_gen)
+            await self._link(conn, errors, world_gen)
 
             # 9. Characters, with their workplace and residence
             for char in world_gen.characters:
                 await self._create(
-                    conn,
-                    errors,
-                    await self._character_spec(conn, errors, identity, char),
+                    conn, errors, await self._character_spec(conn, errors, char)
                 )
 
             # 10. Objects and the initial inventory
@@ -185,29 +196,28 @@ class WorldPopulator(KnowledgeGraphPopulator):
                     conn,
                     errors,
                     "relation",
-                    lambda rel=rel: self._relation(conn, identity, rel),
+                    lambda rel=rel: self._relation(conn, rel),
                     "[POPULATE] ",
                 )
 
             # 12. Narrative arcs
             for arc in world_gen.narrative_arcs:
+                participant_ids = []
+                for ref in arc.involved_entities:
+                    entity_id = await self._ref(conn, errors, "arc participant", ref)
+                    if entity_id is not None and entity_id not in participant_ids:
+                        participant_ids.append(entity_id)
                 await self.create_narrative_arc(
-                    conn,
-                    arc,
-                    cycle=1,
-                    participant_ids=await refs.optional_ids(
-                        identity, conn, errors, "arc participant", arc.involved_entities
-                    ),
+                    conn, arc, cycle=1, participant_ids=participant_ids
                 )
 
             # 13. Arrival event and initial game state
-            arrival_loc_id = await refs.optional(
-                identity,
+            arrival_loc_id = await self._ref(
                 conn,
                 errors,
                 "arrival location",
                 world_gen.arrival_event.arrival_location_ref,
-                EntityType.LOCATION.value,
+                location,
             )
             await self._store_arrival_event(
                 conn, world_gen.arrival_event, arrival_loc_id
@@ -238,17 +248,65 @@ class WorldPopulator(KnowledgeGraphPopulator):
     async def _create(
         self, conn: Connection, errors: list, spec: NewEntitySpec
     ) -> UUID | None:
-        """One world entity through the identity service, in its own savepoint."""
+        """One world entity through the identity service, in its own savepoint; reused
+        only on its exact label (`reuse_aliases=False`)."""
         identity = await self.identity(conn)
-        return await write_item(
+        entity_id = await write_item(
             conn,
             errors,
             spec.entity_type,
             lambda: identity.create_entity(
-                conn, spec, turn_id=None, source="world_gen"
+                conn, spec, turn_id=None, source="world_gen", reuse_aliases=False
             ),
             "[POPULATE] ",
         )
+        if entity_id is not None:
+            key = (spec.entity_type, identity.normalizer.norm(spec.label))
+            self._made.setdefault(key, entity_id)
+        return entity_id
+
+    def _made_id(self, ref: str | None, entity_type: str | None) -> UUID | None:
+        """The entity of this world whose exact label is `ref` (of `entity_type`, or of
+        any type when exactly one holds it)."""
+        if not ref or self._identity is None:
+            return None
+        norm = self._identity.normalizer.norm(ref)
+        hits = {
+            entity_id
+            for (made_type, made_norm), entity_id in self._made.items()
+            if made_norm == norm and entity_type in (None, made_type)
+        }
+        return hits.pop() if len(hits) == 1 else None
+
+    async def _ref(
+        self,
+        conn: Connection,
+        errors: list,
+        label: str,
+        ref: str | None,
+        entity_type: str | None = None,
+    ) -> UUID | None:
+        """`refs.optional`, after the entities this world made (exact label)."""
+        made = self._made_id(ref, entity_type)
+        if made is not None:
+            return made
+        identity = await self.identity(conn)
+        return await refs.optional(
+            identity,
+            conn,
+            errors,
+            label,
+            ref,
+            entity_type,
+            live=entity_type is not None,
+        )
+
+    async def _required_ref(self, conn: Connection, ref: str) -> UUID:
+        """`refs.required` (untyped), after the entities this world made."""
+        made = self._made_id(ref, None)
+        if made is not None:
+            return made
+        return await refs.required(await self.identity(conn), conn, ref)
 
     @staticmethod
     def _station_spec(world) -> NewEntitySpec:
@@ -262,15 +320,15 @@ class WorldPopulator(KnowledgeGraphPopulator):
         return _named_spec(EntityType.LOCATION, station, 1)
 
     async def _character_spec(
-        self, conn: Connection, errors: list, identity: IdentityService, char
+        self, conn: Connection, errors: list, char
     ) -> NewEntitySpec:
         """A generated character: its name is its true name, next to its descriptor."""
         location = EntityType.LOCATION.value
-        workplace_id = await refs.optional(
-            identity, conn, errors, "character workplace", char.workplace_ref, location
+        workplace_id = await self._ref(
+            conn, errors, "character workplace", char.workplace_ref, location
         )
-        residence_id = await refs.optional(
-            identity, conn, errors, "character residence", char.residence_ref, location
+        residence_id = await self._ref(
+            conn, errors, "character residence", char.residence_ref, location
         )
         return NewEntitySpec(
             EntityType.CHARACTER.value,
@@ -283,50 +341,38 @@ class WorldPopulator(KnowledgeGraphPopulator):
             ),
         )
 
-    async def _link(
-        self, conn: Connection, errors: list, identity: IdentityService, world_gen
-    ) -> None:
+    async def _link(self, conn: Connection, errors: list, world_gen) -> None:
         """Location parents, organization headquarters and the protagonist's employer
-        and residence, each reference resolved to an id."""
+        and residence, linked by id."""
         location = EntityType.LOCATION.value
         for loc in world_gen.locations:
             await self._set_reference(
                 conn,
                 errors,
-                identity,
                 EntityType.LOCATION,
                 loc.name,
                 "parent_id",
                 loc.parent_location_ref,
-                location,
             )
         for org in world_gen.organizations:
             await self._set_reference(
                 conn,
                 errors,
-                identity,
                 EntityType.ORGANIZATION,
                 org.name,
                 "headquarters_id",
                 org.headquarters_ref,
-                location,
             )
         protagonist = world_gen.protagonist
-        employer_id = await refs.optional(
-            identity,
+        employer_id = await self._ref(
             conn,
             errors,
             "protagonist employer",
             protagonist.employer_ref,
             EntityType.ORGANIZATION.value,
         )
-        residence_id = await refs.optional(
-            identity,
-            conn,
-            errors,
-            "protagonist residence",
-            protagonist.residence_ref,
-            location,
+        residence_id = await self._ref(
+            conn, errors, "protagonist residence", protagonist.residence_ref, location
         )
         await conn.execute(
             """UPDATE protagonists
@@ -342,50 +388,40 @@ class WorldPopulator(KnowledgeGraphPopulator):
         self,
         conn: Connection,
         errors: list,
-        identity: IdentityService,
         entity_type: EntityType,
         name: str,
         column: str,
         ref: str | None,
-        ref_type: str,
     ) -> None:
-        """Point `column` of the entity `name` at the entity `ref` names."""
-        if not ref:
+        """Point `column` of the entity this world made as `name` at the location `ref`
+        names."""
+        entity_id = self._made_id(name, entity_type.value)
+        if not ref or entity_id is None:
             return
-        target_id = await refs.optional(
-            identity, conn, errors, f"{entity_type.value} {column}", ref, ref_type
-        )
+        label = f"{entity_type.value} {column}"
+        target_id = await self._ref(conn, errors, label, ref, EntityType.LOCATION.value)
         if target_id is None:
             return
+        identity = await self.identity(conn)
         await write_item(
             conn,
             errors,
-            f"{entity_type.value} {column}",
-            lambda: self._write_reference(
-                conn, identity, entity_type, name, column, target_id
+            label,
+            lambda: identity.update_entity(
+                conn,
+                entity_id,
+                entity_type.value,
+                {column: target_id},
+                source="world_gen",
             ),
             "[POPULATE] ",
         )
 
-    @staticmethod
-    async def _write_reference(
-        conn: Connection,
-        identity: IdentityService,
-        entity_type: EntityType,
-        name: str,
-        column: str,
-        target_id: UUID,
-    ) -> None:
-        entity_id = await refs.required(identity, conn, name, entity_type.value)
-        await identity.update_entity(
-            conn, entity_id, entity_type.value, {column: target_id}, source="world_gen"
-        )
-
-    async def _relation(self, conn: Connection, identity: IdentityService, rel) -> UUID:
+    async def _relation(self, conn: Connection, rel) -> UUID:
         return await self.create_relation(
             conn,
-            await refs.required(identity, conn, rel.source_ref),
-            await refs.required(identity, conn, rel.target_ref),
+            await self._required_ref(conn, rel.source_ref),
+            await self._required_ref(conn, rel.target_ref),
             rel.relation_type,
             level=rel.level,
             context=rel.context,
@@ -538,6 +574,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     "create parent",
                     data.get("parent_location_ref"),
                     EntityType.LOCATION.value,
+                    live=True,
                 ),
             )
         elif et == EntityType.ORGANIZATION:
@@ -552,6 +589,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     "create headquarters",
                     data.get("headquarters_ref"),
                     EntityType.LOCATION.value,
+                    live=True,
                 ),
             )
         elif et == EntityType.OBJECT:
@@ -588,6 +626,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 "create workplace",
                 data.get("workplace_ref"),
                 location,
+                live=True,
             ),
             residence_id=await refs.optional(
                 identity,
@@ -596,6 +635,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 "create residence",
                 data.get("residence_ref"),
                 location,
+                live=True,
             ),
         )
         true_name, descriptor, extra = extracted_character_names(
@@ -612,7 +652,9 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     extra,
                     EntityType.CHARACTER.value,
                     self.game_id,
-                    candidates=2,
+                    candidates=await identity.label_candidates(
+                        conn, extra, EntityType.CHARACTER.value
+                    ),
                     source="extractor",
                 )
             if named.entity_id is not None:
@@ -681,11 +723,17 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         resolved = await refs.resolve(
             identity, conn, update.entity_ref, entity_type and entity_type.value
         )
-        entity_type = entity_type or EntityType(resolved.entity_type)
         changes = dict(update.changes)
+        _refuse_reserved(update, resolved.entity_type or entity_type.value, changes)
+        entity_type = entity_type or EntityType(resolved.entity_type)
         # Only an explicit reveal changes what the protagonist knows: a known flag among
-        # the changes is one (without a name), never a demotion.
-        now_known = update.now_known or changes.pop("known_by_protagonist", None)
+        # the changes is one (without a name), never a demotion. The flag is read as its
+        # column coerces it: a string such as "false" is not a reveal.
+        flag = bound_changes(
+            EntityType.CHARACTER,
+            {"known_by_protagonist": changes.pop("known_by_protagonist", None)},
+        ).get("known_by_protagonist")
+        now_known = update.now_known is True or flag is True
 
         if now_known and entity_type == EntityType.CHARACTER:
             await identity.reveal(
@@ -736,7 +784,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 return  # A new object: objects_created writes it
             await self.add_to_inventory(
                 conn,
-                await refs.required(identity, conn, change.object_ref, obj),
+                await refs.required(identity, conn, change.object_ref, obj, live=True),
                 quantity=change.quantity_delta,
                 cycle=cycle,
                 origin="acquired",
@@ -744,7 +792,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         elif change.action == "lose" and change.object_ref:
             await self.remove_from_inventory(
                 conn,
-                await refs.required(identity, conn, change.object_ref, obj),
+                await refs.required(identity, conn, change.object_ref, obj, live=True),
                 change.quantity_delta,
             )
         elif change.action == "use" and change.object_ref:
@@ -787,6 +835,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
             "fact location",
             fact.location_ref,
             EntityType.LOCATION.value,
+            live=True,
         )
         return await self.create_fact(conn, fact, participants, location_id)
 
@@ -813,6 +862,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 "event location",
                 event.location_ref,
                 EntityType.LOCATION.value,
+                live=True,
             ),
         )
         for entity_id in await refs.optional_ids(
@@ -820,6 +870,16 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         ):
             await self.add_event_participant(conn, event_id, entity_id)
         return event_id
+
+
+def _refuse_reserved(update: EntityUpdate, entity_type: str, changes: dict) -> None:
+    """Extractors never update the companion, nor the protagonist beyond its skills
+    (spec §4.10): a coded refusal (UpdateRefused), counted by the item's savepoint."""
+    if entity_type == "companion" or (
+        entity_type == EntityType.PROTAGONIST.value
+        and (changes or update.removed or update.now_known)
+    ):
+        raise UpdateRefused(entity_type)
 
 
 async def _turn_of(conn: Connection) -> UUID | None:

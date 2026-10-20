@@ -6,13 +6,16 @@ from uuid import UUID
 
 @dataclass(frozen=True)
 class NarrationState:
-    """Game state after the narration was applied: cycle, time, place, NPCs, date."""
+    """Game state after the narration was applied: cycle, time, place, NPCs, date.
+    `location_id`: the live location the place resolved to (None: unresolved, or a state
+    built without the commit: the message stamp resolves `location` then)."""
 
     cycle: int
     time: str
     location: str | None
     npcs_present: list[str]
     date: str | None
+    location_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -54,8 +57,13 @@ class PendingRoll:
 
     def offer(self) -> dict:
         """What the player sees: the roll_pending event and the loaded game state."""
-        return {"roll_id": str(self.id), "roll": self.roll, "aspects": list(self.aspects),
-                "fate_points": self.fate_points, "player_message": self.player_message}
+        return {
+            "roll_id": str(self.id),
+            "roll": self.roll,
+            "aspects": list(self.aspects),
+            "fate_points": self.fate_points,
+            "player_message": self.player_message,
+        }
 
 
 @dataclass(frozen=True)

@@ -122,6 +122,7 @@ class IdentityService:
         scene_location_id: UUID | None = None,
         trap: bool = False,
         refill: bool = False,
+        reuse_aliases: bool = True,
     ) -> UUID:
         """Create an entity with its derived aliases, or return the live entity of the type
         that already holds its label (event 'create_reused'). With `trap` (a verified
@@ -130,6 +131,10 @@ class IdentityService:
         reused entity holding the label as its own takes the values of `spec.fields`
         that are not blank, in the columns a re-listing may fill (#87); one found through
         an alias, or whose label another entity's alias contests, is left untouched.
+        Without `reuse_aliases` (a list of distinct entities, the world generation), only
+        an entity holding the label itself is reused: a label that only aliases match
+        creates the entity (event 'create_contested'), never a fold into another one.
+        `turn_id` defaults to the transaction's turn.
 
         A label that only aliases of several entities hold creates nothing (without
         `trap`): AmbiguousLabel is raised, and no event is written here. `write_item`
@@ -146,10 +151,14 @@ class IdentityService:
             spec.entity_type != CHARACTER or spec.kind != "proper_name"
         ):
             raise ValueError("only a character named by its true name has a descriptor")
+        turn_id = turn_id or await current_turn_id(conn)
         target = await entities.find_for_upsert(
             conn, self.game_id, label, spec.entity_type
         )
-        if target.entity_id is not None and not trap:
+        alias_only = not reuse_aliases and (
+            target.ambiguous or (target.entity_id is not None and not target.by_label)
+        )
+        if target.entity_id is not None and not trap and not alias_only:
             if refill and target.by_label and not target.contested:
                 values = _refill_values(spec.entity_type, spec.fields)
                 if values:
@@ -170,11 +179,11 @@ class IdentityService:
             return target.entity_id
         contested = target.entity_id is not None or target.ambiguous
         candidates = (
-            await self._label_candidates(conn, label, spec.entity_type)
+            await self.label_candidates(conn, label, spec.entity_type)
             if contested
             else 0
         )
-        if target.ambiguous and not trap:
+        if target.ambiguous and not trap and not alias_only:
             # Dans le doute, on ne crée pas (spec §2): write_item counts it.
             raise AmbiguousLabel(
                 label,
@@ -264,7 +273,8 @@ class IdentityService:
         suffix = free_suffix(label, place or None, taken, self.normalizer)
         return suffix, "scene_location" if place and suffix == place else "counter"
 
-    async def _label_candidates(self, conn, label: str, entity_type: str) -> int:
+    async def label_candidates(self, conn, label: str, entity_type: str) -> int:
+        """Live entities of the type whose label or alias has the label's normal form."""
         counts = await entities.candidate_counts(
             conn, self.game_id, label, (entity_type,)
         )
@@ -370,7 +380,7 @@ class IdentityService:
         reference: 0 unknown, 2 or more ambiguous)."""
         entity_id = await entities.find_entity(conn, self.game_id, ref, entity_type)
         if entity_id is not None:
-            return await self._resolved(conn, entity_id, entity_type), 1
+            return await self.resolved_ref(conn, entity_id, entity_type), 1
         candidates = 0
         if ref and ref.strip():
             counts = await entities.candidate_counts(
@@ -379,14 +389,10 @@ class IdentityService:
             candidates = counts.get(entity_type, 0)
         return None, await self._unresolved(conn, ref, entity_type, candidates)
 
-    async def resolve_any_ref(self, conn, ref: str) -> ResolvedRef | None:
-        """The entity of any type that `ref` names (a fact participant, a relation end):
-        only when exactly one type knows it, once (`find_any`); None otherwise."""
-        resolved, _ = await self._resolve_any(conn, ref)
-        return resolved
-
     async def require_any_ref(self, conn, ref: str) -> ResolvedRef:
-        """`resolve_any_ref`, raising RefUnresolved (type 'any') instead of None."""
+        """The entity of any type that `ref` names (a fact participant, a relation end):
+        only when exactly one type knows it, once (`find_any`); RefUnresolved (type
+        'any') otherwise."""
         resolved, candidates = await self._resolve_any(conn, ref)
         if resolved is None:
             raise RefUnresolved(ref, ANY_TYPE, self.game_id, candidates=candidates)
@@ -396,7 +402,7 @@ class IdentityService:
         found = await entities.find_any(conn, self.game_id, ref)
         if found is not None:
             entity_id, entity_type = found
-            return await self._resolved(conn, entity_id, entity_type), 1
+            return await self.resolved_ref(conn, entity_id, entity_type), 1
         candidates = 0
         if ref and ref.strip():
             counts = await entities.candidate_counts(
@@ -405,7 +411,10 @@ class IdentityService:
             candidates = sum(counts.values())
         return None, await self._unresolved(conn, ref, ANY_TYPE, candidates)
 
-    async def _resolved(self, conn, entity_id: UUID, entity_type: str) -> ResolvedRef:
+    async def resolved_ref(
+        self, conn, entity_id: UUID, entity_type: str
+    ) -> ResolvedRef:
+        """The handle and the player-facing label of an entity of known id."""
         handle = await entities.handle_of(conn, entity_id)
         label = await entities.display_for_player(conn, entity_id)
         return ResolvedRef(entity_id, handle, label, entity_type)
@@ -458,6 +467,7 @@ class IdentityService:
         known_by_protagonist is the reveal's (explicit reveals only): refused here."""
         if _KNOWN_FLAG in fields:
             raise ValueError(f"{_KNOWN_FLAG} is written by a reveal, not update_entity")
+        turn_id = turn_id or await current_turn_id(conn)
         live_id = await entities.follow_merge(conn, entity_id) or entity_id
         renamed = "true_name" if entity_type == CHARACTER else "name"
         suffix_change = await self._suffix_for_rename(

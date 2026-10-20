@@ -177,3 +177,17 @@ class AmbiguousLabel(IdentityFailure):
 
     def debug_detail(self) -> str | None:
         return repr(self.label)
+
+
+class UpdateRefused(IdentityFailure):
+    """An extracted update of an entity extractors never update (spec §4.10: the
+    protagonist beyond its skills, the companion)."""
+
+    code = "update_refused"
+
+    def __init__(self, entity_type: str, game_id: UUID | None = None):
+        super().__init__(f"{entity_type} is not updated by extractors", game_id)
+        self.entity_type = entity_type
+
+    def payload(self) -> dict:
+        return {"entity_type": self.entity_type}

@@ -453,6 +453,17 @@ _IDENTITY_COLUMNS = frozenset(
 
 async def domain_table(conn, entity_type: str) -> tuple[str, frozenset[str]]:
     """(table, writable columns) of an entity type's domain table."""
+    table, columns = await _domain_columns(conn, entity_type)
+    return table, columns - _IDENTITY_COLUMNS
+
+
+def _stamp(table_columns: frozenset[str]) -> str:
+    """The SET item that dates a domain update, for a table that has `updated_at`."""
+    return ', "updated_at" = now()' if "updated_at" in table_columns else ""
+
+
+async def _domain_columns(conn, entity_type: str) -> tuple[str, frozenset[str]]:
+    """(table, every column) of an entity type's domain table."""
     rows = await conn.fetch(
         """SELECT identity_domain_table($1)::text AS tbl, att.attname
            FROM pg_attribute AS att
@@ -462,7 +473,7 @@ async def domain_table(conn, entity_type: str) -> tuple[str, frozenset[str]]:
     )
     if not rows:
         raise ValueError(f"no domain table for entity type {entity_type!r}")
-    return rows[0]["tbl"], frozenset(r["attname"] for r in rows) - _IDENTITY_COLUMNS
+    return rows[0]["tbl"], frozenset(r["attname"] for r in rows)
 
 
 def _checked(columns: frozenset[str], values: dict, table: str) -> list[str]:
@@ -499,9 +510,9 @@ async def update_domain_row(
 ) -> tuple[str, dict | None]:
     """(table, the row after the update as a dict, None when no row of the game has this
     id in the type's table). `label_suffix`: the internal suffix written in the same
-    statement (R14), set or cleared; None leaves it as it is."""
-    table, columns = await domain_table(conn, entity_type)
-    names = _checked(columns, values, table)
+    statement (R14), set or cleared; None leaves it as it is. `updated_at` is set."""
+    table, all_columns = await _domain_columns(conn, entity_type)
+    names = _checked(all_columns - _IDENTITY_COLUMNS, values, table)
     if not names:
         raise ValueError(f"{table}: nothing to update")
     values = dict(values)
@@ -509,6 +520,7 @@ async def update_domain_row(
         names.append("label_suffix")
         values["label_suffix"] = label_suffix.suffix
     sets = ", ".join(f'"{c}" = ${i}' for i, c in enumerate(names, start=3))
+    sets += _stamp(all_columns)
     row = await conn.fetchrow(
         f"UPDATE {table} AS dom SET {sets} WHERE dom.id = $1 AND dom.game_id = $2"
         " RETURNING to_jsonb(dom) AS row",
@@ -526,12 +538,14 @@ async def fill_domain_row(
     conn, game_id: UUID, entity_type: str, entity_id: UUID, values: dict
 ) -> bool:
     """Write `values` on an entity's domain row only when one of them differs from what is
-    stored (no write, so no journal row, otherwise); True when the row changed."""
-    table, columns = await domain_table(conn, entity_type)
-    names = _checked(columns, values, table)
+    stored (no write, so no journal row, otherwise; `updated_at` set with a write); True
+    when the row changed."""
+    table, all_columns = await _domain_columns(conn, entity_type)
+    names = _checked(all_columns - _IDENTITY_COLUMNS, values, table)
     if not names:
         return False
     sets = ", ".join(f'"{c}" = ${i}' for i, c in enumerate(names, start=3))
+    sets += _stamp(all_columns)
     changed = " OR ".join(
         f'dom."{c}" IS DISTINCT FROM ${i}' for i, c in enumerate(names, start=3)
     )
@@ -543,6 +557,43 @@ async def fill_domain_row(
         *values.values(),
     )
     return status != "UPDATE 0"
+
+
+async def live_candidates(
+    conn, game_id: UUID, ref: str, entity_type: str
+) -> list[UUID]:
+    """Live entities of the type (merges followed, not removed from the world) whose
+    label or alias has the normalised form of `ref`: find_entity's last step, restricted
+    to the entities a write may target."""
+    if ref is None or not ref.strip():
+        return []
+    ids = await conn.fetchval(
+        """WITH ref AS (SELECT ldvelh_norm_for_game($1, $2) AS norm),
+                candidates AS (
+                    SELECT entity_follow_merge(er.id) AS id
+                      FROM entity_registry AS er, ref
+                     WHERE er.game_id = $1 AND er.entity_type = $3
+                       AND er.name_norm = ref.norm
+                    UNION
+                    SELECT entity_follow_merge(al.entity_id)
+                      FROM entity_aliases AS al, ref
+                     WHERE al.game_id = $1 AND al.entity_type = $3
+                       AND al.alias_norm = ref.norm)
+           SELECT array_agg(id) FROM candidates
+            WHERE identity_domain_row($3, id) IS NOT NULL
+              AND (identity_domain_row($3, id) ->> 'removed_cycle') IS NULL""",
+        game_id,
+        ref,
+        str(entity_type),
+    )
+    return list(ids or [])
+
+
+async def is_live(conn, entity_type: str, entity_id: UUID) -> bool:
+    """The entity has a domain row that was not removed from the world (`removed_cycle`
+    NULL, or a type without removal)."""
+    row = await domain_row(conn, entity_type, entity_id)
+    return row is not None and row.get("removed_cycle") is None
 
 
 # Reveals and merges (spec §4.7).
