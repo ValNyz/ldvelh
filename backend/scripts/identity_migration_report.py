@@ -94,7 +94,8 @@ class GameReport:
     language: str
     reidentified: int = 0
     registered: list[tuple[str, str]] = field(default_factory=list)
-    orphans: list[tuple[str, str, int, str | None]] = field(default_factory=list)
+    # (type, name, edges, journal rows, entity its edges go to or None when they are lost)
+    orphans: list[tuple[str, str, int, int, str | None]] = field(default_factory=list)
     classification: list[tuple[UUID, str, str | None, object]] = field(
         default_factory=list
     )
@@ -124,8 +125,9 @@ def trigram_similarity(a: str, b: str) -> float:
     return shared / (len(left) + len(right) - shared)
 
 
-def word_similarity(a: str, b: str) -> float:
-    """pg_trgm's word_similarity(a, b), on word boundaries: the best similarity of a with a
+def word_run_similarity(a: str, b: str) -> float:
+    """The best similarity() of a with a run of whole consecutive words of b (close to
+    pg_trgm's strict_word_similarity): the best similarity of a with a
     run of consecutive words of b (« Coopérative » in « Coopérative Agronomique »: 1)."""
     words = _WORDS.findall(b.lower())
     return max(
@@ -269,7 +271,9 @@ def _reidentify(report: GameReport, entities, registry) -> list:
     return orphans
 
 
-def _orphans(report: GameReport, orphans, entities, edges: Counter, norm) -> None:
+def _orphans(
+    report: GameReport, orphans, entities, edges: Counter, journal: Counter, norm
+) -> None:
     for row in orphans:
         target = _resolve(entities, row["name"], row["entity_type"], norm)
         report.orphans.append(
@@ -277,9 +281,34 @@ def _orphans(report: GameReport, orphans, entities, edges: Counter, norm) -> Non
                 row["entity_type"],
                 row["name"],
                 edges[row["id"]],
+                journal[row["id"]],
                 target.label if target else None,
             )
         )
+
+
+async def _journal_mentions(conn, game_id: UUID, ids: list[UUID]) -> Counter:
+    """Journal rows of the game citing each id: an orphan's rows are rewritten to its
+    entity, or dropped with its edges (identity_legacy_normalise step b)."""
+    if not ids or "world_changes" not in {
+        r["table_name"]
+        for r in await conn.fetch(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        )
+    }:
+        return Counter()
+    rows = await conn.fetch(
+        """SELECT ref.id, count(*) AS n
+             FROM unnest($2::uuid[]) AS ref (id)
+             JOIN world_changes AS wc
+               ON concat(wc.old_row::text, wc.new_row::text, wc.row_id::text)
+                  LIKE '%' || ref.id::text || '%'
+             JOIN turns AS tn ON tn.id = wc.turn_id AND tn.game_id = $1
+            GROUP BY ref.id""",
+        game_id,
+        ids,
+    )
+    return Counter({r["id"]: r["n"] for r in rows})
 
 
 def _collisions(report: GameReport, entities: list[Entity], norm) -> None:
@@ -368,7 +397,9 @@ def _duplicate_reason(
     (similarity, or one name inside the other), the same occupation at the same place, or
     a character's descriptor that names the other's occupation."""
     a, b = norm(left.name), norm(right.name)
-    score = max(trigram_similarity(a, b), word_similarity(a, b), word_similarity(b, a))
+    score = max(
+        trigram_similarity(a, b), word_run_similarity(a, b), word_run_similarity(b, a)
+    )
     if score >= threshold:
         return f"noms proches ({score:.2f})"
     if left.type != "character":
@@ -378,14 +409,14 @@ def _duplicate_reason(
         all(jobs)
         and left.workplace_id
         and left.workplace_id == right.workplace_id
-        and word_similarity(min(jobs, key=len), max(jobs, key=len)) >= threshold
+        and word_run_similarity(min(jobs, key=len), max(jobs, key=len)) >= threshold
     ):
         return "même métier, même lieu"
     for described, other, job in ((left, right, jobs[1]), (right, left, jobs[0])):
         if (
             not described.has_true_name
             and job
-            and word_similarity(norm(described.name), job) >= threshold
+            and word_run_similarity(norm(described.name), job) >= threshold
         ):
             return f"descripteur ≈ métier de {other.name}"
     return None
@@ -424,7 +455,12 @@ async def build_report(conn, game: UUID | None = None) -> list[GameReport]:
         )
         orphans = _reidentify(report, entities, registry)
         _orphans(
-            report, orphans, entities, await _edges(conn, row["id"]), normalizer.norm
+            report,
+            orphans,
+            entities,
+            await _edges(conn, row["id"]),
+            await _journal_mentions(conn, row["id"], [o["id"] for o in orphans]),
+            normalizer.norm,
         )
         _collisions(report, entities, normalizer.norm)
         messages = await conn.fetch(
@@ -476,17 +512,18 @@ def render(reports: list[GameReport]) -> str:
         )
         lines += [f"### {SECTIONS[1]}", ""]
         lines += _table(
-            ["entité", "nom", "arêtes", "devenir"],
+            ["entité", "nom", "arêtes", "lignes de journal", "devenir"],
             [
                 [
                     t,
                     n,
                     e,
+                    j,
                     f"re-pointé vers {target}"
                     if target
                     else "supprimé (arêtes perdues)",
                 ]
-                for t, n, e, target in r.orphans
+                for t, n, e, j, target in r.orphans
             ],
         )
         lines += [f"### {SECTIONS[2]}", ""]

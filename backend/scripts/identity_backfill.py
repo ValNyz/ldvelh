@@ -7,16 +7,16 @@ here, per game, in one transaction (`run`):
 0. a game without language gets IdentityConfig.default_language;
 1. identity_legacy_normalise (SQL, from the migration): alias and registry norms, orphans,
    normalised collisions (suffix), mentions rebuilt from narrator_context;
-2. a game that had no language (written before the migration) gets its unknown
-   characters classified (services/identity/classify.py, the rule the dry-run report
-   prints), its journaled characters rows included;
-3. the derived aliases (short forms, titles: services/identity/aliases.derive) of every
-   entity, once (ON CONFLICT DO NOTHING);
-4. the exceptions the user wrote after reading the report: {id: {true_name: …}} makes the
-   character's true name that, {id: {descriptor: …}} makes it a descriptor.
-Idempotent: a second run changes nothing. Run by backend/entrypoint.sh after `dbmate up`
-(games that need it only: no language, or a norm missing); the startup check refuses to
-serve while one does.
+2. a legacy game (see `is_legacy`) gets its unknown characters classified
+   (services/identity/classify.py, the rule the dry-run report prints), its journaled
+   characters rows included (scripts/identity_journal.py);
+3. the exceptions the user wrote after reading the report (scripts/identity_exceptions.py);
+4. the derived aliases (short forms, titles: services/identity/aliases.derive) of every
+   entity, once (ON CONFLICT DO NOTHING), corrected names included.
+An `identity_events` row ('identity_backfill') marks the game done. Idempotent: a second
+run changes nothing. Run by backend/entrypoint.sh after `dbmate up`, with the exceptions
+of IDENTITY_BACKFILL_EXCEPTIONS (games that need it only); the startup check refuses to
+serve while one does. CONTRIBUTING, "Deploying the identity migration", has the procedure.
 
 Usage (from backend/):
   DATABASE_URL=postgresql://… python -m scripts.identity_backfill [--game ID]
@@ -34,11 +34,18 @@ from collections.abc import Mapping
 from pathlib import Path
 from uuid import UUID
 
-import yaml
-
 # Kinds derive() adds to the forms the migration already gave.
 DERIVED_KINDS = ("short", "title")
-EXCEPTION_KEYS = ("true_name", "descriptor")
+DONE_EVENT = "identity_backfill"
+
+# A legacy game: written before the migration (its aliases come from section 3, source
+# 'migration') and not backfilled yet. A game created since has neither: its names come
+# from the triggers ('system'), whatever its language.
+LEGACY_SQL = """
+SELECT NOT EXISTS (SELECT 1 FROM identity_events
+                    WHERE game_id = $1 AND kind = 'identity_backfill')
+       AND EXISTS (SELECT 1 FROM entity_aliases
+                    WHERE game_id = $1 AND source = 'migration')"""
 
 NEEDING_BACKFILL_SQL = """
 SELECT gm.id FROM games AS gm
@@ -47,6 +54,10 @@ SELECT gm.id FROM games AS gm
                 WHERE er.game_id = gm.id AND er.name_norm IS NULL)
     OR EXISTS (SELECT 1 FROM entity_aliases AS al
                 WHERE al.game_id = gm.id AND al.alias_norm IS NULL)
+    OR (NOT EXISTS (SELECT 1 FROM identity_events AS ev
+                     WHERE ev.game_id = gm.id AND ev.kind = 'identity_backfill')
+        AND EXISTS (SELECT 1 FROM entity_aliases AS al
+                     WHERE al.game_id = gm.id AND al.source = 'migration'))
  ORDER BY gm.created_at, gm.id"""
 
 
@@ -57,24 +68,32 @@ def _json(value) -> dict | None:
     return json.loads(value)
 
 
+async def is_legacy(conn, game_id: UUID) -> bool:
+    return bool(await conn.fetchval(LEGACY_SQL, game_id))
+
+
 async def run(
     conn, game_id: UUID, exceptions: Mapping[UUID, Mapping[str, str]] | None = None
 ) -> dict[str, int]:
     """Backfill one game (steps 0-4 of the module docstring); the counts of each step."""
+    from scripts.identity_exceptions import apply_exceptions
+    from scripts.identity_journal import classify_journal
+
     async with conn.transaction():
-        legacy = await conn.fetchval(
-            "SELECT language IS NULL FROM games WHERE id = $1 FOR UPDATE", game_id
+        language = await conn.fetchrow(
+            "SELECT language FROM games WHERE id = $1 FOR UPDATE", game_id
         )
-        if legacy is None:
+        if language is None:
             raise LookupError(f"no game {game_id}")
-        if legacy:
+        if language["language"] is None:
             from config import get_identity_config
 
             await conn.execute(
-                "UPDATE games SET language = $2 WHERE id = $1 AND language IS NULL",
+                "UPDATE games SET language = $2 WHERE id = $1",
                 game_id,
                 get_identity_config().default_language,
             )
+        legacy = await is_legacy(conn, game_id)
         counts = dict(
             _json(
                 await conn.fetchval(
@@ -84,16 +103,26 @@ async def run(
         )
         normalizer, lexicon = await _packs(conn, game_id)
         if legacy:
-            counts["journal_rows_classified"] = await _classify_journal(
+            counts["journal_rows_classified"] = await classify_journal(
                 conn, game_id, normalizer, lexicon
             )
             counts["characters_reclassified"] = await _classify(
                 conn, game_id, normalizer, lexicon
             )
+        counts["exceptions"] = await apply_exceptions(
+            conn, game_id, exceptions or {}, normalizer
+        )
         counts["derived_aliases"] = await _derive_aliases(
             conn, game_id, normalizer, lexicon
         )
-        counts["exceptions"] = await _apply_exceptions(conn, game_id, exceptions or {})
+        if legacy:
+            await conn.execute(
+                """INSERT INTO identity_events (game_id, kind, payload)
+                   VALUES ($1, $2, $3::text::jsonb)""",
+                game_id,
+                DONE_EVENT,
+                json.dumps(counts, sort_keys=True),
+            )
     return counts
 
 
@@ -132,21 +161,11 @@ async def legacy_characters(conn, game_id: UUID):
     ]
 
 
-async def _drop_true_name_aliases(conn, character_id: UUID) -> None:
-    """The aliases the migration made of a name that turns out not to be a true name: the
-    name itself and its derived forms (the descriptor keeps its own)."""
-    await conn.execute(
-        """DELETE FROM entity_aliases
-            WHERE entity_id = $1 AND source = 'migration'
-              AND kind IN ('true_name', 'short', 'title')""",
-        character_id,
-    )
-
-
 async def _classify(conn, game_id: UUID, normalizer, lexicon) -> int:
     """Step 2: the unknown characters whose name is a descriptor lose their provisional
     true name (and its alias, made by the migration), take the descriptor and, when their
     new label normalises like another character's, a label suffix."""
+    from scripts.identity_exceptions import drop_true_name_aliases
     from services.identity.classify import plan_classification
 
     changed = 0
@@ -156,7 +175,7 @@ async def _classify(conn, game_id: UUID, normalizer, lexicon) -> int:
     for _, verdict, write in plan:
         if write is None:
             continue
-        await _drop_true_name_aliases(conn, write.id)
+        await drop_true_name_aliases(conn, write.id)
         await conn.execute(
             """UPDATE characters SET true_name = NULL, descriptor = $2, label_suffix = $3
                 WHERE id = $1""",
@@ -176,91 +195,6 @@ async def _classify(conn, game_id: UUID, normalizer, lexicon) -> int:
             )
         changed += 1
     return changed
-
-
-async def _classify_journal(conn, game_id: UUID, normalizer, lexicon) -> int:
-    """Step 2 on the journal: a characters row of a turn played before the migration holds
-    the provisional model (true_name = name); an unknown character's gets the verdict of
-    its own name, so that undoing the turn restores the classified model. Runs before the
-    live rows are classified: a row without descriptor takes the character's own."""
-    live = {
-        r["id"]: r
-        for r in await conn.fetch(
-            "SELECT id, descriptor, known_by_protagonist FROM characters WHERE game_id = $1",
-            game_id,
-        )
-    }
-    rows = await conn.fetch(
-        """SELECT wc.id, wc.row_id, wc.old_row::text AS old_row, wc.new_row::text AS new_row
-             FROM world_changes AS wc JOIN turns AS tn ON tn.id = wc.turn_id
-            WHERE tn.game_id = $1 AND wc.table_name = 'characters'""",
-        game_id,
-    )
-    changed = 0
-    renames = set()
-    for row in rows:
-        character = live.get(row["row_id"])
-        before = [_json(row["old_row"]), _json(row["new_row"])]
-        sides = [_classified(side, character, normalizer, lexicon) for side in before]
-        if sides != before:
-            await conn.execute(
-                "UPDATE world_changes SET old_row = $2::text::jsonb, new_row = $3::text::jsonb"
-                " WHERE id = $1",
-                row["id"],
-                None if sides[0] is None else json.dumps(sides[0]),
-                None if sides[1] is None else json.dumps(sides[1]),
-            )
-            renames |= {
-                (row["row_id"], old["name"], new["name"])
-                for old, new in zip(before, sides, strict=True)
-                if old and new and old.get("name") != new.get("name")
-            }
-            changed += 1
-    for row_id, old_name, new_name in renames:
-        # The registry's journal rows of the same name follow (name and norm).
-        for side in ("old_row", "new_row"):
-            await conn.execute(
-                f"""UPDATE world_changes AS wc
-                       SET {side} = wc.{side} || jsonb_build_object(
-                               'name', $3::text,
-                               'name_norm', ldvelh_norm_for_game($4, $3::text))
-                      FROM turns AS tn
-                     WHERE tn.id = wc.turn_id AND tn.game_id = $4
-                       AND wc.table_name = 'entity_registry' AND wc.row_id = $1
-                       AND wc.{side} ->> 'name' = $2""",
-                row_id,
-                old_name,
-                new_name,
-                game_id,
-            )
-    return changed
-
-
-def _classified(change: dict | None, character, normalizer, lexicon) -> dict | None:
-    from services.identity.classify import classify_unknown_character
-
-    if (
-        not change
-        or "true_name" not in change
-        or change["true_name"] != change.get("name")
-    ):
-        return change
-    known = change.get(
-        "known_by_protagonist",
-        character["known_by_protagonist"] if character else False,
-    )
-    if known or not change.get("name"):
-        return change
-    seen = change.get("descriptor", character["descriptor"] if character else None)
-    verdict = classify_unknown_character(change["name"], seen, normalizer, lexicon)
-    if verdict.kind == "true_name":
-        return change
-    return {
-        **change,
-        "true_name": None,
-        "descriptor": verdict.descriptor,
-        "name": verdict.descriptor,
-    }
 
 
 async def _derive_aliases(conn, game_id: UUID, normalizer, lexicon) -> int:
@@ -327,62 +261,10 @@ async def _derive_aliases(conn, game_id: UUID, normalizer, lexicon) -> int:
     return await conn.fetchval(count, game_id) - before
 
 
-async def _apply_exceptions(
-    conn, game_id: UUID, exceptions: Mapping[UUID, Mapping[str, str]]
-) -> int:
-    """Step 4: the user's corrections of the classification, for the characters of this
-    game (an id of another game is left to that game's run)."""
-    applied = 0
-    for character_id, correction in exceptions.items():
-        exists = await conn.fetchval(
-            "SELECT 1 FROM characters WHERE id = $1 AND game_id = $2",
-            character_id,
-            game_id,
-        )
-        if not exists:
-            continue
-        if "true_name" in correction:
-            status = await conn.execute(
-                """UPDATE characters SET true_name = $2
-                    WHERE id = $1 AND true_name IS DISTINCT FROM $2""",
-                character_id,
-                correction["true_name"],
-            )
-        else:
-            await _drop_true_name_aliases(conn, character_id)
-            status = await conn.execute(
-                """UPDATE characters SET true_name = NULL, descriptor = $2
-                    WHERE id = $1 AND (true_name IS NOT NULL
-                                       OR descriptor IS DISTINCT FROM $2)""",
-                character_id,
-                correction["descriptor"],
-            )
-        applied += status != "UPDATE 0"
-    return applied
-
-
-def load_exceptions(path: Path) -> dict[UUID, dict[str, str]]:
-    """The exceptions file: {character id: {true_name: …} | {descriptor: …}}."""
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    if not isinstance(raw, dict):
-        raise TypeError(f"{path}: a mapping of character ids is expected")
-    exceptions = {}
-    for key, correction in raw.items():
-        if (
-            not isinstance(correction, dict)
-            or len(correction) != 1
-            or next(iter(correction)) not in EXCEPTION_KEYS
-            or not str(next(iter(correction.values())) or "").strip()
-        ):
-            raise ValueError(
-                f"{path}: {key}: one of {', '.join(EXCEPTION_KEYS)} with a non-empty value"
-            )
-        exceptions[UUID(str(key))] = {k: str(v).strip() for k, v in correction.items()}
-    return exceptions
-
-
 async def _main(args: argparse.Namespace) -> int:
     import asyncpg
+
+    from scripts.identity_exceptions import load_exceptions
 
     exceptions = load_exceptions(args.exceptions) if args.exceptions else {}
     conn = await asyncpg.connect(args.database_url)
@@ -391,12 +273,20 @@ async def _main(args: argparse.Namespace) -> int:
             games = [args.game]
         else:
             games = [r["id"] for r in await conn.fetch(NEEDING_BACKFILL_SQL)]
-            if exceptions:
+            if exceptions:  # games with a correction not applied yet
                 games += [
                     r["game_id"]
                     for r in await conn.fetch(
-                        "SELECT DISTINCT game_id FROM characters WHERE id = ANY($1::uuid[])",
+                        """SELECT DISTINCT ch.game_id
+                             FROM unnest($1::uuid[], $2::text[]) AS ex (id, payload)
+                             JOIN characters AS ch ON ch.id = ex.id
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM identity_events AS ev
+                                 WHERE ev.entity_id = ch.id
+                                   AND ev.kind = 'identity_exception'
+                                   AND ev.payload = ex.payload::jsonb)""",
                         list(exceptions),
+                        [json.dumps(c, sort_keys=True) for c in exceptions.values()],
                     )
                     if r["game_id"] not in games
                 ]
@@ -416,7 +306,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database-url", default=os.environ.get("DATABASE_URL"))
     parser.add_argument("--game", type=UUID, help="only this game")
     parser.add_argument(
-        "--exceptions", type=Path, help="YAML corrections of the report"
+        "--exceptions",
+        type=Path,
+        default=os.environ.get("IDENTITY_BACKFILL_EXCEPTIONS") or None,
+        help="YAML corrections of the report (default: $IDENTITY_BACKFILL_EXCEPTIONS)",
     )
     args = parser.parse_args(argv)
     if not args.database_url:

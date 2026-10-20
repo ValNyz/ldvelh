@@ -12,6 +12,8 @@ dbmate --migrations-dir /app/db/migrations --no-dump-schema --wait up
 echo "→ Backfilling entity identities..."
 # Games written before the identity migration (no language, names without norm): the
 # startup check refuses to serve until this ran. Idempotent; nothing to do afterwards.
+# IDENTITY_BACKFILL_EXCEPTIONS: the owner-reviewed corrections of the dry-run report
+# (YAML path), applied once (CONTRIBUTING, "Deploying the identity migration").
 python -m scripts.identity_backfill
 
 echo "→ Starting app..."

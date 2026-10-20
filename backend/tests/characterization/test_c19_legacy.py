@@ -231,7 +231,9 @@ async def identity_invariants(conn, game_id: str) -> None:
                UNION ALL SELECT entity_id::text FROM chronology_participants
                UNION ALL SELECT entity_id::text FROM event_participants
                UNION ALL SELECT owner_id::text FROM inventory
-               UNION ALL SELECT owner_id::text FROM narrative_arcs) AS ref (id)
+               UNION ALL SELECT owner_id::text FROM narrative_arcs
+               UNION ALL SELECT unnest(related_entities)::text
+                           FROM director_commitments) AS ref (id)
             WHERE ref.id = ANY($1::text[])""",
         list(old_ids),
     )
@@ -445,20 +447,28 @@ OSSEK = "7b474354-16c0-4f1a-a77a-1cce67c116a5"  # domain id
 OSSEK_OLD_REGISTRY = "bc1cfcf3-f620-487d-8516-b26e0a992de9"
 PROTAGONIST_OLD_REGISTRY = "87685f6f-4d8f-40db-b738-addd7793eb12"
 LIVES_AT_RELATION = "87880d42-83b1-4076-a964-936971f9ee0c"
+COMMITMENT = "5c0aa7e1-3f39-4c55-9d7e-6a1b8c2d4e01"
 
 
 async def add_legacy_character(
-    conn, name: str, unknown_name: str | None, character_id: str | None = None
+    conn,
+    name: str,
+    unknown_name: str | None,
+    character_id: str | None = None,
+    *,
+    mandatory: bool = False,
 ) -> None:
     """A character written by the pre-identity code: the old trigger registers it under
     its own id (hook run before the identity migration)."""
     await conn.execute(
-        """INSERT INTO characters (id, game_id, name, unknown_name, known_by_protagonist)
-           VALUES (COALESCE($4::uuid, gen_random_uuid()), $1::uuid, $2, $3, false)""",
+        """INSERT INTO characters
+                  (id, game_id, name, unknown_name, known_by_protagonist, is_mandatory)
+           VALUES (COALESCE($4::uuid, gen_random_uuid()), $1::uuid, $2, $3, false, $5)""",
         legacy_game_id(),
         name,
         unknown_name,
         character_id,
+        mandatory,
     )
 
 
@@ -501,8 +511,9 @@ async def test_c19_legacy_reveal_by_descriptor_works_after_migration(test_pool):
 
 async def _journal_a_turn_before_the_migration(conn, turn_id: str) -> None:
     """A turn played between P5a and the identity migration (#152, I7): it deleted a
-    character (registry row under the old trigger's id) and a fact, renamed Ossek, and
-    touched a relation whose ends are old registry ids."""
+    character (registry row under the old trigger's id) and a fact written before the
+    first message (world generation, no protagonist: unknown by the rule), renamed Ossek,
+    and touched a relation and a director's commitment citing old registry ids."""
     await conn.execute(
         f"""DO $$
         DECLARE
@@ -513,16 +524,22 @@ async def _journal_a_turn_before_the_migration(conn, turn_id: str) -> None:
         BEGIN
             INSERT INTO turns (id, game_id, status, committed_at)
             VALUES ('{turn_id}', v_game, 'committed', now());
-            INSERT INTO characters (game_id, name, unknown_name, known_by_protagonist)
-            VALUES (v_game, 'Ferrin Dask', 'Le garde du sas', false);
+            INSERT INTO characters (id, game_id, name, unknown_name, known_by_protagonist,
+                                    created_at, updated_at)
+            VALUES ('6f1e2d3c-4b5a-4968-8776-655443322110', v_game, 'Ferrin Dask',
+                    'Le garde du sas', false, '2026-01-02', '2026-01-02');
             SELECT to_jsonb(ch) INTO v_char FROM characters ch
              WHERE ch.game_id = v_game AND ch.name = 'Ferrin Dask';
             SELECT to_jsonb(er) INTO v_reg FROM entity_registry er
              WHERE er.game_id = v_game AND er.name = 'Ferrin Dask';
             DELETE FROM characters WHERE id = (v_char ->> 'id')::uuid;
             DELETE FROM entity_registry WHERE id = (v_reg ->> 'id')::uuid;
-            INSERT INTO facts (game_id, cycle, type, description)
-            VALUES (v_game, 2, 'action', 'Un fait que le tour a effacé');
+            INSERT INTO facts (id, game_id, cycle, type, description, created_at)
+            VALUES ('7a2b3c4d-5e6f-4a1b-8c2d-9e0f1a2b3c4d', v_game, 1, 'action',
+                    'Un fait que le tour a effacé', '2026-01-01');
+            INSERT INTO director_commitments (id, game_id, kind, text, related_entities)
+            VALUES ('{COMMITMENT}', v_game, 'secret', 'Un secret',
+                    ARRAY['{OSSEK_OLD_REGISTRY}']::uuid[]);
             SELECT to_jsonb(ft) INTO v_fact FROM facts ft
              WHERE ft.game_id = v_game AND ft.description = 'Un fait que le tour a effacé';
             DELETE FROM facts WHERE id = (v_fact ->> 'id')::uuid;
@@ -536,14 +553,19 @@ async def _journal_a_turn_before_the_migration(conn, turn_id: str) -> None:
                     '{{"name": "Ossek Varn"}}', '{{"name": "Ossek"}}'),
                    ('{turn_id}', 'relations', '{LIVES_AT_RELATION}', 'U',
                     '{{"source_id": "{PROTAGONIST_OLD_REGISTRY}"}}',
-                    '{{"source_id": "{PROTAGONIST_OLD_REGISTRY}"}}');
+                    '{{"source_id": "{PROTAGONIST_OLD_REGISTRY}"}}'),
+                   ('{turn_id}', 'director_commitments', '{COMMITMENT}', 'U',
+                    '{{"related_entities": ["{OSSEK_OLD_REGISTRY}"]}}',
+                    '{{"related_entities": []}}');
         END $$;"""
     )
 
 
 async def test_c19_world_changes_ids_are_rewritten(test_pool):
     """I7: the journal of a turn played before the identity migration is rewritten to the
-    new ids and column set, so that undoing it after the deploy is exact."""
+    new ids and column set, so that undoing it after the deploy is exact: a deleted entity
+    comes back at its domain id with its handle, norm and aliases, a deleted fact with a
+    reserved handle and the flags of the rule, the commitment with the new id."""
     import json
     import uuid
 
@@ -565,7 +587,17 @@ async def test_c19_world_changes_ids_are_rewritten(test_pool):
             )
             for r in await conn.fetch(
                 "SELECT table_name, op, row_id, old_row::text AS old FROM world_changes"
-                " WHERE turn_id = $1::uuid",
+                " WHERE turn_id = $1::uuid AND table_name <> 'entity_aliases'",
+                turn_id,
+            )
+        }
+        aliases = {
+            (r["alias"], r["kind"], r["known"], r["norm"])
+            for r in await conn.fetch(
+                "SELECT old_row ->> 'alias' AS alias, old_row ->> 'kind' AS kind,"
+                " (old_row ->> 'known')::boolean AS known,"
+                " old_row ->> 'alias_norm' AS norm FROM world_changes"
+                " WHERE turn_id = $1::uuid AND table_name = 'entity_aliases'",
                 turn_id,
             )
         }
@@ -578,7 +610,13 @@ async def test_c19_world_changes_ids_are_rewritten(test_pool):
             "Le garde du sas",
         )
         assert registry["name_norm"] == "ferrin dask" and registry["handle"] > 0
-        assert {"handle", "known", "secret"} <= rows[("facts", "D")][1].keys()
+        assert aliases == {  # the deleted Ferrin's names, Ossek's former name
+            ("Ferrin Dask", "true_name", False, "ferrin dask"),
+            ("Le garde du sas", "descriptor", True, "garde du sas"),
+            ("Ossek Varn", "true_name", False, "ossek varn"),
+        }
+        fact = rows[("facts", "D")][1]
+        assert (fact["known"], fact["secret"]) == (False, False)
         assert rows[("entity_registry", "U")] == (
             OSSEK,
             {"name": "Ossek Varn", "name_norm": "ossek varn"},
@@ -588,6 +626,30 @@ async def test_c19_world_changes_ids_are_rewritten(test_pool):
             "true_name": "Ossek Varn",
         }
         assert rows[("relations", "U")][1] == {"source_id": protagonist}
+        assert rows[("director_commitments", "U")][1] == {"related_entities": [OSSEK]}
+        reserved = {
+            (r["tbl"], r["handle"])
+            for r in await conn.fetch(
+                "SELECT payload ->> 'table' AS tbl, (payload ->> 'handle')::int AS handle"
+                " FROM identity_events WHERE game_id = $1::uuid AND kind = 'handle_reserved'",
+                game_id,
+            )
+        }
+        assert reserved == {
+            ("entity_registry", registry["handle"]),
+            ("facts", fact["handle"]),
+        }
+
+        # A row created outside a turn after the deploy never takes a reserved handle.
+        await conn.execute(
+            "INSERT INTO locations (game_id, name) VALUES ($1::uuid, 'Sas neuf')",
+            game_id,
+        )
+        new_handle = await conn.fetchval(
+            "SELECT er.handle FROM entity_registry er JOIN locations l ON l.id = er.id"
+            " WHERE l.name = 'Sas neuf'"
+        )
+        assert new_handle > registry["handle"]
 
         async with conn.transaction():
             await conn.fetchval(
@@ -599,14 +661,19 @@ async def test_c19_world_changes_ids_are_rewritten(test_pool):
             OSSEK,
         )
         back = await conn.fetchrow(
-            "SELECT ch.true_name, ch.descriptor, er.name, er.name_norm, er.handle"
+            "SELECT ch.true_name, ch.descriptor, er.name, er.name_norm, er.handle,"
+            " find_entity(ch.game_id, 'le garde du sas', 'character') = ch.id AS found"
             " FROM characters ch JOIN entity_registry er ON er.id = ch.id"
             " WHERE ch.id = $1::uuid",
             ferrin_id,
         )
-        fact_handle = await conn.fetchval(
-            "SELECT handle FROM facts WHERE id = $1::uuid", rows[("facts", "D")][0]
+        fact_back = await conn.fetchrow(
+            "SELECT handle, known FROM facts WHERE id = $1::uuid",
+            rows[("facts", "D")][0],
         )
+        await identity_invariants(
+            conn, game_id
+        )  # aliases of the restored entity included
     assert dict(ossek) == {
         "true_name": "Ossek Varn",
         "name": "Ossek Varn",
@@ -618,5 +685,6 @@ async def test_c19_world_changes_ids_are_rewritten(test_pool):
         "name": "Ferrin Dask",
         "name_norm": "ferrin dask",
         "handle": registry["handle"],
+        "found": True,
     }
-    assert fact_handle == rows[("facts", "D")][1]["handle"]
+    assert dict(fact_back) == {"handle": fact["handle"], "known": False}

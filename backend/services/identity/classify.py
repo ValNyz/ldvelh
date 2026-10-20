@@ -44,7 +44,12 @@ def classify_unknown_character(
     name = " ".join(name.split())
     unknown = " ".join(unknown_name.split()) if unknown_name else None
     words = name.split()
-    to_check = len(words) == 1 and not name[:1].isupper()
+    # Letter case only says something in a script that has it (the pack says so).
+    to_check = (
+        len(words) == 1
+        and normalizer.pack.proper_name_uses_capitals
+        and not name[:1].isupper()
+    )
     same_as_seen = unknown is not None and normalizer.norm(name) == normalizer.norm(
         unknown
     )
@@ -73,8 +78,25 @@ class Reclassification:
     extra_descriptor: str | None
 
 
-def _label(base: str, suffix: str | None) -> str:
+def label_of(base: str, suffix: str | None) -> str:
+    """The internal label of a character: its name, then its homonym suffix."""
     return f"{base} ({suffix})" if suffix else base
+
+
+def free_suffix(
+    base: str,
+    suffix: str | None,
+    taken: dict[str, set[UUID]],
+    normalizer: Normalizer,
+) -> str | None:
+    """`suffix` when the label it makes is free in `taken` (norm -> the other characters
+    holding it), else the first free homonym number: the n-th holder of a label is its
+    homonym (n), the first keeps it bare (ruling R9)."""
+    rank = len(taken.get(normalizer.norm(base), ())) + 1
+    while taken.get(normalizer.norm(label_of(base, suffix))):
+        suffix = str(rank)
+        rank += 1
+    return suffix
 
 
 def plan_classification(
@@ -99,13 +121,10 @@ def plan_classification(
             continue
         taken[character.label_norm].discard(character.id)
         base = verdict.descriptor or character.name
-        suffix = character.label_suffix
-        # The n-th character of a label is its homonym (n): the first holder keeps it bare.
-        rank = len(taken.get(normalizer.norm(base), ())) + 1
-        while taken.get(normalizer.norm(_label(base, suffix))):
-            suffix = str(rank)
-            rank += 1
-        taken.setdefault(normalizer.norm(_label(base, suffix)), set()).add(character.id)
+        suffix = free_suffix(base, character.label_suffix, taken, normalizer)
+        taken.setdefault(normalizer.norm(label_of(base, suffix)), set()).add(
+            character.id
+        )
         extra = (
             character.name
             if normalizer.norm(character.name) != normalizer.norm(base)
