@@ -104,48 +104,6 @@ async def test_fate_skill_upgrade_of_wrong_type_is_skipped_alone(test_pool, test
     assert changes["skill_upgrades"] == [{"skill": "Tir", "level": 3}]
 
 
-async def test_process_extraction_isolates_a_failed_item(test_pool, test_user):
-    """ExtractionPopulator.process_extraction: same per-item savepoints as the extractors."""
-    from kg.specialized_populator import ExtractionPopulator
-    from schema import NarrativeExtraction
-
-    game_id = await GameService(test_pool).create_game(test_user["id"])
-    extraction = NarrativeExtraction.model_validate({
-        "cycle": 1,
-        "entities_created": [{"entity_type": "character", "name": "Alpha"},
-                             {"entity_type": "character", "name": "Beta"}],
-        "entities_updated": [
-            {"entity_ref": "Alpha", "entity_type": "character", "changes": {"mood": "las"}},
-            {"entity_ref": "Beta", "entity_type": "character", "changes": {"mood": "calme"}},
-        ],
-        "facts": [{"cycle": 1, "fact_type": "observation", "description": "Une porte grince.",
-                   "semantic_key": "porte:grince:nuit"}],
-    })
-    populator = ExtractionPopulator(test_pool, game_id)
-    real_update = populator.update_entity
-
-    async def colliding_update(conn, entity_type, name, changes):
-        if name == "Alpha":  # rename collision: server-side unique violation
-            # (the name is derived from true_name, #152: the collision goes through it)
-            await conn.execute("UPDATE characters SET true_name = 'Beta' "
-                               "WHERE game_id = $1 AND name = 'Alpha'", game_id)
-        return await real_update(conn, entity_type, name, changes)
-
-    populator.update_entity = colliding_update
-    stats = await populator.process_extraction(extraction)
-
-    assert (stats["entities_created"], stats["entities_updated"], stats["facts_created"]) \
-        == (2, 1, 1)
-    [error] = stats["errors"]
-    assert error.startswith("Entity update:")
-    assert (await _character(test_pool, game_id, "Beta"))["mood"] == "calme"
-    assert await _character(test_pool, game_id, "Alpha") is not None
-    async with test_pool.acquire() as conn:
-        logged = await conn.fetchval(
-            "SELECT errors FROM extraction_logs WHERE game_id = $1", game_id)
-    assert logged == [error]
-
-
 def _max_length(field) -> int | None:
     """max_length of a field, looking inside `X | None` and Annotated metadata."""
     from typing import get_args

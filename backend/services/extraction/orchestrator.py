@@ -20,6 +20,7 @@ from domain.errors import SourceMessageGone
 from kg.item_writes import write_item
 from kg.populator import KnowledgeGraphPopulator
 from llm.session import LLMSession
+from repos.turns import reveal_location
 from repos.uow import uow
 from services.identity.service import IdentityService
 from services.identity.types import EntityRef
@@ -80,12 +81,15 @@ async def _apply_entity_reveals(
                 "[EXTRACTION] ",
             )
         elif etype == "location" and current_name:
+            identity = identity or await IdentityService.for_game(
+                conn, populator.game_id
+            )
             await write_item(
                 conn,
                 errors,
                 "entity_reveal location",
-                lambda name=current_name: populator.mark_location_accessible(
-                    conn, name
+                lambda name=current_name, identity=identity: reveal_location(
+                    conn, identity, populator, name
                 ),
                 "[EXTRACTION] ",
             )

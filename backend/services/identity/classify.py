@@ -8,6 +8,8 @@ does not know with `classify_unknown_character`, and the dry-run report
 (scripts/identity_migration_report.py) prints the same verdicts before the deploy: one
 function, so the report shows exactly what the backfill will do. The words compared come
 from the game's language and genre packs (Normalizer, Lexicon), never from this code.
+`extracted_character_names` applies the same proper-name test to a character an extractor
+creates.
 
 `plan_classification` turns the verdicts of a game into the writes, homonyms included: a
 character whose new label normalises like another live character's gets the internal
@@ -56,6 +58,22 @@ def classify_unknown_character(
     if same_as_seen or not normalizer.looks_like_proper_name(name, lexicon):
         return Verdict("descriptor", None, unknown or name, to_check)
     return Verdict("true_name", name, unknown, to_check)
+
+
+def extracted_character_names(
+    name: str, descriptor: str | None, normalizer: Normalizer, lexicon: Lexicon
+) -> tuple[str | None, str | None, str | None]:
+    """(true name, descriptor, extra descriptor) of a character an extractor names `name`.
+
+    Only a form that looks like a proper name (`looks_like_proper_name`) is a true name.
+    Any other `name` is a description: the descriptor, or, when the extractor gave a
+    distinct descriptor, a second descriptor of the character (an alias, so references
+    by `name` still resolve), never a true name."""
+    if normalizer.looks_like_proper_name(name, lexicon):
+        return name, descriptor, None
+    if descriptor and normalizer.norm(descriptor) != normalizer.norm(name):
+        return None, descriptor, name
+    return None, name, None
 
 
 @dataclass(frozen=True)

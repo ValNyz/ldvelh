@@ -150,22 +150,6 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
-    async def resolve_entity_refs(
-        self, conn: Connection, refs: list[str], entity_type: str
-    ) -> dict[str, UUID]:
-        """{ref: id} of the refs find_entity resolves for `entity_type` (an unknown or
-        ambiguous ref is left out)."""
-        if not refs:
-            return {}
-        rows = await conn.fetch(
-            """SELECT ref, find_entity($1, ref, $3) AS id
-               FROM unnest($2::text[]) AS ref""",
-            self.game_id,
-            list(refs),
-            entity_type,
-        )
-        return {r["ref"]: r["id"] for r in rows if r["id"] is not None}
-
     async def get_entity_counts_by_type(self, conn: Connection) -> dict[str, int]:
         """Count active entities per type."""
         row = await conn.fetchrow(
@@ -491,15 +475,21 @@ class KnowledgeGraphReader:
     ) -> dict | None:
         """The protagonist's 'knows' relation to the character `npc_name` names
         (find_entity: none when the name is unknown or shared by homonyms)."""
+        # Resolved once, before the query (not in the view's per-row predicate).
+        npc_id = await entity_repo.find_entity(
+            conn, self.game_id, npc_name, "character"
+        )
+        if npc_id is None:
+            return None
         row = await conn.fetchrow(
             """SELECT level, context, known_by_protagonist
                FROM v_active_relations
                WHERE game_id = $1
                  AND source_type = 'protagonist'
-                 AND target_id = find_entity($1, $2, 'character')
+                 AND target_id = $2
                  AND relation_type = 'knows'""",
             self.game_id,
-            npc_name,
+            npc_id,
         )
         return dict(row) if row else None
 

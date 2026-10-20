@@ -210,6 +210,14 @@ async def get_registry(conn, game_id: UUID, entity_id: UUID) -> RegistryRow | No
     return RegistryRow(**dict(row)) if row else None
 
 
+async def live_entity_count(conn, game_id: UUID) -> int:
+    """Entities of the game in the registry (merge tombstones left out)."""
+    return await conn.fetchval(
+        "SELECT count(*) FROM entity_registry WHERE game_id = $1 AND merged_into IS NULL",
+        game_id,
+    )
+
+
 async def follow_merge(conn, entity_id: UUID) -> UUID:
     """The live entity behind `entity_id` (merge tombstones followed)."""
     return await conn.fetchval("SELECT entity_follow_merge($1)", entity_id)
@@ -512,6 +520,29 @@ async def update_domain_row(
         return table, None
     value = row["row"]
     return table, value if isinstance(value, dict) else json.loads(value)
+
+
+async def fill_domain_row(
+    conn, game_id: UUID, entity_type: str, entity_id: UUID, values: dict
+) -> bool:
+    """Write `values` on an entity's domain row only when one of them differs from what is
+    stored (no write, so no journal row, otherwise); True when the row changed."""
+    table, columns = await domain_table(conn, entity_type)
+    names = _checked(columns, values, table)
+    if not names:
+        return False
+    sets = ", ".join(f'"{c}" = ${i}' for i, c in enumerate(names, start=3))
+    changed = " OR ".join(
+        f'dom."{c}" IS DISTINCT FROM ${i}' for i, c in enumerate(names, start=3)
+    )
+    status = await conn.execute(
+        f"UPDATE {table} AS dom SET {sets}"
+        f" WHERE dom.id = $1 AND dom.game_id = $2 AND ({changed})",
+        entity_id,
+        game_id,
+        *values.values(),
+    )
+    return status != "UPDATE 0"
 
 
 # Reveals and merges (spec §4.7).

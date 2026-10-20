@@ -4,9 +4,9 @@ in entities_created must not overwrite a stored value with a default, an empty v
 NULL, and must not change known_by_protagonist (only explicit reveals do).
 """
 
-from kg.specialized_populator import ExtractionPopulator
+from kg.populator import KnowledgeGraphPopulator
 from llm.session import LLMSession
-from schema import EntityCreation, NarrativeExtraction, RelationData, RelationType
+from schema import EntityCreation, NarrativeArcData, RelationType
 from services.engine.narrative import NarrativeEngine
 from services.extraction.characters import CharactersExtractor
 from services.extraction.locations import LocationsExtractor
@@ -181,13 +181,14 @@ class TestRelationUpsert:
     async def _relation_known(self, test_pool, game_id, extractor, known_first, known_again,
                               context_again="liés"):
         async with test_pool.acquire() as conn:
-            await extractor.populator.load_registry(conn)
+            identity = await extractor.populator.identity(conn)
+            source = (await identity.require_ref(conn, "Justine Lépicier", "character"))
+            target = (await identity.require_ref(conn, "Marcus", "character"))
             for known, context in ((known_first, "liés en secret"),
                                    (known_again, context_again)):
-                await extractor.populator.create_relation(conn, RelationData(
-                    source_ref="Justine Lépicier", target_ref="Marcus",
-                    relation_type=RelationType.KNOWS, level=5, context=context,
-                    known_by_protagonist=known))
+                await extractor.populator.create_relation(
+                    conn, source.entity_id, target.entity_id, RelationType.KNOWS,
+                    level=5, context=context, known_by_protagonist=known)
             return await conn.fetchrow(
                 "SELECT known_by_protagonist, context FROM relations WHERE game_id = $1",
                 game_id)
@@ -225,14 +226,13 @@ class TestRelationUpsert:
 
 class TestNarrativeArcUpsert:
     async def _arc_intensity(self, test_pool, game_id, relisted: dict):
-        populator = ExtractionPopulator(test_pool, game_id)
+        populator = KnowledgeGraphPopulator(test_pool, game_id)
         base = {"title": "Les rumeurs de rachat", "domain": "professional",
                 "description": "Un investisseur rôde autour des docks."}
-        for cycle, arc in ((1, {**base, "intensity": 5}), (2, {**base, **relisted})):
-            stats = await populator.process_extraction(NarrativeExtraction.model_validate(
-                {"cycle": cycle, "arcs_created": [arc]}))
-            assert stats["errors"] == []
         async with test_pool.acquire() as conn:
+            for cycle, arc in ((1, {**base, "intensity": 5}), (2, {**base, **relisted})):
+                await populator.create_narrative_arc(
+                    conn, NarrativeArcData.model_validate(arc), cycle, [])
             return await conn.fetchrow(
                 "SELECT intensity, description FROM narrative_arcs WHERE game_id = $1",
                 game_id)
@@ -256,11 +256,11 @@ class TestNarrativeArcUpsert:
 
     async def test_new_arc_without_intensity_defaults_to_3(self, test_pool, test_user):
         game_id = await _game(test_pool, test_user)
-        populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(NarrativeExtraction.model_validate({
-            "cycle": 1, "arcs_created": [{"title": "Dette", "domain": "personal",
-                                          "description": "Une dette ancienne."}]}))
+        populator = KnowledgeGraphPopulator(test_pool, game_id)
         async with test_pool.acquire() as conn:
+            await populator.create_narrative_arc(conn, NarrativeArcData.model_validate(
+                {"title": "Dette", "domain": "personal",
+                 "description": "Une dette ancienne."}), 1, [])
             assert await conn.fetchval(
                 "SELECT intensity FROM narrative_arcs WHERE game_id = $1", game_id) == 3
 

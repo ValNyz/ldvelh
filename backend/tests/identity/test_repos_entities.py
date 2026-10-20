@@ -273,9 +273,10 @@ async def test_find_for_upsert_branches(test_pool, game):
 
 
 async def test_an_ambiguous_name_creates_no_location(test_pool, game):
-    from kg.populator import KnowledgeGraphPopulator
+    from kg.specialized_populator import ExtractionPopulator
     from repos.turns import _resolve_location
-    from schema import LocationData
+    from schema import EntityCreation
+    from services.identity.types import AmbiguousLabel
 
     async with test_pool.acquire() as conn:
         for name in ("Dock Est", "Dock Ouest"):
@@ -286,14 +287,15 @@ async def test_an_ambiguous_name_creates_no_location(test_pool, game):
                 "location",
                 "Dock",
             )
-        created = await KnowledgeGraphPopulator(None, game).create_location(
-            conn, LocationData(name="Dock")
-        )
+        with pytest.raises(AmbiguousLabel):
+            await ExtractionPopulator(None, game).create_extracted_entity(
+                conn, [], EntityCreation(entity_type="location", name="Dock"), 1
+            )
         stub = await _resolve_location(conn, game, "le Dock", 2)
         count = await conn.fetchval(
             "SELECT count(*) FROM locations WHERE game_id = $1", game
         )
-    assert (created, stub, count) == (None, None, 2)
+    assert (stub, count) == (None, 2)
 
 
 async def test_a_contested_character_name_leaves_the_label_holder_untouched(
@@ -301,15 +303,20 @@ async def test_a_contested_character_name_leaves_the_label_holder_untouched(
 ):
     """The old code skipped a name matching another character's descriptor: the holder of
     the label is not rewritten with data that may describe the other one."""
-    from kg.populator import KnowledgeGraphPopulator
-    from schema import CharacterData
+    from kg.specialized_populator import ExtractionPopulator
+    from schema import EntityCreation
 
     async with test_pool.acquire() as conn:
         holder = await _character(conn, game, true_name="Marek", mood="calme")
         other = await _character(conn, game, true_name="Ilya")
         await _alias(conn, game, other, "character", "Marek")
-        result = await KnowledgeGraphPopulator(None, game).create_character(
-            conn, CharacterData(name="Marek", mood="furieux")
+        result = await ExtractionPopulator(None, game).create_extracted_entity(
+            conn,
+            [],
+            EntityCreation(
+                entity_type="character", name="Marek", data={"mood": "furieux"}
+            ),
+            1,
         )
         mood = await conn.fetchval("SELECT mood FROM characters WHERE id = $1", holder)
         count = await conn.fetchval(
@@ -355,12 +362,17 @@ async def test_a_reveal_never_deletes_through_another_characters_alias(test_pool
 
 
 async def test_a_descriptive_extracted_name_is_never_a_true_name(test_pool, game):
-    from kg.populator import KnowledgeGraphPopulator
-    from schema import CharacterData
+    from kg.specialized_populator import ExtractionPopulator
+    from schema import EntityCreation
 
     async with test_pool.acquire() as conn:
-        guard = await KnowledgeGraphPopulator(None, game).create_character(
-            conn, CharacterData(name="Le garde", descriptor="Garde en armure")
+        guard = await ExtractionPopulator(None, game).create_extracted_entity(
+            conn,
+            [],
+            EntityCreation(
+                entity_type="character", name="Le garde", descriptor="Garde en armure"
+            ),
+            1,
         )
         row = await conn.fetchrow(
             "SELECT true_name, descriptor FROM characters WHERE id = $1", guard
@@ -404,14 +416,21 @@ async def test_a_reveal_without_real_name_marks_the_true_name_alias_known(
 
 
 async def test_an_extractor_descriptor_alias_carries_its_turn(test_pool, game):
-    from kg.populator import KnowledgeGraphPopulator
-    from schema import CharacterData
+    from kg.specialized_populator import ExtractionPopulator
+    from schema import EntityCreation
 
     async with test_pool.acquire() as conn:
         turn_id = await turns.open_turn(conn, game)
         async with uow(conn, turn_id):
-            guard = await KnowledgeGraphPopulator(None, game).create_character(
-                conn, CharacterData(name="Le garde", descriptor="Garde en armure")
+            guard = await ExtractionPopulator(None, game).create_extracted_entity(
+                conn,
+                [],
+                EntityCreation(
+                    entity_type="character",
+                    name="Le garde",
+                    descriptor="Garde en armure",
+                ),
+                1,
             )
         aliases = {
             a.alias: (a.source, a.turn_id)

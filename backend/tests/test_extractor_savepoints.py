@@ -31,12 +31,14 @@ async def test_unique_violation_in_one_item_keeps_the_other_items(test_pool, tes
     extractor, game_id = await extractor_for(test_pool, test_user, raw)
     real_update = extractor.populator.update_entity
 
-    async def colliding_update(conn, entity_type, name, changes):
-        if name == "Alpha":  # rename collision: server-side unique violation
+    async def colliding_update(conn, entity_id, entity_type, changes, **kwargs):
+        alpha = await conn.fetchval(
+            "SELECT id FROM characters WHERE game_id = $1 AND name = 'Alpha'", game_id)
+        if entity_id == alpha:  # rename collision: server-side unique violation
             # (the name is derived from true_name, #152: the collision goes through it)
-            await conn.execute("UPDATE characters SET true_name = 'Beta' "
-                               "WHERE game_id = $1 AND name = 'Alpha'", game_id)
-        return await real_update(conn, entity_type, name, changes)
+            await conn.execute("UPDATE characters SET true_name = 'Beta' WHERE id = $1",
+                               alpha)
+        return await real_update(conn, entity_id, entity_type, changes, **kwargs)
 
     extractor.populator.update_entity = colliding_update
     result = await extractor.run("texte", {}, 1)
@@ -96,7 +98,7 @@ async def test_sql_error_swallowed_inside_an_item_fails_only_that_item(test_pool
         {"entities_created": [{"name": "Epsilon"}],
          "entities_updated": [{"entity_ref": "Epsilon", "changes": {"mood": "las"}}]})
 
-    async def swallowing_update(conn, _entity_type, _name, _changes):
+    async def swallowing_update(conn, *_args, **_kwargs):
         try:
             await conn.execute("SELECT 1/0")
         except Exception:

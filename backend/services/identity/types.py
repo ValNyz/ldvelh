@@ -23,13 +23,16 @@ class NewEntitySpec:
     protagonist knows the name; for a descriptor character it applies to the aliases only
     (a descriptor is always known) and known_by_protagonist is always false, since the
     character has no true name to know yet. `secret`: the entity is guarded by the Director (every
-    alias made at its creation is secret). `fields`: other columns of its domain row."""
+    alias made at its creation is secret). `descriptor`: what the protagonist sees of a
+    character whose label is its true name (its `descriptor` column; characters only).
+    `fields`: other columns of its domain row."""
 
     entity_type: str
     label: str
     kind: Literal["proper_name", "descriptor"]
     known: bool = True
     secret: bool = False
+    descriptor: str | None = None
     fields: dict = field(default_factory=dict)
     aliases: list[AliasSpec] = field(default_factory=list)
 
@@ -71,11 +74,14 @@ class MergeOutcome:
 
 @dataclass(frozen=True)
 class ResolvedRef:
-    """A resolved entity: its id, its E<n> handle and what the player may read for it."""
+    """A resolved entity: its id, its E<n> handle, what the player may read for it and its
+    type."""
 
     entity_id: UUID
     handle: int
     label: str
+    # Informative (an untyped reference tells its type): not part of the identity.
+    entity_type: str | None = field(default=None, compare=False)
 
 
 class IdentityFailure(Exception):

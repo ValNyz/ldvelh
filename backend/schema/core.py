@@ -516,8 +516,8 @@ Cycle = Annotated[
 ]
 # Reserved entity reference to the player character (#28). It resolves by type (the
 # entity_registry row with entity_type='protagonist'), whatever the PC is called:
-# EntityRegistry.resolve in Python and find_entity(game, ref, 'protagonist') in SQL (migration
-# 20261018000003_protagonist_ref) map it. Prompts write it in every reference field.
+# find_entity(game, ref, 'protagonist') in SQL (migration 20261018000003_protagonist_ref)
+# maps it. Prompts write it in every reference field.
 PROTAGONIST_REF = "PROTAGONIST"
 
 

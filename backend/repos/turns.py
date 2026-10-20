@@ -11,7 +11,6 @@ from config import get_settings
 from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
 from kg.populator import KnowledgeGraphPopulator
 from kg.reader import KnowledgeGraphReader
-from repos import entities as entity_repo
 from schema import DEFAULT_GAME_TIME
 from schema.engine import RollResult
 from schema.narration import NarrationOutput
@@ -29,33 +28,47 @@ def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
 async def _resolve_location(
     conn, game_id: UUID, location: str, new_cycle: int
 ) -> UUID | None:
-    """Id of the narrated location (find_entity), created as a stub when unknown. A name
-    that is ambiguous, or that an existing location holds as its label alongside another
-    one's alias, never creates a duplicate."""
-    target = await entity_repo.find_for_upsert(conn, game_id, location, "location")
-    if target.entity_id:
-        old_id = await conn.fetchval(
-            "SELECT current_location_id FROM games WHERE id = $1", game_id
+    """Id of the narrated location (C10): the location its name or handle resolves to,
+    else a stub created through the identity service (enriched by the extraction). A
+    name that is ambiguous never creates a duplicate: counted (identity_events), None."""
+    # Lazy: the identity service reads the turn of the transaction (repos.uow, which
+    # imports this module).
+    from kg.item_writes import write_item
+    from services.identity.service import IdentityService
+    from services.identity.types import NewEntitySpec
+
+    identity = await IdentityService.for_game(conn, game_id)
+    resolved = await identity.resolve_ref(conn, location, "location")
+    if resolved is not None:
+        location_id = resolved.entity_id
+    else:
+        location_id = await write_item(
+            conn,
+            # No list kept: an IdentityFailure is an identity_events row, logged without
+            # story text; the commit goes on without a location.
+            [],
+            "narrated location",
+            lambda: identity.create_entity(
+                conn,
+                NewEntitySpec(
+                    "location",
+                    location,
+                    "descriptor",
+                    fields={"created_cycle": new_cycle},
+                ),
+                turn_id=None,
+                source="system",
+            ),
+            "[COMMIT] ",
         )
-        if old_id != target.entity_id:
-            # Ids only: a location name is story text.
-            logger.info(f"[GAME] Location changed: {old_id} → {target.entity_id}")
-        return target.entity_id
-    if target.ambiguous:
-        return None
-    # Create a stub location (will be fully populated during extraction)
-    location_id = await conn.fetchval(
-        """INSERT INTO locations (game_id, name, created_cycle)
-        VALUES ($1, $2, $3)
-        RETURNING id""",
-        game_id,
-        location,
-        new_cycle,
+        if location_id is None:
+            return None
+    old_id = await conn.fetchval(
+        "SELECT current_location_id FROM games WHERE id = $1", game_id
     )
-    logger.info(
-        f"[GAME] Created stub location {location_id} "
-        f"(cycle {new_cycle}), to be enriched during extraction"
-    )
+    if old_id != location_id:
+        # Ids only: a location name is story text.
+        logger.info(f"[GAME] Location changed: {old_id} → {location_id}")
     return location_id
 
 
@@ -88,7 +101,9 @@ async def apply_narration_state(
         location_id = await _resolve_location(conn, game_id, location, new_cycle)
 
     for evt in narration.events_mentioned:
-        await populator.create_stub_event(conn, evt, new_cycle)
+        await populator.create_stub_event(
+            conn, evt, new_cycle, await _location_id(conn, populator, evt.location)
+        )
 
     await populator.update_game_state(
         conn,
@@ -105,6 +120,16 @@ async def apply_narration_state(
         npcs_present=narration.npcs_present or [],
         date=new_date,
     )
+
+
+async def _location_id(conn, populator, location: str | None) -> UUID | None:
+    """The place of a stub event (C12) or of a message: its location when the name
+    resolves, else none (an ambiguous name is an identity_events row)."""
+    if not location:
+        return None
+    identity = await populator.identity(conn)
+    resolved = await identity.resolve_ref(conn, location, "location")
+    return resolved.entity_id if resolved is not None else None
 
 
 async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict | None:
@@ -190,11 +215,27 @@ async def apply_narrator_deltas(
                 "[COMMIT] ",
             )
         elif reveal.entity_type == "location":
-            await populator.mark_location_accessible(conn, reveal.current_name)
+            identity = identity or await IdentityService.for_game(conn, game_id)
+            await write_item(
+                conn,
+                [],
+                "entity_reveal location",
+                lambda reveal=reveal, identity=identity: reveal_location(
+                    conn, identity, populator, reveal.current_name
+                ),
+                "[COMMIT] ",
+            )
 
     return AppliedDeltas(
         credit=credit, compel=await _apply_compel(conn, game_id, narration)
     )
+
+
+async def reveal_location(conn, identity, populator, ref: str) -> bool:
+    """A location reveal: the location `ref` names becomes accessible (RefUnresolved when
+    none or several do, counted by the caller's savepoint)."""
+    resolved = await identity.require_ref(conn, ref, "location")
+    return await populator.mark_location_accessible(conn, resolved.entity_id)
 
 
 async def store_info_requests(conn, game_id: UUID, requests: list[str]) -> None:
@@ -231,7 +272,7 @@ async def save_turn_messages(
         "cycle": state.cycle,
         "time": state.time,
         "game_date": state.date,
-        "location_ref": state.location,
+        "location_id": await _location_id(conn, populator, state.location),
     }
     user_id = await populator.save_message(
         conn,

@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from domain.errors import SourceMessageGone
+from kg import refs
 from kg.item_writes import write_item
-from repos import entities as entity_repo
 from repos.uow import uow
 from schema.director import DirectorOutput
+from services.identity.service import IdentityService
 
 if TYPE_CHECKING:
     from asyncpg import Connection
@@ -43,13 +44,21 @@ async def apply_director_plan(
             await _insert_plan(conn, game_id, plan, cycle, ig_time)
             await _update_last_director_time(conn, game_id, ig_time)
             errors: list[str | dict] = []
+            identity = None
             for arc_update in plan.arc_updates:
+                if arc_update.involved_entities and identity is None:
+                    identity = await IdentityService.for_game(conn, game_id)
                 await write_item(
                     conn,
                     errors,
                     "arc",
-                    lambda arc_update=arc_update: _apply_arc_update(
-                        conn, game_id, arc_update, cycle
+                    lambda arc_update=arc_update, identity=identity: _apply_arc_update(
+                        conn,
+                        game_id,
+                        arc_update,
+                        cycle,
+                        identity=identity,
+                        errors=errors,
                     ),
                     "[DIRECTOR] ",
                 )
@@ -82,8 +91,11 @@ async def _update_last_director_time(conn, game_id, ig_time):
     )
 
 
-async def _apply_arc_update(conn, game_id, arc_update, cycle):
-    """Apply a single arc update from the Director."""
+async def _apply_arc_update(
+    conn, game_id, arc_update, cycle, *, identity=None, errors=None
+):
+    """Apply a single arc update from the Director; an involved entity that does not
+    resolve is counted (`ref_dropped`, identity_events) and the arc kept without it."""
     action = arc_update.action.lower()
     title = arc_update.title
 
@@ -105,7 +117,7 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
                 arc_update.description or "",
                 arc_update.intensity,
             )
-            logger.info(f"[DIRECTOR] Arc already open, updated: '{title}'")
+            logger.info(f"[DIRECTOR] Arc already open, updated: {existing}")
             return
         # Create new arc
         arc_id = await conn.fetchval(
@@ -119,26 +131,22 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
             arc_update.intensity or 3,
             cycle,  # the cycle the Director ran for: rollback deletes by it (#85)
         )
-        # Link involved entities via arc_participants
+        # Link involved entities via arc_participants (C13)
         if arc_id and arc_update.involved_entities:
-            unresolved = 0
-            for entity_name in arc_update.involved_entities:
-                # Typed find_entity per type; PROTAGONIST_REF maps to the PC (#28).
-                found = await entity_repo.find_any(conn, game_id, entity_name)
-                if found:
-                    await conn.execute(
-                        "INSERT INTO arc_participants (arc_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        arc_id,
-                        found[0],
-                    )
-                else:
-                    unresolved += 1
-            if unresolved:
-                # The refs are story text (#77): only their count is logged.
-                logger.warning(
-                    f"[DIRECTOR] participant unresolved (count={unresolved})"
+            identity = identity or await IdentityService.for_game(conn, game_id)
+            for entity_id in await refs.optional_ids(
+                identity,
+                conn,
+                [] if errors is None else errors,
+                "arc participant",
+                arc_update.involved_entities,
+            ):
+                await conn.execute(
+                    "INSERT INTO arc_participants (arc_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    arc_id,
+                    entity_id,
                 )
-        logger.info(f"[DIRECTOR] Arc created: '{title}'")
+        logger.info(f"[DIRECTOR] Arc created: {arc_id}")
 
     elif action == "update":
         # Update existing arc
@@ -157,7 +165,7 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
             updates.append("updated_at = now()")
             sql = f"UPDATE narrative_arcs SET {', '.join(updates)} WHERE game_id = $1 AND LOWER(title) = LOWER($2) AND resolved = false"
             await conn.execute(sql, *params)
-            logger.info(f"[DIRECTOR] Arc updated: '{title}'")
+            logger.info("[DIRECTOR] Arc updated")
 
     elif action == "resolve":
         await conn.execute(
@@ -169,4 +177,4 @@ async def _apply_arc_update(conn, game_id, arc_update, cycle):
             cycle,
             arc_update.resolution or "",
         )
-        logger.info(f"[DIRECTOR] Arc resolved: '{title}'")
+        logger.info("[DIRECTOR] Arc resolved")

@@ -10,9 +10,11 @@ import pytest
 from services.extraction import orchestrator
 from services.extraction.orchestrator import EXTRACTOR_MAP, resolver_triggers
 from services.extraction.resolver import MentionMapping, ResolutionMap
-from services.identity.types import EntityRef
+from services.identity.types import EntityRef, ResolvedRef
 
 pytestmark = pytest.mark.integration
+
+LOCATION_ID = uuid4()
 
 
 def _map(*mappings: MentionMapping) -> ResolutionMap:
@@ -205,12 +207,16 @@ async def _assistant_message(test_pool, test_user):
 
 async def _reapply(test_pool, game_id, assistant_message_id, character_error=None):
     """(populator, identity service) mocks after the re-apply: character reveals go to
-    IdentityService.reveal, location reveals to the populator."""
+    IdentityService.reveal, location reveals to the populator, by the id the service
+    resolves."""
     populator = MagicMock()
     populator.game_id = game_id
     populator.mark_location_accessible = AsyncMock()
     identity = MagicMock()
     identity.reveal = AsyncMock(side_effect=character_error)
+    identity.require_ref = AsyncMock(
+        return_value=ResolvedRef(LOCATION_ID, 1, "Quai", "location")
+    )
     with (
         patch.object(orchestrator, "KnowledgeGraphPopulator", return_value=populator),
         patch.object(
@@ -254,6 +260,7 @@ async def test_reveals_for_a_live_source_message_are_applied(test_pool, test_use
     )
     assert identity.reveal.await_args.kwargs["source"] == "reveal"
     populator.mark_location_accessible.assert_awaited_once()
+    assert populator.mark_location_accessible.await_args.args[1] == LOCATION_ID
 
 
 async def test_reveals_without_source_message_are_applied(test_pool, test_user):

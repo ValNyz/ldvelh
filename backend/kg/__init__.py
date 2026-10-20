@@ -9,30 +9,13 @@ Architecture:
 - context_builder.py: Construction contexte narrateur
 """
 
-# Reader (SELECT)
-from kg.reader import (
-    KnowledgeGraphReader,
-)
-
-# Base populator (INSERT/UPDATE/DELETE)
-from kg.populator import (
-    KnowledgeGraphPopulator,
-    EntityRegistry,
-)
-
-# Specialized populators
-from kg.specialized_populator import (
-    WorldPopulator,
-    ExtractionPopulator,
-)
+from kg.populator import KnowledgeGraphPopulator
+from kg.reader import KnowledgeGraphReader
+from kg.specialized_populator import ExtractionPopulator, WorldPopulator
 
 __all__ = [
-    # Reader
-    "KnowledgeGraphReader",
-    # Registry
-    "EntityRegistry",
-    # Populators
-    "KnowledgeGraphPopulator",
-    "WorldPopulator",
     "ExtractionPopulator",
+    "KnowledgeGraphPopulator",
+    "KnowledgeGraphReader",
+    "WorldPopulator",
 ]

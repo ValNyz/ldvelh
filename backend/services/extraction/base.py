@@ -17,13 +17,14 @@ from uuid import UUID
 
 from asyncpg import ForeignKeyViolationError
 
+from config import get_settings
+from domain.errors import SourceMessageGone
+from kg import refs
 from kg.item_writes import write_item, write_items
 from kg.reader import KnowledgeGraphReader
 from kg.specialized_populator import ExtractionPopulator
-from repos.uow import uow
-from config import get_settings
-from domain.errors import SourceMessageGone
 from prompts.extraction.shared import protagonist_section
+from repos.uow import uow
 from schema import EntityType, FactData
 from schema.extraction import AmbientUpdate, EntityCreation, EntityUpdate
 from utils.log_safe import log_cause, log_exception, safe_text
@@ -146,7 +147,6 @@ class BaseExtractor(ABC):
         async with self.pool.acquire() as conn:
             try:
                 async with uow(conn, turn_id, source_message_id=source_message_id):
-                    await self.populator.load_registry(conn)
                     stats = await self._populate(conn, raw_result, cycle)
             except SourceMessageGone:
                 raise
@@ -189,10 +189,12 @@ class BaseExtractor(ABC):
     async def _write_facts(
         self, conn: Connection, stats: dict, raw_result: dict, cycle: int
     ) -> None:
-        """Create the extracted facts, counted in stats["facts_created"]."""
+        """Create the extracted facts, counted in stats["facts_created"]; a fact whose
+        participant does not resolve is not written (`ref_dropped`)."""
         async def create(fact_data: dict):
             fact_data.setdefault("cycle", cycle)
-            return await self.populator.create_fact(conn, FactData.model_validate(fact_data))
+            return await self.populator.create_extracted_fact(
+                conn, stats["errors"], FactData.model_validate(fact_data))
 
         await self._write_items(conn, stats, "fact", raw_result.get("facts"), create,
                                 "facts_created")
@@ -201,13 +203,12 @@ class BaseExtractor(ABC):
         self, conn: Connection, stats: dict, raw_result: dict, cycle: int,
         entity_type: EntityType,
     ) -> None:
-        """Entity creations, updates and ambient updates of one entity type."""
+        """Entity creations (IdentityService.create_entity), updates and ambient updates
+        (by the id their reference resolves to) of one entity type."""
         await self._write_items(conn, stats, "create", raw_result.get("entities_created"),
-                                lambda d: self._create_entity(conn, d, cycle, entity_type),
+                                lambda d: self._create_entity(conn, stats, d, cycle,
+                                                              entity_type),
                                 "entities_created")
-        # Reload registry after new entities
-        if stats["entities_created"]:
-            await self.populator.load_registry(conn)
         await self._write_items(conn, stats, "update", raw_result.get("entities_updated"),
                                 lambda d: self._update_entity(conn, d, cycle, entity_type),
                                 "entities_updated")
@@ -220,13 +221,15 @@ class BaseExtractor(ABC):
         return False
 
     async def _create_entity(
-        self, conn: Connection, ec_data: dict, cycle: int, entity_type: EntityType
+        self, conn: Connection, stats: dict, ec_data: dict, cycle: int,
+        entity_type: EntityType,
     ) -> bool:
         ec_data.setdefault("entity_type", entity_type.value)
         ec = EntityCreation.model_validate(ec_data)
         if ec.entity_type != entity_type or self._skip_creation(ec):
             return False
-        return await self.populator._process_entity_creation(conn, ec, cycle)
+        return bool(await self.populator.create_extracted_entity(
+            conn, stats["errors"], ec, cycle))
 
     async def _update_entity(
         self, conn: Connection, eu_data: dict, cycle: int, entity_type: EntityType
@@ -241,8 +244,11 @@ class BaseExtractor(ABC):
     ) -> bool:
         amb_data.setdefault("entity_type", entity_type.value)
         amb = AmbientUpdate.model_validate(amb_data)
+        identity = await self.populator.identity(conn)
+        entity_id = await refs.required(
+            identity, conn, amb.entity_ref, amb.entity_type.value)
         return await self.populator.update_entity(
-            conn, amb.entity_type, amb.entity_ref, {"ambient": amb.ambient}
+            conn, entity_id, amb.entity_type, {"ambient": amb.ambient}
         )
 
     async def _call_llm(

@@ -6,114 +6,31 @@ Write operations for all game data tables.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from config import get_identity_config
-from repos import entities as entity_repo
 from schema import (
-    CharacterData,
     CompanionData,
     EntityType,
     FactData,
-    LocationData,
     NarrativeArcData,
-    ObjectData,
-    OrganizationData,
     ProtagonistData,
-    RelationData,
     RelationType,
     Skill,
 )
-from schema.entity_changes import bound_changes
-from services.identity.lexicon import Lexicon
-from services.identity.lexicon import for_game as lexicon_for_game
-from services.identity.normalize import Normalizer
+from schema.entity_changes import CHANGES_MODELS, bound_changes
 
-from .reader import KnowledgeGraphReader
-from .upsert_sql import ARRAY, TEXT, guarded_set, non_blank
+from .upsert_sql import TEXT, non_blank
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
 
+    from services.identity.service import IdentityService
+
 logger = logging.getLogger(__name__)
 
-# ON CONFLICT ... DO UPDATE SET lists of the entity upserts (#87): a re-listed entity
-# never wipes a stored value with NULL/''/[], and never changes known_by_protagonist.
-_CHARACTER_UPSERT_SET = guarded_set(
-    "characters",
-    {
-        "species": TEXT,
-        "description": TEXT,
-        "traits": ARRAY,
-        "mood": TEXT,
-        "occupation": TEXT,
-        "workplace_id": None,
-        "residence_id": None,
-    },
-)
-_LOCATION_UPSERT_SET = guarded_set(
-    "locations",
-    {
-        "parent_id": None,
-        "location_type": TEXT,
-        "sector": TEXT,
-        "description": TEXT,
-        "atmosphere": TEXT,
-    },
-)
-_ORGANIZATION_UPSERT_SET = guarded_set(
-    "organizations",
-    {
-        "org_type": TEXT,
-        "domain": TEXT,
-        "description": TEXT,
-        "headquarters_id": None,
-    },
-)
-
-
-# =============================================================================
-# ENTITY REGISTRY (local cache of entity_registry)
-# =============================================================================
-
-
-def _type_key(entity_type: str | EntityType) -> str:
-    return (
-        entity_type.value if isinstance(entity_type, EntityType) else str(entity_type)
-    )
-
-
-@dataclass
-class EntityRegistry:
-    """Local cache of the game's entity_registry ids, per type (#152).
-
-    Fed by `KnowledgeGraphReader.get_entities`. Only the per-type lists and the size are
-    read: every reference made of words is resolved by the SQL `find_entity` (aliases,
-    handles, ambiguity). Plan task 14 removes the class.
-    """
-
-    _by_type: dict[str, list[UUID]] = field(default_factory=dict)
-
-    def register(self, entity_id: UUID, entity_type: str | EntityType) -> None:
-        self._by_type.setdefault(_type_key(entity_type), []).append(entity_id)
-
-    def get_by_type(self, entity_type: str | EntityType) -> list[UUID]:
-        return self._by_type.get(_type_key(entity_type), []).copy()
-
-    def clear(self) -> None:
-        self._by_type.clear()
-
-    def __len__(self) -> int:
-        return sum(len(ids) for ids in self._by_type.values())
-
-
-# =============================================================================
-# KNOWLEDGE GRAPH POPULATOR
-# =============================================================================
-
-# Domain table of each entity type a write may resolve a live row in.
+# Domain table of each entity type an update or a removal writes.
 _TABLES = {
     EntityType.CHARACTER: "characters",
     EntityType.LOCATION: "locations",
@@ -123,63 +40,26 @@ _TABLES = {
 
 
 class KnowledgeGraphPopulator:
-    """Write operations for the dedicated tables architecture."""
+    """Write operations for the dedicated tables architecture, by entity id.
+
+    Every entity is created by IdentityService.create_entity and every reference made of
+    words is resolved before it reaches a method here (kg.refs); the methods take ids.
+    """
 
     def __init__(self, pool: Pool, game_id: UUID | None = None):
         self.pool = pool
         self.game_id = game_id
-        self.registry = EntityRegistry()
-        self._lexicon: Lexicon | None = None
+        self._identity: IdentityService | None = None
 
-    # =========================================================================
-    # REGISTRY
-    # =========================================================================
+    async def identity(self, conn: Connection) -> IdentityService:
+        """The game's identity service, built once (its language packs loaded once per
+        populator, not per item)."""
+        if self._identity is None:
+            # Lazy: the service imports repos.uow, which imports repos.turns -> this module.
+            from services.identity.service import IdentityService
 
-    async def load_registry(self, conn: Connection) -> None:
-        """Load all entity_registry entries into local cache."""
-        if not self.game_id:
-            raise ValueError("game_id must be set before loading registry")
-
-        entities = await KnowledgeGraphReader(None, self.game_id).get_entities(conn)
-        self.registry = EntityRegistry()
-        for entity in entities:
-            self.registry.register(entity["id"], entity["entity_type"])
-        logger.info(f"Loaded {len(entities)} entities into registry")
-
-    async def _names_lexicon(self, conn: Connection) -> Lexicon:
-        """Words of the game's language and genre (name heuristics), read once."""
-        if self._lexicon is None:
-            language, genre = await entity_repo.game_language(conn, self.game_id)
-            self._lexicon = lexicon_for_game(
-                language or get_identity_config().default_language, genre
-            )
-        return self._lexicon
-
-    async def _find(
-        self, conn: Connection, ref: str | None, entity_type: str | EntityType
-    ) -> UUID | None:
-        """The entity of `entity_type` named by `ref` (find_entity), None when unknown or
-        ambiguous."""
-        return await entity_repo.find_entity(
-            conn, self.game_id, ref, _type_key(entity_type)
-        )
-
-    async def _find_any(self, conn: Connection, ref: str | None) -> UUID | None:
-        """The entity an untyped reference names (fact participant, relation end, ...)."""
-        found = await entity_repo.find_any(conn, self.game_id, ref)
-        return found[0] if found else None
-
-    async def _find_live(
-        self, conn: Connection, ref: str | None, entity_type: EntityType
-    ) -> UUID | None:
-        """`_find`, restricted to an entity not removed from the world."""
-        entity_id = await self._find(conn, ref, entity_type)
-        if entity_id is None:
-            return None
-        return await conn.fetchval(
-            f"SELECT id FROM {_TABLES[entity_type]} WHERE id = $1 AND removed_cycle IS NULL",
-            entity_id,
-        )
+            self._identity = await IdentityService.for_game(conn, self.game_id)
+        return self._identity
 
     # =========================================================================
     # GAMES
@@ -246,9 +126,11 @@ class KnowledgeGraphPopulator:
             return
         await conn.execute(f"UPDATE games SET {', '.join(sets)} WHERE id = $1", *params)
 
-    async def create_stub_event(self, conn: Connection, event_hint, cycle: int) -> None:
-        """Create a stub event from narrator EventHint (formalized at extraction time)."""
-        location_id = await self._find(conn, event_hint.location, EntityType.LOCATION)
+    async def create_stub_event(
+        self, conn: Connection, event_hint, cycle: int, location_id: UUID | None = None
+    ) -> None:
+        """Create a stub event from narrator EventHint (formalized at extraction time);
+        `location_id`: its place, resolved by the caller."""
         # Avoid duplicates by title + planned_cycle
         planned_cycle = event_hint.planned_cycle or cycle + 1
         existing = await conn.fetchval(
@@ -267,9 +149,8 @@ class KnowledgeGraphPopulator:
                 event_hint.planned_time,
                 location_id,
             )
-            logger.info(
-                f"[KG] Created stub event '{event_hint.title}' (cycle {planned_cycle})"
-            )
+            # The title is story text: only the cycle is logged.
+            logger.info(f"[KG] Created stub event (cycle {planned_cycle})")
 
     async def update_game_timestamp(
         self, conn: Connection, game_id: UUID | None = None
@@ -312,33 +193,13 @@ class KnowledgeGraphPopulator:
             world.founding_cycle,
         )
 
-    # =========================================================================
-    # FK RESOLUTION HELPERS
-    # =========================================================================
-
-    async def _resolve_location_id(
-        self, conn: Connection, name: str | None
-    ) -> UUID | None:
-        return await self._find_live(conn, name, EntityType.LOCATION)
-
-    async def _resolve_organization_id(
-        self, conn: Connection, name: str | None
-    ) -> UUID | None:
-        return await self._find_live(conn, name, EntityType.ORGANIZATION)
-
-    async def _resolve_object_id(
-        self, conn: Connection, name: str | None
-    ) -> UUID | None:
-        return await self._find_live(conn, name, EntityType.OBJECT)
-
-    async def _resolve_protagonist_id(self, conn: Connection) -> UUID | None:
+    async def protagonist_id(self, conn: Connection) -> UUID | None:
         return await conn.fetchval(
             "SELECT id FROM protagonists WHERE game_id = $1", self.game_id
         )
 
     # =========================================================================
-    # ENTITY CREATION — direct table inserts
-    # Triggers auto-populate entity_registry.
+    # PROTAGONIST AND COMPANION (made by game creation; the triggers register them)
     # =========================================================================
 
     async def create_protagonist(self, conn: Connection, data: ProtagonistData) -> UUID:
@@ -386,300 +247,57 @@ class KnowledgeGraphPopulator:
             data.details if data.details else {},
         )
 
-    async def _character_names(
-        self, conn: Connection, name: str, descriptor: str | None
-    ) -> tuple[str | None, str | None, str | None]:
-        """(true_name, descriptor, extra descriptor) of a character an extractor names `name`.
-
-        Only a form that looks like a proper name (`looks_like_proper_name`: no leading
-        determiner, no descriptor head, a capital in a cased script) is a true name. Any
-        other `name` is a description: it is the descriptor, or, when the extractor gave a
-        distinct descriptor, a second descriptor of the character (an alias, so references
-        by `name` still resolve), never a true name.
-        """
-        lexicon = await self._names_lexicon(conn)
-        normalizer = Normalizer(lexicon.lang)
-        if normalizer.looks_like_proper_name(name, lexicon):
-            return name, descriptor, None
-        if descriptor and normalizer.norm(descriptor) != normalizer.norm(name):
-            return None, descriptor, name
-        return None, name, None
-
-    async def create_character(
-        self,
-        conn: Connection,
-        data: CharacterData,
-        cycle: int = 1,
-        workplace_id: UUID | None = None,
-        residence_id: UUID | None = None,
-        *,
-        name_is_true_name: bool = False,
-    ) -> UUID | None:
-        """Insert character (NPC) into dedicated table.
-
-        `data.name` becomes the true name or a descriptor (`_character_names`), or the true
-        name as it is when `name_is_true_name` (world generation). An existing character
-        with that label keeps its names and known_by_protagonist, and only takes the
-        non-blank fields of `data` (#87). One found by another of its names (a descriptor),
-        or holding the label while another character has the name as alias, is returned
-        untouched, as the old code skipped a name matching a descriptor. An ambiguous name
-        creates nothing (None).
-        """
-        target = await entity_repo.find_for_upsert(
-            conn, self.game_id, data.name, EntityType.CHARACTER.value
-        )
-        if target.ambiguous:
-            return None
-        if target.entity_id and (not target.by_label or target.contested):
-            logger.info(
-                "[CHARACTER] Matches another name of an existing character,"
-                " creation skipped"
-            )
-            return target.entity_id
-        extra_descriptor = None
-        if name_is_true_name:
-            true_name, descriptor = data.name, data.descriptor
-        else:
-            true_name, descriptor, extra_descriptor = await self._character_names(
-                conn, data.name, data.descriptor
-            )
-        if target.entity_id is None and extra_descriptor is not None:
-            # The label is the descriptor, not `data.name`: it must be free too.
-            holder = await entity_repo.find_for_upsert(
-                conn, self.game_id, descriptor, EntityType.CHARACTER.value
-            )
-            if holder.ambiguous:
-                return None
-            if holder.entity_id:
-                logger.info(
-                    "[CHARACTER] Descriptor already names a character, creation skipped"
-                )
-                return holder.entity_id
-
-        character_id = await conn.fetchval(
-            f"""INSERT INTO characters (
-                id, game_id, true_name, known_by_protagonist, descriptor,
-                species, gender, pronouns, age, description,
-                traits, mood, occupation, origin,
-                workplace_id, residence_id,
-                romantic_potential, is_mandatory, ambient,
-                details, created_cycle
-            ) VALUES (COALESCE($21::uuid, gen_random_uuid()),
-                      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-            ON CONFLICT (id) DO UPDATE SET
-                {_CHARACTER_UPSERT_SET}
-            RETURNING id""",
-            self.game_id,
-            true_name,
-            data.known_by_protagonist,
-            descriptor,
-            data.species,
-            data.gender,
-            data.pronouns,
-            data.age,
-            data.description,
-            data.traits,
-            data.mood,
-            data.occupation,
-            data.origin,
-            workplace_id,
-            residence_id,
-            data.romantic_potential,
-            data.is_mandatory,
-            data.ambient,
-            data.details if data.details else {},
-            cycle,
-            target.entity_id,
-        )
-        if target.entity_id is None and extra_descriptor is not None:
-            # A learned alias carries the turn that wrote it (§4.3), like the trigger's.
-            turn_id = await conn.fetchval(
-                "SELECT nullif(current_setting('ldvelh.turn_id', true), '')::uuid"
-            )
-            await entity_repo.insert_alias(
-                conn,
-                self.game_id,
-                character_id,
-                EntityType.CHARACTER.value,
-                extra_descriptor,
-                "descriptor",
-                known=True,
-                source="extractor",
-                turn_id=turn_id,
-            )
-        return character_id
-
-    async def create_location(
-        self,
-        conn: Connection,
-        data: LocationData,
-        cycle: int = 1,
-        parent_id: UUID | None = None,
-    ) -> UUID | None:
-        """Insert location into dedicated table; an existing one (find_entity) only takes
-        the non-blank fields of `data` (#87). An ambiguous name creates nothing (None)."""
-        target = await entity_repo.find_for_upsert(
-            conn, self.game_id, data.name, EntityType.LOCATION.value
-        )
-        if target.ambiguous:
-            return None
-        return await conn.fetchval(
-            f"""INSERT INTO locations (
-                id, game_id, name, parent_id,
-                location_type, sector, description, atmosphere, accessible,
-                notable_features, typical_crowd, operating_hours, price_range,
-                ambient, details, created_cycle
-            ) VALUES (COALESCE($16::uuid, gen_random_uuid()),
-                      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-            ON CONFLICT (id) DO UPDATE SET
-                {_LOCATION_UPSERT_SET}
-            RETURNING id""",
-            self.game_id,
-            data.name,
-            parent_id,
-            data.location_type,
-            data.sector,
-            data.description,
-            data.atmosphere,
-            data.accessible,
-            data.notable_features,
-            data.typical_crowd,
-            data.operating_hours,
-            data.price_range,
-            data.ambient,
-            data.details if data.details else {},
-            cycle,
-            target.entity_id,
-        )
-
-    async def create_organization(
-        self,
-        conn: Connection,
-        data: OrganizationData,
-        cycle: int = 1,
-        headquarters_id: UUID | None = None,
-    ) -> UUID | None:
-        """Insert organization into dedicated table; an existing one (find_entity) only
-        takes the non-blank fields of `data` (#87). An ambiguous name creates nothing."""
-        target = await entity_repo.find_for_upsert(
-            conn, self.game_id, data.name, EntityType.ORGANIZATION.value
-        )
-        if target.ambiguous:
-            return None
-        return await conn.fetchval(
-            f"""INSERT INTO organizations (
-                id, game_id, name, org_type, domain, size, description,
-                reputation, headquarters_id, founding_cycle,
-                ambient, details, created_cycle
-            ) VALUES (COALESCE($13::uuid, gen_random_uuid()),
-                      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-            ON CONFLICT (id) DO UPDATE SET
-                {_ORGANIZATION_UPSERT_SET}
-            RETURNING id""",
-            self.game_id,
-            data.name,
-            data.org_type,
-            data.domain,
-            data.size,
-            data.description,
-            data.reputation,
-            headquarters_id,
-            data.founding_cycle,
-            data.ambient,
-            data.details if data.details else {},
-            cycle,
-            target.entity_id,
-        )
-
-    async def create_object(
-        self, conn: Connection, data: ObjectData, cycle: int = 1
-    ) -> UUID | None:
-        """Insert object into dedicated table. An object the name already resolves to
-        (label or alias, find_entity) is returned instead, None when it was removed or the
-        name is ambiguous."""
-        target = await entity_repo.find_for_upsert(
-            conn, self.game_id, data.name, EntityType.OBJECT.value
-        )
-        if target.ambiguous:
-            return None
-        if target.entity_id:
-            return await conn.fetchval(
-                "SELECT id FROM objects WHERE id = $1 AND removed_cycle IS NULL",
-                target.entity_id,
-            )
-        return await conn.fetchval(
-            """INSERT INTO objects (
-                game_id, name, category, description,
-                transportable, stackable, base_value, details, created_cycle
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-            RETURNING id""",
-            self.game_id,
-            data.name,
-            data.category,
-            data.description,
-            data.transportable,
-            data.stackable,
-            data.base_value,
-            data.details if data.details else {},
-            cycle,
-        )
-
     # =========================================================================
     # ENTITY UPDATES
     # =========================================================================
 
     async def update_entity(
-        self, conn: Connection, entity_type: EntityType, name: str, changes: dict
+        self,
+        conn: Connection,
+        entity_id: UUID,
+        entity_type: EntityType,
+        fields: dict,
+        *,
+        turn_id: UUID | None = None,
     ) -> bool:
-        """Update fields on the entity of `entity_type` that `name` refers to.
+        """Write extracted field changes on an entity, by id (IdentityService.update_entity:
+        merges followed, a missing row raises IdentityWriteMiss).
 
         Only the columns typed in schema.entity_changes are written, each bounded to its
-        column (an invalid field is dropped, the others are kept). Every update path
-        (extractors, ambient updates, process_extraction) reaches SQL here, so this is
-        the one place `changes` is bounded.
+        column (an invalid field is dropped, the others are kept): every extracted update
+        (entity updates, ambient updates) reaches SQL here, so this is the one place they
+        are bounded. known_by_protagonist is a reveal's, never written here. False when
+        nothing is left to write (or the type takes no extracted changes).
         """
-        table = {
-            EntityType.CHARACTER: "characters",
-            EntityType.LOCATION: "locations",
-            EntityType.ORGANIZATION: "organizations",
-        }.get(entity_type)
-        if not table:
-            logger.warning(f"Cannot update entity type: {entity_type}")
+        if entity_type not in CHANGES_MODELS:
+            logger.info(f"[UPDATE] {entity_type} takes no extracted changes")
             return False
-
-        filtered = bound_changes(entity_type, changes)
-        if not filtered:
+        bounded = bound_changes(entity_type, fields)
+        bounded.pop("known_by_protagonist", None)
+        if not bounded:
             return False
-        entity_id = await self._find(conn, name, entity_type)
-        if entity_id is None:
-            return False
-
-        sets = [f"{k} = ${i + 3}" for i, k in enumerate(filtered)]
-        sets.append("updated_at = NOW()")
-
-        result = await conn.execute(
-            f"UPDATE {table} SET {', '.join(sets)} WHERE game_id = $1 AND id = $2",
-            self.game_id,
+        identity = await self.identity(conn)
+        await identity.update_entity(
+            conn,
             entity_id,
-            *filtered.values(),
+            entity_type.value,
+            bounded,
+            source="extractor",
+            turn_id=turn_id,
         )
-        return result != "UPDATE 0"
+        return True
 
     async def remove_entity(
         self,
         conn: Connection,
-        entity_ref: str,
+        entity_id: UUID,
         entity_type: EntityType,
         cycle: int,
     ) -> bool:
-        """Mark entity as removed (set removed_cycle)."""
+        """Mark an entity as removed (removed_cycle), by id; False when it already was."""
         table = _TABLES.get(entity_type)
         if not table:
             return False
-        entity_id = await self._find(conn, entity_ref, entity_type)
-        if entity_id is None:
-            return False
-
         result = await conn.execute(
             f"UPDATE {table} SET removed_cycle = $1, updated_at = NOW()"
             f" WHERE game_id = $2 AND id = $3 AND removed_cycle IS NULL",
@@ -689,14 +307,28 @@ class KnowledgeGraphPopulator:
         )
         return result != "UPDATE 0"
 
-    async def mark_location_accessible(self, conn: Connection, name: str) -> bool:
-        """Mark a location as accessible."""
-        location_id = await self._find(conn, name, EntityType.LOCATION)
-        if location_id is None:
-            return False
+    async def is_live(
+        self, conn: Connection, entity_type: EntityType, entity_id: UUID
+    ) -> bool:
+        """The entity exists and was not removed from the world."""
+        return bool(
+            await conn.fetchval(
+                f"SELECT EXISTS (SELECT 1 FROM {_TABLES[entity_type]}"
+                " WHERE id = $1 AND game_id = $2 AND removed_cycle IS NULL)",
+                entity_id,
+                self.game_id,
+            )
+        )
+
+    async def mark_location_accessible(
+        self, conn: Connection, location_id: UUID
+    ) -> bool:
+        """Mark a location as accessible, by id."""
         result = await conn.execute(
-            "UPDATE locations SET accessible = true, updated_at = NOW() WHERE id = $1",
+            "UPDATE locations SET accessible = true, updated_at = NOW()"
+            " WHERE id = $1 AND game_id = $2",
             location_id,
+            self.game_id,
         )
         return result != "UPDATE 0"
 
@@ -705,103 +337,70 @@ class KnowledgeGraphPopulator:
     # =========================================================================
 
     async def create_relation(
-        self, conn: Connection, data: RelationData, cycle: int = 1
+        self,
+        conn: Connection,
+        source_id: UUID,
+        target_id: UUID,
+        relation_type: RelationType,
+        cycle: int = 1,
+        *,
+        level: int | None = None,
+        context: str | None = None,
+        known_by_protagonist: bool = True,
     ) -> UUID | None:
-        """Create or update a relation via SQL function upsert_relation."""
-        source_id = await self._find_any(conn, data.source_ref)
-        target_id = await self._find_any(conn, data.target_ref)
-        if not source_id or not target_id:
-            # The refs are story text (#77): not logged.
-            logger.warning("Cannot create relation: an end is unknown or ambiguous")
-            return None
-
+        """Create or update a relation between two entities (SQL upsert_relation)."""
         return await conn.fetchval(
             "SELECT upsert_relation($1, $2, $3, $4::relation_type, $5, $6, $7, $8)",
             self.game_id,
             source_id,
             target_id,
-            data.relation_type.value,
+            relation_type.value,
             cycle,
-            data.level,
-            data.context,
-            data.known_by_protagonist,
+            level,
+            context,
+            known_by_protagonist,
         )
 
     async def end_relation(
         self,
         conn: Connection,
-        source_ref: str,
-        target_ref: str,
+        source_id: UUID,
+        target_id: UUID,
         relation_type: RelationType,
         cycle: int,
         reason: str | None = None,
     ) -> bool:
-        """End a relation via SQL function end_relation (by ids).
+        """End the active relation between two entities (SQL end_relation).
 
-        Raises LookupError when no active relation matched (unknown or ambiguous ref, or
-        no such relation), so a per-item savepoint records the failure. The message is
-        constant: the refs are story text.
+        Raises LookupError when no active relation matched, so a per-item savepoint
+        records the failure. The message is constant (no story text).
         """
-        source_id = await self._find_any(conn, source_ref)
-        target_id = await self._find_any(conn, target_ref)
-        ended = (
-            source_id is not None
-            and target_id is not None
-            and await conn.fetchval(
-                "SELECT end_relation($1, $2, $3, $4::relation_type, $5, $6)",
-                self.game_id,
-                source_id,
-                target_id,
-                relation_type.value,
-                cycle,
-                reason,
-            )
-        )
-        if not ended:
-            raise LookupError("no active relation matched the end")
-        return True
-
-    async def mark_relation_known(
-        self,
-        conn: Connection,
-        source_ref: str,
-        target_ref: str,
-        relation_type: RelationType,
-    ) -> bool:
-        """Mark a relation as known by protagonist."""
-        source_id = await self._find_any(conn, source_ref)
-        target_id = await self._find_any(conn, target_ref)
-        if not source_id or not target_id:
-            return False
-
-        await conn.execute(
-            """UPDATE relations SET known_by_protagonist = true
-               WHERE game_id = $1 AND source_id = $2 AND target_id = $3
-               AND type = $4::relation_type AND end_cycle IS NULL""",
+        ended = await conn.fetchval(
+            "SELECT end_relation($1, $2, $3, $4::relation_type, $5, $6)",
             self.game_id,
             source_id,
             target_id,
             relation_type.value,
+            cycle,
+            reason,
         )
+        if not ended:
+            raise LookupError("no active relation matched the end")
         return True
 
     # =========================================================================
     # FACTS
     # =========================================================================
 
-    async def create_fact(self, conn: Connection, fact: FactData) -> UUID | None:
-        """Create a fact via SQL function create_fact (with deduplication); participants
-        are passed as ids, an unresolved one is left out."""
-        location_id = await self._resolve_location_id(conn, fact.location_ref)
-
-        participants_json = []
-        for p in fact.participants:
-            entity_id = await self._find_any(conn, p.entity_ref)
-            if entity_id:
-                participants_json.append(
-                    {"entity_id": str(entity_id), "role": p.role.value}
-                )
-
+    async def create_fact(
+        self,
+        conn: Connection,
+        fact: FactData,
+        participants: list[tuple[UUID, str]],
+        location_id: UUID | None = None,
+    ) -> UUID | None:
+        """Create a fact via SQL function create_fact (with deduplication).
+        `participants`: (entity id, role) pairs; the references of `fact` are not read."""
         fact_id = await conn.fetchval(
             "SELECT create_fact($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)",
             self.game_id,
@@ -811,26 +410,16 @@ class KnowledgeGraphPopulator:
             location_id,
             fact.time,
             fact.importance,
-            participants_json,
+            [
+                {"entity_id": str(entity_id), "role": role}
+                for entity_id, role in participants
+            ],
             fact.semantic_key,
         )
-
         if fact_id:
-            logger.info(f"[FACT] Created: [{fact.fact_type.value}] {fact.semantic_key}")
+            logger.info(f"[FACT] Created {fact_id} ({fact.fact_type.value})")
+            logger.debug(f"[FACT] {fact_id} key: {fact.semantic_key}")
         return fact_id
-
-    async def process_facts(self, conn: Connection, facts: list[FactData]) -> int:
-        """Process a list of facts with deduplication."""
-        created = 0
-        seen_keys: set[str] = set()
-        for fact in facts:
-            if fact.semantic_key in seen_keys:
-                continue
-            seen_keys.add(fact.semantic_key)
-            if await self.create_fact(conn, fact):
-                created += 1
-        logger.info(f"[FACTS] {created}/{len(facts)} facts created")
-        return created
 
     # =========================================================================
     # PROTAGONIST — Credits
@@ -986,13 +575,19 @@ class KnowledgeGraphPopulator:
     # =========================================================================
 
     async def create_narrative_arc(
-        self, conn: Connection, arc: NarrativeArcData, cycle: int
+        self,
+        conn: Connection,
+        arc: NarrativeArcData,
+        cycle: int,
+        participant_ids: list[UUID],
+        owner_id: UUID | None = None,
     ) -> UUID:
-        """Create a narrative arc with participants (dedup by title).
+        """Create a narrative arc with its participants, by id (dedup by title).
 
         `cycle` stamps a new arc's created_cycle (rollback deletes by it, #85);
         an arc that already exists keeps its own, and keeps its intensity unless `arc`
         sets one explicitly (a re-listed arc must not fall back to the default, #87).
+        The references of `arc` are not read: the caller resolved them.
         """
         domain = arc.domain if isinstance(arc.domain, str) else str(arc.domain)
 
@@ -1005,7 +600,8 @@ class KnowledgeGraphPopulator:
             arc.title,
         )
         if existing_id:
-            logger.info(f"[ARC] Arc already exists: '{arc.title}', updating instead")
+            # The title is story text: only the id is logged.
+            logger.info(f"[ARC] Arc {existing_id} already exists, updating instead")
             await conn.execute(
                 f"""UPDATE narrative_arcs SET
                     description = COALESCE({non_blank("$3", TEXT)}, description),
@@ -1018,10 +614,6 @@ class KnowledgeGraphPopulator:
             )
             arc_id = existing_id
         else:
-            owner_id = None
-            if hasattr(arc, "owner_ref") and arc.owner_ref:
-                owner_id = await self._find_any(conn, arc.owner_ref)
-
             arc_id = await conn.fetchval(
                 """INSERT INTO narrative_arcs (
                     game_id, title, domain, description, intensity, owner_id,
@@ -1037,64 +629,14 @@ class KnowledgeGraphPopulator:
                 cycle,
             )
 
-        for entity_name in arc.involved_entities:
-            entity_id = await self._find_any(conn, entity_name)
-            if entity_id:
-                await conn.execute(
-                    "INSERT INTO arc_participants (arc_id, entity_id, role)"
-                    " VALUES ($1, $2, 'involved') ON CONFLICT DO NOTHING",
-                    arc_id,
-                    entity_id,
-                )
-            else:
-                # The ref and the title are story text (#77): not logged.
-                logger.warning("[ARC] Participant unknown or ambiguous, not linked")
+        for entity_id in participant_ids:
+            await conn.execute(
+                "INSERT INTO arc_participants (arc_id, entity_id, role)"
+                " VALUES ($1, $2, 'involved') ON CONFLICT DO NOTHING",
+                arc_id,
+                entity_id,
+            )
         return arc_id
-
-    async def update_arc(
-        self,
-        conn: Connection,
-        arc_title: str,
-        intensity: int | None = None,
-        description: str | None = None,
-    ) -> bool:
-        """Update intensity/description on an existing arc."""
-        sets = ["updated_at = NOW()"]
-        params: list = [self.game_id, arc_title]
-        if intensity is not None:
-            params.append(intensity)
-            sets.append(f"intensity = ${len(params)}")
-        if description is not None:
-            params.append(description)
-            sets.append(f"description = ${len(params)}")
-
-        if len(params) == 2:
-            return False
-
-        result = await conn.execute(
-            f"""UPDATE narrative_arcs SET {", ".join(sets)}
-            WHERE game_id = $1 AND LOWER(title) = LOWER($2)
-              AND resolved = false""",
-            *params,
-        )
-        return result != "UPDATE 0"
-
-    async def resolve_arc(
-        self, conn: Connection, arc_title: str, resolution: str, cycle: int
-    ) -> bool:
-        """Resolve a narrative arc by title."""
-        result = await conn.execute(
-            """UPDATE narrative_arcs SET
-                resolved = true, resolved_cycle = $3,
-                resolution = $4, updated_at = NOW()
-            WHERE game_id = $1 AND LOWER(title) = LOWER($2)
-              AND resolved = false""",
-            self.game_id,
-            arc_title,
-            cycle,
-            resolution,
-        )
-        return result != "UPDATE 0"
 
     # =========================================================================
     # EVENTS
@@ -1108,11 +650,10 @@ class KnowledgeGraphPopulator:
         planned_cycle: int,
         description: str | None = None,
         time: str | None = None,
-        location_ref: str | None = None,
+        location_id: UUID | None = None,
         completed: bool = False,
     ) -> UUID:
-        """Create a scheduled event."""
-        location_id = await self._resolve_location_id(conn, location_ref)
+        """Create a scheduled event; `location_id`: its place, resolved by the caller."""
         return await conn.fetchval(
             """INSERT INTO events
                (game_id, type, title, description,
@@ -1168,14 +709,13 @@ class KnowledgeGraphPopulator:
         cycle: int | None = None,
         time: str | None = None,
         game_date: str | None = None,
-        location_ref: str | None = None,
+        location_id: UUID | None = None,
         narrator_deltas: dict | None = None,
         engine_snapshot: dict | None = None,
         narrator_context: list | None = None,
         turn_id: UUID | None = None,
     ) -> UUID:
-        """Save a message in a conversation."""
-        location_id = await self._resolve_location_id(conn, location_ref)
+        """Save a message in a conversation; `location_id`: the place of the turn."""
         return await conn.fetchval(
             """INSERT INTO messages (
                 game_id, conversation_id, role, content,
@@ -1207,11 +747,10 @@ class KnowledgeGraphPopulator:
         cycle: int,
         summary: str,
         time: str | None = None,
-        location_ref: str | None = None,
-        npc_refs: list[str] | None = None,
+        location_id: UUID | None = None,
+        npc_ids: list[UUID] | None = None,
     ) -> UUID:
-        """Save a chronology entry with optional NPC participants."""
-        location_id = await self._resolve_location_id(conn, location_ref)
+        """Save a chronology entry with its participants, by id."""
         entry_id = await conn.fetchval(
             "INSERT INTO chronology (game_id, cycle, time, location_id, summary)"
             " VALUES ($1,$2,$3,$4,$5) RETURNING id",
@@ -1221,18 +760,14 @@ class KnowledgeGraphPopulator:
             location_id,
             summary,
         )
-
-        if npc_refs:
-            for npc_ref in npc_refs:
-                entity_id = await self._find_any(conn, npc_ref)
-                if entity_id:
-                    await conn.execute(
-                        "INSERT INTO chronology_participants"
-                        " (chronology_id, entity_id)"
-                        " VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                        entry_id,
-                        entity_id,
-                    )
+        for entity_id in npc_ids or ():
+            await conn.execute(
+                "INSERT INTO chronology_participants"
+                " (chronology_id, entity_id)"
+                " VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                entry_id,
+                entity_id,
+            )
         return entry_id
 
     # =========================================================================
@@ -1253,8 +788,6 @@ class KnowledgeGraphPopulator:
             "deleted_arcs": result["deleted_arcs"],
             "reverted_relations": result["reverted_relations"],
         }
-        self.registry.clear()
-        await self.load_registry(conn)
         return stats
 
     # =========================================================================

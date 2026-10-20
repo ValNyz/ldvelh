@@ -9,8 +9,8 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from kg import refs
 from prompts.extraction import narrative_arcs_prompt
-from repos import entities as entity_repo
 from schema import RelationType
 from schema.extraction import (
     EventScheduledExtraction,
@@ -114,7 +114,8 @@ class NarrativeArcsExtractor(BaseExtractor):
             ("rel_create", "relations_created", self._create_relation, "relations_created"),
             ("rel_update", "relations_updated", self._update_relation, "relations_updated"),
             ("rel_end", "relations_ended", self._end_relation, "relations_ended"),
-            ("event", "events_scheduled", self._schedule_event, "events_scheduled"),
+            ("event", "events_scheduled",
+             lambda c, d, cy: self._schedule_event(c, stats, d, cy), "events_scheduled"),
         ]
         for label, key, write, counter in items:
             await self._write_items(conn, stats, label, raw_result.get(key),
@@ -130,19 +131,32 @@ class NarrativeArcsExtractor(BaseExtractor):
             )
         return stats
 
+    async def _ends(self, conn: Connection, source_ref: str, target_ref: str):
+        """(source id, target id) of a relation: both must resolve (RefUnresolved
+        otherwise, counted by the item's savepoint as `ref_dropped`)."""
+        identity = await self.populator.identity(conn)
+        return (await refs.required(identity, conn, source_ref),
+                await refs.required(identity, conn, target_ref))
+
     async def _create_relation(self, conn: Connection, rc_data: dict, cycle: int) -> bool:
         """Create a relation (skip OWNS, handled by inventory)."""
         rc_data.setdefault("cycle", cycle)
         rc = RelationCreation.model_validate(rc_data)
-        if rc.relation.relation_type == RelationType.OWNS:
+        relation = rc.relation
+        if relation.relation_type == RelationType.OWNS:
             return False
-        return bool(await self.populator.create_relation(conn, rc.relation, rc.cycle))
+        source_id, target_id = await self._ends(conn, relation.source_ref,
+                                                relation.target_ref)
+        return bool(await self.populator.create_relation(
+            conn, source_id, target_id, relation.relation_type, rc.cycle,
+            level=relation.level, context=relation.context,
+            known_by_protagonist=relation.known_by_protagonist,
+        ))
 
     async def _update_relation(self, conn: Connection, ru_data: dict, cycle: int) -> bool:
         ru = RelationUpdate.model_validate(ru_data)
-        source = await entity_repo.find_any(conn, self.game_id, ru.source_ref)
-        target = await entity_repo.find_any(conn, self.game_id, ru.target_ref)
-        updated = source and target and await conn.fetchval(
+        source_id, target_id = await self._ends(conn, ru.source_ref, ru.target_ref)
+        updated = await conn.fetchval(
             """WITH upd AS (
                 UPDATE relations SET
                     level = COALESCE($5, level),
@@ -156,7 +170,7 @@ class NarrativeArcsExtractor(BaseExtractor):
                 RETURNING 1)
             SELECT COUNT(*) FROM upd""",
             self.game_id,
-            source[0], target[0], ru.relation_type.value,
+            source_id, target_id, ru.relation_type.value,
             ru.new_level, ru.new_context, ru.now_known,
         )
         if not updated:
@@ -167,12 +181,15 @@ class NarrativeArcsExtractor(BaseExtractor):
 
     async def _end_relation(self, conn: Connection, re_data: dict, cycle: int) -> bool:
         re = RelationEnd.model_validate(re_data)
+        source_id, target_id = await self._ends(conn, re.source_ref, re.target_ref)
         await self.populator.end_relation(
-            conn, re.source_ref, re.target_ref, re.relation_type, re.cycle, re.reason,
+            conn, source_id, target_id, re.relation_type, re.cycle, re.reason,
         )
         return True
 
-    async def _schedule_event(self, conn: Connection, ev_data: dict, cycle: int) -> bool:
+    async def _schedule_event(
+        self, conn: Connection, stats: dict, ev_data: dict, cycle: int
+    ) -> bool:
         ev = EventScheduledExtraction.model_validate(ev_data)
-        await self.populator._schedule_event(conn, ev)
+        await self.populator._schedule_event(conn, stats["errors"], ev)
         return True

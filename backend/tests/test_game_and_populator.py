@@ -1,13 +1,13 @@
 """
-Integration tests for GameService and ExtractionPopulator.
+Integration tests for GameService and the extractors' knowledge-graph writes.
 Uses the real test database — no LLM calls (mocked data).
 
 Covers:
   - GameService: rollback_to_message, load_chat_messages, load_game_state,
     load_world_info, verify_ownership, build_llm_messages
     (turn writes are set up through repos.turns, tested in test_repos_turns.py)
-  - ExtractionPopulator: process_extraction with facts, entities, relations,
-    arcs, events, objects, credit changes, inventory, ambient updates
+  - Extractor writes (by entity id): facts, entities, relations, events, objects,
+    inventory, ambient updates, reveals
 """
 
 import json
@@ -888,283 +888,154 @@ class TestExtractArcSuffix:
 
 
 # =============================================================================
-# EXTRACTION POPULATOR - process_extraction
+# EXTRACTOR WRITES (the extractors' write path, by entity id)
 # =============================================================================
 
 
-class TestExtractionPopulator:
-    """Tests for ExtractionPopulator.process_extraction()"""
+async def _extract(test_pool, game_id, extractor_cls, raw_result, cycle=2) -> dict:
+    """Run one extractor's real write path with a canned LLM result; its stats."""
+    from llm.session import LLMSession
+    from tests.test_llm_session import FakeProvider
+
+    extractor = extractor_cls(test_pool, game_id, LLMSession.from_provider(FakeProvider()))
+
+    async def fake_call(*_args, **_kwargs):
+        return raw_result, {"cost_usd": 0.0}
+
+    extractor._call_llm = fake_call
+    return (await extractor.run("texte", {}, cycle))["stats"]
+
+
+def _characters():
+    from services.extraction.characters import CharactersExtractor
+
+    return CharactersExtractor
+
+
+def _arcs():
+    from services.extraction.narrative_arcs import NarrativeArcsExtractor
+
+    return NarrativeArcsExtractor
+
+
+def _inventory():
+    from services.extraction.inventory import InventoryExtractor
+
+    return InventoryExtractor
+
+
+class TestExtractorWrites:
+    """Extracted items written through IdentityService and by id."""
 
     @pytest.mark.asyncio
-    async def test_process_extraction_with_facts(self, client, test_user, test_pool):
-        """process_extraction creates facts in the DB."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "time": "10h20",
-                "current_location_ref": "Le Quart de Cycle",
-                "facts": [
-                    {
-                        "cycle": 2,
-                        "fact_type": "revelation",
-                        "description": "Ossek révèle qu'iel est seul de son espèce sur la station",
-                        "semantic_key": "ossek:revele:seul_espece",
-                        "importance": 4,
-                        "participants": [
-                            {"entity_ref": "Ossek", "role": "actor"},
-                            {"entity_ref": "Valentin", "role": "witness"},
-                        ],
-                    }
-                ],
-                "segment_summary": "Valentin discute avec Ossek au Quart de Cycle.",
-                "key_npcs_present": ["Ossek"],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
+    async def test_facts_are_created(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _characters(), {"facts": [{
+            "fact_type": "revelation",
+            "description": "Ossek révèle qu'iel est seul de son espèce sur la station",
+            "semantic_key": "ossek:revele:seul_espece",
+            "importance": 4,
+            "location_ref": "Le Quart de Cycle",
+            "participants": [{"entity_ref": "Ossek", "role": "actor"},
+                             {"entity_ref": "Valentin", "role": "witness"}],
+        }]})
 
         assert stats["facts_created"] == 1
         assert stats["errors"] == []
-
-        # Verify fact in DB
         async with test_pool.acquire() as conn:
-            fact_count = await conn.fetchval(
-                "SELECT count(*) FROM facts"
+            row = await conn.fetchrow(
+                "SELECT location_id, (SELECT count(*) FROM fact_participants"
+                " WHERE fact_id = f.id) AS participants FROM facts f"
                 " WHERE game_id = $1 AND semantic_key = 'ossek:revele:seul_espece'",
                 game_id,
             )
-        assert fact_count == 1
+        assert row["location_id"] is not None
+        assert row["participants"] == 2
 
     @pytest.mark.asyncio
-    async def test_process_extraction_creates_entity(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction creates a new character entity."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "entities_created": [
-                    {
-                        "entity_type": "character",
-                        "name": "Elena Vasquez",
-                        "known_by_protagonist": True,
-                        "data": {
-                            "description": "Grande, cheveux courts noirs",
-                            "species": "human",
-                            "gender": "femme",
-                            "occupation": "ingénieure réseau",
-                            "mood": "anxieuse",
-                        },
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
+    async def test_character_is_created(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _characters(), {"entities_created": [{
+            "name": "Elena Vasquez",
+            "known_by_protagonist": True,
+            "data": {"description": "Grande, cheveux courts noirs", "species": "human",
+                     "gender": "femme", "occupation": "ingénieure réseau",
+                     "mood": "anxieuse"},
+        }]})
 
         assert stats["entities_created"] == 1
-
-        # Verify character in DB
         async with test_pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT name, occupation, known_by_protagonist FROM characters"
-                " WHERE game_id = $1 AND name = 'Elena Vasquez'",
+                "SELECT name, occupation, known_by_protagonist, created_cycle"
+                " FROM characters WHERE game_id = $1 AND name = 'Elena Vasquez'",
                 game_id,
             )
         assert row is not None
         assert row["occupation"] == "ingénieure réseau"
         assert row["known_by_protagonist"] is True
+        assert row["created_cycle"] == 2
 
     @pytest.mark.asyncio
-    async def test_process_extraction_creates_location(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction creates a new location entity."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+    async def test_location_is_created(self, client, test_user, test_pool):
+        from services.extraction.locations import LocationsExtractor
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "entities_created": [
-                    {
-                        "entity_type": "location",
-                        "name": "Marché Noir Section 9",
-                        "data": {
-                            "location_type": "market",
-                            "sector": "Quartier Ouvrier",
-                            "description": "Un couloir sombre où des stands improvisés vendent de tout.",
-                            "atmosphere": "tendue et animée",
-                        },
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, LocationsExtractor, {"entities_created": [{
+            "name": "Marché Noir Section 9",
+            "data": {"location_type": "market", "sector": "Quartier Ouvrier",
+                     "parent_location_ref": "Bloc Tournesol",
+                     "description": "Un couloir sombre où des stands vendent de tout.",
+                     "atmosphere": "tendue et animée"},
+        }]})
 
         assert stats["entities_created"] == 1
-
         async with test_pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT name, location_type, sector FROM locations"
-                " WHERE game_id = $1 AND name = 'Marché Noir Section 9'",
+                "SELECT l.location_type, l.sector, p.name AS parent FROM locations l"
+                " LEFT JOIN locations p ON p.id = l.parent_id"
+                " WHERE l.game_id = $1 AND l.name = 'Marché Noir Section 9'",
                 game_id,
             )
-        assert row is not None
-        assert row["location_type"] == "market"
-        assert row["sector"] == "Quartier Ouvrier"
+        assert tuple(row) == ("market", "Quartier Ouvrier", "Bloc Tournesol")
 
     @pytest.mark.asyncio
-    async def test_process_extraction_creates_organization(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction creates a new organization entity."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+    async def test_organization_is_created(self, client, test_user, test_pool):
+        from services.extraction.organizations import OrganizationsExtractor
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "entities_created": [
-                    {
-                        "entity_type": "organization",
-                        "name": "Syndicat des Dockers",
-                        "data": {
-                            "org_type": "union",
-                            "domain": "transport",
-                            "description": "Syndicat influent qui contrôle le quai central.",
-                        },
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, OrganizationsExtractor, {
+            "entities_created": [{
+                "name": "Syndicat des Dockers",
+                "data": {"org_type": "union", "domain": "transport",
+                         "description": "Syndicat influent qui contrôle le quai central."},
+            }]})
 
         assert stats["entities_created"] == 1
-
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT name, org_type, domain FROM organizations"
+            org_type = await conn.fetchval(
+                "SELECT org_type FROM organizations"
                 " WHERE game_id = $1 AND name = 'Syndicat des Dockers'",
                 game_id,
             )
-        assert row is not None
-        assert row["org_type"] == "union"
+        assert org_type == "union"
 
     @pytest.mark.asyncio
-    async def test_process_extraction_creates_object(
+    async def test_acquired_object_is_created_in_the_inventory(
         self, client, test_user, test_pool
     ):
-        """process_extraction creates a new object via entities_created and adds to inventory."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "entities_created": [
-                    {
-                        "entity_type": "object",
-                        "name": "Clé magnétique usagée",
-                        "data": {
-                            "category": "tech",
-                            "description": "Clé de service trouvée dans un couloir",
-                            "transportable": True,
-                            "base_value": 10,
-                        },
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats["entities_created"] == 1
-
-        async with test_pool.acquire() as conn:
-            obj = await conn.fetchrow(
-                "SELECT name, category FROM objects"
-                " WHERE game_id = $1 AND name = 'Clé magnétique usagée'",
-                game_id,
-            )
-            # Object should also be in inventory
-            inv = await conn.fetchval(
-                """SELECT count(*) FROM inventory i
-                   JOIN objects o ON i.object_id = o.id
-                   WHERE i.game_id = $1 AND o.name = 'Clé magnétique usagée'""",
-                game_id,
-            )
-        assert obj is not None
-        assert inv == 1
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_objects_created(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction handles objects_created (acquisition path)."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "objects_created": [
-                    {
-                        "name": "Carte d'accès niveau 2",
-                        "category": "tech",
-                        "description": "Carte magnétique bleue avec puce intégrée",
-                        "transportable": True,
-                        "stackable": False,
-                        "base_value": 50,
-                        "quantity": 1,
-                        "from_hint": "Carte d'accès temporaire",
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _inventory(), {"objects_created": [{
+            "name": "Carte d'accès niveau 2",
+            "category": "tech",
+            "description": "Carte magnétique bleue avec puce intégrée",
+            "transportable": True,
+            "stackable": False,
+            "base_value": 50,
+            "quantity": 1,
+            "from_hint": "Carte d'accès temporaire",
+        }]})
 
         assert stats["objects_created"] == 1
-
         async with test_pool.acquire() as conn:
             obj = await conn.fetchrow(
                 "SELECT name, category, base_value FROM objects"
@@ -1179,390 +1050,36 @@ class TestExtractionPopulator:
                 game_id,
                 "Carte d'accès niveau 2",
             )
-        assert obj is not None
         assert obj["base_value"] == 50
         assert inv_qty == 1
 
     @pytest.mark.asyncio
-    async def test_process_extraction_updates_entity(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction updates an existing entity's fields."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+    async def test_entity_is_updated(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _characters(), {"entities_updated": [{
+            "entity_ref": "Ossek", "changes": {"mood": "plus détendu, presque souriant"},
+        }]})
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Check initial mood
+        assert stats["entities_updated"] == 1
         async with test_pool.acquire() as conn:
-            initial_mood = await conn.fetchval(
+            mood = await conn.fetchval(
                 "SELECT mood FROM characters WHERE game_id = $1 AND name = 'Ossek'",
                 game_id,
             )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "entities_updated": [
-                    {
-                        "entity_ref": "Ossek",
-                        "entity_type": "character",
-                        "changes": {"mood": "plus détendu, presque souriant"},
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats["entities_updated"] == 1
-
-        async with test_pool.acquire() as conn:
-            new_mood = await conn.fetchval(
-                "SELECT mood FROM characters WHERE game_id = $1 AND name = 'Ossek'",
-                game_id,
-            )
-        assert new_mood == "plus détendu, presque souriant"
-        assert new_mood != initial_mood
+        assert mood == "plus détendu, presque souriant"
 
     @pytest.mark.asyncio
-    async def test_process_extraction_creates_relation(
+    async def test_update_without_type_finds_the_entity_type(
         self, client, test_user, test_pool
     ):
-        """process_extraction creates a new relation between entities."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+        """An update whose type is null resolves its reference among every type."""
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _characters(), {"entities_updated": [{
+            "entity_ref": "Ossek", "entity_type": None,
+            "changes": {"mood": "curieux et attentif"},
+        }]})
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "relations_created": [
-                    {
-                        "cycle": 2,
-                        "relation": {
-                            "source_ref": "Valentin",
-                            "target_ref": "Ossek",
-                            "relation_type": "knows",
-                            "known_by_protagonist": True,
-                            "level": 2,
-                            "context": "Rencontre au Quart de Cycle",
-                        },
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats["relations_created"] == 1
-
-        # Verify relation in DB
-        async with test_pool.acquire() as conn:
-            rel = await conn.fetchrow(
-                """SELECT r.level, r.context, r.type
-                   FROM relations r
-                   JOIN entity_registry src ON r.source_id = src.id
-                   JOIN entity_registry tgt ON r.target_id = tgt.id
-                   WHERE r.game_id = $1
-                     AND LOWER(src.name) = 'valentin'
-                     AND LOWER(tgt.name) = 'ossek'
-                     AND r.type = 'knows'
-                     AND r.end_cycle IS NULL""",
-                game_id,
-            )
-        assert rel is not None
-        assert rel["level"] == 2
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_creates_arc(self, client, test_user, test_pool):
-        """process_extraction creates a new narrative arc."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "arcs_created": [
-                    {
-                        "title": "Les rumeurs de rachat",
-                        "domain": "professional",
-                        "description": "Des rumeurs circulent sur un investisseur externe intéressé par Symbiose Tech.",
-                        "involved_entities": ["Symbiose Tech"],
-                        "intensity": 3,
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats["arcs_created"] == 1
-
-        async with test_pool.acquire() as conn:
-            arc = await conn.fetchrow(
-                "SELECT title, domain, intensity, resolved FROM narrative_arcs"
-                " WHERE game_id = $1 AND title = 'Les rumeurs de rachat'",
-                game_id,
-            )
-        assert arc is not None
-        assert arc["domain"] == "professional"
-        assert arc["intensity"] == 3
-        assert arc["resolved"] is False
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_schedules_event(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction schedules a future event."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "events_scheduled": [
-                    {
-                        "event_type": "appointment",
-                        "title": "Déjeuner avec Ossek",
-                        "description": "RDV informel au Quart de Cycle",
-                        "planned_cycle": 5,
-                        "time": "12h30",
-                        "location_ref": "Le Quart de Cycle",
-                        "participants": ["Ossek"],
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        # Verify event in DB
-        async with test_pool.acquire() as conn:
-            event = await conn.fetchrow(
-                "SELECT title, planned_cycle, time FROM events"
-                " WHERE game_id = $1 AND title = 'Déjeuner avec Ossek'",
-                game_id,
-            )
-        assert event is not None
-        assert event["planned_cycle"] == 5
-        assert event["time"] == "12h30"
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_credit_transactions(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction applies credit transactions."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        state_before = await service.load_game_state(game_id)
-        credits_before = state_before["player"]["credits"]
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "credit_transactions": [
-                    {"amount": -50, "description": "Réparation du terminal"},
-                    {"amount": 200, "description": "Prime de bienvenue"},
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats["credits_changed"] == 2
-
-        state_after = await service.load_game_state(game_id)
-        assert state_after["player"]["credits"] == credits_before - 50 + 200
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_chronology_saved(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction saves a chronology entry from segment_summary."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "time": "10h20",
-                "current_location_ref": "Le Quart de Cycle",
-                "segment_summary": "Valentin commande un café au Quart de Cycle et discute brièvement avec Ossek.",
-                "key_npcs_present": ["Ossek"],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(extraction)
-
-        # Verify chronology entry
-        async with test_pool.acquire() as conn:
-            chrono = await conn.fetchrow(
-                "SELECT cycle, summary FROM chronology"
-                " WHERE game_id = $1 AND cycle = 2",
-                game_id,
-            )
-        assert chrono is not None
-        assert "café" in chrono["summary"].lower()
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_full_pipeline(self, client, test_user, test_pool):
-        """Full extraction: facts + entity creation + relation + arc + event + credits."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction_data = {
-            "cycle": 2,
-            "time": "10h20",
-            "current_location_ref": "Le Quart de Cycle",
-            "facts": [
-                {
-                    "cycle": 2,
-                    "fact_type": "action",
-                    "description": "Valentin commande un café au Quart de Cycle",
-                    "semantic_key": "valentin:commande:cafe",
-                    "importance": 2,
-                    "participants": [
-                        {"entity_ref": "Valentin", "role": "actor"},
-                    ],
-                },
-                {
-                    "cycle": 2,
-                    "fact_type": "revelation",
-                    "description": "Ossek mentionne que Justine vient souvent le soir",
-                    "semantic_key": "ossek:mentionne:justine_soir",
-                    "importance": 3,
-                    "participants": [
-                        {"entity_ref": "Ossek", "role": "actor"},
-                        {"entity_ref": "Valentin", "role": "witness"},
-                    ],
-                },
-            ],
-            "entities_created": [
-                {
-                    "entity_type": "character",
-                    "name": "Marco Diaz",
-                    "known_by_protagonist": True,
-                    "data": {
-                        "description": "Petit, nerveux, toujours en mouvement",
-                        "species": "human",
-                        "gender": "homme",
-                        "occupation": "coursier",
-                    },
-                }
-            ],
-            "relations_created": [
-                {
-                    "cycle": 2,
-                    "relation": {
-                        "source_ref": "Valentin",
-                        "target_ref": "Ossek",
-                        "relation_type": "knows",
-                        "known_by_protagonist": True,
-                        "level": 2,
-                        "context": "Client régulier du café",
-                    },
-                }
-            ],
-            "arcs_created": [
-                {
-                    "title": "Le mystère du coursier",
-                    "domain": "personal",
-                    "description": "Marco semble transporter des colis suspects.",
-                    "involved_entities": ["Marco Diaz"],
-                    "intensity": 2,
-                }
-            ],
-            "credit_transactions": [
-                {"amount": -8, "description": "Café au Quart de Cycle"},
-            ],
-            "events_scheduled": [
-                {
-                    "event_type": "appointment",
-                    "title": "Marco revient demain matin",
-                    "planned_cycle": 3,
-                    "time": "08h00",
-                    "location_ref": "Le Quart de Cycle",
-                    "participants": ["Marco Diaz"],
-                }
-            ],
-            "segment_summary": "Valentin prend un café et fait connaissance avec Ossek et Marco.",
-            "key_npcs_present": ["Ossek", "Marco Diaz"],
-        }
-
-        extraction = NarrativeExtraction.model_validate(extraction_data)
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats["facts_created"] == 2
-        assert stats["entities_created"] == 1
-        assert stats["relations_created"] == 1
-        assert stats["arcs_created"] == 1
-        assert stats["credits_changed"] == 1
-        assert stats["errors"] == []
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_entity_update_detects_type(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction detects entity type from registry when not provided."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Update Ossek without specifying entity_type -- populator should detect 'character'
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "entities_updated": [
-                    {
-                        "entity_ref": "Ossek",
-                        "changes": {"mood": "curieux et attentif"},
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats["entities_updated"] == 1
-
+        assert (stats["entities_updated"], stats["errors"]) == (1, [])
         async with test_pool.acquire() as conn:
             mood = await conn.fetchval(
                 "SELECT mood FROM characters WHERE game_id = $1 AND name = 'Ossek'",
@@ -1571,247 +1088,169 @@ class TestExtractionPopulator:
         assert mood == "curieux et attentif"
 
     @pytest.mark.asyncio
-    async def test_process_extraction_arc_update(self, client, test_user, test_pool):
-        """process_extraction updates an existing arc's progress and intensity."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+    async def test_relation_is_created(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _arcs(), {"relations_created": [{
+            "cycle": 2,
+            "relation": {"source_ref": "Valentin", "target_ref": "Ossek",
+                         "relation_type": "knows", "known_by_protagonist": True,
+                         "level": 2, "context": "Rencontre au Quart de Cycle"},
+        }]})
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # "La mère malade" is created during world gen
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "arcs_updated": [
-                    {
-                        "arc_title": "La mère malade",
-                        "intensity": 4,
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats.get("arcs_updated", 0) == 1
-
+        assert stats["relations_created"] == 1
         async with test_pool.acquire() as conn:
-            arc = await conn.fetchrow(
-                "SELECT intensity FROM narrative_arcs"
-                " WHERE game_id = $1 AND LOWER(title) = LOWER('La mère malade')"
-                " AND resolved = false",
+            rel = await conn.fetchrow(
+                """SELECT r.level FROM relations r
+                   JOIN entity_registry src ON r.source_id = src.id
+                   JOIN entity_registry tgt ON r.target_id = tgt.id
+                   WHERE r.game_id = $1 AND src.entity_type = 'protagonist'
+                     AND tgt.name = 'Ossek' AND r.type = 'knows'
+                     AND r.end_cycle IS NULL""",
                 game_id,
             )
-        assert arc is not None
-        assert arc["intensity"] == 4
+        assert rel["level"] == 2
 
     @pytest.mark.asyncio
-    async def test_process_extraction_arc_resolved(self, client, test_user, test_pool):
-        """process_extraction resolves an existing arc."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+    async def test_owns_relations_are_skipped(self, client, test_user, test_pool):
+        """OWNS is the inventory's."""
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _arcs(), {"relations_created": [{
+            "cycle": 2,
+            "relation": {"source_ref": "Valentin", "target_ref": "Terminal personnel",
+                         "relation_type": "owns", "known_by_protagonist": True},
+        }]})
+        assert stats["relations_created"] == 0
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
+    @pytest.mark.asyncio
+    async def test_event_is_scheduled(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _arcs(), {"events_scheduled": [{
+            "event_type": "appointment",
+            "title": "Déjeuner avec Ossek",
+            "description": "RDV informel au Quart de Cycle",
+            "planned_cycle": 5,
+            "time": "12h30",
+            "location_ref": "Le Quart de Cycle",
+            "participants": ["Ossek"],
+        }]})
 
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 5,
-                "arcs_resolved": [
-                    {
-                        "arc_title": "Le mal du banc",
-                        "resolution": "Ossek trouve un équilibre grâce à la relation avec Valentin",
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(extraction)
-
+        assert (stats["events_scheduled"], stats["errors"]) == (1, [])
         async with test_pool.acquire() as conn:
-            arc = await conn.fetchrow(
-                "SELECT resolved, resolved_cycle, resolution FROM narrative_arcs"
-                " WHERE game_id = $1 AND LOWER(title) = LOWER('Le mal du banc')",
+            event = await conn.fetchrow(
+                "SELECT planned_cycle, time, location_id,"
+                " (SELECT count(*) FROM event_participants WHERE event_id = e.id)"
+                " AS participants FROM events e"
+                " WHERE game_id = $1 AND title = 'Déjeuner avec Ossek'",
                 game_id,
             )
-        assert arc is not None
-        assert arc["resolved"] is True
-        assert arc["resolved_cycle"] == 5
+        assert (event["planned_cycle"], event["time"]) == (5, "12h30")
+        assert event["location_id"] is not None
+        assert event["participants"] == 1
 
     @pytest.mark.asyncio
-    async def test_process_extraction_inventory_lose(
+    async def test_event_keeps_going_without_an_unresolved_place(
         self, client, test_user, test_pool
     ):
-        """process_extraction handles inventory 'lose' action."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+        """C12: an event whose place does not resolve is written without it, counted."""
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, _arcs(), {"events_scheduled": [{
+            "event_type": "appointment", "title": "Rendez-vous flou", "planned_cycle": 4,
+            "location_ref": "Nulle Part",
+        }]})
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # "Terminal personnel" should be in inventory from world gen
+        assert stats["events_scheduled"] == 1
+        assert stats["errors"] == [{"code": "ref_dropped", "item": "event location"}]
         async with test_pool.acquire() as conn:
-            inv_before = await conn.fetchval(
-                """SELECT i.quantity FROM inventory i
-                   JOIN objects o ON i.object_id = o.id
-                   WHERE i.game_id = $1 AND o.name = 'Terminal personnel'""",
+            location_id = await conn.fetchval(
+                "SELECT location_id FROM events WHERE game_id = $1"
+                " AND title = 'Rendez-vous flou'",
                 game_id,
             )
+        assert location_id is None
+
+    @pytest.mark.asyncio
+    async def test_chronology_is_saved(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        await _extract(test_pool, game_id, _arcs(), {
+            "segment_summary": "Valentin commande un café au Quart de Cycle."})
+
+        async with test_pool.acquire() as conn:
+            chrono = await conn.fetchrow(
+                "SELECT summary FROM chronology WHERE game_id = $1 AND cycle = 2",
+                game_id,
+            )
+        assert "café" in chrono["summary"].lower()
+
+    @pytest.mark.asyncio
+    async def test_inventory_lose(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        quantity = """SELECT i.quantity FROM inventory i
+                      JOIN objects o ON i.object_id = o.id
+                      WHERE i.game_id = $1 AND o.name = 'Terminal personnel'"""
+        async with test_pool.acquire() as conn:
+            inv_before = await conn.fetchval(quantity, game_id)
         assert inv_before is not None
 
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "inventory_changes": [
-                    {
-                        "action": "lose",
-                        "object_ref": "Terminal personnel",
-                        "quantity_delta": 1,
-                        "reason": "Volé dans le terminal",
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(extraction)
+        await _extract(test_pool, game_id, _inventory(), {"inventory_changes": [{
+            "action": "lose", "object_ref": "Terminal personnel", "quantity_delta": 1,
+            "reason": "Volé dans le terminal",
+        }]})
 
         async with test_pool.acquire() as conn:
-            inv_after = await conn.fetchval(
-                """SELECT i.quantity FROM inventory i
-                   JOIN objects o ON i.object_id = o.id
-                   WHERE i.game_id = $1 AND o.name = 'Terminal personnel'""",
-                game_id,
-            )
-        # Quantity should have decreased or the row deleted
+            inv_after = await conn.fetchval(quantity, game_id)
         assert inv_after is None or inv_after < inv_before
 
     @pytest.mark.asyncio
-    async def test_process_extraction_inventory_use(self, client, test_user, test_pool):
-        """process_extraction handles inventory 'use' action by creating a fact."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+    async def test_inventory_use_creates_a_fact(self, client, test_user, test_pool):
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        await _extract(test_pool, game_id, _inventory(), {"inventory_changes": [{
+            "action": "use", "object_ref": "Terminal personnel", "quantity_delta": 1,
+            "reason": "Consulter les messages",
+        }]})
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "inventory_changes": [
-                    {
-                        "action": "use",
-                        "object_ref": "Terminal personnel",
-                        "quantity_delta": 1,
-                        "reason": "Consulter les messages",
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(extraction)
-
-        # 'use' creates an ACTION fact
         async with test_pool.acquire() as conn:
             fact = await conn.fetchrow(
                 "SELECT description FROM facts"
                 " WHERE game_id = $1 AND semantic_key LIKE 'protagonist:use:%'",
                 game_id,
             )
-        assert fact is not None
         assert "Terminal personnel" in fact["description"]
 
     @pytest.mark.asyncio
-    async def test_process_extraction_ambient_update(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction updates ambient field on an entity."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
+    async def test_ambient_update(self, client, test_user, test_pool):
+        from services.extraction.locations import LocationsExtractor
 
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        stats = await _extract(test_pool, game_id, LocationsExtractor, {"ambient_updates": [{
+            "entity_ref": "Le Quart de Cycle",
+            "ambient": "L'endroit semble plus animé ce soir.",
+        }]})
 
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "ambient_updates": [
-                    {
-                        "entity_ref": "Le Quart de Cycle",
-                        "entity_type": "location",
-                        "ambient": "L'endroit semble plus animé ce soir, une musique douce filtre depuis l'arrière-salle.",
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        assert stats.get("ambients_updated", 0) == 1
-
+        assert stats["ambients_updated"] == 1
         async with test_pool.acquire() as conn:
             ambient = await conn.fetchval(
                 "SELECT ambient FROM locations"
                 " WHERE game_id = $1 AND name = 'Le Quart de Cycle'",
                 game_id,
             )
-        assert ambient is not None
         assert "animé" in ambient
 
     @pytest.mark.asyncio
-    async def test_process_extraction_entity_reveal_via_update(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction handles entity update with now_known=True (identity reveal)."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        # Verify Justine is not known initially
+    async def test_entity_reveal_via_update(self, client, test_user, test_pool):
+        """An update with now_known=True is a reveal (IdentityService.reveal)."""
+        game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
+        known = """SELECT known_by_protagonist, mood FROM characters
+                   WHERE game_id = $1 AND name = 'Justine Lépicier'"""
         async with test_pool.acquire() as conn:
-            known = await conn.fetchval(
-                "SELECT known_by_protagonist FROM characters"
-                " WHERE game_id = $1 AND name = 'Justine Lépicier'",
-                game_id,
-            )
-        assert known is False
+            assert (await conn.fetchrow(known, game_id))["known_by_protagonist"] is False
 
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "entities_updated": [
-                    {
-                        "entity_ref": "Justine Lépicier",
-                        "entity_type": "character",
-                        "now_known": True,
-                        "changes": {"mood": "souriante et détendue"},
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(extraction)
+        await _extract(test_pool, game_id, _characters(), {"entities_updated": [{
+            "entity_ref": "Justine Lépicier", "now_known": True,
+            "changes": {"mood": "souriante et détendue"},
+        }]})
 
         async with test_pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT known_by_protagonist, mood FROM characters"
-                " WHERE game_id = $1 AND name = 'Justine Lépicier'",
-                game_id,
-            )
+            row = await conn.fetchrow(known, game_id)
         assert row["known_by_protagonist"] is True
         assert row["mood"] == "souriante et détendue"
 
@@ -1822,25 +1261,9 @@ class TestExtractionPopulator:
         """The Kethari case (#152): an NPC extracted under a description is stored with it as
         descriptor; a reveal naming it with an article finds it (find_entity), sets its true
         name and marks it known, registry included."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
         game_id, _, _ = await _setup_game_with_world(client, test_user, test_pool)
-        populator = ExtractionPopulator(test_pool, game_id)
-        await populator.process_extraction(
-            NarrativeExtraction.model_validate(
-                {
-                    "cycle": 2,
-                    "entities_created": [
-                        {
-                            "entity_type": "character",
-                            "name": "Kethari âgée",
-                            "known_by_protagonist": False,
-                        }
-                    ],
-                }
-            )
-        )
+        await _extract(test_pool, game_id, _characters(), {"entities_created": [{
+            "name": "Kethari âgée", "known_by_protagonist": False}]})
 
         async with test_pool.acquire() as conn:
             created = await conn.fetchrow(
@@ -1872,41 +1295,6 @@ class TestExtractionPopulator:
             "label": "Nahle Irun-Sa",
             "shown": "Nahle Irun-Sa",
         }
-
-    @pytest.mark.asyncio
-    async def test_process_extraction_skips_owns_relations(
-        self, client, test_user, test_pool
-    ):
-        """process_extraction skips OWNS relation type (handled by inventory)."""
-        from kg.specialized_populator import ExtractionPopulator
-        from schema import NarrativeExtraction
-
-        game_id, service, world_gen = await _setup_game_with_world(
-            client, test_user, test_pool
-        )
-
-        extraction = NarrativeExtraction.model_validate(
-            {
-                "cycle": 2,
-                "relations_created": [
-                    {
-                        "cycle": 2,
-                        "relation": {
-                            "source_ref": "Valentin",
-                            "target_ref": "Terminal personnel",
-                            "relation_type": "owns",
-                            "known_by_protagonist": True,
-                        },
-                    }
-                ],
-            }
-        )
-
-        populator = ExtractionPopulator(test_pool, game_id)
-        stats = await populator.process_extraction(extraction)
-
-        # OWNS should be skipped
-        assert stats["relations_created"] == 0
 
 
 # =============================================================================

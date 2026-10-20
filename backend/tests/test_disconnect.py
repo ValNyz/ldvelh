@@ -617,10 +617,10 @@ async def test_disconnect_during_world_save_commits_and_starts_the_director(
     entered, release = asyncio.Event(), asyncio.Event()
     original_meta = WorldPopulator._store_generation_meta
 
-    async def gated_meta(self, conn, world_gen):
+    async def gated_meta(self, conn, world_gen, *args):
         entered.set()
         await release.wait()
-        return await original_meta(self, conn, world_gen)
+        return await original_meta(self, conn, world_gen, *args)
 
     monkeypatch.setattr(WorldPopulator, "_store_generation_meta", gated_meta)
     request = routes.ChatRequest(

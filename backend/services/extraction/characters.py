@@ -9,6 +9,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from kg import refs
 from prompts.extraction import characters_prompt
 from schema import EntityType
 from schema.extraction import EntityCreation
@@ -123,14 +124,18 @@ class CharactersExtractor(BaseExtractor):
         return False
 
     async def _remove(self, conn: Connection, er_data: dict, cycle: int) -> None:
+        """The removed character, by the id its reference resolves to (RefUnresolved:
+        counted by the item's savepoint)."""
+        identity = await self.populator.identity(conn)
+        entity_id = await refs.required(
+            identity, conn, er_data.get("entity_ref", ""), EntityType.CHARACTER.value)
         await self.populator.remove_entity(
-            conn, er_data.get("entity_ref", ""), EntityType.CHARACTER,
-            er_data.get("cycle", cycle),
+            conn, entity_id, EntityType.CHARACTER, er_data.get("cycle", cycle),
         )
 
     async def _skill(self, conn: Connection, skill_data: dict, cycle: int) -> None:
         from schema import Skill
         skill = Skill.model_validate(skill_data)
-        proto_id = await self.populator._resolve_protagonist_id(conn)
+        proto_id = await self.populator.protagonist_id(conn)
         if proto_id:
             await self.populator.update_skill(conn, skill, cycle, protagonist_id=proto_id)

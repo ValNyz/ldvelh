@@ -52,6 +52,39 @@ _NAME_COLUMNS = frozenset({"name", "true_name", "descriptor", _KNOWN_FLAG})
 # Columns a character's bare label comes from (true name first), another entity's.
 _CHARACTER_NAMES = ("true_name", "descriptor")
 _OTHER_NAMES = ("name",)
+# Columns a creation that reuses the entity holding its label may fill (#87): only with a
+# value that is not blank, never a name, a flag only a reveal sets, nor a boolean or a
+# default a schema fills in for every listing.
+_REFILLABLE = {
+    CHARACTER: (
+        "species",
+        "description",
+        "traits",
+        "mood",
+        "occupation",
+        "workplace_id",
+        "residence_id",
+    ),
+    "location": ("parent_id", "location_type", "sector", "description", "atmosphere"),
+    "organization": ("org_type", "domain", "description", "headquarters_id"),
+}
+# Untyped references (fact participants, relation ends) are reported under this type.
+ANY_TYPE = "any"
+
+
+def _refill_values(entity_type: str, fields: dict) -> dict:
+    """The refillable columns of `fields` whose value is not blank (NULL, a blank string,
+    an empty list); strings are kept trimmed."""
+    values = {}
+    for column in _REFILLABLE.get(entity_type, ()):
+        value = fields.get(column)
+        if isinstance(value, str):
+            value = value.strip() or None
+        elif isinstance(value, (list, tuple)) and not value:
+            value = None
+        if value is not None:
+            values[column] = value
+    return values
 
 
 class IdentityService:
@@ -88,11 +121,15 @@ class IdentityService:
         source: str,
         scene_location_id: UUID | None = None,
         trap: bool = False,
+        refill: bool = False,
     ) -> UUID:
         """Create an entity with its derived aliases, or return the live entity of the type
         that already holds its label (event 'create_reused'). With `trap` (a verified
         second entity under that label), the newcomer gets an internal label suffix
-        (event 'label_suffixed').
+        (event 'label_suffixed'). With `refill` (an extractor listing an entity again), a
+        reused entity holding the label as its own takes the values of `spec.fields`
+        that are not blank, in the columns a re-listing may fill (#87); one found through
+        an alias, or whose label another entity's alias contests, is left untouched.
 
         A label that only aliases of several entities hold creates nothing (without
         `trap`): AmbiguousLabel is raised, and no event is written here. `write_item`
@@ -105,10 +142,20 @@ class IdentityService:
             )
         if reserved := set(spec.fields) & _NAME_COLUMNS:
             raise ValueError(f"fields set by the service: {sorted(reserved)}")
+        if spec.descriptor and (
+            spec.entity_type != CHARACTER or spec.kind != "proper_name"
+        ):
+            raise ValueError("only a character named by its true name has a descriptor")
         target = await entities.find_for_upsert(
             conn, self.game_id, label, spec.entity_type
         )
         if target.entity_id is not None and not trap:
+            if refill and target.by_label and not target.contested:
+                values = _refill_values(spec.entity_type, spec.fields)
+                if values:
+                    await entities.fill_domain_row(
+                        conn, self.game_id, spec.entity_type, target.entity_id, values
+                    )
             await self.record_event(
                 conn,
                 "create_reused",
@@ -189,6 +236,8 @@ class IdentityService:
                 # No true name to know: a reveal sets both later.
                 else {"descriptor": label, "known_by_protagonist": False}
             )
+            if proper and spec.descriptor:
+                names["descriptor"] = " ".join(spec.descriptor.split())
         else:
             names = {"name": label}
         return {**names, **spec.fields}
@@ -321,15 +370,51 @@ class IdentityService:
         reference: 0 unknown, 2 or more ambiguous)."""
         entity_id = await entities.find_entity(conn, self.game_id, ref, entity_type)
         if entity_id is not None:
-            handle = await entities.handle_of(conn, entity_id)
-            label = await entities.display_for_player(conn, entity_id)
-            return ResolvedRef(entity_id, handle, label), 1
+            return await self._resolved(conn, entity_id, entity_type), 1
         candidates = 0
         if ref and ref.strip():
             counts = await entities.candidate_counts(
                 conn, self.game_id, ref, (entity_type,)
             )
             candidates = counts.get(entity_type, 0)
+        return None, await self._unresolved(conn, ref, entity_type, candidates)
+
+    async def resolve_any_ref(self, conn, ref: str) -> ResolvedRef | None:
+        """The entity of any type that `ref` names (a fact participant, a relation end):
+        only when exactly one type knows it, once (`find_any`); None otherwise."""
+        resolved, _ = await self._resolve_any(conn, ref)
+        return resolved
+
+    async def require_any_ref(self, conn, ref: str) -> ResolvedRef:
+        """`resolve_any_ref`, raising RefUnresolved (type 'any') instead of None."""
+        resolved, candidates = await self._resolve_any(conn, ref)
+        if resolved is None:
+            raise RefUnresolved(ref, ANY_TYPE, self.game_id, candidates=candidates)
+        return resolved
+
+    async def _resolve_any(self, conn, ref: str) -> tuple[ResolvedRef | None, int]:
+        found = await entities.find_any(conn, self.game_id, ref)
+        if found is not None:
+            entity_id, entity_type = found
+            return await self._resolved(conn, entity_id, entity_type), 1
+        candidates = 0
+        if ref and ref.strip():
+            counts = await entities.candidate_counts(
+                conn, self.game_id, ref, entities.ANY_ENTITY_TYPES
+            )
+            candidates = sum(counts.values())
+        return None, await self._unresolved(conn, ref, ANY_TYPE, candidates)
+
+    async def _resolved(self, conn, entity_id: UUID, entity_type: str) -> ResolvedRef:
+        handle = await entities.handle_of(conn, entity_id)
+        label = await entities.display_for_player(conn, entity_id)
+        return ResolvedRef(entity_id, handle, label, entity_type)
+
+    async def _unresolved(
+        self, conn, ref: str, entity_type: str, candidates: int
+    ) -> int:
+        """Record an ambiguous reference ('ambiguous_ref', 2 or more candidates); returns
+        `candidates`."""
         if candidates > 1:
             await self.record_event(
                 conn,
@@ -339,7 +424,7 @@ class IdentityService:
                 {"entity_type": entity_type, "candidates": candidates},
             )
         logger.debug(f"[IDENTITY] {entity_type} reference unresolved: {ref!r}")
-        return None, candidates
+        return candidates
 
     async def handles_for_prompt(self, conn, entity_ids: list[UUID]) -> dict[UUID, str]:
         """`E<n>` of each entity (its live one when merged), for the prompts."""

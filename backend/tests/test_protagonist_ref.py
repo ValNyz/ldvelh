@@ -208,13 +208,13 @@ async def test_wizard_name_wins_over_the_model_name(harness, test_pool):
 
 
 async def test_item_use_fact_has_the_protagonist(test_pool, test_user):
-    from kg.specialized_populator import ExtractionPopulator
-    from schema import NarrativeExtraction
+    from services.extraction.inventory import InventoryExtractor
 
     game_id, _ = await populate_kira(test_pool, test_user)
-    extraction = NarrativeExtraction.model_validate({"cycle": 2, "inventory_changes": [
-        {"action": "use", "object_ref": "Terminal personnel", "quantity_delta": 1}]})
-    await ExtractionPopulator(test_pool, game_id).process_extraction(extraction)
+    result, _ = await run_extractor(InventoryExtractor, test_pool, game_id, {
+        "inventory_changes": [
+            {"action": "use", "object_ref": "Terminal personnel", "quantity_delta": 1}]})
+    assert result["success"], result
     async with test_pool.acquire() as conn:
         rows = await fact_participants(conn, game_id, "protagonist:use:terminal_personnel")
     assert [(r["name"], r["role"]) for r in rows] == [(PC, "actor")]
@@ -266,14 +266,14 @@ async def test_extracted_update_end_and_fact_with_the_token(test_pool, test_user
 
 
 async def test_entity_update_with_the_token_reaches_the_protagonist(test_pool, test_user):
-    """An update without entity_type detects the PC through find_entity (skills_changed)."""
-    from kg.specialized_populator import ExtractionPopulator
-    from schema import NarrativeExtraction
+    """An update without entity_type finds the PC among every type (skills_changed)."""
+    from services.extraction.characters import CharactersExtractor
 
     game_id, _ = await populate_kira(test_pool, test_user)
-    extraction = NarrativeExtraction.model_validate({"cycle": 2, "entities_updated": [
-        {"entity_ref": PROTAGONIST_REF, "skills_changed": [{"name": "pilotage", "level": 3}]}]})
-    await ExtractionPopulator(test_pool, game_id).process_extraction(extraction)
+    result, _ = await run_extractor(CharactersExtractor, test_pool, game_id, {
+        "entities_updated": [{"entity_ref": PROTAGONIST_REF, "entity_type": None,
+                              "skills_changed": [{"name": "pilotage", "level": 3}]}]})
+    assert result["success"], result
     async with test_pool.acquire() as conn:
         level = await conn.fetchval(
             "SELECT level FROM skills WHERE game_id = $1 AND protagonist_id IS NOT NULL"
