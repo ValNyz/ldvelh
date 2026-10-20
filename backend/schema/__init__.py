@@ -186,7 +186,6 @@ from .engine import (
 # DIRECTOR - Narrative planning models
 # =============================================================================
 from .director import (
-    ArcUpdate,
     DirectorOutput,
     DirectorPlan,
     PlannedEvent,

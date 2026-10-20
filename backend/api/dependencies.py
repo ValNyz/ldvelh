@@ -46,7 +46,7 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Jeton expiré.")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Jeton invalide.")
-    except InvalidSession as exc:
+    except InvalidSession:
         raise HTTPException(status_code=401, detail="Session expirée. Reconnecte-toi.")
 
     async with pool.acquire() as conn:

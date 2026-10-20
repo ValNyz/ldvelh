@@ -12,13 +12,15 @@ EXCLUDED_DIRS = {"tests", "scripts"}
 LAYER_RULES = {  # layer -> top-level packages it must not import
     "domain": {"api", "pipeline", "services", "repos", "kg", "llm", "fastapi", "starlette",
                "asyncpg", "anthropic", "mistralai", "openai"},
+    # pipeline may import workers (pipeline/director_runs.py, pipeline/steps/schedule.py): not forbidden.
     "pipeline": {"api", "fastapi", "starlette"},
     "services": {"api", "pipeline", "fastapi", "starlette"},
-    "repos": {"api", "pipeline", "fastapi", "starlette"},
-    "llm": {"api", "pipeline", "fastapi", "starlette"},
+    "repos": {"api", "pipeline", "services", "kg", "fastapi", "starlette"},
+    "llm": {"api", "pipeline", "services", "fastapi", "starlette"},
     "kg": {"api", "pipeline", "fastapi", "starlette"},
-    "schema": {"api", "pipeline", "fastapi", "starlette"},
-    "prompts": {"api", "pipeline", "fastapi", "starlette"},
+    "schema": {"api", "pipeline", "packs", "fastapi", "starlette"},
+    "prompts": {"api", "pipeline", "services", "fastapi", "starlette"},
+    "packs": {"api", "pipeline", "services", "repos", "kg", "llm", "prompts", "fastapi", "starlette"},
     "utils": {"fastapi", "starlette"},
     "workers": {"api", "pipeline", "services", "repos", "kg", "llm", "schema", "prompts",
                 "asyncpg", "fastapi", "starlette"},
@@ -26,8 +28,27 @@ LAYER_RULES = {  # layer -> top-level packages it must not import
 }
 # HTTP adapters that live outside api/ by design: exempt from LAYER_RULES.
 LAYER_EXEMPT_FILES = {"utils/rate_limit.py"}  # request rate limiter (auth, enhance, chat)
-KNOWN_VIOLATIONS: set[tuple[str, str]] = set()
-SQL_IN_ROUTES_ALLOWED: set[str] = set()
+KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, imported package): frozen debt, may only shrink
+    ("llm/session.py", "services"),                    # #172
+    ("llm/usage.py", "services"),                      # #172
+    ("packs/loader.py", "services"),                   # lot H task 3 (services.identity.normalize)
+    ("prompts/mechanical_prompt.py", "services"),      # P7 (#101): services.engine
+    ("prompts/narrator_prompt.py", "services"),        # P7 (#101): services.engine
+    ("prompts/world_enhance_prompt.py", "services"),   # P7 (#101): services.engine
+    ("prompts/world_generation_prompt.py", "services"),  # P7 (#101): services.engine
+    ("repos/games.py", "kg"),                          # #108
+    ("repos/llm_models.py", "services"),               # #172: services.pricing
+    ("repos/turns.py", "kg"),                          # lot H task 2
+    ("repos/turns.py", "services"),                    # lot H task 2
+    ("schema/narration.py", "packs"),                  # lot H task 3
+}
+SQL_IN_API_ALLOWED: set[str] = {   # api/ files still holding SQL: frozen debt, may only shrink
+    "api/auth.py",          # #108
+    "api/dependencies.py",  # #108
+    "api/genres.py",        # #108
+    "api/tooltips.py",      # #108
+    "api/world.py",         # #108
+}
 
 _SQL_LEADING_COMMENTS = r"(?:(?:--[^\n]*\n|/\*.*?\*/)\s*)*"   # `-- ...` and `/* ... */` before the statement
 _SQL_RE = re.compile(
@@ -113,11 +134,28 @@ def test_evals_layer_is_guarded():
 
 
 def test_layers_respect_the_dependency_rule():
-    assert collect_violations() == KNOWN_VIOLATIONS   # a new one fails; a fixed one must be removed here
+    new = collect_violations() - KNOWN_VIOLATIONS
+    assert not new, f"new layer violations (do not add to KNOWN_VIOLATIONS): {sorted(new)}"
 
 
-def test_no_sql_in_api_routes():
-    assert functions_with_sql("api/routes.py") == SQL_IN_ROUTES_ALLOWED
+def test_known_violations_are_still_real():
+    fixed = KNOWN_VIOLATIONS - collect_violations()
+    assert not fixed, f"remove the fixed entry from KNOWN_VIOLATIONS: {sorted(fixed)}"
+
+
+def _api_files_with_sql():
+    return {rel.as_posix() for _, rel in _source_files()
+            if rel.parts[0] == "api" and len(rel.parts) == 2 and functions_with_sql(rel)}
+
+
+def test_no_sql_in_api():
+    new = _api_files_with_sql() - SQL_IN_API_ALLOWED
+    assert not new, f"SQL in api/ files (move it to repos/): {sorted(new)}"
+
+
+def test_sql_in_api_allowed_is_still_real():
+    fixed = SQL_IN_API_ALLOWED - _api_files_with_sql()
+    assert not fixed, f"remove the fixed entry from SQL_IN_API_ALLOWED: {sorted(fixed)}"
 
 
 def test_handle_chat_is_thin():

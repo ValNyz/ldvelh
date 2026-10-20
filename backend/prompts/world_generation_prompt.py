@@ -215,7 +215,7 @@ def _build_engine_section(engine: str, world_config: dict | None = None) -> list
         ])
 
     elif engine == "d6":
-        from services.engine.engine_data import get_d6_skills, D6_ATTRIBUTES
+        from services.engine.engine_data import D6_ATTRIBUTES
 
         parts.extend([
             "Moteur : **D6 System** (pools de D6, dé sauvage, attributs/compétences)",

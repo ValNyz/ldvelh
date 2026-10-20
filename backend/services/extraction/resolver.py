@@ -157,7 +157,7 @@ def _rebuild_annotated_text(text: str, annotations: list | None) -> str:
     for ann in sorted_anns:
         if len(ann) < 3:
             continue
-        start, end, canonical = ann[0], ann[1], ann[2]
+        end, canonical = ann[1], ann[2]
         result = result[:end] + f" [= {canonical}]" + result[end:]
 
     return result
