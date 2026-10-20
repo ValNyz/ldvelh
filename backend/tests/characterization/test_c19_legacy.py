@@ -9,10 +9,16 @@ are readable/playable by the current schema and code" and "the newer migrations 
 
 Replica mode (see load_legacy_game) means triggers do not run on load: regenerate the
 fixture when a migration adds triggers or derived tables, or they will be missing here.
+
+The identity migration (#152) converts the legacy rows with its data section, then
+scripts/identity_backfill.py finishes them (language, norms, classification): the loader
+runs both, as a deploy does (entrypoint: sync_lang_packs, dbmate up, identity_backfill).
 """
 
-from collections.abc import Sequence
+import re
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
+from uuid import UUID
 
 import asyncpg
 import pytest
@@ -25,6 +31,8 @@ from tests.conftest import _db_unavailable
 from tests.helpers import rollback_last_turn
 
 Migration = tuple[str, str]  # (up SQL, down SQL)
+Hook = Callable[[asyncpg.Connection], Awaitable[None]]
+IDENTITY_MIGRATION = "20261020000001"
 FIXTURE = Path(__file__).parent / "fixtures" / "legacy_game.sql"
 MIGRATIONS = Path(__file__).resolve().parents[3] / "db" / "migrations"
 LEGACY_PENDING_ROLL = "7c1d1f0e-5b7a-4c8e-9a51-2f4d3b6e8a10"
@@ -39,23 +47,52 @@ def legacy_schema_version() -> str:
     return FIXTURE.read_text(encoding="utf-8").splitlines()[1].split()[-1]
 
 
-def newer_migrations(version: str, extra: Sequence[Migration] = ()) -> list[Migration]:
-    """(up, down) SQL of every dbmate migration newer than `version`, oldest first, then `extra`."""
+def newer_migrations(
+    version: str, extra: Sequence[Migration] = ()
+) -> list[tuple[str | None, str, str]]:
+    """(version, up SQL, down SQL) of every dbmate migration newer than `version`, oldest
+    first, then `extra` (version None)."""
     sections = []
     for path in sorted(MIGRATIONS.glob("*.sql")):
-        if path.name.split("_", 1)[0] <= version:
+        number = path.name.split("_", 1)[0]
+        if number <= version:
             continue
         text = path.read_text(encoding="utf-8")
         up, down = text.split("-- migrate:down", 1)
-        sections.append((up.split("-- migrate:up", 1)[1], down))
-    return sections + list(extra)
+        sections.append((number, up.split("-- migrate:up", 1)[1], down))
+    return sections + [(None, up, down) for up, down in extra]
 
 
-async def load_legacy_game(pool, extra: Sequence[Migration] = ()) -> tuple[str, str]:
+def legacy_registry_ids() -> set[str]:
+    """The registry ids of the dump: the old trigger's own ids, never the domain ids."""
+    return set(
+        re.findall(
+            r"INSERT INTO public\.entity_registry \(id[^)]*\) VALUES \('([0-9a-f-]{36})'",
+            FIXTURE.read_text(encoding="utf-8"),
+        )
+    )
+
+
+async def load_legacy_game(
+    pool,
+    extra: Sequence[Migration] = (),
+    *,
+    before: Mapping[str, Hook] | None = None,
+    backfill: bool = True,
+) -> tuple[str, str]:
     """Replace the test DB content with the legacy dump; return (game_id, user_email).
 
-    `extra` is a list of (up, down) migrations appended after the real ones (harness test only).
+    `extra` is a list of (up, down) migrations appended after the real ones (harness test
+    only). `before` maps a migration version to a hook run on the loading connection just
+    before that migration's up, in the same transaction: legacy rows the dump lacks (a turn
+    journaled before the identity migration), or a read of the pre-migration state (the
+    dry-run report). The language packs are synchronised before the ups, as the entrypoint
+    does before `dbmate up`; then the identity backfill runs on the game (unless `backfill`
+    is False: the state the migration alone leaves).
     """
+    from scripts.identity_backfill import run as identity_backfill
+    from scripts.sync_lang_packs import ensure_and_sync
+
     sql = FIXTURE.read_text(encoding="utf-8")
     game_id = sql.splitlines()[0].split()[-1]
     async with pool.acquire() as conn:
@@ -67,8 +104,9 @@ async def load_legacy_game(pool, extra: Sequence[Migration] = ()) -> tuple[str, 
         # triggers), scoped to this transaction. Needs a superuser, as in the test DB.
         # The migrations newer than the dump go down first and up again over its rows.
         migrations = newer_migrations(legacy_schema_version(), extra)
+        hooks = dict(before or {})
         async with conn.transaction():
-            for _, down in reversed(migrations):
+            for _, _, down in reversed(migrations):
                 if down.strip():  # asyncpg cannot execute an empty script
                     await conn.execute(down)
             try:
@@ -79,8 +117,14 @@ async def load_legacy_game(pool, extra: Sequence[Migration] = ()) -> tuple[str, 
                 )
             await conn.execute(sql)
             await conn.execute("SET LOCAL session_replication_role = origin")
-            for up, _ in migrations:
+            await ensure_and_sync(conn)
+            for version, up, _ in migrations:
+                if version in hooks:
+                    await hooks.pop(version)(conn)
                 await conn.execute(up)
+            assert not hooks, f"no migration {sorted(hooks)} to hook"
+        if backfill:
+            await identity_backfill(conn, UUID(game_id))
         email = await conn.fetchval(
             "SELECT u.email FROM users u JOIN games g ON g.user_id = u.id WHERE g.id = $1::uuid",
             game_id,
@@ -115,17 +159,90 @@ async def legacy_invariants(conn, game_id: str) -> None:
         )
         >= 1
     )
+    await identity_invariants(conn, game_id)
 
 
-# Task 10 (#152) runs the application on the identity schema; the legacy rows only fit it
-# after Task 9's data section and backfill: the old registry ids differ from the domain ids
-# (re-identification, §5.2 step 1), the legacy game has no language and its registry rows
-# no name_norm (identity_backfill step 0). Until then find_entity raises 'missing lang
-# pack' and display_for_player(<domain id>) is NULL. Strict: Task 9 must drop the marker.
-NEEDS_IDENTITY_BACKFILL = pytest.mark.xfail(
-    strict=True,
-    reason="needs Task 9: registry re-identification, games.language and name_norm backfill",
-)
+# Each query counts what breaks an identity invariant (#152, spec §5.3): all must be 0.
+IDENTITY_BREACHES = {
+    "domain row without registry row at its id": """
+        SELECT count(*) FROM (
+            SELECT id, game_id, 'character' AS t FROM characters
+            UNION ALL SELECT id, game_id, 'location' FROM locations
+            UNION ALL SELECT id, game_id, 'organization' FROM organizations
+            UNION ALL SELECT id, game_id, 'object' FROM objects
+            UNION ALL SELECT id, game_id, 'protagonist' FROM protagonists
+            UNION ALL SELECT id, game_id, 'companion' FROM companions) AS dom
+         WHERE dom.game_id = $1::uuid AND NOT EXISTS (
+            SELECT 1 FROM entity_registry er WHERE er.id = dom.id AND er.entity_type = dom.t)""",
+    "orphan registry row": """
+        SELECT count(*) FROM entity_registry er WHERE er.game_id = $1::uuid
+           AND er.merged_into IS NULL AND identity_domain_row(er.entity_type, er.id) IS NULL""",
+    "registry row without name_norm": """
+        SELECT count(*) FROM entity_registry WHERE game_id = $1::uuid AND name_norm IS NULL""",
+    "alias without alias_norm": """
+        SELECT count(*) FROM entity_aliases WHERE game_id = $1::uuid AND alias_norm IS NULL""",
+    "game without language": """
+        SELECT count(*) FROM games WHERE id = $1::uuid AND language IS NULL""",
+    "entity without an alias of its name_norm": """
+        SELECT count(*) FROM entity_registry er WHERE er.game_id = $1::uuid
+           AND er.merged_into IS NULL AND NOT EXISTS (
+               SELECT 1 FROM entity_aliases al
+                WHERE al.entity_id = er.id AND al.alias_norm = er.name_norm)""",
+    "character whose names disagree": """
+        SELECT count(*) FROM characters ch JOIN entity_registry er ON er.id = ch.id
+         WHERE ch.game_id = $1::uuid
+           AND (ch.true_name IS NULL AND ch.descriptor IS NULL
+                OR ch.name <> COALESCE(ch.true_name, ch.descriptor)
+                              || COALESCE(' (' || ch.label_suffix || ')', '')
+                OR er.name <> ch.name)""",
+    "stale norm": """
+        SELECT (SELECT count(*) FROM entity_registry WHERE game_id = $1::uuid
+                   AND name_norm <> ldvelh_norm_for_game(game_id, name))
+             + (SELECT count(*) FROM entity_aliases WHERE game_id = $1::uuid
+                   AND alias_norm <> ldvelh_norm_for_game(game_id, alias))""",
+    "mention of a missing entity": """
+        SELECT count(*) FROM entity_mentions m WHERE m.game_id = $1::uuid
+           AND NOT EXISTS (SELECT 1 FROM entity_registry er WHERE er.id = m.entity_id)""",
+    "unregistered companion": """
+        SELECT count(*) FROM companions cm WHERE cm.game_id = $1::uuid AND NOT EXISTS (
+            SELECT 1 FROM entity_registry er WHERE er.id = cm.id AND er.entity_type = 'companion')""",
+}
+
+
+async def identity_invariants(conn, game_id: str) -> None:
+    """The legacy game in the identity model (#152): every domain row has its registry row
+    at its own id, no orphan, every name normalised with the game's language, an alias of
+    each entity's name, consistent character names, mentions on live ids, the companion
+    registered, and no id of the old registry left anywhere (edges, journal)."""
+    breaches = {
+        what: n
+        for what, query in IDENTITY_BREACHES.items()
+        if (n := await conn.fetchval(query, game_id))
+    }
+    assert breaches == {}, breaches
+    old_ids = legacy_registry_ids()
+    left = await conn.fetchval(
+        """SELECT count(*) FROM (
+               SELECT id::text FROM entity_registry
+               UNION ALL SELECT source_id::text FROM relations
+               UNION ALL SELECT target_id::text FROM relations
+               UNION ALL SELECT entity_id::text FROM fact_participants
+               UNION ALL SELECT entity_id::text FROM arc_participants
+               UNION ALL SELECT entity_id::text FROM chronology_participants
+               UNION ALL SELECT entity_id::text FROM event_participants
+               UNION ALL SELECT owner_id::text FROM inventory
+               UNION ALL SELECT owner_id::text FROM narrative_arcs) AS ref (id)
+            WHERE ref.id = ANY($1::text[])""",
+        list(old_ids),
+    )
+    assert left == 0, f"{left} references to old registry ids"
+    journal = await conn.fetchval(
+        "SELECT string_agg(row_id::text || coalesce(old_row::text, '') || coalesce(new_row::text, ''), ' ')"
+        " FROM world_changes"
+    )
+    assert not any(old in (journal or "") for old in old_ids), (
+        "old id left in the journal"
+    )
 
 
 @pytest_asyncio.fixture
@@ -141,7 +258,6 @@ async def legacy_token(test_pool, legacy_game):
     return create_token(user_id, email)
 
 
-@NEEDS_IDENTITY_BACKFILL
 async def test_c19_legacy_game_loads_and_plays(
     client, test_pool, legacy_game, legacy_token, scripted_llm
 ):
@@ -258,7 +374,6 @@ async def test_legacy_arrival_facts_get_protagonist_keys(test_pool, legacy_game)
     assert arrival["incident"] == "Systèmes bagages en panne, attente indéterminée"
 
 
-@NEEDS_IDENTITY_BACKFILL
 async def test_legacy_game_new_turn_rolls_back_through_the_journal(
     client, test_pool, legacy_game, legacy_token, scripted_llm
 ):
@@ -320,3 +435,188 @@ async def test_legacy_turn_rollback_is_refused_with_a_clear_message(
     assert r.json()["detail"] == BEFORE_JOURNAL
     async with test_pool.acquire() as conn:
         assert await conn.fetchval(count, game_id) == before
+
+
+def legacy_game_id() -> str:
+    return FIXTURE.read_text(encoding="utf-8").splitlines()[0].split()[-1]
+
+
+OSSEK = "7b474354-16c0-4f1a-a77a-1cce67c116a5"  # domain id
+OSSEK_OLD_REGISTRY = "bc1cfcf3-f620-487d-8516-b26e0a992de9"
+PROTAGONIST_OLD_REGISTRY = "87685f6f-4d8f-40db-b738-addd7793eb12"
+LIVES_AT_RELATION = "87880d42-83b1-4076-a964-936971f9ee0c"
+
+
+async def add_legacy_character(
+    conn, name: str, unknown_name: str | None, character_id: str | None = None
+) -> None:
+    """A character written by the pre-identity code: the old trigger registers it under
+    its own id (hook run before the identity migration)."""
+    await conn.execute(
+        """INSERT INTO characters (id, game_id, name, unknown_name, known_by_protagonist)
+           VALUES (COALESCE($4::uuid, gen_random_uuid()), $1::uuid, $2, $3, false)""",
+        legacy_game_id(),
+        name,
+        unknown_name,
+        character_id,
+    )
+
+
+async def test_c19_legacy_reveal_by_descriptor_works_after_migration(test_pool):
+    """Review Focus 5: a legacy unknown NPC stored under a description is classified as a
+    descriptor by the migration; a reveal naming it with an article finds it, sets its
+    true name, marks it known and renames its registry row by id."""
+    from kg.populator import KnowledgeGraphPopulator
+
+    async def hook(conn):
+        await add_legacy_character(conn, "Kethari âgée", "La Kethari âgée")
+
+    game_id, _ = await load_legacy_game(test_pool, before={IDENTITY_MIGRATION: hook})
+    async with test_pool.acquire() as conn:
+        await legacy_invariants(conn, game_id)
+        kethari = await conn.fetchrow(
+            "SELECT id, true_name, descriptor FROM characters"
+            " WHERE game_id = $1::uuid AND descriptor = 'La Kethari âgée'",
+            game_id,
+        )
+        assert kethari["true_name"] is None
+        populator = KnowledgeGraphPopulator(test_pool, UUID(game_id))
+        assert await populator.mark_character_known(
+            conn, "La Kethari âgée", "Nom Révélé"
+        )
+        row = await conn.fetchrow(
+            "SELECT c.known_by_protagonist, c.true_name, er.name AS label,"
+            " display_for_player(c.id) AS shown"
+            " FROM characters c JOIN entity_registry er ON er.id = c.id WHERE c.id = $1",
+            kethari["id"],
+        )
+        await identity_invariants(conn, game_id)
+    assert dict(row) == {
+        "known_by_protagonist": True,
+        "true_name": "Nom Révélé",
+        "label": "Nom Révélé",
+        "shown": "Nom Révélé",
+    }
+
+
+async def _journal_a_turn_before_the_migration(conn, turn_id: str) -> None:
+    """A turn played between P5a and the identity migration (#152, I7): it deleted a
+    character (registry row under the old trigger's id) and a fact, renamed Ossek, and
+    touched a relation whose ends are old registry ids."""
+    await conn.execute(
+        f"""DO $$
+        DECLARE
+            v_game uuid := '{legacy_game_id()}';
+            v_char jsonb;
+            v_reg jsonb;
+            v_fact jsonb;
+        BEGIN
+            INSERT INTO turns (id, game_id, status, committed_at)
+            VALUES ('{turn_id}', v_game, 'committed', now());
+            INSERT INTO characters (game_id, name, unknown_name, known_by_protagonist)
+            VALUES (v_game, 'Ferrin Dask', 'Le garde du sas', false);
+            SELECT to_jsonb(ch) INTO v_char FROM characters ch
+             WHERE ch.game_id = v_game AND ch.name = 'Ferrin Dask';
+            SELECT to_jsonb(er) INTO v_reg FROM entity_registry er
+             WHERE er.game_id = v_game AND er.name = 'Ferrin Dask';
+            DELETE FROM characters WHERE id = (v_char ->> 'id')::uuid;
+            DELETE FROM entity_registry WHERE id = (v_reg ->> 'id')::uuid;
+            INSERT INTO facts (game_id, cycle, type, description)
+            VALUES (v_game, 2, 'action', 'Un fait que le tour a effacé');
+            SELECT to_jsonb(ft) INTO v_fact FROM facts ft
+             WHERE ft.game_id = v_game AND ft.description = 'Un fait que le tour a effacé';
+            DELETE FROM facts WHERE id = (v_fact ->> 'id')::uuid;
+            INSERT INTO world_changes (turn_id, table_name, row_id, op, old_row, new_row)
+            VALUES ('{turn_id}', 'characters', (v_char ->> 'id')::uuid, 'D', v_char, NULL),
+                   ('{turn_id}', 'entity_registry', (v_reg ->> 'id')::uuid, 'D', v_reg, NULL),
+                   ('{turn_id}', 'facts', (v_fact ->> 'id')::uuid, 'D', v_fact, NULL),
+                   ('{turn_id}', 'entity_registry', '{OSSEK_OLD_REGISTRY}', 'U',
+                    '{{"name": "Ossek Varn"}}', '{{"name": "Ossek"}}'),
+                   ('{turn_id}', 'characters', '{OSSEK}', 'U',
+                    '{{"name": "Ossek Varn"}}', '{{"name": "Ossek"}}'),
+                   ('{turn_id}', 'relations', '{LIVES_AT_RELATION}', 'U',
+                    '{{"source_id": "{PROTAGONIST_OLD_REGISTRY}"}}',
+                    '{{"source_id": "{PROTAGONIST_OLD_REGISTRY}"}}');
+        END $$;"""
+    )
+
+
+async def test_c19_world_changes_ids_are_rewritten(test_pool):
+    """I7: the journal of a turn played before the identity migration is rewritten to the
+    new ids and column set, so that undoing it after the deploy is exact."""
+    import json
+    import uuid
+
+    turn_id = str(uuid.uuid4())
+
+    async def hook(conn):
+        await _journal_a_turn_before_the_migration(conn, turn_id)
+
+    game_id, _ = await load_legacy_game(test_pool, before={IDENTITY_MIGRATION: hook})
+    async with test_pool.acquire() as conn:
+        await legacy_invariants(conn, game_id)  # no old registry id left in the journal
+        protagonist = await conn.fetchval(
+            "SELECT id::text FROM protagonists WHERE game_id = $1::uuid", game_id
+        )
+        rows = {
+            (r["table_name"], r["op"]): (
+                str(r["row_id"]),
+                json.loads(r["old"] or "null"),
+            )
+            for r in await conn.fetch(
+                "SELECT table_name, op, row_id, old_row::text AS old FROM world_changes"
+                " WHERE turn_id = $1::uuid",
+                turn_id,
+            )
+        }
+        ferrin_id, ferrin = rows[("characters", "D")]
+        registry_id, registry = rows[("entity_registry", "D")]
+        assert registry_id == ferrin_id == registry["id"]  # paired by type and name
+        assert "unknown_name" not in ferrin
+        assert (ferrin["true_name"], ferrin["descriptor"]) == (
+            "Ferrin Dask",
+            "Le garde du sas",
+        )
+        assert registry["name_norm"] == "ferrin dask" and registry["handle"] > 0
+        assert {"handle", "known", "secret"} <= rows[("facts", "D")][1].keys()
+        assert rows[("entity_registry", "U")] == (
+            OSSEK,
+            {"name": "Ossek Varn", "name_norm": "ossek varn"},
+        )
+        assert rows[("characters", "U")][1] == {
+            "name": "Ossek Varn",
+            "true_name": "Ossek Varn",
+        }
+        assert rows[("relations", "U")][1] == {"source_id": protagonist}
+
+        async with conn.transaction():
+            await conn.fetchval(
+                "SELECT world_changes_undo($1::uuid[])", [UUID(turn_id)]
+            )
+        ossek = await conn.fetchrow(
+            "SELECT ch.true_name, er.name, er.name_norm FROM characters ch"
+            " JOIN entity_registry er ON er.id = ch.id WHERE ch.id = $1::uuid",
+            OSSEK,
+        )
+        back = await conn.fetchrow(
+            "SELECT ch.true_name, ch.descriptor, er.name, er.name_norm, er.handle"
+            " FROM characters ch JOIN entity_registry er ON er.id = ch.id"
+            " WHERE ch.id = $1::uuid",
+            ferrin_id,
+        )
+        fact_handle = await conn.fetchval(
+            "SELECT handle FROM facts WHERE id = $1::uuid", rows[("facts", "D")][0]
+        )
+    assert dict(ossek) == {
+        "true_name": "Ossek Varn",
+        "name": "Ossek Varn",
+        "name_norm": "ossek varn",
+    }
+    assert dict(back) == {
+        "true_name": "Ferrin Dask",
+        "descriptor": "Le garde du sas",
+        "name": "Ferrin Dask",
+        "name_norm": "ferrin dask",
+        "handle": registry["handle"],
+    }
+    assert fact_handle == rows[("facts", "D")][1]["handle"]

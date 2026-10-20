@@ -12,7 +12,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
-from startup_checks import check_lang_packs, check_startup_config, sync_language_packs
+from startup_checks import (
+    check_identity_backfill,
+    check_lang_packs,
+    check_startup_config,
+    sync_language_packs,
+)
 from workers import supervisor
 
 import logging
@@ -83,6 +88,7 @@ async def lifespan(app: FastAPI):
 
     try:
         count = await sync_language_packs(db_pool)
+        await check_identity_backfill(db_pool)  # names without norm: refuse to start
     except BaseException:
         await db_pool.close()
         raise

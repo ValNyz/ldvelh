@@ -44,6 +44,8 @@ cd /w/backend
 apt-get update -qq >/dev/null && apt-get install -y -qq curl >/dev/null
 /w/db/install-dbmate.sh /w/db/dbmate-release.env /usr/local/bin/dbmate
 pip install -q -r requirements.txt
+# lang_packs first: the identity migration normalises with it (#152).
+DATABASE_URL="postgresql://test:test@${PG_HOST}:5432/ldvelh_test" python -m scripts.sync_lang_packs >/dev/null
 DATABASE_URL="postgresql://test:test@${PG_HOST}:5432/ldvelh_test?sslmode=disable" \
   dbmate --migrations-dir ../db/migrations --no-dump-schema up >/dev/null
 export DATABASE_URL="postgresql://test:test@${PG_HOST}:5432/ldvelh_test"

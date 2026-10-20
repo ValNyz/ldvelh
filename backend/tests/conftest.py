@@ -338,13 +338,14 @@ async def test_pool():
     except Exception as exc:
         _db_unavailable(str(exc))
         return
-    # ldvelh_norm reads its parameters from lang_packs, filled from the YAML packs. Past the
-    # connection check: a broken pack or a missing table fails the test, never skips it.
-    from packs.loader import sync_lang_packs
+    # ldvelh_norm reads its parameters from lang_packs, filled from the YAML packs (the table
+    # created when missing, as before `dbmate up`). Past the connection check: a broken pack
+    # fails the test, never skips it.
+    from scripts.sync_lang_packs import ensure_and_sync
 
     try:
         async with pool.acquire() as conn:
-            await sync_lang_packs(conn)
+            await ensure_and_sync(conn)
     except BaseException:
         await pool.close()
         raise

@@ -48,9 +48,13 @@ def fake_pool(monkeypatch):
     async def sync_packs(pool):
         return 0
 
+    async def backfilled(pool):
+        return None
+
     monkeypatch.setattr(asyncpg, "create_pool", create_pool)
     monkeypatch.setattr(main, "_seed_dev_user", seed)
     monkeypatch.setattr(main, "sync_language_packs", sync_packs)
+    monkeypatch.setattr(main, "check_identity_backfill", backfilled)
     monkeypatch.setattr(llm_providers, "close_shared_clients", close_clients)
     return calls
 
@@ -138,6 +142,19 @@ async def test_multi_worker_start_is_refused_before_the_pool_exists(fake_pool, m
         async with main.lifespan(main.app):
             pass
     assert fake_pool == []  # no pool created, nothing to close
+
+
+async def test_start_is_refused_until_the_identity_backfill_ran(fake_pool, monkeypatch):
+    """#152: names without norm (identity backfill not run): refuse to start, pool closed."""
+
+    async def not_backfilled(pool):
+        raise RuntimeError("Refusing to start: 3 entity_registry rows have no name_norm")
+
+    monkeypatch.setattr(main, "check_identity_backfill", not_backfilled)
+    with pytest.raises(RuntimeError, match="name_norm"):
+        async with main.lifespan(main.app):
+            pass
+    assert fake_pool[-1] == "pool.close"
 
 
 @pytest.mark.parametrize("engine, warned", [("cycle", True), ("journal", False)])

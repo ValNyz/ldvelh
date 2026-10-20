@@ -135,3 +135,31 @@ async def sync_language_packs(pool) -> int:
 
     async with pool.acquire() as conn:
         return await sync_lang_packs(conn)
+
+
+async def identity_backfill_errors(conn) -> list[str]:
+    """What the identity backfill still has to do (spec §5.2): registry or alias rows
+    without norm, active games without language. Empty once scripts.identity_backfill ran."""
+    row = await conn.fetchrow(
+        """SELECT (SELECT count(*) FROM entity_registry WHERE name_norm IS NULL) AS registry,
+                  (SELECT count(*) FROM entity_aliases WHERE alias_norm IS NULL) AS aliases,
+                  (SELECT count(*) FROM games WHERE active AND language IS NULL) AS games"""
+    )
+    errors = []
+    if row["registry"]:
+        errors.append(f"{row['registry']} entity_registry rows have no name_norm")
+    if row["aliases"]:
+        errors.append(f"{row['aliases']} entity_aliases rows have no alias_norm")
+    if row["games"]:
+        errors.append(f"{row['games']} active games have no language")
+    return errors
+
+
+async def check_identity_backfill(pool) -> None:
+    """Raise RuntimeError while the identity backfill has not run: names that cannot be
+    normalised cannot be resolved."""
+    async with pool.acquire() as conn:
+        errors = await identity_backfill_errors(conn)
+    if errors:
+        raise RuntimeError("Refusing to start: " + "; ".join(errors)
+                           + " (run python -m scripts.identity_backfill).")
