@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from typing import NamedTuple
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -874,7 +875,8 @@ NAME_ALIAS_KINDS = ("label", "true_name")
 
 # The aliases blocking may read: secret ones only for a disclosed entity.
 _BLOCKING_ALIASES = """
-    SELECT live.id AS entity_id, al.alias, al.alias_norm, al.kind, al.known, al.secret
+    SELECT al.id AS alias_id, live.id AS entity_id, al.alias, al.alias_norm, al.kind,
+           al.known, al.secret
       FROM entity_aliases AS al
      CROSS JOIN LATERAL (SELECT entity_follow_merge(al.entity_id) AS id) AS live
      WHERE al.game_id = $1
@@ -913,28 +915,53 @@ async def candidates_exact(
     return [(r["entity_id"], r["norm"]) for r in rows]
 
 
-async def candidates_trgm(
-    conn, game_id: UUID, text_norm: str, config, *, disclosed: list[UUID]
-) -> list[tuple[UUID, float]]:
-    """(entity, best word similarity) of the rich aliases (at least `rich_min_chars`
-    characters, or two words) found in the normalised text by pg_trgm: word similarity
-    at least `s_word` and strict word similarity at least `s_sim` (generator 2)."""
-    rows = await conn.fetch(
-        f"""WITH aliases AS ({_BLOCKING_ALIASES})
-            SELECT entity_id, max(word_similarity(alias_norm, $3)) AS score
-              FROM aliases
-             WHERE (length(alias_norm) >= $4
-                    OR cardinality(string_to_array(alias_norm, ' ')) > 1)
-               AND word_similarity(alias_norm, $3) >= $5
-               AND strict_word_similarity(alias_norm, $3) >= $6
-             GROUP BY entity_id""",
-        game_id,
-        list(disclosed),
-        text_norm,
-        config.rich_min_chars,
-        config.s_word,
-        config.s_sim,
+# Generator 2. The words are looked up in the GIN trigram index of alias_norm; the
+# secret and rich filters come after the MATERIALIZED step.
+CANDIDATES_TRGM_SQL = f"""
+    WITH near AS MATERIALIZED (
+             SELECT al.id, given.word
+               FROM unnest($3::text[]) AS given (word)
+               JOIN entity_aliases AS al
+                    ON al.game_id = $1 AND given.word <% al.alias_norm),
+         aliases AS ({_BLOCKING_ALIASES})
+    SELECT aliases.entity_id,
+           max(word_similarity(aliases.alias_norm, near.word)) AS score
+      FROM near JOIN aliases ON aliases.alias_id = near.id
+     WHERE (length(aliases.alias_norm) >= $4
+            OR cardinality(string_to_array(aliases.alias_norm, ' ')) > 1)
+       AND strict_word_similarity(near.word, aliases.alias_norm) >= $5
+     GROUP BY aliases.entity_id"""
+
+
+async def set_trgm_threshold(conn, config) -> None:
+    """For the rest of the transaction: the word similarity threshold of `<%` (`s_word`)."""
+    await conn.execute(
+        "SELECT set_config('pg_trgm.word_similarity_threshold', $1, true)",
+        str(config.s_word),
     )
+
+
+async def candidates_trgm(
+    conn, game_id: UUID, words: list[str], config, *, disclosed: list[UUID]
+) -> list[tuple[UUID, float]]:
+    """(entity, best score) of the rich aliases (at least `rich_min_chars` characters, or
+    two words) that hold a fuzzy form of one of `words` (generator 2). The GIN trigram
+    index finds the aliases in which a word reaches the word similarity `s_word`
+    (`word <% alias_norm`, threshold set for the transaction); the word must also match
+    whole words of the alias with a strict word similarity of at least `s_sim`. The score
+    is the share of the alias the word covers (`word_similarity(alias_norm, word)`)."""
+    if not words:
+        return []
+    async with conn.transaction():
+        await set_trgm_threshold(conn, config)
+        rows = await conn.fetch(
+            CANDIDATES_TRGM_SQL,
+            game_id,
+            list(disclosed),
+            list(words),
+            config.rich_min_chars,
+            config.s_sim,
+        )
     return [(r["entity_id"], r["score"]) for r in rows]
 
 
@@ -975,7 +1002,8 @@ async def candidates_levenshtein(
                      SELECT words.entity_id, cardinality(words.words) AS size, word,
                             levenshtein_less_equal(word, token, $5) AS edits
                        FROM words, unnest(words.words) AS word, unnest($3::text[]) AS token
-                      WHERE length(word) >= $4 AND length(token) >= $4)
+                      WHERE length(word) >= $4 AND length(token) >= $4
+                        AND abs(length(word) - length(token)) <= $5)
             SELECT entity_id, max((1 - edits::float / length(word)) / size) AS score
               FROM near
              WHERE edits <= $5
@@ -994,24 +1022,45 @@ async def candidates_occupation(
 ) -> list[tuple[UUID, float]]:
     """(entity, word similarity) of the characters and the protagonist whose normalised
     occupation is found in the normalised text with a word similarity at least `s_occ`
-    (generator 6)."""
+    (generator 6). Each distinct occupation is normalised and compared once."""
     rows = await conn.fetch(
         """WITH jobs AS (
-                SELECT id, ldvelh_norm_for_game($1, occupation) AS norm FROM characters
+                SELECT id, occupation FROM characters
                  WHERE game_id = $1 AND occupation IS NOT NULL
                 UNION ALL
-                SELECT id, ldvelh_norm_for_game($1, occupation) FROM protagonists
-                 WHERE game_id = $1 AND occupation IS NOT NULL)
-           SELECT entity_follow_merge(id) AS entity_id,
-                  max(word_similarity(norm, $2)) AS score
-             FROM jobs
-            WHERE norm <> '' AND word_similarity(norm, $2) >= $3
-            GROUP BY entity_follow_merge(id)""",
+                SELECT id, occupation FROM protagonists
+                 WHERE game_id = $1 AND occupation IS NOT NULL),
+                normed AS MATERIALIZED (
+                SELECT occupation, ldvelh_norm_for_game($1, occupation) AS norm
+                  FROM (SELECT DISTINCT occupation FROM jobs) AS job),
+                found AS MATERIALIZED (
+                SELECT occupation, word_similarity(norm, $2) AS score
+                  FROM normed WHERE norm <> '')
+           SELECT jobs.id AS entity_id, found.score
+             FROM jobs JOIN found USING (occupation)
+            WHERE found.score >= $3""",
         game_id,
         text_norm,
         config.s_occ,
     )
     return [(r["entity_id"], r["score"]) for r in rows]
+
+
+class ContextSource(NamedTuple):
+    """Names of the context generator's sources (spec §4.5.2, generator 5)."""
+
+    present: str = "present"
+    reveal: str = "reveal"
+    location: str = "location"
+    mentioned: str = "mentioned"
+    homonym: str = "homonym"
+    planned: str = "planned"
+    disclosed: str = "disclosed"
+    companion: str = "companion"
+    protagonist: str = "protagonist"
+
+
+CONTEXT = ContextSource()
 
 
 async def candidates_context(
@@ -1026,17 +1075,18 @@ async def candidates_context(
     protagonist_id: UUID,
     companion_id: UUID | None,
 ) -> list[tuple[UUID, str, int]]:
-    """(entity, source, recency) of the scene's entities (generator 5): `present`, the
-    current `location`, entities `mentioned` in the recent messages (recency: the rank of
-    the message, latest first, from 0), entities a reference of `refs` names exactly as
-    (source, reference), `disclosed`, the `protagonist` and the `companion`. Recency is 0
-    outside the mentions."""
+    """(entity, source, recency) of the scene's entities (generator 5), sources named by
+    CONTEXT: present, the current location, entities mentioned in the recent messages
+    (recency: the rank of the message, latest first, from 0), entities a reference of
+    `refs` names exactly as (source, reference), disclosed, the protagonist, the companion,
+    and the homonyms of those (another entity sharing a non-secret name alias with one).
+    Recency is 0 outside the mentions."""
     rows = await conn.fetch(
         """WITH scene (id, source, recency) AS (
-                SELECT id, 'present', 0 FROM unnest($2::uuid[]) AS id
-                UNION ALL SELECT $3::uuid, 'location', 0 WHERE $3::uuid IS NOT NULL
+                SELECT id, $12, 0 FROM unnest($2::uuid[]) AS id
+                UNION ALL SELECT $3::uuid, $13, 0 WHERE $3::uuid IS NOT NULL
                 UNION ALL
-                SELECT em.entity_id, 'mentioned',
+                SELECT em.entity_id, $14,
                        (dense_rank() OVER (ORDER BY m.sequence DESC, m.created_at DESC))::int
                        - 1
                   FROM entity_mentions AS em JOIN messages AS m ON m.id = em.message_id
@@ -1045,11 +1095,11 @@ async def candidates_context(
                 SELECT find_entity($1, ref.text, kind.entity_type), ref.source, 0
                   FROM unnest($5::text[], $6::text[]) AS ref (source, text),
                        unnest($7::text[]) AS kind (entity_type)
-                UNION ALL SELECT id, 'disclosed', 0 FROM unnest($8::uuid[]) AS id
-                UNION ALL SELECT $9::uuid, 'protagonist', 0
-                UNION ALL SELECT $10::uuid, 'companion', 0 WHERE $10::uuid IS NOT NULL),
+                UNION ALL SELECT id, $15, 0 FROM unnest($8::uuid[]) AS id
+                UNION ALL SELECT $9::uuid, $16, 0
+                UNION ALL SELECT $10::uuid, $17, 0 WHERE $10::uuid IS NOT NULL),
                 homonym (id, source, recency) AS (
-                SELECT DISTINCT other.entity_id, 'homonym', 0
+                SELECT DISTINCT other.entity_id, $18, 0
                   FROM scene
                   JOIN entity_aliases AS mine
                        ON mine.entity_id = scene.id AND mine.kind = ANY($11::text[])
@@ -1075,6 +1125,13 @@ async def candidates_context(
         protagonist_id,
         companion_id,
         list(NAME_ALIAS_KINDS),
+        CONTEXT.present,
+        CONTEXT.location,
+        CONTEXT.mentioned,
+        CONTEXT.disclosed,
+        CONTEXT.protagonist,
+        CONTEXT.companion,
+        CONTEXT.homonym,
     )
     return [(r["entity_id"], r["source"], r["recency"]) for r in rows]
 
@@ -1095,10 +1152,27 @@ class CardRow:
 
 async def candidate_cards(conn, game_id: UUID, entity_ids: list[UUID]) -> list[CardRow]:
     """Cards of live entities: what the player may read as label, occupation, usual place
-    (workplace, residence, parent location or headquarters), last turn it was mentioned in
-    (assistant messages up to the latest one mentioning it), first line of description."""
+    (workplace, residence, parent location or headquarters), the last turn it was mentioned
+    in (rank of the latest assistant message mentioning it or an entity merged into it;
+    None when never mentioned), first line of description. Mentions are read in one pass
+    through the entity index, merges resolved once."""
     rows = await conn.fetch(
-        """SELECT er.id AS entity_id, er.handle, er.entity_type,
+        """WITH RECURSIVE family (live, id) AS (
+                SELECT id, id FROM unnest($2::uuid[]) AS id
+                UNION
+                SELECT family.live, er.id
+                  FROM family JOIN entity_registry AS er ON er.merged_into = family.id
+                 WHERE er.game_id = $1),
+                turns AS (
+                SELECT id, (row_number() OVER (ORDER BY sequence, created_at))::int AS turn
+                  FROM messages WHERE game_id = $1 AND role = 'assistant'),
+                seen AS (
+                SELECT family.live, max(turns.turn) AS turn
+                  FROM family
+                  JOIN entity_mentions AS em ON em.entity_id = family.id
+                  JOIN turns ON turns.id = em.message_id
+                 GROUP BY family.live)
+           SELECT er.id AS entity_id, er.handle, er.entity_type,
                   display_for_player(er.id) AS label,
                   dom.row ->> 'occupation' AS occupation,
                   (SELECT display_for_player(place.id)
@@ -1109,19 +1183,13 @@ async def candidate_cards(conn, game_id: UUID, entity_ids: list[UUID]) -> list[C
                                               (dom.row ->> 'parent_id')::uuid,
                                               (dom.row ->> 'headquarters_id')::uuid))
                       AS usual_location,
-                  (SELECT count(*)::int FROM messages AS m
-                    WHERE m.game_id = $1 AND m.role = 'assistant'
-                      AND m.sequence <= seen.sequence) AS last_seen_turn,
+                  seen.turn AS last_seen_turn,
                   nullif(split_part(dom.row ->> 'description', E'\\n', 1), '')
                       AS description_line
              FROM entity_registry AS er
             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
                   AS dom
-             LEFT JOIN LATERAL (
-                  SELECT max(m.sequence) AS sequence
-                    FROM entity_mentions AS em JOIN messages AS m ON m.id = em.message_id
-                   WHERE em.game_id = $1 AND entity_follow_merge(em.entity_id) = er.id
-                  HAVING count(*) > 0) AS seen ON true
+             LEFT JOIN seen ON seen.live = er.id
             WHERE er.game_id = $1 AND er.id = ANY($2::uuid[])""",
         game_id,
         list(entity_ids),
@@ -1154,9 +1222,11 @@ async def set_alias_flags(
 ) -> None:
     """The entity's alias of the normalised form of `alias` takes these flags."""
     await conn.execute(
-        """UPDATE entity_aliases AS al SET known = $3, secret = $4
-            WHERE al.entity_id = $1
-              AND al.alias_norm = ldvelh_norm_for_game(al.game_id, $2)""",
+        """WITH form AS (SELECT ldvelh_norm_for_game(er.game_id, $2) AS norm
+                           FROM entity_registry AS er WHERE er.id = $1)
+           UPDATE entity_aliases AS al SET known = $3, secret = $4
+             FROM form
+            WHERE al.entity_id = $1 AND al.alias_norm = form.norm""",
         entity_id,
         alias,
         known,

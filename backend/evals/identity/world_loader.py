@@ -19,6 +19,7 @@ from uuid import UUID
 from config import get_identity_config
 from domain.identity import NewEntitySpec, SceneContext
 from evals.identity.corpus import HistoryMessage, Scene, WorldEntity
+from evals.identity.scorer import LINKS
 from repos import entities, messages
 from repos.entities import MentionRow
 from services.identity.service import IdentityService
@@ -28,7 +29,9 @@ ASSISTANT = "assistant"
 PROTAGONIST, COMPANION, CHARACTER = "protagonist", "companion", "character"
 LOCATION, ORGANIZATION = "location", "organization"
 NAME_DISCLOSURE = "name"
-_LINKS = {"MATCH": "match", "ALIAS": "alias"}
+# Gold decision of a link (scorer LINKS) -> entity_mentions.decision.
+_MATCH = "match"
+_MENTION_DECISION = {"MATCH": _MATCH, "ALIAS": "alias"}
 _TURN_PREFIX = "turn:"
 # Types the identity service creates (world order, a place before what refers to it).
 CREATED = (LOCATION, ORGANIZATION, CHARACTER, "object")
@@ -69,7 +72,9 @@ async def load_world(
     for entity in world:
         if entity.id in ids:
             await _add_aliases(conn, service, entity, ids[entity.id])
-    current = turn or max([len(history), *(e.last_seen_turn or 0 for e in world)]) + 1
+    if turn is None:
+        turn = max([len(history), *(e.last_seen_turn or 0 for e in world)]) + 1
+    current = turn
     ids.update(await _messages(conn, game_id, world, history, ids, current))
     return ids
 
@@ -178,7 +183,7 @@ def _seen_in_history(history: list[HistoryMessage], first: int) -> dict[str, int
     for offset, message in enumerate(history):
         for mention in message.mentions:
             parsed = mention.parsed
-            if parsed.decision in _LINKS:
+            if parsed.decision in LINKS:
                 seen[parsed.entity_id] = first + offset
     return seen
 
@@ -212,10 +217,10 @@ async def _messages(
                     m.start + len(m.surface),
                     m.surface,
                     ids[m.parsed.entity_id],
-                    _LINKS[m.parsed.decision],
+                    _MENTION_DECISION[m.parsed.decision],
                 )
                 for m in message.mentions
-                if m.parsed.decision in _LINKS and m.parsed.entity_id in ids
+                if m.parsed.decision in LINKS and m.parsed.entity_id in ids
             ]
         else:
             text, mentions = _filler(earlier.get(turn, []), ids)
@@ -239,7 +244,7 @@ def _filler(
                 start + len(entity.label),
                 entity.label,
                 ids[entity.id],
-                _LINKS["MATCH"],
+                _MATCH,
             )
         )
         lines.append(entity.label)
@@ -253,7 +258,11 @@ def scene_context(
     """The SceneContext of `scene` once `load_world` loaded it. Reveals and planned NPCs
     keep their reference as given when it is not a world id. `context_messages`: K, the
     recent messages read (default: IdentityConfig)."""
-    k = context_messages or get_identity_config().context_messages
+    k = (
+        get_identity_config().context_messages
+        if context_messages is None
+        else context_messages
+    )
     turns = sorted((t for key in ids if (t := _turn_of(key)) is not None), reverse=True)
     info = scene.scene
 

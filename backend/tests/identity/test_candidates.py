@@ -2,6 +2,7 @@
 excluded, no secret alias without an open disclosure, thresholds from IdentityConfig, and
 turn-set recall >= 0.98 on the gold corpus (dev + test; per-mention C@10 printed)."""
 
+import os
 from collections import Counter
 from pathlib import Path
 from uuid import UUID
@@ -15,7 +16,8 @@ from evals.identity.corpus import load_scenes, load_split, parse_expected
 from evals.identity.run import RunResult
 from evals.identity.scorer import CANDIDATES_K, LINKS, aggregate, score_scene
 from evals.identity.world_loader import load_world, scene_context, turn_key
-from repos import entities
+from repos import entities, messages
+from repos.entities import MentionRow
 from services.identity import candidates
 from services.identity.service import IdentityService
 
@@ -256,6 +258,79 @@ async def test_context_holds_recent_mentions_reveals_and_the_companion(
     assert tesk not in sources
 
 
+async def test_a_never_mentioned_entity_has_no_last_seen_turn(test_pool, game, service):
+    async with test_pool.acquire() as conn:
+        seen = await _create(conn, service, "character", "Tesk Vahrun")
+        unseen = await _create(conn, service, "character", "Mira Sol")
+        conversation = await messages.insert_conversation(conn, game, 1)
+        for turn in (1, 2):
+            message = await messages.insert_message(
+                conn, game, conversation, "assistant", "Tesk Vahrun attend.", turn
+            )
+        await entities.insert_mentions(
+            conn, game, message, None, [MentionRow(0, 11, "Tesk Vahrun", seen, "match")]
+        )
+        cards = {
+            c.entity_id: c
+            for c in await entities.candidate_cards(conn, game, [seen, unseen])
+        }
+    assert cards[seen].last_seen_turn == 2
+    assert cards[unseen].last_seen_turn is None
+
+
+async def test_a_secret_name_makes_no_homonym(test_pool, game, service):
+    """A present entity whose secret true name is another character's label does not pull
+    that character into the context: it would hint at the secret."""
+    async with test_pool.acquire() as conn:
+        elder = await _create(
+            conn,
+            service,
+            "character",
+            "La Kethari âgée",
+            "descriptor",
+            aliases=[AliasSpec("Nahle Irun", "true_name", False, secret=True)],
+        )
+        namesake = await _create(conn, service, "character", "Nahle Irun")
+        quay = await _create(conn, service, "location", "Corbeau")
+        gang = await _create(conn, service, "organization", "Corbeau")
+        scene = await _scene(conn, game, present_ids=[elder, quay])
+        found = await _block(conn, service, "Personne ne parle.", scene)
+    sources = {c.entity_id: c.sources for c in found.context}
+    assert namesake not in sources
+    assert candidates.CONTEXT.homonym in sources[gang]
+
+
+async def test_trigram_generator_reads_a_trigram_index(test_pool, game, service):
+    """In a game of a thousand named places the planner looks the words of a narration up
+    in the GIN trigram index: no alias is compared with every word, nor with the text."""
+    syllables = ["ka", "lo", "mi", "ra", "ten", "vor", "sel", "du", "bri", "an", "zel"]
+    names = [
+        "".join(syllables[(n * k) % len(syllables)] for k in (1, 3, 7)).capitalize()
+        + f" {n}"
+        for n in range(1000)
+    ]
+    words = sorted({name.split()[0].lower() for name in names})[:60]
+    async with test_pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO locations (game_id, name) SELECT $1, unnest($2::text[])",
+            game,
+            names,
+        )
+        await conn.execute("ANALYZE entity_aliases")
+        async with conn.transaction():
+            await entities.set_trgm_threshold(conn, service.config)
+            plan = await conn.fetch(
+                "EXPLAIN " + entities.CANDIDATES_TRGM_SQL,
+                game,
+                [],
+                words,
+                service.config.rich_min_chars,
+                service.config.s_sim,
+            )
+    text = "\n".join(r[0] for r in plan)
+    assert "_norm_trgm" in text, text
+
+
 async def test_load_world_rebuilds_a_scene(test_pool, game):
     [scene] = [s for s in load_scenes(FIXTURES) if s.id == "audit-canonique-invente"]
     async with test_pool.acquire() as conn:
@@ -309,6 +384,17 @@ async def _corpus_candidates(conn, user_id, scene):
     return by_mention, set(turn)
 
 
+def _print_misses(label: str, misses: list[tuple]) -> None:
+    """Every dev miss in detail; for the frozen test split, counts by category only
+    (its details only with IDENTITY_SHOW_TEST_MISSES=1, for the gate report)."""
+    show_test = os.environ.get("IDENTITY_SHOW_TEST_MISSES") == "1"
+    for miss in misses:
+        if miss[0] == "dev" or show_test:
+            print(f"  {label}", *miss)
+    test = Counter(miss[2] for miss in misses if miss[0] == "test")
+    print(f"  {label} test by category: {dict(sorted(test.items()))}")
+
+
 def _accepted_ids(mention) -> set[str]:
     forms = [mention.parsed, *(parse_expected(a) for a in mention.accept_also)]
     return {f.entity_id for f in forms if f.decision in LINKS}
@@ -319,7 +405,9 @@ async def test_blocking_recall_of_the_turn_set_on_the_whole_corpus(
 ):
     """Gate (spec §4.5.2, ruling R24): the gold id of every existing gold mention of dev +
     test is in its scene's CandidateSet (turn and context), at least 98 times in 100. The
-    per-mention C@10 of the scorer is printed alongside, not gated."""
+    per-mention C@10 of the scorer is printed alongside, not gated. Misses are printed in
+    detail for dev only; the frozen test split shows counts by category (its details only
+    with IDENTITY_SHOW_TEST_MISSES=1)."""
     split = load_split(FIXTURES)
     splits = {scene_id: "dev" for scene_id in split.dev}
     splits.update({scene_id: "test" for scene_id in split.test})
@@ -359,13 +447,11 @@ async def test_blocking_recall_of_the_turn_set_on_the_whole_corpus(
             f"\nturn-set recall (gate >= {RECALL_FLOOR}): dev {recall(turn_hits['dev']):.4f}"
             f" test {recall(turn_hits['test']):.4f} overall {overall:.4f}"
         )
-        for miss in turn_misses:
-            print("  turn miss", *miss)
+        _print_misses("turn miss", turn_misses)
         print(
             f"per-mention C@{CANDIDATES_K} (not gated): dev"
             f" {aggregate(scores['dev']).c_at_10:.4f}"
             f" test {aggregate(scores['test']).c_at_10:.4f} overall {c_at_10:.4f}"
         )
-        for miss in mention_misses:
-            print("  mention miss", *miss)
+        _print_misses("mention miss", mention_misses)
     assert overall >= RECALL_FLOOR

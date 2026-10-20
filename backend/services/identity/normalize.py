@@ -165,9 +165,13 @@ class Normalizer:
         prefix = self.fold(word[: cut + 1]).strip(" ")
         return word[cut + 1 :] if prefix in elided else word
 
-    def tokens(self, text: str, lexicon: Lexicon) -> list[str]:
-        """Normalised words of `text` long enough to block on (elided words split off),
-        articles, stop words and titles left out."""
+    def tokens(
+        self, text: str, lexicon: Lexicon, *, min_len: int | None = None
+    ) -> list[str]:
+        """Normalised words of `text` of at least `min_len` characters (default: the
+        config's `token_min_len`) to block on, elided words split off, articles, stop
+        words and titles left out."""
+        shortest = self.config.token_min_len if min_len is None else min_len
         words = (
             self._finish(self.drop_elided(w, lexicon.elided))
             for w in self._clean(text).split(" ")
@@ -175,7 +179,7 @@ class Normalizer:
         return [
             t
             for t in words
-            if len(t) >= self.config.token_min_len
+            if len(t) >= shortest
             and t not in lexicon.stop_words
             and t not in lexicon.titles
             and t not in lexicon.articles

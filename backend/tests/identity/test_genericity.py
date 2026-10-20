@@ -338,7 +338,7 @@ def test_identity_config_has_no_duplicate_literal_in_candidates_or_decision():
 
 # --- candidate blocking (#154): thresholds from IdentityConfig, words from the pack ---
 
-_BLOCKING_SQL = ("_BLOCKING_ALIASES", "NAME_ALIAS_KINDS")
+_BLOCKING_SQL = ("_BLOCKING_ALIASES", "NAME_ALIAS_KINDS", "CANDIDATES_TRGM_SQL")
 _SQL_NUMBER = re.compile(r"(?<![\w$.])\d+(?:\.\d+)?(?![\w.])")
 
 
@@ -356,10 +356,13 @@ def _blocking_sql_texts() -> list[str]:
             isinstance(t, ast.Name) and t.id in _BLOCKING_SQL for t in node.targets
         ):
             nodes.append(node)
+        elif isinstance(node, ast.ClassDef) and node.name == "ContextSource":
+            nodes.append(node)
     skipped = {
         id(n.body[0].value)
         for n in nodes
-        if isinstance(n, ast.AsyncFunctionDef) and isinstance(n.body[0], ast.Expr)
+        if isinstance(n, ast.AsyncFunctionDef | ast.ClassDef)
+        and isinstance(n.body[0], ast.Expr)
     }
     return [
         c.value
@@ -375,6 +378,7 @@ def test_blocking_sql_has_no_threshold_literal_nor_pack_word():
     texts = _blocking_sql_texts()
     assert any("word_similarity" in t for t in texts)
     assert any("levenshtein_less_equal" in t for t in texts)
+    assert "mentioned" in texts  # the context source names are scanned
     numbers = sorted(
         {n for t in texts for n in _SQL_NUMBER.findall(t) if float(n) not in (0, 1)}
     )
@@ -438,16 +442,13 @@ async def test_thresholds_come_from_config(test_pool, test_user, monkeypatch):
     """IDENTITY_S_WORD changes what pg_trgm finds; the token generator does not read it."""
     from services.identity import candidates
 
-    text = "Ondrev Kaso referme le registre."
+    fuzzy, named = "Ondrav Kaso referme le registre.", "Ondrev referme le registre."
     loose = await _ondrev_game(test_pool, test_user, monkeypatch, "0.3")
     strict = await _ondrev_game(test_pool, test_user, monkeypatch, "0.99")
     assert loose[0].config.s_word == 0.3 and strict[0].config.s_word == 0.99
-    assert {candidates.TRGM, candidates.TOKENS} <= await _sources(
-        test_pool, *loose, text
-    )
-    found = await _sources(test_pool, *strict, text)
-    assert candidates.TRGM not in found
-    assert candidates.TOKENS in found
+    assert candidates.TRGM in await _sources(test_pool, *loose, fuzzy)
+    assert candidates.TRGM not in await _sources(test_pool, *strict, fuzzy)
+    assert candidates.TOKENS in await _sources(test_pool, *strict, named)
 
 
 @pytest.mark.integration

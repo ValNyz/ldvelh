@@ -28,19 +28,20 @@ TRGM = "trgm"
 TOKENS = "tokens"
 LEVENSHTEIN = "levenshtein"
 OCCUPATION = "occupation"
-# Context sources, by how strongly they tie an entity to the turn (ranking order).
+# Context sources (named by the repository), by how strongly they tie an entity to the
+# turn: the ranking order.
+CONTEXT = entities.CONTEXT
 CONTEXT_ORDER = (
-    "present",
-    "reveal",
-    "location",
-    "mentioned",
-    "homonym",
-    "planned",
-    "disclosed",
-    "companion",
-    "protagonist",
+    CONTEXT.present,
+    CONTEXT.reveal,
+    CONTEXT.location,
+    CONTEXT.mentioned,
+    CONTEXT.homonym,
+    CONTEXT.planned,
+    CONTEXT.disclosed,
+    CONTEXT.companion,
+    CONTEXT.protagonist,
 )
-_REVEAL, _PLANNED, _PROTAGONIST = "reveal", "planned", "protagonist"
 
 
 @dataclass
@@ -52,13 +53,16 @@ class _Found:
 
 
 def _forms(text: str, max_words: int) -> list[str]:
-    """Every run of at most `max_words` words of `text`: what an alias may be exactly."""
+    """Every distinct run of at most `max_words` words of `text`: what an alias may be
+    exactly."""
     words = text.split()
-    return [
-        " ".join(words[start:end])
-        for start in range(len(words))
-        for end in range(start + 1, min(start + max_words, len(words)) + 1)
-    ]
+    return sorted(
+        {
+            " ".join(words[start:end])
+            for start in range(len(words))
+            for end in range(start + 1, min(start + max_words, len(words)) + 1)
+        }
+    )
 
 
 async def block(
@@ -81,7 +85,7 @@ async def block(
         entry.sources.add(source)
 
     text_norm = await entities.norm_for_game(conn, game_id, text)
-    tokens = normalizer.tokens(text, lexicon)
+    tokens = normalizer.tokens(text, lexicon, min_len=config.token_min_len)
     max_words = await entities.alias_max_words(conn, game_id)
     exact_ids: dict[str, set[UUID]] = {}
     for entity_id, norm in await entities.candidates_exact(
@@ -90,7 +94,7 @@ async def block(
         add(entity_id, EXACT, 1)
         exact_ids.setdefault(norm, set()).add(entity_id)
     for entity_id, score in await entities.candidates_trgm(
-        conn, game_id, text_norm, config, disclosed=disclosed
+        conn, game_id, sorted(set(tokens)), config, disclosed=disclosed
     ):
         add(entity_id, TRGM, score)
     for entity_id, score in await entities.candidates_tokens(
@@ -114,7 +118,7 @@ async def block(
             entry.context_rank, entry.recency = rank, recency
     # The protagonist is in every scene: being present tells nothing about it.
     if (protagonist := found.get(scene.protagonist_id)) is not None:
-        protagonist.context_rank = CONTEXT_ORDER.index(_PROTAGONIST)
+        protagonist.context_rank = CONTEXT_ORDER.index(CONTEXT.protagonist)
 
     cards = await _cards(conn, game_id, found, disclosed)
 
@@ -150,8 +154,8 @@ def _ranked(found: dict[UUID, _Found], cards: dict[UUID, Candidate]) -> list[UUI
 
 
 async def _context(conn, game_id: UUID, scene: SceneContext):
-    refs = [(_REVEAL, r) for r in scene.reveal_refs]
-    refs += [(_PLANNED, r) for r in scene.planned_npc_handles]
+    refs = [(CONTEXT.reveal, r) for r in scene.reveal_refs]
+    refs += [(CONTEXT.planned, r) for r in scene.planned_npc_handles]
     return await entities.candidates_context(
         conn,
         game_id,

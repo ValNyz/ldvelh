@@ -13,11 +13,10 @@ from uuid import UUID
 
 from domain.identity import Candidate, CandidateSet
 from evals.identity.corpus import Scene
+from evals.identity.scorer import LINKS
 from evals.identity.world_loader import scene_context
 from services.identity import candidates
 from services.identity.service import IdentityService
-
-LINKS = ("MATCH", "ALIAS")
 
 
 def mention_ranking(mention: CandidateSet, turn: CandidateSet) -> list[Candidate]:
