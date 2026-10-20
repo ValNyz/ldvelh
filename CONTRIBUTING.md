@@ -233,7 +233,7 @@ Two entities that are the same (for example a place or an NPC the resolver creat
 1. **Backup first** (`pg_dump -Fc`, see "Before a data migration").
 2. Find the two handles (`E<n>`, shown in the tooltips and the prompts) or ids. Keep the older, better-named one.
 3. From `backend/`, with the production database reached through a tunnel or a restored copy. Pass the URL through an environment variable, not the command line (a URL on the command line shows in `ps` and the shell history): `MERGE_DB_URL=… python -m scripts.merge_entities --database-url-env MERGE_DB_URL --game GAME_UUID --keep E12 --drop E31 --reason "same person"`. One of `--database-url` or `--database-url-env` is required; the script reads no other variable.
-4. Read the two cards and the edges that will move (every edge the SQL merge moves, counted by running it in a rolled-back savepoint), then answer `y`. Any other answer changes nothing. `--yes` skips the question for a scripted run.
+4. Read the two cards and the edges that will move (every edge the SQL merge moves, counted by running it in a rolled-back savepoint), and the engine rows of DROP (stat blocks) that KEEP's own replace: KEEP's block wins, DROP's is kept only as a copy in `entity_merges.dropped_row` (key `engine`). Then answer `y`. Any other answer changes nothing. `--yes` skips the question for a scripted run.
 5. The script prints the `entity_merges` id, or the refusal code (`both_mandatory`, `reserved_type`, `type_mismatch`, `same_entity`, `already_merged`, `missing`). When the guards refuse, the script says so and exits without asking and without writing anything.
 
 To undo a merge, restore the backup.
