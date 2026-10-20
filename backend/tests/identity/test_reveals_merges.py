@@ -1,12 +1,13 @@
 """Reveals and merges (#153, spec §4.7): the table of reveals row by row, the guarded
 merge that keeps every edge on the older entity, and the cases of #25 (orphans)."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
 from config import get_identity_config
-from repos import entities
+from repos import entities, turns
+from repos.uow import uow
 from services.identity.service import IdentityService
 from services.identity.types import EntityRef, FactRef, NewEntitySpec
 
@@ -81,6 +82,18 @@ async def _character_row(conn, entity_id) -> dict:
         entity_id,
     )
     return dict(row)
+
+
+async def _game_state(conn, game_id) -> dict[str, list[str]]:
+    """The game's rows in the tables a reveal or a merge writes, as sorted JSON text."""
+    out = {}
+    for table in ("characters", "entity_registry", "entity_aliases", "entity_merges"):
+        rows = await conn.fetch(
+            f"SELECT to_jsonb(t)::text AS j FROM {table} AS t WHERE t.game_id = $1",
+            game_id,
+        )
+        out[table] = sorted(r["j"] for r in rows)
+    return out
 
 
 def _ref(text: str) -> EntityRef:
@@ -164,22 +177,29 @@ async def test_reveal_with_a_different_spelling_keeps_the_world_gen_spelling_as_
             conn, game, true_name="Nahle Irun-Sa", descriptor="La Kethari âgée"
         )
         similarity = await entities.name_similarity(
-            conn, game, "Nahle Irun-Sa", "Nahle Irun Sa"
+            conn, game, "Nahle Irun-Sa", "Nahle Irun-Sah"
+        )
+        norms = await conn.fetchrow(
+            "SELECT ldvelh_norm_for_game($1, 'Nahle Irun-Sa') AS world,"
+            " ldvelh_norm_for_game($1, 'Nahle Irun-Sah') AS told",
+            game,
         )
         outcome = await service.reveal(
             conn,
             _ref("La Kethari âgée"),
-            "Nahle Irun Sa",
+            "Nahle Irun-Sah",
             turn_id=None,
             source="reveal",
         )
         row = await _character_row(conn, nahle)
         aliases = await _aliases(conn, game, nahle)
-    assert similarity >= service.config.reveal_match
+    # The similarity row, not the same-spelling one: the norms differ.
+    assert norms["world"] != norms["told"]
+    assert service.config.reveal_match <= similarity < 1
     assert outcome.kind == "known_only"
     assert (row["true_name"], row["known"]) == ("Nahle Irun-Sa", True)
     assert aliases["Nahle Irun-Sa"] == ("true_name", True)
-    assert aliases["Nahle Irun Sa"] == ("true_name", True)
+    assert aliases["Nahle Irun-Sah"] == ("true_name", True)
 
 
 async def test_conflicting_reveal_believes_the_narration_and_keeps_the_old_name_as_former(
@@ -360,6 +380,7 @@ async def test_merge_is_refused_for_two_mandatory_npcs_and_for_the_companion(
         )
         aliases = await _aliases(conn, game, second)
         second_row = await _character_row(conn, second)
+        by_name = await entities.find_entity(conn, game, "Ilsa Morn", "character")
     assert (mandatory.merge_id, mandatory.refused) == (None, "both_mandatory")
     assert (reserved.merge_id, reserved.refused) == (None, "reserved_type")
     assert (revealed.kind, revealed.entity_id) == ("merge_refused", second)
@@ -369,8 +390,11 @@ async def test_merge_is_refused_for_two_mandatory_npcs_and_for_the_companion(
         "both_mandatory",
     ]
     assert (live, merges) == (4, 0)
-    # The name is learned, as an alias; the character keeps its own records.
-    assert aliases["Ilsa Morn"] == ("nickname", True)
+    # No alias of the refused name: its holder still resolves by it (the refusal event
+    # names the holder).
+    assert "Ilsa Morn" not in aliases
+    assert by_name == first
+    assert refused[-1]["payload"]["holder_ids"] == [str(first)]
     assert second_row["true_name"] is None
 
 
@@ -549,3 +573,283 @@ async def test_reveal_of_a_fact_marks_it_known(test_pool, game, service):
         ("noop", None),
     ]
     assert known is True
+
+
+async def test_a_revealed_descriptor_of_an_unnamed_character_never_merges(
+    test_pool, game, service
+):
+    """R18: a descriptor designates nobody, even when it is the registry label of an
+    unnamed character: no merge, the other character untouched, a counted no-op (the
+    revealed form is no name to give)."""
+    async with test_pool.acquire() as conn:
+        elder = await _character(conn, game, descriptor="La Kethari âgée")
+        apron = await _character(conn, game, descriptor="Le Kethari au tablier")
+        before = await _character_row(conn, apron)
+        outcome = await service.reveal(
+            conn,
+            _ref("la Kethari âgée"),
+            "Le Kethari au tablier",
+            turn_id=None,
+            source="reveal",
+        )
+        merges = await conn.fetchval(
+            "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
+        )
+        elder_row = await _character_row(conn, elder)
+        after = await _character_row(conn, apron)
+        noops = await _events(conn, game, "reveal_noop")
+    assert (outcome.kind, outcome.entity_id) == ("noop", elder)
+    assert merges == 0
+    assert after == before
+    assert elder_row["true_name"] is None
+    assert [(e["entity_id"], e["payload"]["reason"]) for e in noops] == [
+        (elder, "label_of_another")
+    ]
+
+
+async def test_a_revealed_short_form_of_another_name_never_merges(
+    test_pool, game, service
+):
+    """R18: another character's short form (« Nahle » of « Nahle Irun-Sa ») designates
+    nobody: the revealed character is named by it, the other one is untouched."""
+    async with test_pool.acquire() as conn:
+        elder = await _character(conn, game, descriptor="La Kethari âgée")
+        nahle = await service.create_entity(
+            conn,
+            NewEntitySpec("character", "Nahle Irun-Sa", "proper_name", known=False),
+            turn_id=None,
+            source="world_gen",
+        )
+        outcome = await service.reveal(
+            conn, _ref("la Kethari âgée"), "Nahle", turn_id=None, source="reveal"
+        )
+        merges = await conn.fetchval(
+            "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
+        )
+        rows = [await _character_row(conn, c) for c in (elder, nahle)]
+    assert (outcome.kind, merges) == ("applied", 0)
+    assert rows[0]["true_name"] == "Nahle"
+    assert (rows[1]["true_name"], rows[1]["known"]) == ("Nahle Irun-Sa", False)
+
+
+async def test_a_merge_survivor_with_another_hidden_name_believes_the_narration(
+    test_pool, game, service
+):
+    """R17: the older record survives the merge; its different hidden true name gives way
+    to the narration's (§4.7 '≠' row), the old one a former name the PC never knew."""
+    async with test_pool.acquire() as conn:
+        older = await _character(
+            conn, game, true_name="Arno Vey", descriptor="Le docker"
+        )
+        await _character(conn, game, true_name="Brune Okafor")
+        turn_id = await turns.open_turn(conn, game)
+        before = await _game_state(conn, game)
+        async with uow(conn, turn_id):
+            outcome = await service.reveal(
+                conn,
+                _ref("le docker"),
+                "Brune Okafor",
+                turn_id=turn_id,
+                source="reveal",
+            )
+        row = await _character_row(conn, older)
+        aliases = await _aliases(conn, game, older)
+        events = await conn.fetch(
+            "SELECT kind, entity_id FROM identity_events WHERE game_id = $1"
+            " AND kind IN ('merge', 'reveal_conflict') ORDER BY id",
+            game,
+        )
+        await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [turn_id])
+        after = await _game_state(conn, game)
+    assert (outcome.kind, outcome.entity_id, outcome.merged_into) == (
+        "merged",
+        older,
+        older,
+    )
+    assert (row["true_name"], row["known"]) == ("Brune Okafor", True)
+    assert aliases["Arno Vey"] == ("former_name", False)
+    assert aliases["Brune Okafor"] == ("true_name", True)
+    assert [tuple(e) for e in events] == [
+        ("merge", older),
+        ("reveal_conflict", older),
+    ]
+    assert after == before
+
+
+async def test_a_name_two_characters_hold_is_an_ambiguous_refusal(
+    test_pool, game, service
+):
+    async with test_pool.acquire() as conn:
+        elder = await _character(conn, game, descriptor="La Kethari âgée")
+        ilsa = await _character(conn, game, true_name="Ilsa Morn")
+        other = await _character(conn, game, true_name="Ilsa Morn-Vey")
+        await service.add_alias(
+            conn, other, "Ilsa Morn", "true_name", known=False, source="world_gen"
+        )
+        outcome = await service.reveal(
+            conn, _ref("la Kethari âgée"), "Ilsa Morn", turn_id=None, source="reveal"
+        )
+        merges = await conn.fetchval(
+            "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
+        )
+        refused = await _events(conn, game, "merge_refused")
+        elder_aliases = await _aliases(conn, game, elder)
+    assert (outcome.kind, outcome.entity_id, merges) == ("merge_refused", elder, 0)
+    assert [e["payload"]["refused"] for e in refused] == ["ambiguous"]
+    assert sorted(refused[0]["payload"]["holder_ids"]) == sorted(
+        [str(ilsa), str(other)]
+    )
+    assert "Ilsa Morn" not in elder_aliases
+
+
+async def test_an_object_is_never_merged_by_a_reveal(test_pool, game, service):
+    async with test_pool.acquire() as conn:
+        cup, mug = [
+            await service.create_entity(
+                conn,
+                NewEntitySpec("object", label, "proper_name"),
+                turn_id=None,
+                source="extractor",
+            )
+            for label in ("Gobelet fêlé", "Tasse de cuivre")
+        ]
+        outcome = await service.reveal(
+            conn,
+            EntityRef("Tasse de cuivre", "object"),
+            "Gobelet fêlé",
+            turn_id=None,
+            source="reveal",
+        )
+        merges = await conn.fetchval(
+            "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
+        )
+        refused = await _events(conn, game, "merge_refused")
+    assert (outcome.kind, outcome.entity_id, merges) == ("merge_refused", mug, 0)
+    assert [e["payload"]["refused"] for e in refused] == ["never_auto_merged"]
+    assert cup != mug
+
+
+async def test_a_location_reveal_follows_the_same_table(test_pool, game, service):
+    """A location's "true name" is its name, its knowledge the flags of its aliases:
+    the same name marks them known, another name renames it (former name kept)."""
+    async with test_pool.acquire() as conn:
+        bar = await service.create_entity(
+            conn,
+            NewEntitySpec("location", "Le Bar des Docks", "proper_name", known=False),
+            turn_id=None,
+            source="world_gen",
+        )
+        handle = await entities.handle_of(conn, bar)
+        ref = EntityRef(f"E{handle}", "location")
+        hidden = await _aliases(conn, game, bar)
+        same = await service.reveal(
+            conn, ref, "bar des docks", turn_id=None, source="reveal"
+        )
+        known = await _aliases(conn, game, bar)
+        other = await service.reveal(
+            conn, ref, "Le Comptoir de Mia", turn_id=None, source="reveal"
+        )
+        renamed = await _aliases(conn, game, bar)
+        name = await conn.fetchval("SELECT name FROM locations WHERE id = $1", bar)
+    assert hidden["Le Bar des Docks"] == ("label", False)
+    assert (same.kind, same.entity_id) == ("known_only", bar)
+    assert known["Le Bar des Docks"] == ("label", True)
+    assert (other.kind, name) == ("conflict", "Le Comptoir de Mia")
+    assert renamed["Le Bar des Docks"] == ("former_name", True)
+    assert renamed["Le Comptoir de Mia"] == ("label", True)
+
+
+@pytest.mark.parametrize(
+    "case", ["same_entity", "missing", "type_mismatch", "already_merged"]
+)
+async def test_merge_guards_refuse_with_their_code(test_pool, game, service, case):
+    async with test_pool.acquire() as conn:
+        first = await _character(conn, game, true_name="Orin Kell")
+        second = await _character(conn, game, true_name="Tesk Vahrun")
+        keep, drop = first, second
+        if case == "same_entity":
+            drop = first
+        elif case == "missing":
+            drop = uuid4()
+        elif case == "type_mismatch":
+            drop = await conn.fetchval(
+                "INSERT INTO locations (game_id, name) VALUES ($1, 'Quai 9') RETURNING id",
+                game,
+            )
+        else:
+            third = await _character(conn, game, true_name="Ilsa Morn")
+            assert (
+                await service.merge(conn, first, third, reason="t", turn_id=None)
+            ).merge_id
+            keep, drop = second, third
+        outcome = await service.merge(conn, keep, drop, reason="test", turn_id=None)
+        merges = await conn.fetchval(
+            "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
+        )
+        refused = await _events(conn, game, "merge_refused")
+    assert (outcome.merge_id, outcome.refused) == (None, case)
+    assert merges == (1 if case == "already_merged" else 0)
+    assert [e["payload"]["refused"] for e in refused] == [case]
+
+
+async def test_dedup_keeps_two_different_reveals_and_drops_the_same_one_twice(
+    test_pool, game, service
+):
+    """In one turn (the commit then the extraction's re-apply): the same no-op twice is
+    one event, two different unresolved reveals are two (keyed on a hash of the
+    normalised reference, never its text)."""
+    async with test_pool.acquire() as conn:
+        turn_id = await turns.open_turn(conn, game)
+        async with uow(conn, turn_id):
+            for ref in ("Personne", "Quelqu'un d'autre", "Personne"):
+                await service.reveal(
+                    conn, _ref(ref), "Tom", turn_id=turn_id, source="reveal"
+                )
+        noops = await _events(conn, game, "reveal_noop")
+    assert len(noops) == 2
+    keys = [e["payload"]["ref_key"] for e in noops]
+    assert len(set(keys)) == 2
+    assert all("Personne" not in k and "Quelqu" not in k for k in keys)
+
+
+async def test_a_second_pass_in_the_same_turn_records_no_new_event(
+    test_pool, game, service
+):
+    """The production path: every row of the table applied twice under one turn; the
+    second pass changes nothing and records no event (noop, conflict, refusal)."""
+    async with test_pool.acquire() as conn:
+        await _character(conn, game, descriptor="Le guichetier")
+        await _character(conn, game, true_name="Arno Vey", descriptor="Le docker")
+        await _character(conn, game, true_name="Ilsa Morn", is_mandatory=True)
+        await _character(conn, game, descriptor="La capitaine", is_mandatory=True)
+        reveals = [
+            ("le guichetier", None),
+            ("Personne Ici", "Tom"),
+            ("le docker", "Brune Okafor"),
+            ("la capitaine", "Ilsa Morn"),
+        ]
+        turn_id = await turns.open_turn(conn, game)
+
+        async def one_pass():
+            async with uow(conn, turn_id):
+                return [
+                    (
+                        await service.reveal(
+                            conn, _ref(r), real, turn_id=turn_id, source="reveal"
+                        )
+                    ).kind
+                    for r, real in reveals
+                ]
+
+        async def count():
+            return await conn.fetchval(
+                "SELECT count(*) FROM identity_events WHERE game_id = $1", game
+            )
+
+        first = await one_pass()
+        events = await count()
+        second = await one_pass()
+        again = await count()
+    assert first == ["noop", "noop", "conflict", "merge_refused"]
+    assert second == ["noop", "noop", "known_only", "merge_refused"]
+    assert again == events

@@ -203,6 +203,7 @@ async def test_mentions_of_a_merged_entity_resolve_through_the_tombstone_and_aga
             [entities.MentionRow(0, 5, "Nahle", nahle, "match")],
         )
         turn_id = await turns.open_turn(conn, game)
+        before = await _state(conn, game)
         async with uow(conn, turn_id):
             outcome = await service.reveal(
                 conn,
@@ -217,6 +218,8 @@ async def test_mentions_of_a_merged_entity_resolve_through_the_tombstone_and_aga
         )
         await _undo(conn, turn_id)
         undone = await entities.mentions_for_messages(conn, game, [message])
+        after = await _state(conn, game)
+    assert after == before
     assert (outcome.kind, outcome.merged_into) == ("merged", elder)
     assert [m.entity_id for m in merged[message]] == [elder]
     assert stored == nahle  # never rewritten: the read follows the tombstone

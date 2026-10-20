@@ -400,6 +400,9 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     Routes entity creation/updates to the correct dedicated tables.
     """
 
+    # The game's identity service, built on first use (_identity_service).
+    _identity: IdentityService | None = None
+
     async def process_extraction(self, extraction: NarrativeExtraction) -> dict:
         """Process a complete narrative extraction."""
         stats = {
@@ -689,7 +692,7 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
 
         # Reveal identity
         if update.now_known and entity_type == EntityType.CHARACTER:
-            identity = await IdentityService.for_game(conn, self.game_id)
+            identity = await self._identity_service(conn)
             await identity.reveal(
                 conn,
                 EntityRef(update.entity_ref, EntityType.CHARACTER.value),
@@ -717,6 +720,13 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
         # Mark as removed
         if update.removed:
             await self.remove_entity(conn, update.entity_ref, entity_type, cycle)
+
+    async def _identity_service(self, conn: Connection) -> IdentityService:
+        """The game's identity service, built once (its language packs loaded once per
+        populator, not per entity update)."""
+        if self._identity is None:
+            self._identity = await IdentityService.for_game(conn, self.game_id)
+        return self._identity
 
     async def _detect_entity_type(
         self, conn: Connection, name: str

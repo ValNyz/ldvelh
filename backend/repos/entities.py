@@ -528,18 +528,22 @@ async def name_similarity(conn, game_id: UUID, first: str, second: str) -> float
 async def name_holders(
     conn, game_id: UUID, entity_type: str, name: str, exclude: UUID
 ) -> list[UUID]:
-    """Live entities of the type, `exclude` aside, that hold `name` (normalised) as their
-    registry label or as a true-name or label alias: the ones a revealed name designates."""
+    """Live entities of the type, `exclude` aside, that `name` (normalised) designates:
+    a character only by a true name (its `true_name` aliases: never a descriptor, even an
+    unnamed character's registry label, nor a short form), another entity by its registry
+    label or a `label` alias."""
     rows = await conn.fetch(
         """WITH ref AS (SELECT ldvelh_norm_for_game($1, $3) AS norm)
            SELECT DISTINCT live.id
              FROM (SELECT er.id FROM entity_registry AS er, ref
                     WHERE er.game_id = $1 AND er.entity_type = $2
-                      AND er.name_norm = ref.norm
+                      AND er.entity_type <> 'character' AND er.name_norm = ref.norm
                    UNION
                    SELECT al.entity_id FROM entity_aliases AS al, ref
                     WHERE al.game_id = $1 AND al.entity_type = $2
-                      AND al.kind IN ('true_name', 'label') AND al.alias_norm = ref.norm)
+                      AND al.kind = CASE WHEN $2 = 'character' THEN 'true_name'
+                                         ELSE 'label' END
+                      AND al.alias_norm = ref.norm)
                   AS held (id)
              CROSS JOIN LATERAL (SELECT entity_follow_merge(held.id) AS id) AS live
             WHERE live.id IS DISTINCT FROM entity_follow_merge($4)""",
@@ -549,6 +553,22 @@ async def name_holders(
         exclude,
     )
     return [r["id"] for r in rows]
+
+
+async def label_held_by_other(
+    conn, game_id: UUID, entity_type: str, label: str, exclude: UUID
+) -> bool:
+    """Another live entity of the type has `label` (normalised) as its registry label:
+    giving it to `exclude` would break the registry's uniqueness."""
+    return await conn.fetchval(
+        """SELECT EXISTS (SELECT 1 FROM entity_registry
+                           WHERE game_id = $1 AND entity_type = $2 AND merged_into IS NULL
+                             AND id <> $4 AND name_norm = ldvelh_norm_for_game($1, $3))""",
+        game_id,
+        str(entity_type),
+        label,
+        exclude,
+    )
 
 
 async def set_character_known(conn, game_id: UUID, entity_id: UUID) -> bool:
@@ -619,17 +639,28 @@ async def set_fact_known(conn, game_id: UUID, fact_id: UUID) -> bool:
 
 
 async def event_recorded(
-    conn, game_id: UUID, kind: str, entity_id: UUID | None, turn_id: UUID
+    conn,
+    game_id: UUID,
+    kind: str,
+    entity_id: UUID | None,
+    turn_id: UUID | None,
+    payload: dict,
 ) -> bool:
-    """An identity_events row of this kind, entity and turn exists already."""
+    """An identity_events row of this kind, entity and payload exists already in this turn
+    (without a turn: in this transaction)."""
     return await conn.fetchval(
         """SELECT EXISTS (SELECT 1 FROM identity_events
-                           WHERE game_id = $1 AND kind = $2 AND turn_id = $4
-                             AND entity_id IS NOT DISTINCT FROM $3)""",
+                           WHERE game_id = $1 AND kind = $2
+                             AND entity_id IS NOT DISTINCT FROM $3
+                             AND payload @> $5::jsonb
+                             AND CASE WHEN $4::uuid IS NULL
+                                      THEN turn_id IS NULL AND created_at = now()
+                                      ELSE turn_id = $4 END)""",
         game_id,
         kind,
         entity_id,
         turn_id,
+        payload,
     )
 
 

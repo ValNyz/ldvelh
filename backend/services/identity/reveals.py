@@ -6,9 +6,13 @@ guess: an unresolved or ambiguous reference is a counted no-op. Then the table o
 row by row:
 
 - no revealed name: the protagonist knows the true name the entity has; none: no-op;
-- the revealed name is another entity's (label, true-name or label alias, same type): the
-  two are merged into the older when the guards allow it, else the name is only learned
-  (alias) and the refusal counted;
+- the revealed name designates another entity of the type (a character by a true name
+  only, never a descriptor or a short form; another entity by its label): the two are
+  merged into the older when the guards allow it (the survivor then goes through the
+  table), else the refusal is counted and nothing is written, so the holder still
+  resolves by its name;
+- a form that another entity holds as its registry label without designating it (an
+  unnamed character's descriptor) is no name to give: a counted no-op;
 - no true name yet (a character known by its descriptor): it becomes the true name, the
   descriptor stays an alias;
 - the same name (same norm, or similarity >= IdentityConfig.reveal_match): known, the
@@ -18,14 +22,15 @@ row by row:
 
 Nothing is deleted: every write goes through the domain row's triggers and the aliases,
 journaled under the turn, so undoing the turn restores the entity as it was. A reveal is
-idempotent: applied twice, the second one finds nothing left to do (`known_only`) and
-records no event. Locations, organizations and objects follow the same table (their
+idempotent: applied twice, the second one finds nothing left to do and records no
+event (the counted no-ops and refusals are recorded once per reveal and turn). Locations, organizations and objects follow the same table (their
 "true name" is their name, their knowledge the flags of its aliases); objects are never
 merged automatically.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -67,7 +72,15 @@ async def reveal(
         return await _reveal_fact(service, conn, ref, turn_id)
     resolved = await service.resolve_ref(conn, ref.ref, ref.entity_type)
     if resolved is None:
-        await _noop_event(service, conn, turn_id, None, ref.entity_type, "unresolved")
+        await _noop_event(
+            service,
+            conn,
+            turn_id,
+            None,
+            ref.entity_type,
+            "unresolved",
+            ref_key=_ref_key(service, ref.ref),
+        )
         return RevealOutcome("noop", None)
     entity_id = resolved.entity_id
     real = " ".join(real_name.split()) if real_name else ""
@@ -93,7 +106,15 @@ async def _reveal_fact(
 ) -> RevealOutcome:
     fact_id = await entities.find_fact(conn, service.game_id, ref.ref)
     if fact_id is None:
-        await _noop_event(service, conn, turn_id, None, "fact", "unresolved")
+        await _noop_event(
+            service,
+            conn,
+            turn_id,
+            None,
+            "fact",
+            "unresolved",
+            ref_key=_ref_key(service, ref.ref),
+        )
         return RevealOutcome("noop", None)
     if not await entities.set_fact_known(conn, service.game_id, fact_id):
         return RevealOutcome("known_only", fact_id)
@@ -110,17 +131,23 @@ async def _noop_event(
     entity_id: UUID | None,
     target: str,
     reason: str,
+    *,
+    ref_key: str | None = None,
 ) -> None:
-    """A counted no-op, once per entity and turn (a reveal is applied twice per turn: at
-    the commit, then by the extraction)."""
+    """A counted no-op, once per reveal and turn (a reveal is applied twice per turn: at
+    the commit, then by the extraction). An unresolved one has no entity: `ref_key` tells
+    two of them apart."""
+    payload = {"entity_type": target, "reason": reason}
+    if ref_key is not None:
+        payload["ref_key"] = ref_key
     await service.record_event(
-        conn,
-        "reveal_noop",
-        turn_id,
-        entity_id,
-        {"entity_type": target, "reason": reason},
-        once=True,
+        conn, "reveal_noop", turn_id, entity_id, payload, once=True
     )
+
+
+def _ref_key(service: IdentityService, ref: str | None) -> str:
+    """A hash of the normalised reference: tells reveals apart without story text."""
+    return hashlib.sha256(service.normalizer.norm(ref or "").encode()).hexdigest()
 
 
 class _Reveal:
@@ -193,8 +220,24 @@ class _Reveal:
         return RevealOutcome("known_only", entity_id)
 
     async def named(self, entity_id: UUID, real: str) -> RevealOutcome:
-        """The revealed name is no other entity's: set, matched or in conflict."""
+        """The revealed name is no other entity's: set, matched or in conflict. A form
+        another entity holds as its registry label without designating it (an unnamed
+        character's descriptor) is no name to give: a counted no-op."""
         name = await self._current_name(entity_id)
+        if (not name or not await self._same_name(name, real)) and (
+            await entities.label_held_by_other(
+                self.conn, self.service.game_id, self.entity_type, real, entity_id
+            )
+        ):
+            await _noop_event(
+                self.service,
+                self.conn,
+                self.turn_id,
+                entity_id,
+                self.entity_type,
+                "label_of_another",
+            )
+            return RevealOutcome("noop", entity_id)
         if not name:
             await self._rename(entity_id, real)
             await self._event("reveal_applied", entity_id, case="named")
@@ -249,16 +292,18 @@ class _Reveal:
     ) -> RevealOutcome:
         """The revealed name is another entity's: one entity under two records, merged
         into the older one (it carries the planned arcs), unless a guard refuses."""
-        refused = None
+        keep, drop = None, None
         if len(holders) > 1:
             refused = "ambiguous"
         elif self.entity_type in _NEVER_AUTO_MERGED:
             refused = "never_auto_merged"
-        if refused is None:
+        else:
             [other] = holders
             keep = await entities.oldest(self.conn, [entity_id, other])
             drop = other if keep == entity_id else entity_id
-            outcome = await merges.merge(
+            refused = await merges.refusal(self.service, self.conn, keep, drop)
+        if refused is None:
+            await merges.merge(
                 self.service,
                 self.conn,
                 keep,
@@ -267,35 +312,25 @@ class _Reveal:
                 turn_id=self.turn_id,
                 evidence=self.evidence,
             )
-            if outcome.merge_id is not None:
-                # The survivor now holds both records' names: the table applies to it,
-                # unless neither record had a name (the revealed form was a descriptor).
-                if await self._current_name(keep):
-                    await self.named(keep, real)
-                return RevealOutcome("merged", entity_id, merged_into=keep)
-        else:
-            await self.service.record_event(
-                self.conn,
-                "merge_refused",
-                self.turn_id,
-                entity_id,
-                {"entity_type": self.entity_type, "refused": refused},
-                once=True,
-            )
-        # Not merged: the protagonist still learned the name, as this entity's alias (and
-        # its own name, when it is that one: a hidden different name stays hidden).
+            # The survivor holds both records' names, a true name among them (a
+            # character is designated only by one): the table applies to it.
+            await self.named(keep, real)
+            return RevealOutcome("merged", entity_id, merged_into=keep)
+        await self.service.record_event(
+            self.conn,
+            "merge_refused",
+            self.turn_id,
+            entity_id,
+            {
+                "entity_type": self.entity_type,
+                "refused": refused,
+                "holder_ids": sorted(str(h) for h in holders),
+            },
+            once=True,
+        )
+        # Not merged, and no alias: the name stays its holder's, which must still resolve
+        # by it. The entity's own name becomes known when it is that one.
         name = await self._current_name(entity_id)
         if name and await self._same_name(name, real):
             await self._mark_known(entity_id, name)
-        await self.service.add_alias(
-            self.conn,
-            entity_id,
-            real,
-            "nickname",
-            known=True,
-            source=self.source,
-            turn_id=self.turn_id,
-            evidence=self.evidence,
-            entity_type=self.entity_type,
-        )
         return RevealOutcome("merge_refused", entity_id)

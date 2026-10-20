@@ -147,8 +147,9 @@ async def apply_narrator_deltas(
     conn, game_id: UUID, narration: NarrationOutput, cycle: int
 ) -> AppliedDeltas:
     """Credit delta, entity reveals and compel, applied on the spot."""
-    # Lazy: the identity service reads the turn of the transaction (repos.uow, which
-    # imports this module).
+    # Lazy: the identity service and write_item read the turn of the transaction
+    # (repos.uow, which imports this module).
+    from kg.item_writes import write_item
     from services.identity.service import IdentityService
     from services.identity.types import EntityRef
 
@@ -168,15 +169,24 @@ async def apply_narrator_deltas(
         )
 
     identity = None
+    errors: list[str | dict] = []
     for reveal in narration.entity_reveals:
         if reveal.entity_type == "character":
             identity = identity or await IdentityService.for_game(conn, game_id)
-            await identity.reveal(
+            # Its own savepoint: a failing reveal is rolled back and logged alone, the
+            # turn commits (spec §4.11).
+            await write_item(
                 conn,
-                EntityRef(reveal.current_name, "character"),
-                reveal.real_name,
-                turn_id=None,
-                source="reveal",
+                errors,
+                "entity_reveal character",
+                lambda reveal=reveal, identity=identity: identity.reveal(
+                    conn,
+                    EntityRef(reveal.current_name, "character"),
+                    reveal.real_name,
+                    turn_id=None,
+                    source="reveal",
+                ),
+                "[COMMIT] ",
             )
         elif reveal.entity_type == "location":
             await populator.mark_location_accessible(conn, reveal.current_name)

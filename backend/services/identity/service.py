@@ -462,16 +462,13 @@ class IdentityService:
         *,
         once: bool = False,
     ) -> None:
-        """An identity_events row (types, ids, counts and codes only). `once`: not again
-        when the turn already has one of this kind for this entity (a reveal is applied at
-        the commit and again by the extraction, in the same turn)."""
+        """An identity_events row (types, ids, counts, codes and hashes only). `once`: not
+        again when the turn (else the transaction) already has the same event, kind,
+        entity and payload (a reveal is applied at the commit and again by the extraction,
+        in the same turn); a different payload is another event."""
         turn_id = turn_id or await current_turn_id(conn)
-        if (
-            once
-            and turn_id is not None
-            and await entities.event_recorded(
-                conn, self.game_id, kind, entity_id, turn_id
-            )
+        if once and await entities.event_recorded(
+            conn, self.game_id, kind, entity_id, turn_id, payload
         ):
             return
         await entities.insert_event(
