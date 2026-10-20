@@ -6,6 +6,7 @@ Stores a Director plan and its arc updates in one transaction (apply step of the
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -38,6 +39,8 @@ async def apply_director_plan(
     With `source_message_id`, the message is share-locked first (a rollback deleting it
     waits for the commit); if it is gone, nothing is written and False is returned.
     Each arc update runs in its own savepoint: a failed one is recorded and logged alone.
+    The dropped items (an arc, an unresolved participant: `ref_dropped`) are logged as a
+    count per code, without story text; their identity_events rows are the durable trace.
     """
     try:
         async with uow(conn, turn_id, source_message_id=source_message_id):
@@ -62,10 +65,23 @@ async def apply_director_plan(
                     ),
                     "[DIRECTOR] ",
                 )
+            _log_dropped(game_id, errors)
     except SourceMessageGone:
         logger.warning(f"[DIRECTOR] Source message gone, plan dropped game={game_id}")
         return False
     return True
+
+
+def _log_dropped(game_id: UUID, errors: list[str | dict]) -> None:
+    """One INFO line counting the plan's dropped items by code (a failure that is not an
+    identity one counts as `failed`): codes and counts only."""
+    if not errors:
+        return
+    codes = Counter(e["code"] if isinstance(e, dict) else "failed" for e in errors)
+    detail = " ".join(f"{code}={n}" for code, n in sorted(codes.items()))
+    logger.info(
+        f"[DIRECTOR] Plan items dropped game={game_id} count={len(errors)} {detail}"
+    )
 
 
 async def _insert_plan(conn, game_id, plan, cycle, ig_time):

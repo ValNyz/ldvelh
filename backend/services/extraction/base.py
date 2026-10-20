@@ -248,7 +248,7 @@ class BaseExtractor(ABC):
         amb = AmbientUpdate.model_validate(amb_data)
         identity = await self.populator.identity(conn)
         entity_id = await refs.required(
-            identity, conn, amb.entity_ref, amb.entity_type.value)
+            identity, conn, amb.entity_ref, amb.entity_type.value, live_first=True)
         return await self.populator.update_entity(
             conn, entity_id, amb.entity_type, {"ambient": amb.ambient}
         )

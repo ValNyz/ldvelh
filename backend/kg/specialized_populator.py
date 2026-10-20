@@ -658,6 +658,18 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                     source="extractor",
                 )
             if named.entity_id is not None:
+                await identity.record_event(
+                    conn,
+                    "create_reused",
+                    await _turn_of(conn),
+                    named.entity_id,
+                    {
+                        "entity_type": EntityType.CHARACTER.value,
+                        "contested": named.contested,
+                        "source": "extractor",
+                        "via": "name",
+                    },
+                )
                 return named.entity_id
         spec = NewEntitySpec(
             EntityType.CHARACTER.value,
@@ -716,15 +728,20 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
     async def _process_entity_update(
         self, conn: Connection, errors: list, update: EntityUpdate, cycle: int
     ) -> None:
-        """Apply an extracted update to the entity its reference names (require_ref:
-        RefUnresolved when none or several do, counted by the caller's savepoint).
+        """Apply an extracted update to the entity its reference names, live first (the
+        live homonym of a removed entity is reached by its name; RefUnresolved when none
+        or several do, counted by the caller's savepoint).
         Extractors never update the companion, nor the protagonist beyond its skills
         (spec §4.10): the refused part is counted (`update_refused`), the skills of a
         protagonist update are still applied."""
         identity = await self.identity(conn)
         entity_type = update.entity_type
         resolved = await refs.resolve(
-            identity, conn, update.entity_ref, entity_type and entity_type.value
+            identity,
+            conn,
+            update.entity_ref,
+            entity_type and entity_type.value,
+            live_first=True,
         )
         reserved = resolved.entity_type or entity_type.value
         if reserved == "companion" or (
@@ -768,7 +785,26 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 conn, entity_type, resolved.entity_id, update.skills_changed, cycle
             )
         if update.removed:
-            await self.remove_entity(conn, resolved.entity_id, entity_type, cycle)
+            await self.remove_extracted_entity(
+                conn, resolved.entity_id, entity_type, cycle
+            )
+
+    async def remove_extracted_entity(
+        self, conn: Connection, entity_id: UUID, entity_type: EntityType, cycle: int
+    ) -> bool:
+        """Mark an entity as removed, by id; one already removed is a counted no-op
+        (event 'remove_noop'), not an error."""
+        if await self.remove_entity(conn, entity_id, entity_type, cycle):
+            return True
+        identity = await self.identity(conn)
+        await identity.record_event(
+            conn,
+            "remove_noop",
+            None,
+            entity_id,
+            {"entity_type": entity_type.value},
+        )
+        return False
 
     async def _update_entity_skills(
         self,

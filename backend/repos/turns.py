@@ -243,9 +243,10 @@ async def apply_narrator_deltas(
 
 
 async def reveal_location(conn, identity, populator, ref: str) -> bool:
-    """A location reveal: the location `ref` names becomes accessible (RefUnresolved when
-    none or several do, counted by the caller's savepoint)."""
-    resolved = await identity.require_ref(conn, ref, "location")
+    """A location reveal: the location `ref` names, live first (the live homonym of a
+    removed place is reached by its name), becomes accessible (RefUnresolved when none or
+    several do, counted by the caller's savepoint)."""
+    resolved = await identity.require_live_ref(conn, ref, "location", or_removed=True)
     return await populator.mark_location_accessible(conn, resolved.entity_id)
 
 

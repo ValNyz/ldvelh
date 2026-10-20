@@ -11,7 +11,12 @@ id through IdentityService, never by guessing:
   written without it.
 `entity_type` None means an untyped reference (any type may hold it, exactly one must).
 `live`: the reference is a write target (a place, a seat, an inventory object): an entity
-removed from the world does not count, it is unresolved (`ref_dropped`) like an unknown one.
+removed from the world does not count, it is unresolved (`ref_dropped`, its event counting
+the removed entities named) like an unknown one.
+`live_first`: the reference names the entity a write changes (an update, a removal, an
+ambient update): a live entity first, so the live homonym of a removed entity is reached
+by its name; a name no live entity holds may still name one removed entity (removing it
+again is a no-op, not an error).
 
 An optional reference resolved inside an item's savepoint has its `ref_dropped` event
 written inside that item: if the item itself then fails, the event goes with it while the
@@ -23,8 +28,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 from uuid import UUID
-
-from services.identity.types import RefUnresolved
 
 from .item_writes import write_item
 
@@ -42,18 +45,19 @@ async def resolve(
     entity_type: str | None,
     *,
     live: bool = False,
+    live_first: bool = False,
 ) -> ResolvedRef:
     """The entity `ref` names; RefUnresolved when none or several do. With `live` (a
     typed write target), only entities not removed from the world count: a removed one
-    is unresolved, and a live homonym of a removed entity is still found."""
+    is unresolved, and a live homonym of a removed entity is still found. With
+    `live_first`, the same, but a name only one removed entity holds resolves to it."""
     if entity_type is None:
         return await identity.require_any_ref(conn, ref)
-    if not live:
+    if not (live or live_first):
         return await identity.require_ref(conn, ref, entity_type)
-    resolved, candidates = await identity.resolve_live_ref(conn, ref, entity_type)
-    if resolved is None:
-        raise RefUnresolved(ref, entity_type, identity.game_id, candidates=candidates)
-    return resolved
+    return await identity.require_live_ref(
+        conn, ref, entity_type, or_removed=live_first
+    )
 
 
 async def required(
@@ -63,9 +67,13 @@ async def required(
     entity_type: str | None = None,
     *,
     live: bool = False,
+    live_first: bool = False,
 ) -> UUID:
     """Id of the entity `ref` names; RefUnresolved when none or several do."""
-    return (await resolve(identity, conn, ref, entity_type, live=live)).entity_id
+    resolved = await resolve(
+        identity, conn, ref, entity_type, live=live, live_first=live_first
+    )
+    return resolved.entity_id
 
 
 async def optional(

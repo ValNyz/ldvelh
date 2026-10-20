@@ -124,12 +124,14 @@ class CharactersExtractor(BaseExtractor):
         return False
 
     async def _remove(self, conn: Connection, er_data: dict, cycle: int) -> None:
-        """The removed character, by the id its reference resolves to (RefUnresolved:
-        counted by the item's savepoint)."""
+        """The removed character, by the id its reference resolves to, live first
+        (RefUnresolved: counted by the item's savepoint); one already removed is a counted
+        no-op."""
         identity = await self.populator.identity(conn)
         entity_id = await refs.required(
-            identity, conn, er_data.get("entity_ref", ""), EntityType.CHARACTER.value)
-        await self.populator.remove_entity(
+            identity, conn, er_data.get("entity_ref", ""), EntityType.CHARACTER.value,
+            live_first=True)
+        await self.populator.remove_extracted_entity(
             conn, entity_id, EntityType.CHARACTER, er_data.get("cycle", cycle),
         )
 

@@ -882,3 +882,333 @@ async def test_an_update_of_the_companion_is_refused_with_a_code(test_pool, test
         },
     )
     assert stats["errors"] == [{"code": "update_refused", "item": "update"}]
+
+
+# --- Final review fixes (PR 1b) ----------------------------------------------------------
+
+
+async def _remove_character(conn, game_id, true_name):
+    return await conn.fetchval(
+        "UPDATE characters SET removed_cycle = 1 WHERE game_id = $1 AND true_name = $2"
+        " RETURNING id",
+        game_id,
+        true_name,
+    )
+
+
+async def test_an_extractor_recreating_a_removed_character_gets_a_fresh_live_one(
+    test_pool, test_user
+):
+    """I1: a label only a removed character holds is no creation target: the extractor
+    creates a fresh live character (internal suffix, the player reads the bare name) and
+    never refills the removed row; listed again, the live one is reused and refilled."""
+    from services.extraction.characters import CharactersExtractor
+
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        removed = await _remove_character(conn, game_id, "Ossek")
+        removed_before = await conn.fetchrow(
+            "SELECT * FROM characters WHERE id = $1", removed
+        )
+    created = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {"entities_created": [{"name": "Ossek", "data": {"mood": "nerveux"}}]},
+        cycle=3,
+    )
+    async with test_pool.acquire() as conn:
+        fresh = await conn.fetchrow(
+            "SELECT id, mood, removed_cycle, label_suffix, display_for_player(id) AS shown"
+            " FROM characters WHERE game_id = $1 AND true_name = 'Ossek' AND id <> $2",
+            game_id,
+            removed,
+        )
+        removed_after = await conn.fetchrow(
+            "SELECT * FROM characters WHERE id = $1", removed
+        )
+        reused = [
+            e
+            for e in await _events(conn, game_id, "create_reused")
+            if e["source"] == "extractor"
+        ]
+    assert created["errors"] == [] and created["entities_created"] == 1
+    assert fresh is not None
+    assert (fresh["mood"], fresh["removed_cycle"], fresh["shown"]) == (
+        "nerveux",
+        None,
+        "Ossek",
+    )
+    assert fresh["label_suffix"] is not None
+    assert dict(removed_after) == dict(removed_before)
+    assert reused == []
+
+    again = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {"entities_created": [{"name": "Ossek", "data": {"mood": "calme"}}]},
+        cycle=4,
+    )
+    async with test_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, mood FROM characters WHERE game_id = $1 AND true_name = 'Ossek'",
+            game_id,
+        )
+        reused = [
+            e
+            for e in await _events(conn, game_id, "create_reused")
+            if e["source"] == "extractor"
+        ]
+    assert again["errors"] == []
+    assert {r["id"]: r["mood"] for r in rows} == {
+        removed: removed_before["mood"],
+        fresh["id"]: "calme",
+    }
+    assert [e["entity_type"] for e in reused] == ["character"]
+
+
+async def _fresh_place(conn, game_id, name="Le Quart de Cycle"):
+    """A removed location and the fresh live one a turn at its name created (R21)."""
+    removed = await _remove(conn, "locations", game_id, name)
+    _, state, _ = await _turn_at(conn, game_id, name)
+    assert state.location_id not in (None, removed)
+    return removed, state.location_id
+
+
+async def test_updates_of_a_live_homonym_of_a_removed_place_reach_it(
+    test_pool, test_user
+):
+    """I2: an update and an ambient update by the name a removed location shares with
+    its live homonym write the live one, without any error."""
+    from services.extraction.locations import LocationsExtractor
+
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        removed, fresh = await _fresh_place(conn, game_id)
+    stats = await _run(
+        LocationsExtractor,
+        test_pool,
+        game_id,
+        {
+            "entities_updated": [
+                {
+                    "entity_ref": "Le Quart de Cycle",
+                    "changes": {"atmosphere": "enfumée"},
+                }
+            ],
+            "ambient_updates": [
+                {"entity_ref": "Le Quart de Cycle", "ambient": "Des rires au comptoir."}
+            ],
+        },
+    )
+    async with test_pool.acquire() as conn:
+        rows = {
+            r["id"]: (r["atmosphere"], r["ambient"])
+            for r in await conn.fetch(
+                "SELECT id, atmosphere, ambient FROM locations WHERE id = ANY($1)",
+                [removed, fresh],
+            )
+        }
+    assert stats["errors"] == []
+    assert (stats["entities_updated"], stats["ambients_updated"]) == (1, 1)
+    assert rows[fresh] == ("enfumée", "Des rires au comptoir.")
+    assert rows[removed][1] != "Des rires au comptoir."
+
+
+async def test_removing_a_live_homonym_works_and_removing_again_is_a_counted_noop(
+    test_pool, test_user
+):
+    """I2: a removal by the name a removed character shares with its live homonym
+    removes the live one; removing an entity already removed is a counted no-op
+    (`remove_noop`), not an error."""
+    from services.extraction.characters import CharactersExtractor
+
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        removed = await _remove_character(conn, game_id, "Ossek")
+        justine = await _remove_character(conn, game_id, "Justine Lépicier")
+    await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {"entities_created": [{"name": "Ossek"}]},
+        cycle=3,
+    )
+    stats = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {
+            "entities_removed": [
+                {"entity_ref": "Ossek", "cycle": 5},
+                {"entity_ref": "Justine Lépicier", "cycle": 5},
+            ]
+        },
+        cycle=5,
+    )
+    async with test_pool.acquire() as conn:
+        cycles = {
+            r["id"]: r["removed_cycle"]
+            for r in await conn.fetch(
+                "SELECT id, removed_cycle FROM characters WHERE game_id = $1"
+                " AND true_name IN ('Ossek', 'Justine Lépicier')",
+                game_id,
+            )
+        }
+        noop = await _events(conn, game_id, "remove_noop")
+    assert stats["errors"] == []
+    fresh = next(i for i in cycles if i not in (removed, justine))
+    assert cycles == {removed: 1, justine: 1, fresh: 5}
+    assert noop == [{"entity_type": "character"}]
+
+
+async def test_a_location_reveal_reaches_the_live_homonym_of_a_removed_place(
+    test_pool, test_user
+):
+    """I2: a narrator location reveal by the shared name opens the live location."""
+    from repos import turns
+    from repos.uow import uow
+
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        _, fresh = await _fresh_place(conn, game_id)
+        await conn.execute(
+            "UPDATE locations SET accessible = false WHERE id = $1", fresh
+        )
+        narration = _narration(
+            "Le Quart de Cycle",
+            entity_reveals=[
+                {"entity_type": "location", "current_name": "Le Quart de Cycle"}
+            ],
+        )
+        turn_id = await turns.open_turn(conn, game_id)
+        async with uow(conn, turn_id):
+            await turns.apply_narrator_deltas(conn, game_id, narration, 1)
+        accessible = await conn.fetchval(
+            "SELECT accessible FROM locations WHERE id = $1", fresh
+        )
+        dropped = await _events(conn, game_id, "ref_dropped")
+    assert accessible is True
+    assert dropped == []
+
+
+async def test_a_reference_naming_only_a_removed_entity_says_so(test_pool, test_user):
+    """M7: a write target naming only a removed entity is told apart from an unknown
+    name in the event (a count, no text)."""
+    from services.extraction.characters import CharactersExtractor
+
+    game_id = await _world(test_pool, test_user)
+    async with test_pool.acquire() as conn:
+        await _remove(conn, "locations", game_id, "Bloc Tournesol")
+    await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {
+            "facts": [
+                {
+                    **_fact("PROTAGONIST", key="pc:visite:bloc"),
+                    "location_ref": "Bloc Tournesol",
+                },
+                {
+                    **_fact("PROTAGONIST", key="pc:visite:nulle"),
+                    "location_ref": "Nulle Part",
+                },
+            ]
+        },
+    )
+    async with test_pool.acquire() as conn:
+        dropped = await _events(conn, game_id, "ref_dropped")
+    assert sorted(dropped, key=len) == [
+        {"item": "fact location", "entity_type": "location", "candidates": 0},
+        {
+            "item": "fact location",
+            "entity_type": "location",
+            "candidates": 0,
+            "removed": 1,
+        },
+    ]
+
+
+async def test_a_character_reused_through_its_extracted_name_is_recorded(
+    test_pool, test_user
+):
+    """M4: a creation whose extracted name (not a proper name) already names a character
+    reuses it with a `create_reused` event, like every other reuse."""
+    from services.extraction.characters import CharactersExtractor
+
+    game_id = await _world(test_pool, test_user)
+    first = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {"entities_created": [{"name": "le vieux docker"}]},
+    )
+    second = await _run(
+        CharactersExtractor,
+        test_pool,
+        game_id,
+        {
+            "entities_created": [
+                {"name": "le vieux docker", "descriptor": "l'homme au bonnet rouge"}
+            ]
+        },
+        cycle=3,
+    )
+    async with test_pool.acquire() as conn:
+        count = await conn.fetchval(
+            "SELECT count(*) FROM characters WHERE game_id = $1"
+            " AND descriptor IN ('le vieux docker', 'l''homme au bonnet rouge')",
+            game_id,
+        )
+        reused = await _events(conn, game_id, "create_reused")
+    assert (first["errors"], second["errors"]) == ([], [])
+    assert count == 1
+    assert {
+        "entity_type": "character",
+        "contested": False,
+        "source": "extractor",
+        "via": "name",
+    } in reused
+
+
+async def test_dropped_director_items_are_logged_as_counts(
+    test_pool, test_user, caplog
+):
+    """M5: the Director's dropped items reach the logs as counts and codes, no text."""
+    import logging
+
+    from schema.director import ArcUpdate, DirectorOutput
+    from services.director_apply import apply_director_plan
+
+    game_id = await _world(test_pool, test_user)
+    plan = DirectorOutput(
+        tension_level=3,
+        narrator_guidance="g",
+        arc_updates=[
+            ArcUpdate(
+                action="create",
+                title="Une dette",
+                description="Une dette",
+                intensity=2,
+                involved_entities=["Ossek", "Personne Inconnue"],
+            )
+        ],
+    )
+    caplog.set_level(logging.INFO, logger="services.director_apply")
+    async with test_pool.acquire() as conn:
+        assert await apply_director_plan(
+            conn,
+            game_id,
+            plan,
+            cycle=1,
+            ig_time="10h00",
+            source_message_id=None,
+            turn_id=None,
+        )
+    lines = [r.getMessage() for r in caplog.records if "dropped" in r.getMessage()]
+    assert lines == [
+        f"[DIRECTOR] Plan items dropped game={game_id} count=1 ref_dropped=1"
+    ]
+    assert "Personne Inconnue" not in caplog.text

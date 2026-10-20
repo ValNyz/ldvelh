@@ -9,7 +9,9 @@ aliases of one type), never by an LLM; an ambiguous one is None, never a pick.
 Label collisions (§4.6, ruling R14): creating an entity whose label a live entity of the
 type already holds returns that entity, unless the caller verified a trap (two distinct
 entities under one descriptor); the newcomer then gets an internal label suffix, from the
-scene location's name, else the first free number. The suffix lives in the registry label
+scene location's name, else the first free number. An entity removed from the world is
+never a creation target (R21): a label only removed entities hold creates a fresh live
+entity, suffixed the same way. The suffix lives in the registry label
 only: the domain name, display_for_player and every player-facing read stay bare.
 
 Logs carry ids, handles, counts and event codes; references and names only at DEBUG.
@@ -125,7 +127,10 @@ class IdentityService:
         reuse_aliases: bool = True,
     ) -> UUID:
         """Create an entity with its derived aliases, or return the live entity of the type
-        that already holds its label (event 'create_reused'). With `trap` (a verified
+        that already holds its label (event 'create_reused'). A removed entity is never
+        reused nor refilled: a label only removed entities hold creates a fresh entity,
+        with an internal label suffix when a removed one still holds the label as its
+        registry label (event 'label_suffixed'). With `trap` (a verified
         second entity under that label), the newcomer gets an internal label suffix
         (event 'label_suffixed'). With `refill` (an extractor listing an entity again), a
         reused entity holding the label as its own takes the values of `spec.fields`
@@ -152,8 +157,11 @@ class IdentityService:
         ):
             raise ValueError("only a character named by its true name has a descriptor")
         turn_id = turn_id or await current_turn_id(conn)
-        target = await entities.find_for_upsert(
-            conn, self.game_id, label, spec.entity_type
+        target = await self._live_target(
+            conn,
+            await entities.find_for_upsert(conn, self.game_id, label, spec.entity_type),
+            label,
+            spec.entity_type,
         )
         alias_only = not reuse_aliases and (
             target.ambiguous or (target.entity_id is not None and not target.by_label)
@@ -193,9 +201,8 @@ class IdentityService:
                 source=source,
             )
         suffix, suffix_from = None, None
-        if trap and await entities.label_taken(
-            conn, self.game_id, spec.entity_type, label
-        ):
+        # Held here only by a verified trap's homonym or by a removed entity.
+        if await entities.label_taken(conn, self.game_id, spec.entity_type, label):
             suffix, suffix_from = await self._free_suffix(
                 conn, spec.entity_type, label, scene_location_id
             )
@@ -235,6 +242,30 @@ class IdentityService:
             f" source={source}"
         )
         return entity_id
+
+    async def _live_target(
+        self, conn, target: entities.UpsertTarget, label: str, entity_type: str
+    ) -> entities.UpsertTarget:
+        """`target` restricted to live entities: one removed from the world is no target.
+        When the name lands on a removed entity, or is ambiguous, the live entities
+        holding it decide: one is the target (holding the label as its own bare name,
+        or not), several are an ambiguity, none is a new entity."""
+        if target.entity_id is None and not target.ambiguous:
+            return target
+        if target.entity_id is not None and await entities.is_live(
+            conn, entity_type, target.entity_id
+        ):
+            return target
+        live = await entities.live_candidates(conn, self.game_id, label, entity_type)
+        if len(live) > 1:
+            return entities.UpsertTarget(None, False, True)
+        if not live:
+            return entities.UpsertTarget(None, False, False)
+        row = await entities.domain_row(conn, entity_type, live[0]) or {}
+        names = _CHARACTER_NAMES if entity_type == CHARACTER else _OTHER_NAMES
+        bare = next((row[n] for n in names if row.get(n)), None)
+        own = bool(bare) and self.normalizer.norm(bare) == self.normalizer.norm(label)
+        return entities.UpsertTarget(live[0], own, False)
 
     def _domain_values(self, spec: NewEntitySpec, label: str) -> dict:
         proper = spec.kind == "proper_name"
@@ -405,6 +436,30 @@ class IdentityService:
         if len(live) == 1:
             return await self.resolved_ref(conn, live[0], entity_type), 1
         return None, await self._unresolved(conn, ref, entity_type, len(live))
+
+    async def require_live_ref(
+        self, conn, ref: str, entity_type: str, *, or_removed: bool = False
+    ) -> ResolvedRef:
+        """`resolve_live_ref`, raising RefUnresolved instead of None, with the count of the
+        removed entities `ref` names (`removed`: telemetry tells a removed entity from an
+        unknown name). With `or_removed` (live first: an update, a removal, a reveal),
+        a reference no live entity holds may still name one removed entity."""
+        resolved, live = await self.resolve_live_ref(conn, ref, entity_type)
+        if resolved is not None:
+            return resolved
+        hit = await entities.find_entity(conn, self.game_id, ref, entity_type)
+        if or_removed and live == 0 and hit is not None:
+            return await self.resolved_ref(conn, hit, entity_type)
+        removed = 0
+        if live == 0:
+            removed = await entities.removed_candidates(
+                conn, self.game_id, ref, entity_type
+            )
+            # A handle or an id of a removed entity is no label match.
+            removed = max(removed, 1 if hit is not None else 0)
+        raise RefUnresolved(
+            ref, entity_type, self.game_id, candidates=live, removed=removed
+        )
 
     async def require_any_ref(self, conn, ref: str) -> ResolvedRef:
         """The entity of any type that `ref` names (a fact participant, a relation end):

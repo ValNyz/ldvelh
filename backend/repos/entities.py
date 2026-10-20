@@ -589,6 +589,33 @@ async def live_candidates(
     return list(ids or [])
 
 
+async def removed_candidates(conn, game_id: UUID, ref: str, entity_type: str) -> int:
+    """Entities of the type removed from the world (or without a domain row) whose label
+    or alias has the normalised form of `ref`: what a live resolution left out, counted
+    for telemetry."""
+    if ref is None or not ref.strip():
+        return 0
+    return await conn.fetchval(
+        """WITH ref AS (SELECT ldvelh_norm_for_game($1, $2) AS norm),
+                candidates AS (
+                    SELECT entity_follow_merge(er.id) AS id
+                      FROM entity_registry AS er, ref
+                     WHERE er.game_id = $1 AND er.entity_type = $3
+                       AND er.name_norm = ref.norm
+                    UNION
+                    SELECT entity_follow_merge(al.entity_id)
+                      FROM entity_aliases AS al, ref
+                     WHERE al.game_id = $1 AND al.entity_type = $3
+                       AND al.alias_norm = ref.norm)
+           SELECT count(*) FROM candidates
+            WHERE identity_domain_row($3, id) IS NULL
+               OR (identity_domain_row($3, id) ->> 'removed_cycle') IS NOT NULL""",
+        game_id,
+        ref,
+        str(entity_type),
+    )
+
+
 async def is_live(conn, entity_type: str, entity_id: UUID) -> bool:
     """The entity has a domain row that was not removed from the world (`removed_cycle`
     NULL, or a type without removal)."""

@@ -214,7 +214,7 @@ async def _reapply(test_pool, game_id, assistant_message_id, character_error=Non
     populator.mark_location_accessible = AsyncMock()
     identity = MagicMock()
     identity.reveal = AsyncMock(side_effect=character_error)
-    identity.require_ref = AsyncMock(
+    identity.require_live_ref = AsyncMock(
         return_value=ResolvedRef(LOCATION_ID, 1, "Quai", "location")
     )
     with (

@@ -118,7 +118,9 @@ class IdentityWriteMiss(IdentityFailure):
 
 class RefUnresolved(IdentityFailure):
     """A required reference names no entity of its type (`candidates` 0), or several
-    (ambiguous: 2 or more). `ref` is story text: it is kept on the exception for DEBUG logs
+    (ambiguous: 2 or more). For a write target (live entities only), `removed` counts the
+    entities removed from the world it names, so the event tells "a removed entity" from
+    "an unknown name". `ref` is story text: it is kept on the exception for DEBUG logs
     only, never in its message."""
 
     code = "ref_dropped"
@@ -130,14 +132,19 @@ class RefUnresolved(IdentityFailure):
         game_id: UUID | None = None,
         *,
         candidates: int = 0,
+        removed: int = 0,
     ):
         super().__init__(f"unresolved {entity_type} reference", game_id)
         self.ref = ref
         self.entity_type = entity_type
         self.candidates = candidates
+        self.removed = removed
 
     def payload(self) -> dict:
-        return {"entity_type": self.entity_type, "candidates": self.candidates}
+        payload = {"entity_type": self.entity_type, "candidates": self.candidates}
+        if self.removed:
+            payload["removed"] = self.removed
+        return payload
 
     def debug_detail(self) -> str | None:
         return repr(self.ref)
