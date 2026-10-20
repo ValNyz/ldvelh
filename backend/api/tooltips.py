@@ -74,47 +74,41 @@ TYPE_ICONS = {
 }
 
 
-def _build_tooltip_info(
-    name: str, entity_type: str, details: dict
-) -> TooltipInfo:
+# The detail lines of a tooltip, per entity type: (detail key, label), a free text (no
+# label) cut at 80 characters.
+_TOOLTIP_INFOS = {
+    "character": (
+        ("occupation", "Métier"),
+        ("species", "Espèce"),
+        ("mood", "Humeur"),
+        ("ambient", None),
+    ),
+    "location": (
+        ("location_type", "Type"),
+        ("sector", "Secteur"),
+        ("atmosphere", "Ambiance"),
+    ),
+    "organization": (("org_type", "Type"), ("domain", "Domaine")),
+    "object": (("category", "Catégorie"), ("description", None)),
+}
+# A species not worth a line: the default one.
+_DEFAULT_SPECIES = "human"
+
+
+def _build_tooltip_info(name: str, entity_type: str, details: dict) -> TooltipInfo:
     """Build tooltip display info from entity details."""
-    icon = TYPE_ICONS.get(entity_type, "❓")
     infos = []
-
-    if entity_type == "character":
-        if details.get("occupation"):
-            infos.append(f"Métier: {details['occupation']}")
-        if details.get("species") and details["species"] != "human":
-            infos.append(f"Espèce: {details['species']}")
-        if details.get("mood"):
-            infos.append(f"Humeur: {details['mood']}")
-        if details.get("ambient"):
-            infos.append(details["ambient"][:80])
-    elif entity_type == "location":
-        if details.get("location_type"):
-            infos.append(f"Type: {details['location_type']}")
-        if details.get("sector"):
-            infos.append(f"Secteur: {details['sector']}")
-        if details.get("atmosphere"):
-            infos.append(f"Ambiance: {details['atmosphere']}")
-    elif entity_type == "organization":
-        if details.get("org_type"):
-            infos.append(f"Type: {details['org_type']}")
-        if details.get("domain"):
-            infos.append(f"Domaine: {details['domain']}")
-    elif entity_type == "object":
-        if details.get("category"):
-            infos.append(f"Catégorie: {details['category']}")
-        if details.get("description"):
-            infos.append(details["description"][:80])
-
-    # Add relation with protagonist if available
-    relation = None
-    if details.get("relation_type"):
-        relation = details["relation_type"]
-
+    for key, label in _TOOLTIP_INFOS.get(entity_type, ()):
+        value = details.get(key)
+        if not value or (key == "species" and value == _DEFAULT_SPECIES):
+            continue
+        infos.append(f"{label}: {value}" if label else value[:80])
     return TooltipInfo(
-        icon=icon, name=name, type=entity_type, infos=infos, relation=relation
+        icon=TYPE_ICONS.get(entity_type, "❓"),
+        name=name,
+        type=entity_type,
+        infos=infos,
+        relation=details.get("relation_type") or None,
     )
 
 
@@ -199,7 +193,8 @@ def _annotation(
         surface = content[start:end]
     return AnnotationEntry(
         start=start, end=end,
-        label=found.get("label") or fallback, entity_type=entity_type,
+        label=found.get("label") or fallback,
+        entity_type=found.get("entity_type") or entity_type,
         entity_id=found.get("entity_id"), handle=found.get("handle"), surface=surface,
     )
 
@@ -207,27 +202,32 @@ def _annotation(
 async def _resolve_spans(
     conn, game_id: UUID, refs: list[tuple[str, str]]
 ) -> dict[tuple[str, str], dict]:
-    """{(resolver label, type): {label, entity_id, handle}} of the annotation refs. A
-    resolved ref reads display_for_player; an unresolved character ref the pack's unknown
-    label (never the stored label: it may be a hidden true name)."""
+    """{(resolver label, type): {label, entity_id, handle, entity_type}} of the annotation
+    refs. A resolved ref reads display_for_player and the entity's own type (the legacy
+    resolver tags the companion and the protagonist 'character':
+    identity_find_span_entity); an unresolved character ref the pack's unknown label
+    (never the stored label: it may be a hidden true name)."""
     pairs = list({(r, t) for r, t in refs if isinstance(r, str) and isinstance(t, str)})
     if not pairs:
         return {}
     rows = await conn.fetch(
         """SELECT ref.name, ref.entity_type, found.id AS entity_id, er.handle,
+                  er.entity_type AS found_type,
                   COALESCE(display_for_player(found.id),
                            CASE WHEN ref.entity_type = 'character'
                                 THEN ldvelh_lang_params($1) ->> 'unknown_character_label'
                            END) AS label
            FROM unnest($2::text[], $3::text[]) AS ref (name, entity_type)
-           CROSS JOIN LATERAL (SELECT find_entity($1, ref.name, ref.entity_type) AS id)
-                AS found
+           CROSS JOIN LATERAL (
+               SELECT identity_find_span_entity($1, ref.name, ref.entity_type) AS id
+           ) AS found
            LEFT JOIN entity_registry AS er ON er.id = found.id""",
         game_id, [p[0] for p in pairs], [p[1] for p in pairs],
     )
     return {
         (r["name"], r["entity_type"]): {
             "label": r["label"], "entity_id": r["entity_id"], "handle": r["handle"],
+            "entity_type": r["found_type"],
         }
         for r in rows
     }

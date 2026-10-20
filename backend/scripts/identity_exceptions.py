@@ -3,8 +3,11 @@
 A YAML file `{character id: {true_name: …} | {descriptor: …}}`, read by the backfill
 (`--exceptions`, or IDENTITY_BACKFILL_EXCEPTIONS at deploy). A correction follows the
 rules of the classification itself:
-- `true_name: X` makes X the character's true name. The known descriptor alias the
-  migration kept of that form goes first (a true name the PC does not know is not known);
+- `true_name: X` makes X the character's true name. The known descriptor alias of that
+  form goes first (a true name the PC does not know is not known); a descriptor that spells
+  X (the classification's copy of a name with no seen descriptor) goes with its alias, so
+  the player reads the pack's unknown label, never the hidden name (the CHECK holds: the
+  true name is set);
   the true name's alias is secret when the character is mandatory and unknown (§5.2 step 4).
 - `descriptor: Y` makes Y the descriptor and drops the true name and its forms.
 - the new label takes a homonym suffix when another character already holds it (R9);
@@ -58,6 +61,11 @@ async def drop_true_name_aliases(conn, character_id: UUID) -> None:
               AND kind IN ('true_name', 'short', 'title')""",
         character_id,
     )
+
+
+def names_within(normalizer, true_name: str, descriptor: str) -> bool:
+    """The descriptor spells the true name: its normalised words hold the true name's."""
+    return f" {normalizer.norm(true_name)} " in f" {normalizer.norm(descriptor)} "
 
 
 async def _model(conn, character_id: UUID) -> dict:
@@ -116,17 +124,25 @@ async def apply_exceptions(
             continue
         if "true_name" in correction:
             name = correction["true_name"]
+            descriptor = before["descriptor"]
+            if descriptor and names_within(normalizer, name, descriptor):
+                descriptor = None
+            # Neither the true name nor a descriptor that spells it stays a known form.
             await conn.execute(
                 """DELETE FROM entity_aliases
-                    WHERE entity_id = $1 AND source = 'migration' AND kind = 'descriptor'
-                      AND alias_norm = ldvelh_norm_for_game(game_id, $2)""",
+                    WHERE entity_id = $1 AND kind = 'descriptor'
+                      AND alias_norm IN (ldvelh_norm_for_game(game_id, $2),
+                                         ldvelh_norm_for_game(game_id, $3))""",
                 character_id,
                 name,
+                before["descriptor"] if descriptor is None else name,
             )
             await conn.execute(
-                "UPDATE characters SET true_name = $2, label_suffix = $3 WHERE id = $1",
+                """UPDATE characters SET true_name = $2, descriptor = $3, label_suffix = $4
+                    WHERE id = $1""",
                 character_id,
                 name,
+                descriptor,
                 await _suffix(conn, game_id, character_id, name, normalizer),
             )
             await conn.execute(

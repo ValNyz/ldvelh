@@ -718,6 +718,21 @@ BEGIN
                     public.ldvelh_lang_params(v_game) ->> 'unknown_character_label');
 END $$;
 
+-- The entity a span of the legacy resolver names (annotations, mentions rebuilt from
+-- narrator_context; PR 2 replaces that resolver): its types know no companion or
+-- protagonist, which it tags 'character', so a character ref no character matches is
+-- looked up as the companion, then the protagonist (one row each: no new ambiguity).
+CREATE FUNCTION public.identity_find_span_entity(p_game uuid, p_ref text, p_type text)
+        RETURNS uuid
+    LANGUAGE sql STABLE
+    AS $$
+    SELECT COALESCE(public.find_entity(p_game, p_ref, p_type),
+                    CASE WHEN p_type = 'character'
+                         THEN COALESCE(public.find_entity(p_game, p_ref, 'companion'),
+                                       public.find_entity(p_game, p_ref, 'protagonist'))
+                    END)
+$$;
+
 -- Participants are ids resolved by the caller: [{"entity_id": "<uuid>", "role": "actor"}];
 -- an id outside the game, or not an id, is skipped; a merged one stands for its live entity.
 CREATE OR REPLACE FUNCTION public.create_fact(p_game_id uuid, p_cycle integer,
@@ -1589,7 +1604,8 @@ BEGIN
         SELECT sp.message_id, sp.turn_id, sp.content, sp.entry ->> 2 AS name,
                (sp.entry ->> 0)::numeric::integer AS start_pos,
                (sp.entry ->> 1)::numeric::integer AS end_pos,
-               public.find_entity(p_game, sp.entry ->> 2, sp.entry ->> 3) AS entity_id
+               public.identity_find_span_entity(p_game, sp.entry ->> 2, sp.entry ->> 3)
+                   AS entity_id
           FROM spans AS sp),
     inserted AS (
         INSERT INTO public.entity_mentions
@@ -2034,6 +2050,11 @@ END $$;
 -- Section 4, then section 2, undone in reverse order. Views first: they use
 -- display_for_player. Aliases, mentions, merges and identity events are dropped with their
 -- tables; tombstones and companion registry rows, unknown to the previous schema, go.
+-- The schema only: the journal (world_changes) keeps the new column names section 3.3
+-- wrote (characters rows with true_name/descriptor/label_suffix and no unknown_name,
+-- objects rows without canonical_name, registry rows with handle/name_norm), so undoing a
+-- turn after a down loses those old columns. The rollback path of a deploy is the backup
+-- restore (CONTRIBUTING, "Deploying the identity migration"), not this section.
 DROP INDEX public.entity_registry_game_type_norm_live_key;
 ALTER TABLE public.objects ADD COLUMN canonical_name character varying(100);
 CREATE UNIQUE INDEX idx_objects_canonical ON public.objects
@@ -2199,6 +2220,7 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION public.identity_find_span_entity(uuid, text, text);
 DROP FUNCTION public.display_for_player(uuid);
 DROP FUNCTION public.find_fact(uuid, text);
 DROP FUNCTION public.find_entity(uuid, text, text);

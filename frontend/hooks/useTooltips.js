@@ -64,7 +64,7 @@ export function useTooltips(gameId) {
 
 			// Fetch tooltip details for each entity — use functional setState to avoid stale closure
 			const newEntries = {};
-			const icons = { character: '👤', location: '📍', organization: '🏢', object: '📦', arc: '📖' };
+			const icons = { character: '👤', companion: '👤', protagonist: '👤', location: '📍', organization: '🏢', object: '📦', arc: '📖' };
 
 			for (const { ref, label, entityType, surfaces } of entities.values()) {
 				let tooltip;

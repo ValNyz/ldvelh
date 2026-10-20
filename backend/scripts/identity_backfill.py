@@ -6,7 +6,8 @@ rewrites the journal, all without a word of any language. What reads a language 
 here, per game, in one transaction (`run`):
 0. a game without language gets IdentityConfig.default_language;
 1. identity_legacy_normalise (SQL, from the migration): alias and registry norms, orphans,
-   normalised collisions (suffix), mentions rebuilt from narrator_context;
+   normalised collisions (suffix), mentions rebuilt from narrator_context; skipped for a
+   game already backfilled (a late exception): its data is live, not legacy;
 2. a legacy game (see `is_legacy`) gets its unknown characters classified
    (services/identity/classify.py, the rule the dry-run report prints), its journaled
    characters rows included (scripts/identity_journal.py);
@@ -47,6 +48,14 @@ SELECT NOT EXISTS (SELECT 1 FROM identity_events
                     WHERE game_id = $1 AND kind = 'identity_backfill')
        AND EXISTS (SELECT 1 FROM entity_aliases
                     WHERE game_id = $1 AND source = 'migration')"""
+
+# Backfilled, and every norm still there (a norm missing calls for the legacy pass again).
+DONE_SQL = """
+SELECT EXISTS (SELECT 1 FROM identity_events WHERE game_id = $1 AND kind = $2)
+       AND NOT EXISTS (SELECT 1 FROM entity_registry
+                        WHERE game_id = $1 AND name_norm IS NULL)
+       AND NOT EXISTS (SELECT 1 FROM entity_aliases
+                        WHERE game_id = $1 AND alias_norm IS NULL)"""
 
 NEEDING_BACKFILL_SQL = """
 SELECT gm.id FROM games AS gm
@@ -95,10 +104,17 @@ async def run(
                 get_identity_config().default_language,
             )
         legacy = await is_legacy(conn, game_id)
-        counts = dict(
-            _json(
-                await conn.fetchval(
-                    "SELECT identity_legacy_normalise($1)::text", game_id
+        # A game already backfilled (a late exception) has live data only: its norms come
+        # from the triggers, its mentions from play; the legacy pass leaves it alone.
+        done = await conn.fetchval(DONE_SQL, game_id, DONE_EVENT)
+        counts = (
+            {}
+            if done
+            else dict(
+                _json(
+                    await conn.fetchval(
+                        "SELECT identity_legacy_normalise($1)::text", game_id
+                    )
                 )
             )
         )
@@ -276,10 +292,22 @@ async def _derive_aliases(conn, game_id: UUID, normalizer, lexicon) -> int:
 
 async def _main(args: argparse.Namespace) -> int:
     import asyncpg
+    import yaml
 
     from scripts.identity_exceptions import load_exceptions
 
-    exceptions = load_exceptions(args.exceptions) if args.exceptions else {}
+    try:
+        exceptions = load_exceptions(args.exceptions) if args.exceptions else {}
+    except (OSError, ValueError, TypeError, yaml.YAMLError) as exc:
+        # Fail closed with one line for the boot log; the file's text is never printed.
+        detail = str(exc) if isinstance(exc, ValueError | TypeError) else ""
+        print(
+            f"[IDENTITY_BACKFILL] cannot read the exceptions file {args.exceptions}"
+            f" (IDENTITY_BACKFILL_EXCEPTIONS or --exceptions): {type(exc).__name__}"
+            + (f": {detail}" if detail else ""),
+            file=sys.stderr,
+        )
+        return 2
     conn = await asyncpg.connect(args.database_url)
     try:
         if args.game:

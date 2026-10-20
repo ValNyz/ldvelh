@@ -62,6 +62,9 @@ EDGE_COLUMNS = (
     ("narrative_arcs", "owner_id"),
 )
 RESERVED_REFS = ("PROTAGONIST", "COMPANION")
+# The types a 'character' span of the legacy resolver may stand for when no character
+# matches it (identity_find_span_entity in the migration).
+SPAN_FALLBACK_TYPES = ("companion", "protagonist")
 _WORDS = re.compile(r"[^\W_]+")
 
 
@@ -102,6 +105,7 @@ class GameReport:
     secrets: list[str] = field(default_factory=list)
     secret_facts: list[tuple[int, str]] = field(default_factory=list)
     mentions_kept: int = 0
+    # (name, type, why) of the spans no entity takes -> count
     mentions_dropped: Counter = field(default_factory=Counter)
     duplicates: list[tuple[str, str, str, str]] = field(default_factory=list)
     collisions: list[tuple[str, str, str, str]] = field(default_factory=list)
@@ -237,15 +241,43 @@ def _alias_norms(entity: Entity, norm) -> set[str]:
     return {norm(f) for f in forms if f and f.strip()}
 
 
+def _candidates(entities: list[Entity], ref: str, entity_type: str, norm) -> list:
+    """The entities of the type whose names and aliases (as the migration gives them)
+    hold `ref`: find_entity's candidates."""
+    of_type = [e for e in entities if e.type == entity_type]
+    if ref.strip().upper() in RESERVED_REFS and ref.strip().lower() == entity_type:
+        return of_type
+    key = norm(ref)
+    return [e for e in of_type if key in _alias_norms(e, norm)]
+
+
 def _resolve(entities: list[Entity], ref: str, entity_type: str, norm) -> Entity | None:
     """find_entity on the names and aliases the migration gives (labels and aliases
     together, two candidates or more: None)."""
-    of_type = [e for e in entities if e.type == entity_type]
-    if ref.strip().upper() in RESERVED_REFS and ref.strip().lower() == entity_type:
-        return of_type[0] if len(of_type) == 1 else None
-    key = norm(ref)
-    found = [e for e in of_type if key in _alias_norms(e, norm)]
+    found = _candidates(entities, ref, entity_type, norm)
     return found[0] if len(found) == 1 else None
+
+
+def _resolve_span(
+    entities: list[Entity], ref: str, entity_type: str, norm
+) -> tuple[Entity | None, str | None]:
+    """identity_find_span_entity: the entity a legacy resolver span names (a character
+    ref no character matches is looked up as the companion, then the protagonist), else
+    why the mention is dropped."""
+    types = (
+        (entity_type, *SPAN_FALLBACK_TYPES)
+        if entity_type == "character"
+        else (entity_type,)
+    )
+    ambiguous = False
+    for candidate_type in types:
+        found = _candidates(entities, ref, candidate_type, norm)
+        if len(found) == 1:
+            return found[0], None
+        ambiguous = ambiguous or len(found) > 1
+    if not any(e.type == entity_type for e in entities):
+        return None, "aucune entité de ce type"
+    return None, "ambiguë" if ambiguous else "non résolue"
 
 
 def _reidentify(report: GameReport, entities, registry) -> list:
@@ -344,10 +376,11 @@ def _mentions(report: GameReport, messages, entities, norm) -> None:
                 and all(isinstance(v, str) for v in span[2:4])
             ):
                 continue
-            if _resolve(entities, span[2], span[3], norm):
+            entity, reason = _resolve_span(entities, span[2], span[3], norm)
+            if entity:
                 report.mentions_kept += 1
             else:
-                report.mentions_dropped[(span[2], span[3])] += 1
+                report.mentions_dropped[(span[2], span[3], reason)] += 1
 
 
 def _classify(report: GameReport, entities: list[Entity], normalizer, lexicon) -> None:
@@ -557,8 +590,8 @@ def render(reports: list[GameReport]) -> str:
             "",
         ]
         lines += _table(
-            ["nom", "entité", "nombre"],
-            [[n, t, c] for (n, t), c in r.mentions_dropped.most_common()],
+            ["nom", "entité", "motif", "nombre"],
+            [[n, t, why, c] for (n, t, why), c in r.mentions_dropped.most_common()],
         )
         lines += [f"### {SECTIONS[6]}", "", "Jamais fusionnés automatiquement.", ""]
         lines += _table(

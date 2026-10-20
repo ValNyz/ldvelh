@@ -167,3 +167,33 @@ python -m scripts.eval_identity ... --import-responses DIR --responder subagent:
   `TEST_SHA256` stay untouched, and a scene whose campaign has test scenes is refused.
   `--freeze --keep-split` refreshes the fingerprint after a gold correction of a test
   scene (own PR, before any tuning); never re-split.
+
+## Identity migration (#152)
+
+The scripts around `db/migrations/20261020000001_entity_identity.sql`. The deploy
+procedure (backup, throwaway restore, report, rehearsal, owner review, deploy) is in
+CONTRIBUTING.md, "Deploying the identity migration".
+
+- `sync_lang_packs.py`: creates `lang_packs` if missing and upserts the YAML language
+  packs (`packs/lang/`). Run before `dbmate up` by `backend/entrypoint.sh` and
+  `scripts/test-backend.sh`. Idempotent.
+  `DATABASE_URL=… python -m scripts.sync_lang_packs`
+- `identity_migration_report.py`: the read-only dry-run report (Markdown, French
+  headings for the owner): re-identification, orphans, classification of the unknown
+  characters, proposed secrets, secret facts, dropped mentions with their reason,
+  suspected duplicates (never merged), normalised collisions.
+  `DATABASE_URL=… python -m scripts.identity_migration_report [--game ID] --out report.md`
+- `identity_backfill.py`: run by the entrypoint after `dbmate up`. Per game, in one
+  transaction: language, norms, orphans, collisions and mentions (the legacy pass,
+  skipped for a game already backfilled), classification of the unknown characters,
+  the owner's exceptions, derived aliases. Idempotent; marks each game with an
+  `identity_events` row. A missing or malformed exceptions file stops it with one line.
+  `DATABASE_URL=… python -m scripts.identity_backfill [--game ID] [--exceptions FILE.yaml]`
+  (default: `$IDENTITY_BACKFILL_EXCEPTIONS`)
+- `identity_exceptions.py` (module): reads and applies the owner's corrections,
+  `{character id: {true_name: …} | {descriptor: …}}`, each once.
+- `identity_journal.py` (module): keeps the journal of the turns played before the
+  migration in step with the name model the backfill gives the characters.
+- `identity_invariants.sql`: read-only invariant checks to run after the rehearsal;
+  every count of the first table must be 0.
+  `psql -v ON_ERROR_STOP=1 -f backend/scripts/identity_invariants.sql`

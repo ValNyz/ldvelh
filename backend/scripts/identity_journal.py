@@ -89,10 +89,6 @@ async def _rewrite(conn, game_id: UUID, row, before: list, after: list) -> None:
                 row["row_id"],
                 old["name"],
             )
-        elif not gone and old and new and new.get("true_name"):
-            await restore_true_name_rows(
-                conn, row["row_id"], new["true_name"], turn_id=row["turn_id"]
-            )
     if row["op"] == "D" and gone:
         await conn.execute(
             """DELETE FROM world_changes
@@ -107,39 +103,6 @@ async def _rewrite(conn, game_id: UUID, row, before: list, after: list) -> None:
             row["turn_id"],
             _dump(after[0]),
         )
-
-
-async def restore_true_name_rows(
-    conn, character_id: UUID, true_name: str, *, turn_id: UUID | None = None
-) -> None:
-    """The way back of the flip above: an alias row of the journal (3.3) whose form is
-    now the character's true name is a true name again, known when the PC knows it,
-    secret by the 3.2 rule (mandatory and unknown). All pre-migration turns, or one."""
-    await conn.execute(
-        """UPDATE world_changes AS wc
-              SET old_row = wc.old_row || jsonb_build_object(
-                      'kind', 'true_name', 'known', ch.known_by_protagonist,
-                      'secret', ch.is_mandatory AND NOT ch.known_by_protagonist)
-             FROM characters AS ch
-            WHERE ch.id = $1 AND wc.table_name = 'entity_aliases'
-              AND ($3::uuid IS NULL OR wc.turn_id = $3)
-              AND wc.old_row ->> 'entity_id' = $1::uuid::text
-              AND wc.old_row ->> 'source' = 'migration'
-              AND wc.old_row ->> 'kind' = 'descriptor'
-              AND ldvelh_norm_for_game(ch.game_id, wc.old_row ->> 'alias')
-                  = ldvelh_norm_for_game(ch.game_id, $2)
-              AND wc.turn_id IN (SELECT tn.id FROM turns AS tn
-                                  WHERE tn.game_id = ch.game_id
-                                    AND tn.created_at < COALESCE(
-                                        (SELECT min(ev.created_at)
-                                           FROM identity_events AS ev
-                                          WHERE ev.game_id = ch.game_id
-                                            AND ev.kind = 'identity_backfill'),
-                                        'infinity'::timestamptz))""",
-        character_id,
-        true_name,
-        turn_id,
-    )
 
 
 async def _registry_rows_follow(
@@ -232,7 +195,8 @@ async def follow_model(
         if moved != sides:
             await _rewrite(conn, game_id, row, sides, moved)
             changed += 1
-    if changed and after["true_name"]:
-        # A former name the classification had read as a descriptor, now the true name.
-        await restore_true_name_rows(conn, row_id, after["true_name"])
+    # A former name the classification had read as a descriptor and that is now the true
+    # name needs no way back here: its journal alias row normalises like the live true
+    # name alias the trigger has just made, so identity_journal_alias_conflicts drops it
+    # (the backfill runs it last) and an undo leaves that true name unknown.
     return changed

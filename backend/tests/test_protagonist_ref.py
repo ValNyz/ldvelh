@@ -5,13 +5,12 @@ Every world here is the canonical example with its PC renamed "Kira", so a lefto
 """
 
 import json
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 
-from kg.populator import EntityRegistry
 from llm.session import LLMSession
-from schema import DEFAULT_PROTAGONIST_NAME, PROTAGONIST_REF, EntityType, WorldGeneration
+from schema import DEFAULT_PROTAGONIST_NAME, PROTAGONIST_REF, WorldGeneration
 from services.llm_providers import ToolResult
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 from tests.test_llm_session import FakeProvider
@@ -100,23 +99,8 @@ async def arrival_participants(conn, game_id) -> list[list[tuple]]:
 
 
 # ---------------------------------------------------------------------------
-# Resolution (Python registry and SQL find_entity)
+# Resolution (SQL find_entity)
 # ---------------------------------------------------------------------------
-
-
-def test_registry_resolves_the_token_to_the_protagonist_row():
-    registry = EntityRegistry()
-    pc_id, npc_id = uuid4(), uuid4()
-    registry.register(PC, pc_id, EntityType.PROTAGONIST)
-    registry.register("Marie", npc_id, EntityType.CHARACTER)
-
-    assert registry.resolve(PROTAGONIST_REF, EntityType.PROTAGONIST) == pc_id
-    assert registry.resolve(f"  {PROTAGONIST_REF.lower()}\n", EntityType.PROTAGONIST) == pc_id
-    assert registry.resolve(PC, EntityType.PROTAGONIST) == pc_id  # the real name too
-    # Typed: the token never names another type (#152).
-    assert registry.resolve(PROTAGONIST_REF, EntityType.CHARACTER) is None
-    assert registry.resolve("Marie", EntityType.CHARACTER) == npc_id
-    assert EntityRegistry().resolve(PROTAGONIST_REF, EntityType.PROTAGONIST) is None
 
 
 def test_entity_ref_schema_tells_the_llm_about_the_token():

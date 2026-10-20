@@ -263,17 +263,25 @@ async def test_name_norm_collision_gets_a_suffix_and_is_reported(test_pool):
 
 async def test_mentions_are_rebuilt_from_narrator_context(test_pool):
     """A narrator_context span whose (name, type) resolves to one entity becomes a
-    mention on its id; the others are dropped; narrator_context is kept."""
+    mention on its id; the others are dropped; narrator_context is kept. The dry-run
+    report, read before the migration, counts the same and says why each is dropped."""
+    from collections import Counter
+
+    from scripts.identity_migration_report import build_report
+
+    reports = []
 
     async def hook(conn):
         await conn.execute(
             """UPDATE messages SET narrator_context =
                    '[[0, 5, "Ossek", "character"], [6, 13, "Fantôme", "character"],
-                     [14, 29, "Escale Méridienne", "location"]]'::jsonb
+                     [14, 29, "Escale Méridienne", "location"],
+                     [30, 38, "Célimène", "character"], [39, 45, "Pacte", "arc"]]'::jsonb
                 WHERE id = (SELECT id FROM messages WHERE game_id = $1::uuid
                              AND role = 'assistant' ORDER BY sequence LIMIT 1)""",
             legacy_game_id(),
         )
+        reports.extend(await build_report(conn, UUID(legacy_game_id())))
 
     game_id, _ = await load_legacy_game(test_pool, before={IDENTITY_MIGRATION: hook})
     async with test_pool.acquire() as conn:
@@ -293,8 +301,17 @@ async def test_mentions_are_rebuilt_from_narrator_context(test_pool):
     assert [(m["start_pos"], m["name"], m["decision"]) for m in mentions] == [
         (0, "Ossek", "deterministic"),
         (14, "Escale Méridienne", "deterministic"),
+        # The companion, which the legacy resolver tags 'character' (I2).
+        (30, "Célimène", "deterministic"),
     ]
     assert mentions[0]["first_surface"] and kept >= 1
+    assert reports[0].mentions_kept == 3
+    assert reports[0].mentions_dropped == Counter(
+        {
+            ("Fantôme", "character", "non résolue"): 1,
+            ("Pacte", "arc", "aucune entité de ce type"): 1,
+        }
+    )
 
 
 async def test_backfill_adds_short_and_title_aliases_once(test_pool):
@@ -329,10 +346,12 @@ async def test_backfill_adds_short_and_title_aliases_once(test_pool):
 
 async def _exception_npcs(conn):
     """Unknown NPCs the exceptions correct: a descriptive-looking true name (with a turn
-    journaled before the migration), a wrongly kept true name (Tesk, whose correction
-    collides with Kethari's label), a mandatory one."""
+    journaled before the migration), the same without a seen descriptor (Volkov), a
+    wrongly kept true name (Tesk, whose correction collides with Kethari's label), a
+    mandatory one."""
     await _legacy_npcs(conn)
     await add_legacy_character(conn, "Vieux Marn", "Le vieil homme", MARN)
+    await add_legacy_character(conn, "Garde Volkov", None, VOLKOV)
     await add_legacy_character(conn, "Sela Voor", None, SELA, mandatory=True)
     await conn.execute(
         """WITH t AS (INSERT INTO turns (game_id, status) VALUES ($1::uuid, 'committed')
@@ -348,6 +367,7 @@ async def _exception_npcs(conn):
 MARN = "1b2c3d4e-5f60-4718-8293-a4b5c6d7e8f9"
 SELA = "3d4e5f60-7182-4930-a4b5-c6d7e8f90112"
 TESK = "dbe62e2d-e680-4a75-927f-a73d2b7beb33"
+VOLKOV = "4e5f6071-8293-4a41-b5c6-d7e8f9011223"
 
 
 async def test_exceptions_follow_the_classification_rules(test_pool, tmp_path):
@@ -355,7 +375,9 @@ async def test_exceptions_follow_the_classification_rules(test_pool, tmp_path):
     classification (I3): a restored true name gets its derived aliases, is not known
     through a stale descriptor alias and is secret for a mandatory unknown character; a
     descriptor that another character holds gets a label suffix; the journal follows;
-    each correction is applied once."""
+    each correction is applied once. A true name the classification had kept as the
+    descriptor (no seen descriptor) never stays the descriptor: the player reads the
+    pack's unknown label, never the hidden name (I1)."""
     from scripts.identity_backfill import run as identity_backfill
     from scripts.identity_exceptions import load_exceptions
 
@@ -363,12 +385,14 @@ async def test_exceptions_follow_the_classification_rules(test_pool, tmp_path):
     path.write_text(
         f"{MARN}: {{true_name: Vieux Marn}}\n"
         f"{TESK}: {{descriptor: La kethari âgée}}\n"
-        f"{SELA}: {{true_name: Sela Voor-An}}\n",
+        f"{SELA}: {{true_name: Sela Voor-An}}\n"
+        f"{VOLKOV}: {{true_name: Garde Volkov}}\n",
         encoding="utf-8",
     )
     game_id, _ = await load_legacy_game(
         test_pool, before={IDENTITY_MIGRATION: _exception_npcs}, backfill=False
     )
+    ids = [UUID(MARN), UUID(TESK), UUID(SELA), UUID(VOLKOV)]
     async with test_pool.acquire() as conn:
         counts = await identity_backfill(conn, UUID(game_id), load_exceptions(path))
         again = await identity_backfill(conn, UUID(game_id), load_exceptions(path))
@@ -377,28 +401,32 @@ async def test_exceptions_follow_the_classification_rules(test_pool, tmp_path):
             for r in await conn.fetch(
                 "SELECT id, true_name, descriptor, label_suffix FROM characters"
                 " WHERE id = ANY($1::uuid[])",
-                [UUID(MARN), UUID(TESK), UUID(SELA)],
+                ids,
             )
         }
+        shown = await conn.fetchval("SELECT display_for_player($1::uuid)", UUID(VOLKOV))
         aliases = {
             (str(r["entity_id"]), r["alias"]): (r["kind"], r["known"], r["secret"])
             for r in await conn.fetch(
                 "SELECT entity_id, alias, kind, known, secret FROM entity_aliases"
                 " WHERE entity_id = ANY($1::uuid[])",
-                [UUID(MARN), UUID(TESK), UUID(SELA)],
+                ids,
             )
         }
         journal = await conn.fetchval(
             "SELECT old_row::text FROM world_changes WHERE row_id = $1::uuid", MARN
         )
         await identity_invariants(conn, game_id)
-    assert (counts["characters_reclassified"], counts["exceptions"]) == (3, 3)
+    assert (counts["characters_reclassified"], counts["exceptions"]) == (4, 4)
     assert again["exceptions"] == 0
     assert model == {
         MARN: ("Vieux Marn", "Le vieil homme", None),
         TESK: (None, "La kethari âgée", "2"),  # Kethari's label
         SELA: ("Sela Voor-An", None, None),
+        VOLKOV: ("Garde Volkov", None, None),
     }
+    assert shown == "Inconnu(e)"  # the fr pack's unknown label
+    assert aliases[(VOLKOV, "Garde Volkov")] == ("true_name", False, False)
     # Restored true name: not known through the former descriptor alias, derived forms.
     assert aliases[(MARN, "Vieux Marn")] == ("true_name", False, False)
     assert aliases[(MARN, "Marn")] == ("short", False, False)
@@ -736,7 +764,8 @@ async def test_a_former_name_that_became_a_derived_alias_still_undoes(test_pool)
 async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
     """N5: a correction that arrives after play is skipped for a character the player
     knows under another true name, and rewrites only the journal of the turns played
-    before the migration."""
+    before the migration. M2: the legacy pass (norms, collisions, mentions rebuilt from
+    narrator_context) leaves the live game alone."""
     from scripts.identity_backfill import run as identity_backfill
     from scripts.identity_exceptions import load_exceptions
 
@@ -759,6 +788,19 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
             game_id,
             MARN,
         )
+        conversation = await conn.fetchval(
+            "INSERT INTO conversations (game_id, start_cycle) VALUES ($1::uuid, 1)"
+            " RETURNING id",
+            game_id,
+        )
+        message = await conn.fetchval(
+            """INSERT INTO messages (game_id, conversation_id, role, content, sequence,
+                                     narrator_context)
+               VALUES ($1::uuid, $2, 'assistant', 'Ossek attend.', 9999,
+                       '[[0, 5, "Ossek", "character"]]'::jsonb) RETURNING id""",
+            game_id,
+            conversation,
+        )
         path = tmp_path / "late.yaml"
         path.write_text(
             f"{SELA}: {{true_name: Autre Nom}}\n{MARN}: {{true_name: Vieux Marn}}\n",
@@ -768,6 +810,9 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
         sela = await conn.fetchval(
             "SELECT true_name FROM characters WHERE id = $1::uuid", SELA
         )
+        late_mentions = await conn.fetchval(
+            "SELECT count(*) FROM entity_mentions WHERE message_id = $1", message
+        )
         journal = sorted(
             r["row"]
             for r in await conn.fetch(
@@ -776,6 +821,7 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
             )
         )
     assert (counts["exceptions"], counts["exceptions_skipped"]) == (1, 1)
+    assert "mentions" not in counts and late_mentions == 0
     assert sela == "Sela Voor"
     assert journal == sorted(
         [
@@ -865,9 +911,11 @@ async def test_an_exception_on_a_game_created_since_rewrites_no_journal(
 
 
 async def test_a_restored_true_name_is_no_known_alias_after_undo(test_pool, tmp_path):
-    """R2-M2: a pre-migration rename from « Vieux Marn » (read as a descriptor by the
-    classification), then the exception `true_name: Vieux Marn`: after undoing the turn,
-    that form is a true name the PC does not know, never a known descriptor."""
+    """R2-M2, I3: a pre-migration rename from « Vieux Marn » (read as a descriptor by the
+    classification), then the exception `true_name: Vieux Marn`: the journal's alias row
+    of that form (a known descriptor since the classification) is dropped, the live true
+    name alias holding its norm (identity_journal_alias_conflicts), so after undoing the
+    turn that form is a true name the PC does not know, never a known descriptor."""
     from scripts.identity_backfill import run as identity_backfill
     from scripts.identity_exceptions import load_exceptions
 
@@ -898,8 +946,11 @@ async def test_a_restored_true_name_is_no_known_alias_after_undo(test_pool, tmp_
         rows = await conn.fetch(
             "SELECT old_row ->> 'kind' AS kind, (old_row ->> 'known')::boolean AS known"
             " FROM world_changes WHERE turn_id = $1::uuid AND table_name = 'entity_aliases'"
-            " AND old_row ->> 'alias' = 'Vieux Marn'",
+            " AND lower(old_row ->> 'alias') = 'vieux marn'",
             turn,
+        )
+        undone = await conn.fetchval(
+            "SELECT count(*) FROM world_changes WHERE turn_id = $1::uuid", turn
         )
         async with conn.transaction():
             await conn.fetchval("SELECT world_changes_undo($1::uuid[])", [UUID(turn)])
@@ -909,6 +960,30 @@ async def test_a_restored_true_name_is_no_known_alias_after_undo(test_pool, tmp_
             marn,
         )
         await identity_invariants(conn, game_id)
-    # The journal row is a true name again, or gone as a duplicate of the live alias.
-    assert all((r["kind"], r["known"]) == ("true_name", False) for r in rows)
+    # The undo would re-insert a known descriptor of the hidden true name: no such row.
+    assert [dict(r) for r in rows] == []
+    assert undone >= 2  # the turn's own rows are still there to undo
     assert [(a["kind"], a["known"]) for a in alias] == [("true_name", False)]
+
+
+@pytest.mark.parametrize("content", [None, "{not: [closed\n", "- a list\n"])
+def test_a_bad_exceptions_file_stops_the_backfill_with_one_line(
+    tmp_path, capsys, content
+):
+    """M9: a missing or malformed IDENTITY_BACKFILL_EXCEPTIONS file stops the backfill
+    (fail closed) with one line naming the variable and the path, no traceback, before
+    any connection."""
+    from scripts.identity_backfill import main
+
+    path = tmp_path / "exceptions.yaml"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+
+    code = main(
+        ["--database-url", "postgresql://nowhere/none", "--exceptions", str(path)]
+    )
+
+    err = capsys.readouterr().err.strip().splitlines()
+    assert code == 2
+    assert len(err) == 1
+    assert "IDENTITY_BACKFILL_EXCEPTIONS" in err[0] and str(path) in err[0]

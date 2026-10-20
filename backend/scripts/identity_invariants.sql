@@ -20,6 +20,7 @@ UNION ALL SELECT 'alias norm stale', count(*) FROM entity_aliases WHERE alias_no
 UNION ALL SELECT 'companions unregistered', count(*) FROM companions cm WHERE NOT EXISTS (SELECT 1 FROM entity_registry er WHERE er.id=cm.id)
 UNION ALL SELECT 'mentions to missing entities', count(*) FROM entity_mentions m WHERE NOT EXISTS (SELECT 1 FROM entity_registry er WHERE er.id=m.entity_id)
 UNION ALL SELECT 'mentions total', count(*) FROM entity_mentions
+UNION ALL SELECT 'unknown characters whose descriptor is their true name', count(*) FROM characters c WHERE NOT COALESCE(c.known_by_protagonist, false) AND c.true_name IS NOT NULL AND ldvelh_norm_for_game(c.game_id, c.descriptor) = ldvelh_norm_for_game(c.game_id, c.true_name)
 UNION ALL SELECT 'display_for_player NULL', count(*) FROM entity_registry er WHERE display_for_player(er.id) IS NULL;
 SELECT c.name, c.true_name, c.descriptor, c.known_by_protagonist k, display_for_player(c.id) shown FROM characters c ORDER BY c.created_at;
 SELECT kind, source, known, secret, count(*) FROM entity_aliases GROUP BY 1,2,3,4 ORDER BY 1,2,3,4;

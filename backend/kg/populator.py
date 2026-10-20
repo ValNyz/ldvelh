@@ -6,7 +6,6 @@ Write operations for all game data tables.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -26,7 +25,6 @@ from schema import (
     RelationData,
     RelationType,
     Skill,
-    is_protagonist_ref,
 )
 from schema.entity_changes import bound_changes
 from services.identity.lexicon import Lexicon
@@ -65,60 +63,28 @@ def _type_key(entity_type: str | EntityType) -> str:
     return entity_type.value if isinstance(entity_type, EntityType) else str(entity_type)
 
 
-def _default_norm(name: str) -> str:
-    return " ".join(name.lower().split())
-
-
 @dataclass
 class EntityRegistry:
-    """Local cache of the game's entity_registry: (type, normalised label) -> id.
+    """Local cache of the game's entity_registry ids, per type (#152).
 
-    Fed by `KnowledgeGraphReader.get_entities` (the stored `name_norm`). A reference made
-    of words is resolved by the SQL `find_entity` (aliases, handles, ambiguity): this cache
-    only answers for exact labels, the PC (PROTAGONIST_REF) and per-type lists.
+    Fed by `KnowledgeGraphReader.get_entities`. Only the per-type lists and the size are
+    read: every reference made of words is resolved by the SQL `find_entity` (aliases,
+    handles, ambiguity). Plan task 14 removes the class.
     """
 
-    norm: Callable[[str], str] = _default_norm
-    _by_key: dict[tuple[str, str], UUID] = field(default_factory=dict)
     _by_type: dict[str, list[UUID]] = field(default_factory=dict)
-    _names_by_id: dict[UUID, str] = field(default_factory=dict)
 
-    def register(
-        self,
-        name: str,
-        entity_id: UUID,
-        entity_type: str | EntityType,
-        name_norm: str | None = None,
-    ) -> None:
-        type_key = _type_key(entity_type)
-        self._by_key[(type_key, name_norm or self.norm(name))] = entity_id
-        self._by_type.setdefault(type_key, []).append(entity_id)
-        self._names_by_id[entity_id] = name
-
-    def resolve(self, name: str, entity_type: str | EntityType) -> UUID | None:
-        """Id of the entity of `entity_type` labelled `name`; PROTAGONIST_REF resolves to
-        the protagonist row by type (#28)."""
-        type_key = _type_key(entity_type)
-        if is_protagonist_ref(name):
-            if type_key != EntityType.PROTAGONIST.value:
-                return None
-            protagonists = self._by_type.get(type_key)
-            return protagonists[0] if protagonists else None
-        return self._by_key.get((type_key, self.norm(name)))
+    def register(self, entity_id: UUID, entity_type: str | EntityType) -> None:
+        self._by_type.setdefault(_type_key(entity_type), []).append(entity_id)
 
     def get_by_type(self, entity_type: str | EntityType) -> list[UUID]:
         return self._by_type.get(_type_key(entity_type), []).copy()
 
-    def get_name(self, entity_id: UUID) -> str | None:
-        return self._names_by_id.get(entity_id)
-
     def clear(self) -> None:
-        self._by_key.clear()
         self._by_type.clear()
-        self._names_by_id.clear()
 
     def __len__(self) -> int:
-        return len(self._names_by_id)
+        return sum(len(ids) for ids in self._by_type.values())
 
 
 # =============================================================================
@@ -152,13 +118,10 @@ class KnowledgeGraphPopulator:
         if not self.game_id:
             raise ValueError("game_id must be set before loading registry")
 
-        lexicon = await self._names_lexicon(conn)
         entities = await KnowledgeGraphReader(None, self.game_id).get_entities(conn)
-        self.registry = EntityRegistry(norm=Normalizer(lexicon.lang).norm)
+        self.registry = EntityRegistry()
         for entity in entities:
-            self.registry.register(
-                entity["name"], entity["id"], entity["entity_type"], entity["name_norm"]
-            )
+            self.registry.register(entity["id"], entity["entity_type"])
         logger.info(f"Loaded {len(entities)} entities into registry")
 
     async def _names_lexicon(self, conn: Connection) -> Lexicon:

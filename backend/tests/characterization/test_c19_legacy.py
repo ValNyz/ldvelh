@@ -195,6 +195,13 @@ IDENTITY_BREACHES = {
                 OR ch.name <> COALESCE(ch.true_name, ch.descriptor)
                               || COALESCE(' (' || ch.label_suffix || ')', '')
                 OR er.name <> ch.name)""",
+    # display_for_player would show the hidden true name (I1).
+    "unknown character whose descriptor is its true name": """
+        SELECT count(*) FROM characters ch
+         WHERE ch.game_id = $1::uuid AND NOT COALESCE(ch.known_by_protagonist, false)
+           AND ch.true_name IS NOT NULL
+           AND ldvelh_norm_for_game(ch.game_id, ch.descriptor)
+               = ldvelh_norm_for_game(ch.game_id, ch.true_name)""",
     "stale norm": """
         SELECT (SELECT count(*) FROM entity_registry WHERE game_id = $1::uuid
                    AND name_norm <> ldvelh_norm_for_game(game_id, name))

@@ -230,3 +230,53 @@ def test_an_unresolved_character_span_falls_back_to_the_unknown_label():
     place = _annotation(content, [5, 9, "Quai 9", "location"], {}, "?")
     assert (span.label, span.surface) == ("?", "Elle")
     assert place.label == "Quai 9"
+
+
+async def test_companion_and_protagonist_spans_typed_character_keep_their_names(
+    client, test_user, test_pool
+):
+    """I2: the legacy resolver tags the companion and the protagonist 'character'; their
+    spans resolve to their own entity and type, never to the unknown label."""
+    from packs.loader import load_lang
+
+    game_id = await _world(client, test_user, test_pool)
+    async with test_pool.acquire() as conn:
+        ids = {
+            r["entity_type"]: r["id"]
+            for r in await conn.fetch(
+                "SELECT id, entity_type FROM entity_registry WHERE game_id = $1"
+                " AND entity_type IN ('companion', 'protagonist')",
+                game_id,
+            )
+        }
+        conversation = await conn.fetchval(
+            "INSERT INTO conversations (game_id, start_cycle) VALUES ($1, 1) RETURNING id",
+            game_id,
+        )
+        await conn.execute(
+            """INSERT INTO messages (game_id, conversation_id, role, content, sequence,
+                                     narrator_context)
+               VALUES ($1, $2, 'assistant', 'Célimène regarde Valentin.', 1, $3::jsonb)""",
+            game_id,
+            conversation,
+            [[0, 8, "Célimène", "character"], [17, 25, "Valentin", "character"]],
+        )
+
+    annotations = (
+        await client.get(
+            "/api/tooltips/annotations",
+            params={"gameId": str(game_id)},
+            headers=auth_headers(test_user["token"]),
+        )
+    ).json()
+
+    spans = annotations["messages"][0]["annotations"]
+    assert [
+        (s["label"], s["entity_type"], s["entity_id"], s["surface"]) for s in spans
+    ] == [
+        ("Célimène", "companion", str(ids["companion"]), "Célimène"),
+        ("Valentin", "protagonist", str(ids["protagonist"]), "Valentin"),
+    ]
+    assert load_lang("fr").unknown_character_label not in json.dumps(
+        annotations, ensure_ascii=False
+    )
