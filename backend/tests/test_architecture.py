@@ -49,12 +49,6 @@ KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, impor
     ("prompts/world_generation_prompt.py", "services.engine.engine_data"),# P7 (#101)
     ("repos/games.py", "kg.reader"),                              # #108
     ("repos/llm_models.py", "services.pricing"),                  # #172
-    ("repos/turns.py", "kg"),                                     # lot H task 2
-    ("repos/turns.py", "kg.item_writes"),                         # lot H task 2
-    ("repos/turns.py", "kg.populator"),                           # lot H task 2
-    ("repos/turns.py", "kg.reader"),                              # lot H task 2
-    ("repos/turns.py", "services.identity.service"),              # lot H task 2
-    ("repos/turns.py", "services.identity.types"),                # lot H task 2
     ("schema/narration.py", "packs.loader"),                      # #169
 }
 SQL_IN_API_ALLOWED: set[str] = {   # api/ files still holding SQL: frozen debt, may only shrink
@@ -179,6 +173,11 @@ def test_layers_respect_the_dependency_rule():
 def test_known_violations_are_still_real():
     fixed = KNOWN_VIOLATIONS - collect_violations()
     assert not fixed, f"remove the fixed entry from KNOWN_VIOLATIONS: {sorted(fixed)}"
+
+
+def test_repos_turns_imports_neither_kg_nor_services():
+    source = (BACKEND / "repos/turns.py").read_text(encoding="utf-8")
+    assert not forbidden_imports(source, {"kg", "services"})
 
 
 def _api_files_with_sql():

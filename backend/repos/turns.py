@@ -1,259 +1,78 @@
-"""Turn repository: every write of a narration turn, on the caller's connection.
+"""Turn repository: the SQL of a narration turn's own rows (messages, rolls, turns), on
+the caller's connection.
 
 No function opens its own connection or transaction: the commit step runs them all
-in one transaction, so a failure anywhere leaves nothing behind (#20).
+in one transaction, so a failure anywhere leaves nothing behind (#20). What the narration
+changes in the world is applied by services/turn_effects.py.
 """
 
-import logging
 from uuid import UUID
 
-from config import get_settings
-from domain.turn import AppliedCredit, AppliedDeltas, NarrationState
-from kg.populator import KnowledgeGraphPopulator
-from kg.reader import KnowledgeGraphReader
-from schema import DEFAULT_GAME_TIME
+from domain.turn import NarrationState
 from schema.engine import RollResult
-from schema.narration import NarrationOutput
 from utils.json_utils import parse_json
-from utils.log_safe import log_cause
-
-logger = logging.getLogger(__name__)
-
-
-def _populator(game_id: UUID) -> KnowledgeGraphPopulator:
-    # Built without a pool: the methods used here only take `conn`.
-    return KnowledgeGraphPopulator(None, game_id)
-
-
-async def _resolve_location(
-    conn, populator: KnowledgeGraphPopulator, location: str, new_cycle: int
-) -> UUID | None:
-    """Id of the narrated location (C10): the live location its name or handle resolves
-    to, else a stub created through the identity service (enriched by the extraction).
-    A removed location of that name is never the turn's place: a fresh one is created
-    (internal label suffix, the player reads the bare name). A name two live locations
-    share never creates a duplicate: None."""
-    # Lazy: the identity service reads the turn of the transaction (repos.uow, which
-    # imports this module).
-    from kg.item_writes import write_item
-    from services.identity.types import NewEntitySpec
-
-    identity = await populator.identity(conn)
-    resolved, candidates = await identity.resolve_live_ref(conn, location, "location")
-    if resolved is not None:
-        location_id = resolved.entity_id
-    else:
-        if candidates > 1:
-            return None
-        location_id = await write_item(
-            conn,
-            # No list kept: an IdentityFailure is an identity_events row, logged without
-            # story text; the commit goes on without a location.
-            [],
-            "narrated location",
-            lambda: identity.create_entity(
-                conn,
-                NewEntitySpec(
-                    "location",
-                    location,
-                    "descriptor",
-                    fields={"created_cycle": new_cycle},
-                ),
-                turn_id=None,
-                source="system",
-                # No live location has the name: only removed ones may hold it.
-                trap=True,
-            ),
-            "[COMMIT] ",
-        )
-        if location_id is None:
-            return None
-    old_id = await conn.fetchval(
-        "SELECT current_location_id FROM games WHERE id = $1", populator.game_id
-    )
-    if old_id != location_id:
-        # Ids only: a location name is story text.
-        logger.info(f"[GAME] Location changed: {old_id} → {location_id}")
-    return location_id
-
-
-async def apply_narration_state(
-    conn, game_id: UUID, narration: NarrationOutput, current_cycle: int
-) -> NarrationState:
-    """Cycle, date, time and location from the narration; stub events and locations."""
-    new_cycle = current_cycle + 1 if narration.day_transition else current_cycle
-    reader = KnowledgeGraphReader(None, game_id)
-    # An unusable narrator time is None (schema/core.py GameTime): keep the game's time.
-    # Read here, in the commit transaction, so it is the stored value, not a turn-start copy.
-    new_time = narration.time.new_time if narration.time else None
-    if new_time is None:
-        new_time = await reader.get_current_time(conn) or DEFAULT_GAME_TIME
-    location = narration.current_location
-    populator = _populator(game_id)
-
-    current_date = await reader.get_current_date(conn)
-    new_date = current_date
-    if narration.day_transition:
-        new_date = narration.day_transition.new_date
-        if not new_date:
-            new_date = f"Jour {new_cycle}"
-            logger.warning(
-                f"[GAME] day_transition without new_date, using '{new_date}'"
-            )
-
-    location_id = None
-    if location:
-        location_id = await _resolve_location(conn, populator, location, new_cycle)
-
-    for evt in narration.events_mentioned:
-        await populator.create_stub_event(
-            conn,
-            evt,
-            new_cycle,
-            await _place(conn, populator, "stub event location", evt.location),
-        )
-
-    await populator.update_game_state(
-        conn,
-        cycle=new_cycle,
-        date=new_date,
-        time=new_time,
-        location_id=location_id,
-    )
-
-    return NarrationState(
-        cycle=new_cycle,
-        time=new_time,
-        location=location,
-        npcs_present=narration.npcs_present or [],
-        date=new_date,
-        location_id=location_id,
-        location_resolved=True,
-    )
-
-
-async def _place(conn, populator, label: str, location: str | None) -> UUID | None:
-    """A live location the commit writes as a place (a stub event's, C12, or a message's
-    when its state carries none): an unresolved or removed one is counted (`ref_dropped`,
-    identity_events) and the row is written without it."""
-    from kg import refs
-
-    return await refs.optional(
-        await populator.identity(conn), conn, [], label, location, "location", live=True
-    )
-
-
-async def _apply_compel(conn, game_id: UUID, narration: NarrationOutput) -> dict | None:
-    """Fate Core compel: +1 fate point if accepted, -1 (floor 0) if refused."""
-    if narration.compel_result not in ("accepted", "refused"):
-        return None
-    try:
-        # Savepoint: a failed statement must not abort the turn's transaction.
-        async with conn.transaction():
-            fp = await conn.fetchval(
-                "SELECT fate_points FROM character_fate WHERE game_id = $1", game_id
-            )
-            if fp is None:
-                return None
-            accepted = narration.compel_result == "accepted"
-            new_fp = fp + 1 if accepted else max(0, fp - 1)
-            await conn.execute(
-                "UPDATE character_fate SET fate_points = $1 WHERE game_id = $2",
-                new_fp,
-                game_id,
-            )
-    except Exception as e:  # noqa: BLE001 - a failed compel never aborts the commit
-        log_cause(
-            logger,
-            logging.WARNING,
-            "[COMPEL] FP adjustment failed",
-            e,
-            debug_detail=get_settings().log_prompts,
-        )
-        return None
-    return {
-        "result": narration.compel_result,
-        "aspect": narration.compel_aspect,
-        "fp_change": 1 if accepted else -1,
-        "new_fp": new_fp,
-    }
-
-
-async def apply_narrator_deltas(
-    conn, game_id: UUID, narration: NarrationOutput, cycle: int
-) -> AppliedDeltas:
-    """Credit delta, entity reveals and compel, applied on the spot."""
-    # Lazy: the identity service and write_item read the turn of the transaction
-    # (repos.uow, which imports this module).
-    from kg.item_writes import write_item
-    from services.identity.service import IdentityService
-    from services.identity.types import EntityRef
-
-    populator = _populator(game_id)
-    credit = None
-    if narration.credit_delta:
-        cd = narration.credit_delta
-        applied, new_balance, error = await populator.credit_transaction(
-            conn, cd.amount, cycle, cd.description
-        )
-        credit = AppliedCredit(
-            amount=cd.amount,
-            description=cd.description,
-            applied=applied,
-            new_balance=new_balance,
-            error=error,
-        )
-
-    identity = None
-    for reveal in narration.entity_reveals:
-        if reveal.entity_type == "character":
-            identity = identity or await IdentityService.for_game(conn, game_id)
-            # Its own savepoint: a failing reveal is rolled back and logged alone, the
-            # turn commits (spec §4.11).
-            await write_item(
-                conn,
-                # No list kept: write_item logs a failure (without story text) and an
-                # IdentityFailure is also an identity_events row; the commit goes on.
-                [],
-                "entity_reveal character",
-                lambda reveal=reveal, identity=identity: identity.reveal(
-                    conn,
-                    EntityRef(reveal.current_name, "character"),
-                    reveal.real_name,
-                    turn_id=None,
-                    source="reveal",
-                ),
-                "[COMMIT] ",
-            )
-        elif reveal.entity_type == "location":
-            identity = identity or await IdentityService.for_game(conn, game_id)
-            await write_item(
-                conn,
-                [],
-                "entity_reveal location",
-                lambda reveal=reveal, identity=identity: reveal_location(
-                    conn, identity, populator, reveal.current_name
-                ),
-                "[COMMIT] ",
-            )
-
-    return AppliedDeltas(
-        credit=credit, compel=await _apply_compel(conn, game_id, narration)
-    )
-
-
-async def reveal_location(conn, identity, populator, ref: str) -> bool:
-    """A location reveal: the location `ref` names, live first (the live homonym of a
-    removed place is reached by its name), becomes accessible (RefUnresolved when none or
-    several do, counted by the caller's savepoint)."""
-    resolved = await identity.require_live_ref(conn, ref, "location", or_removed=True)
-    return await populator.mark_location_accessible(conn, resolved.entity_id)
 
 
 async def store_info_requests(conn, game_id: UUID, requests: list[str]) -> None:
     """The details the next turn's context loads, replacing the previous set (one turn only)."""
     await conn.execute(
         "UPDATE games SET detail_requests = $1 WHERE id = $2", requests, game_id
+    )
+
+
+async def create_conversation(conn, game_id: UUID, start_cycle: int) -> UUID:
+    return await conn.fetchval(
+        "INSERT INTO conversations (game_id, start_cycle) VALUES ($1, $2) RETURNING id",
+        game_id,
+        start_cycle,
+    )
+
+
+async def active_conversation(conn, game_id: UUID) -> UUID | None:
+    return await conn.fetchval(
+        "SELECT id FROM conversations"
+        " WHERE game_id = $1 AND compacted = false"
+        " ORDER BY created_at DESC LIMIT 1",
+        game_id,
+    )
+
+
+async def save_message(
+    conn,
+    game_id: UUID,
+    conversation_id: UUID,
+    role: str,
+    content: str,
+    sequence: int,
+    cycle: int | None = None,
+    time: str | None = None,
+    game_date: str | None = None,
+    location_id: UUID | None = None,
+    narrator_deltas: dict | None = None,
+    engine_snapshot: dict | None = None,
+    narrator_context: list | None = None,
+    turn_id: UUID | None = None,
+) -> UUID:
+    """Save a message in a conversation; `location_id`: the place of the turn."""
+    return await conn.fetchval(
+        """INSERT INTO messages (
+            game_id, conversation_id, role, content,
+            cycle, game_date, time, location_id, sequence,
+            narrator_deltas, engine_snapshot, narrator_context, turn_id
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id""",
+        game_id,
+        conversation_id,
+        role,
+        content,
+        cycle,
+        game_date,
+        time,
+        location_id,
+        sequence,
+        narrator_deltas,
+        engine_snapshot,
+        narrator_context,
+        turn_id,
     )
 
 
@@ -270,11 +89,16 @@ async def save_turn_messages(
 ) -> tuple[UUID, UUID]:
     """User + assistant message pair of the turn; returns (user_id, assistant_id).
 
+    `state`: its place resolved (the commit's, or services.turn_effects.resolve_place);
+    a place left unresolved raises ValueError rather than stamping no location.
     `turn_id`: the turn the pair belongs to (None outside a turn: tests, fixtures)."""
-    populator = _populator(game_id)
-    conv_id = await populator.get_active_conversation(conn)
+    if not state.location_resolved and state.location and state.location.strip():
+        raise ValueError(
+            "the state's place is not resolved (turn_effects.resolve_place)"
+        )
+    conv_id = await active_conversation(conn, game_id)
     if not conv_id:
-        conv_id = await populator.create_conversation(conn, state.cycle)
+        conv_id = await create_conversation(conn, game_id, state.cycle)
 
     max_seq = await conn.fetchval(
         "SELECT COALESCE(MAX(sequence), 0) FROM messages WHERE conversation_id = $1",
@@ -284,13 +108,12 @@ async def save_turn_messages(
         "cycle": state.cycle,
         "time": state.time,
         "game_date": state.date,
-        # The commit resolved (and counted) the turn's place once: never again here.
-        "location_id": state.location_id
-        if state.location_resolved
-        else await _place(conn, populator, "message location", state.location),
+        # The place was resolved (and counted) once: never again here.
+        "location_id": state.location_id,
     }
-    user_id = await populator.save_message(
+    user_id = await save_message(
         conn,
+        game_id,
         conv_id,
         "user",
         user_message,
@@ -298,8 +121,9 @@ async def save_turn_messages(
         turn_id=turn_id,
         **stamp,
     )
-    assistant_id = await populator.save_message(
+    assistant_id = await save_message(
         conn,
+        game_id,
         conv_id,
         "assistant",
         assistant_message,
@@ -339,20 +163,12 @@ async def delete_turns(conn, game_id: UUID, turn_ids: list[UUID]) -> int:
     return int(result.split()[-1])
 
 
-async def hold_source_message(conn, message_id: UUID) -> bool:
-    """True if the message exists; it then stays share-locked until the transaction ends,
-    so a rollback deleting it waits for the caller's writes (#23)."""
-    return (
-        await conn.fetchval(
-            "SELECT 1 FROM messages WHERE id = $1 FOR SHARE", message_id
-        )
-        is not None
-    )
-
-
 async def lock_engine(conn, game_id: UUID) -> None:
     """The engine is immutable once the first narration turn is saved."""
-    await _populator(game_id).lock_engine(conn)
+    await conn.execute(
+        "UPDATE games SET engine_locked = TRUE, updated_at = NOW() WHERE id = $1",
+        game_id,
+    )
 
 
 async def log_mechanic_roll(
@@ -366,8 +182,12 @@ async def log_mechanic_roll(
     turn_id: UUID | None,
 ) -> UUID:
     """Log a resolved roll with the assistant message that narrated it, under its turn."""
-    return await _populator(game_id).log_mechanic_roll(
-        conn,
+    return await conn.fetchval(
+        """INSERT INTO mechanic_rolls
+           (game_id, message_id, engine, skill_used,
+            roll_details, outcome, complication, cycle, turn_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING id""",
         game_id,
         message_id,
         engine,

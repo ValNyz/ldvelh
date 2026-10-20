@@ -275,7 +275,7 @@ async def test_find_for_upsert_branches(test_pool, game):
 async def test_an_ambiguous_name_creates_no_location(test_pool, game):
     from kg.populator import KnowledgeGraphPopulator
     from kg.specialized_populator import ExtractionPopulator
-    from repos.turns import _resolve_location
+    from services.turn_effects import _resolve_location
     from schema import EntityCreation
     from services.identity.types import AmbiguousLabel
 

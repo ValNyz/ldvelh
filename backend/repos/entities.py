@@ -730,6 +730,17 @@ async def set_character_known(conn, game_id: UUID, entity_id: UUID) -> bool:
     return changed is not None
 
 
+async def mark_location_accessible(conn, game_id: UUID, location_id: UUID) -> bool:
+    """Mark a location as accessible, by id; False when no location of the game has it."""
+    result = await conn.execute(
+        "UPDATE locations SET accessible = true, updated_at = NOW()"
+        " WHERE id = $1 AND game_id = $2",
+        location_id,
+        game_id,
+    )
+    return result != "UPDATE 0"
+
+
 async def mark_forms_known(conn, entity_id: UUID, forms: list[str]) -> int:
     """The entity's aliases with the normalised form of one of `forms` become known;
     returns how many changed."""

@@ -1,5 +1,5 @@
-"""Turn writes (repos.turns): narration state, narrator deltas, info requests,
-message pair and mechanic rolls, all on the caller's connection."""
+"""Turn writes (repos.turns, services.turn_effects): narration state, narrator deltas,
+info requests, message pair and mechanic rolls, all on the caller's connection."""
 
 from uuid import UUID
 
@@ -8,7 +8,9 @@ from helpers import apply_deltas, apply_state, auth_headers, log_roll, make_roll
 
 from domain.turn import NarrationState
 from repos import turns
+from repos.uow import hold_source_message
 from schema import NarrationOutput
+from services import turn_effects
 from tests.test_game_and_populator import (
     _make_day_transition_narration,
     _make_narration_output,
@@ -33,7 +35,7 @@ async def _save(
             game_id,
             user_message=user_message,
             assistant_message=assistant_message,
-            state=state or _state(),
+            state=await turn_effects.resolve_place(conn, game_id, state or _state()),
             narrator_deltas=narrator_deltas or {},
             engine_snapshot=None,
             turn_id=None,
@@ -849,8 +851,8 @@ async def test_writes_share_the_callers_transaction(client, test_user, test_pool
         before = await counts(conn)
         tx = conn.transaction()
         await tx.start()
-        state = await turns.apply_narration_state(conn, game_id, narration, 1)
-        await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
+        state = await turn_effects.apply_narration_state(conn, game_id, narration, 1)
+        await turn_effects.apply_narrator_deltas(conn, game_id, narration, state.cycle)
         await turns.store_info_requests(conn, game_id, narration.info_requests)
         _, assistant_id = await turns.save_turn_messages(
             conn,
@@ -913,7 +915,7 @@ async def test_unusable_time_with_no_stored_time_falls_back_to_the_default(
 
 
 # =============================================================================
-# hold_source_message (#23)
+# hold_source_message (#23, repos.uow)
 # =============================================================================
 
 
@@ -929,10 +931,10 @@ async def test_hold_source_message_true_then_false_after_delete(test_pool, test_
     message_id = await _message_id(test_pool, test_user)
     async with test_pool.acquire() as conn:
         async with conn.transaction():
-            assert await turns.hold_source_message(conn, message_id) is True
+            assert await hold_source_message(conn, message_id) is True
         await conn.execute("DELETE FROM messages WHERE id = $1", message_id)
         async with conn.transaction():
-            assert await turns.hold_source_message(conn, message_id) is False
+            assert await hold_source_message(conn, message_id) is False
 
 
 async def test_rollback_delete_waits_for_a_held_message(test_pool, test_user):
@@ -948,7 +950,7 @@ async def test_rollback_delete_waits_for_a_held_message(test_pool, test_user):
         tx = conn_a.transaction()
         await tx.start()
         try:
-            assert await turns.hold_source_message(conn_a, message_id) is True
+            assert await hold_source_message(conn_a, message_id) is True
             deleting = asyncio.create_task(delete())
             await asyncio.sleep(0.2)
             assert not deleting.done()

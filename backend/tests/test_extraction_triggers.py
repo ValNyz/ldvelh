@@ -7,6 +7,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
+from repos import entities
 from services.extraction import orchestrator
 from services.extraction.orchestrator import EXTRACTOR_MAP, resolver_triggers
 from services.extraction.resolver import MentionMapping, ResolutionMap
@@ -206,19 +207,21 @@ async def _assistant_message(test_pool, test_user):
 
 
 async def _reapply(test_pool, game_id, assistant_message_id, character_error=None):
-    """(populator, identity service) mocks after the re-apply: character reveals go to
-    IdentityService.reveal, location reveals to the populator, by the id the service
-    resolves."""
-    populator = MagicMock()
-    populator.game_id = game_id
-    populator.mark_location_accessible = AsyncMock()
+    """(location repo, identity service) mocks after the re-apply: character reveals go
+    to IdentityService.reveal, location reveals to entities.mark_location_accessible, by
+    the id the service resolves."""
+    location_repo = MagicMock()
+    location_repo.mark_location_accessible = AsyncMock()
     identity = MagicMock()
+    identity.game_id = game_id
     identity.reveal = AsyncMock(side_effect=character_error)
     identity.require_live_ref = AsyncMock(
         return_value=ResolvedRef(LOCATION_ID, 1, "Quai", "location")
     )
     with (
-        patch.object(orchestrator, "KnowledgeGraphPopulator", return_value=populator),
+        patch.object(
+            entities, "mark_location_accessible", location_repo.mark_location_accessible
+        ),
         patch.object(
             orchestrator.IdentityService, "for_game", AsyncMock(return_value=identity)
         ),
@@ -236,7 +239,7 @@ async def _reapply(test_pool, game_id, assistant_message_id, character_error=Non
             message_content="Tu pars.",
             narrator_deltas=REVEALS,
         )
-    return populator, identity
+    return location_repo, identity
 
 
 async def test_reveals_for_a_deleted_source_message_are_not_applied(
@@ -245,29 +248,32 @@ async def test_reveals_for_a_deleted_source_message_are_not_applied(
     game_id, message_id = await _assistant_message(test_pool, test_user)
     async with test_pool.acquire() as conn:
         await conn.execute("DELETE FROM messages WHERE id = $1", message_id)
-    populator, identity = await _reapply(test_pool, game_id, message_id)
+    location_repo, identity = await _reapply(test_pool, game_id, message_id)
     identity.reveal.assert_not_called()
-    populator.mark_location_accessible.assert_not_called()
+    location_repo.mark_location_accessible.assert_not_called()
 
 
 async def test_reveals_for_a_live_source_message_are_applied(test_pool, test_user):
     game_id, message_id = await _assistant_message(test_pool, test_user)
-    populator, identity = await _reapply(test_pool, game_id, message_id)
+    location_repo, identity = await _reapply(test_pool, game_id, message_id)
     identity.reveal.assert_awaited_once()
     assert identity.reveal.await_args.args[1:] == (
         EntityRef("L'inconnu", "character"),
         "Ana",
     )
     assert identity.reveal.await_args.kwargs["source"] == "reveal"
-    populator.mark_location_accessible.assert_awaited_once()
-    assert populator.mark_location_accessible.await_args.args[1] == LOCATION_ID
+    location_repo.mark_location_accessible.assert_awaited_once()
+    assert location_repo.mark_location_accessible.await_args.args[1:] == (
+        game_id,
+        LOCATION_ID,
+    )
 
 
 async def test_reveals_without_source_message_are_applied(test_pool, test_user):
     game_id = await _game(test_pool, test_user)
-    populator, identity = await _reapply(test_pool, game_id, None)
+    location_repo, identity = await _reapply(test_pool, game_id, None)
     identity.reveal.assert_awaited_once()
-    populator.mark_location_accessible.assert_awaited_once()
+    location_repo.mark_location_accessible.assert_awaited_once()
 
 
 async def test_a_failing_reveal_does_not_stop_the_next_one(
@@ -275,14 +281,14 @@ async def test_a_failing_reveal_does_not_stop_the_next_one(
 ):
     game_id, message_id = await _assistant_message(test_pool, test_user)
     with caplog.at_level(logging.WARNING):
-        populator, identity = await _reapply(
+        location_repo, identity = await _reapply(
             test_pool,
             game_id,
             message_id,
             character_error=asyncpg.UniqueViolationError("L'inconnu"),
         )
     identity.reveal.assert_awaited_once()
-    populator.mark_location_accessible.assert_awaited_once()
+    location_repo.mark_location_accessible.assert_awaited_once()
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert any("entity_reveal character item failed" in w for w in warnings)
     assert not any("L'inconnu" in w for w in warnings)

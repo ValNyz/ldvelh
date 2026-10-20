@@ -7,15 +7,7 @@ Architecture:
 - populator.py: Écriture (INSERT/UPDATE/DELETE)
 - specialized_populator.py: WorldPopulator, ExtractionPopulator
 - context_builder.py: Construction contexte narrateur
+
+No re-export: importing a submodule (kg.item_writes, which services.identity uses) must
+not load the populators, which import services.identity.service (#168).
 """
-
-from kg.populator import KnowledgeGraphPopulator
-from kg.reader import KnowledgeGraphReader
-from kg.specialized_populator import ExtractionPopulator, WorldPopulator
-
-__all__ = [
-    "ExtractionPopulator",
-    "KnowledgeGraphPopulator",
-    "KnowledgeGraphReader",
-    "WorldPopulator",
-]

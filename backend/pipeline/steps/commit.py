@@ -22,6 +22,7 @@ from repos import turns
 from repos.uow import uow
 from schema.narration import NarrationOutput
 from schema.sse_payload import NarratorDeltasStored
+from services import turn_effects
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +64,11 @@ def _deltas_log_line(applied: AppliedDeltas) -> str:
 async def _apply_narration(conn, game_id: UUID, narration: NarrationOutput,
                            current_cycle: int) -> tuple[NarrationState, AppliedDeltas | None]:
     """Game state (cycle, time, location), narrator deltas, info requests."""
-    state = await turns.apply_narration_state(conn, game_id, narration, current_cycle)
+    state = await turn_effects.apply_narration_state(conn, game_id, narration, current_cycle)
     applied = None
     if narration.credit_delta or narration.entity_reveals or narration.compel_result:
-        applied = await turns.apply_narrator_deltas(conn, game_id, narration, state.cycle)
+        applied = await turn_effects.apply_narrator_deltas(conn, game_id, narration,
+                                                         state.cycle)
         logger.debug(_deltas_log_line(applied))
     # Always replace: the details the turn consumed are dropped, the narrator re-requests (#64).
     await turns.store_info_requests(conn, game_id, narration.info_requests)

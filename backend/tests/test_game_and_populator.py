@@ -25,6 +25,7 @@ from helpers import (
     save_pair,
     store_requests,
 )
+from repos import turns
 from repos.uow import uow
 from services.identity.service import IdentityService
 from services.identity.types import EntityRef
@@ -558,21 +559,20 @@ class TestRollback:
     ):
         """Message ID rollback works even when protocol messages exist in DB."""
         from schema import NarrationOutput
-        from kg.populator import KnowledgeGraphPopulator
 
         game_id, service, world_gen = await _setup_game_with_world(
             client, test_user, test_pool
         )
         arrival_loc = world_gen.arrival_event.arrival_location_ref
-        populator = service._get_populator(game_id)
 
         # Save a protocol message (hidden from frontend)
         async with test_pool.acquire() as conn:
-            conv_id = await populator.get_active_conversation(conn)
+            conv_id = await turns.active_conversation(conn, game_id)
             if not conv_id:
-                conv_id = await populator.create_conversation(conn, 1)
-            await populator.save_message(
+                conv_id = await turns.create_conversation(conn, game_id, 1)
+            await turns.save_message(
                 conn,
+                game_id,
                 conv_id,
                 "user",
                 "__ARRIVEE__",

@@ -11,7 +11,17 @@ from uuid import UUID
 from asyncpg import Connection
 
 from domain.errors import SourceMessageGone
-from repos.turns import hold_source_message
+
+
+async def hold_source_message(conn, message_id: UUID) -> bool:
+    """True if the message exists; it then stays share-locked until the transaction ends,
+    so a rollback deleting it waits for the caller's writes (#23)."""
+    return (
+        await conn.fetchval(
+            "SELECT 1 FROM messages WHERE id = $1 FOR SHARE", message_id
+        )
+        is not None
+    )
 
 
 @asynccontextmanager

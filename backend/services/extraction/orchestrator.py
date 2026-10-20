@@ -17,13 +17,10 @@ import asyncpg
 
 from config import get_settings
 from domain.errors import SourceMessageGone
-from kg.item_writes import write_item
-from kg.populator import KnowledgeGraphPopulator
 from llm.session import LLMSession
-from repos.turns import reveal_location
 from repos.uow import uow
+from services.identity.reveals import apply_entity_reveals
 from services.identity.service import IdentityService
-from services.identity.types import EntityRef
 from utils.log_safe import log_exception, safe_repr, safe_text
 
 from .characters import CharactersExtractor
@@ -51,48 +48,6 @@ TYPE_TO_EXTRACTOR = {
     "organization": "organizations",
     "object": "inventory",
 }
-
-
-async def _apply_entity_reveals(
-    conn: asyncpg.Connection, populator: KnowledgeGraphPopulator, entity_reveals: list
-) -> None:
-    """Each reveal in its own savepoint: a failing one is rolled back alone and logged."""
-    errors: list[str | dict] = []
-    identity = None
-    for reveal in entity_reveals:
-        etype = reveal.get("entity_type")
-        current_name = reveal.get("current_name")
-        if etype == "character" and current_name:
-            real = reveal.get("real_name")
-            identity = identity or await IdentityService.for_game(
-                conn, populator.game_id
-            )
-            await write_item(
-                conn,
-                errors,
-                "entity_reveal character",
-                lambda name=current_name, real=real, identity=identity: identity.reveal(
-                    conn,
-                    EntityRef(name, "character"),
-                    real,
-                    turn_id=None,
-                    source="reveal",
-                ),
-                "[EXTRACTION] ",
-            )
-        elif etype == "location" and current_name:
-            identity = identity or await IdentityService.for_game(
-                conn, populator.game_id
-            )
-            await write_item(
-                conn,
-                errors,
-                "entity_reveal location",
-                lambda name=current_name, identity=identity: reveal_location(
-                    conn, identity, populator, name
-                ),
-                "[EXTRACTION] ",
-            )
 
 
 async def resolver_triggers(
@@ -308,7 +263,6 @@ async def run_resolve_and_extract(
         try:
             entity_reveals = narrator_deltas.get("entity_reveals", [])
             if entity_reveals:
-                populator = KnowledgeGraphPopulator(pool, game_id)
                 async with pool.acquire() as conn:
                     # Share-lock the source message: a rollback deleting it waits for
                     # these writes, and reveals of an already-deleted turn are skipped.
@@ -316,7 +270,14 @@ async def run_resolve_and_extract(
                         async with uow(
                             conn, turn_id, source_message_id=assistant_message_id
                         ):
-                            await _apply_entity_reveals(conn, populator, entity_reveals)
+                            await apply_entity_reveals(
+                                conn,
+                                await IdentityService.for_game(conn, game_id),
+                                entity_reveals,
+                                turn_id=None,
+                                source="reveal",
+                                log_prefix="[EXTRACTION] ",
+                            )
                     except SourceMessageGone:
                         logger.info(
                             "[EXTRACTION] Source message gone, entity_reveals skipped"

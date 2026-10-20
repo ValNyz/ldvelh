@@ -21,13 +21,12 @@ from schema import (
     Skill,
 )
 from schema.entity_changes import CHANGES_MODELS, bound_changes
+from services.identity.service import IdentityService
 
 from .upsert_sql import TEXT, non_blank
 
 if TYPE_CHECKING:
     from asyncpg import Connection, Pool
-
-    from services.identity.service import IdentityService
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +55,6 @@ class KnowledgeGraphPopulator:
         """The game's identity service, built once (its language packs loaded once per
         populator, not per item)."""
         if self._identity is None:
-            # Lazy: the service imports repos.uow, which imports repos.turns -> this module.
-            from services.identity.service import IdentityService
-
             self._identity = await IdentityService.for_game(conn, self.game_id)
         return self._identity
 
@@ -313,18 +309,6 @@ class KnowledgeGraphPopulator:
     ) -> bool:
         """The entity exists and was not removed from the world."""
         return await entity_repo.is_live(conn, entity_type.value, entity_id)
-
-    async def mark_location_accessible(
-        self, conn: Connection, location_id: UUID
-    ) -> bool:
-        """Mark a location as accessible, by id."""
-        result = await conn.execute(
-            "UPDATE locations SET accessible = true, updated_at = NOW()"
-            " WHERE id = $1 AND game_id = $2",
-            location_id,
-            self.game_id,
-        )
-        return result != "UPDATE 0"
 
     # =========================================================================
     # RELATIONS
@@ -671,64 +655,6 @@ class KnowledgeGraphPopulator:
         )
 
     # =========================================================================
-    # CONVERSATIONS & MESSAGES
-    # =========================================================================
-
-    async def create_conversation(self, conn: Connection, start_cycle: int) -> UUID:
-        return await conn.fetchval(
-            "INSERT INTO conversations (game_id, start_cycle)"
-            " VALUES ($1, $2) RETURNING id",
-            self.game_id,
-            start_cycle,
-        )
-
-    async def get_active_conversation(self, conn: Connection) -> UUID | None:
-        return await conn.fetchval(
-            "SELECT id FROM conversations"
-            " WHERE game_id = $1 AND compacted = false"
-            " ORDER BY created_at DESC LIMIT 1",
-            self.game_id,
-        )
-
-    async def save_message(
-        self,
-        conn: Connection,
-        conversation_id: UUID,
-        role: str,
-        content: str,
-        sequence: int,
-        cycle: int | None = None,
-        time: str | None = None,
-        game_date: str | None = None,
-        location_id: UUID | None = None,
-        narrator_deltas: dict | None = None,
-        engine_snapshot: dict | None = None,
-        narrator_context: list | None = None,
-        turn_id: UUID | None = None,
-    ) -> UUID:
-        """Save a message in a conversation; `location_id`: the place of the turn."""
-        return await conn.fetchval(
-            """INSERT INTO messages (
-                game_id, conversation_id, role, content,
-                cycle, game_date, time, location_id, sequence,
-                narrator_deltas, engine_snapshot, narrator_context, turn_id
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id""",
-            self.game_id,
-            conversation_id,
-            role,
-            content,
-            cycle,
-            game_date,
-            time,
-            location_id,
-            sequence,
-            narrator_deltas,
-            engine_snapshot,
-            narrator_context,
-            turn_id,
-        )
-
-    # =========================================================================
     # CHRONOLOGY
     # =========================================================================
 
@@ -836,47 +762,5 @@ class KnowledgeGraphPopulator:
             stats.get("facts_created", 0),
             stats.get("entities_created", 0) + stats.get("entities_updated", 0),
             stats.get("errors"),
-            turn_id,
-        )
-
-    # =========================================================================
-    # ENGINE
-    # =========================================================================
-
-    async def lock_engine(self, conn: Connection) -> None:
-        """Lock the engine (immutable after first message)."""
-        await conn.execute(
-            "UPDATE games SET engine_locked = TRUE, updated_at = NOW() WHERE id = $1",
-            self.game_id,
-        )
-
-    async def log_mechanic_roll(
-        self,
-        conn: Connection,
-        game_id: UUID,
-        message_id: UUID | None,
-        engine: str,
-        skill_used: str | None,
-        roll_details: dict,
-        outcome: str,
-        complication: bool,
-        cycle: int | None,
-        turn_id: UUID | None = None,
-    ) -> UUID:
-        """Insert a mechanic roll log entry."""
-        return await conn.fetchval(
-            """INSERT INTO mechanic_rolls
-               (game_id, message_id, engine, skill_used,
-                roll_details, outcome, complication, cycle, turn_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-               RETURNING id""",
-            game_id,
-            message_id,
-            engine,
-            skill_used,
-            roll_details,
-            outcome,
-            complication,
-            cycle,
             turn_id,
         )

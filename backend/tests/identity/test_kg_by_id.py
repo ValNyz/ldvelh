@@ -512,11 +512,14 @@ async def _turn_at(conn, game_id, place, *, save=False):
     `save`), journaled under its own turn; (turn id, state, assistant message id)."""
     from repos import turns
     from repos.uow import uow
+    from services import turn_effects
 
     turn_id = await turns.open_turn(conn, game_id)
     assistant_id = None
     async with uow(conn, turn_id):
-        state = await turns.apply_narration_state(conn, game_id, _narration(place), 1)
+        state = await turn_effects.apply_narration_state(
+            conn, game_id, _narration(place), 1
+        )
         if save:
             _, assistant_id = await turns.save_turn_messages(
                 conn,
@@ -838,6 +841,7 @@ async def test_a_narrator_event_with_an_unknown_place_is_counted(test_pool, test
     """I3 (C12): the stub event is written without its place, and the place is counted."""
     from repos import turns
     from repos.uow import uow
+    from services import turn_effects
 
     game_id = await _world(test_pool, test_user)
     narration = _narration(
@@ -849,7 +853,7 @@ async def test_a_narrator_event_with_an_unknown_place_is_counted(test_pool, test
     async with test_pool.acquire() as conn:
         turn_id = await turns.open_turn(conn, game_id)
         async with uow(conn, turn_id):
-            await turns.apply_narration_state(conn, game_id, narration, 1)
+            await turn_effects.apply_narration_state(conn, game_id, narration, 1)
         place = await conn.fetchval(
             "SELECT location_id FROM events WHERE game_id = $1 AND title = $2",
             game_id,
@@ -1069,6 +1073,7 @@ async def test_a_location_reveal_reaches_the_live_homonym_of_a_removed_place(
     """I2: a narrator location reveal by the shared name opens the live location."""
     from repos import turns
     from repos.uow import uow
+    from services import turn_effects
 
     game_id = await _world(test_pool, test_user)
     async with test_pool.acquire() as conn:
@@ -1084,7 +1089,7 @@ async def test_a_location_reveal_reaches_the_live_homonym_of_a_removed_place(
         )
         turn_id = await turns.open_turn(conn, game_id)
         async with uow(conn, turn_id):
-            await turns.apply_narrator_deltas(conn, game_id, narration, 1)
+            await turn_effects.apply_narrator_deltas(conn, game_id, narration, 1)
         accessible = await conn.fetchval(
             "SELECT accessible FROM locations WHERE id = $1", fresh
         )

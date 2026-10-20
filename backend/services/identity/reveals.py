@@ -33,15 +33,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from kg.item_writes import write_item
 from repos import entities
 from services.identity import merges
 from services.identity.aliases import derive
 from services.identity.types import EntityRef, FactRef, RevealOutcome
 
 if TYPE_CHECKING:
+    from schema.narration import EntityReveal
     from services.identity.service import IdentityService
 
 logger = logging.getLogger(__name__)
@@ -49,6 +52,72 @@ logger = logging.getLogger(__name__)
 CHARACTER = "character"
 # Types a revealed name never merges automatically (spec §4.7: the resolver decides).
 _NEVER_AUTO_MERGED = frozenset({"object"})
+
+
+def _reveal_fields(
+    reveal: EntityReveal | dict,
+) -> tuple[str | None, str, str | None] | None:
+    """(entity type, current name, real name) of a narrator reveal. A stored one (a dict,
+    the turn's narrator_deltas) without a current name is skipped: None."""
+    if isinstance(reveal, dict):
+        current_name = reveal.get("current_name")
+        if not current_name:
+            return None
+        return reveal.get("entity_type"), current_name, reveal.get("real_name")
+    return reveal.entity_type, reveal.current_name, reveal.real_name
+
+
+async def apply_entity_reveals(
+    conn,
+    identity: IdentityService,
+    reveals: Sequence[EntityReveal | dict],
+    *,
+    turn_id: UUID | None,
+    source: str,
+    log_prefix: str,
+) -> None:
+    """The narrator's entity reveals (at the commit, then re-applied by the extraction),
+    each in its own savepoint: a failing one is rolled back and logged alone (spec §4.11).
+    A character goes through the reveal table, a location becomes accessible."""
+    for reveal in reveals:
+        fields = _reveal_fields(reveal)
+        if fields is None:
+            continue
+        entity_type, current_name, real_name = fields
+        if entity_type == CHARACTER:
+            await write_item(
+                conn,
+                # No list kept: write_item logs a failure (without story text) and an
+                # IdentityFailure is also an identity_events row; the caller goes on.
+                [],
+                "entity_reveal character",
+                lambda name=current_name, real=real_name: identity.reveal(
+                    conn,
+                    EntityRef(name, CHARACTER),
+                    real,
+                    turn_id=turn_id,
+                    source=source,
+                ),
+                log_prefix,
+            )
+        elif entity_type == "location":
+            await write_item(
+                conn,
+                [],
+                "entity_reveal location",
+                lambda name=current_name: reveal_location(conn, identity, name),
+                log_prefix,
+            )
+
+
+async def reveal_location(conn, identity: IdentityService, ref: str) -> bool:
+    """A location reveal: the location `ref` names, live first (the live homonym of a
+    removed place is reached by its name), becomes accessible (RefUnresolved when none or
+    several do, counted by the caller's savepoint)."""
+    resolved = await identity.require_live_ref(conn, ref, "location", or_removed=True)
+    return await entities.mark_location_accessible(
+        conn, identity.game_id, resolved.entity_id
+    )
 
 
 def _name_column(entity_type: str) -> str:

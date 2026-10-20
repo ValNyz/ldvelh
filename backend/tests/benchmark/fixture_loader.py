@@ -12,6 +12,7 @@ from pathlib import Path
 from uuid import UUID
 
 from repos import turns as turn_repo
+from services import turn_effects
 from schema import WorldGeneration, NarrationOutput
 from services.game_service import GameService
 
@@ -68,14 +69,14 @@ async def replay_game_dump(
         # Process the narration (updates cycle, time, location), apply deltas
         # (credits, entity reveals) and save the messages, as a turn commit does.
         async with pool.acquire() as conn:
-            result = await turn_repo.apply_narration_state(conn, game_id, narration,
+            result = await turn_effects.apply_narration_state(conn, game_id, narration,
                                                            current_cycle)
             current_cycle = result.cycle
             if result.time:
                 current_time = result.time
             if result.location:
                 current_location = result.location
-            await turn_repo.apply_narrator_deltas(conn, game_id, narration, current_cycle)
+            await turn_effects.apply_narrator_deltas(conn, game_id, narration, current_cycle)
             await turn_repo.save_turn_messages(
                 conn, game_id,
                 user_message=turn["user_message"],

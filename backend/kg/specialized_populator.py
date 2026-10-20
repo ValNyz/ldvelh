@@ -18,6 +18,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from repos import entities as entity_repo
+from repos.uow import current_turn_id
 from schema import (
     PROTAGONIST_REF,
     CharacterData,
@@ -946,7 +947,4 @@ async def _count_refusal(
 
 async def _turn_of(conn: Connection) -> UUID | None:
     """The turn the transaction is journaled under (the aliases a write learns carry it)."""
-    # Lazy: repos.uow imports repos.turns, which imports kg.populator.
-    from repos.uow import current_turn_id
-
     return await current_turn_id(conn)
