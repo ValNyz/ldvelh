@@ -81,9 +81,7 @@ class KnowledgeGraphReader:
         game["engine"] = coerce_engine(game["engine"], game_id).value
         return game
 
-    async def game_exists(
-        self, conn: Connection, active_only: bool = True
-    ) -> bool:
+    async def game_exists(self, conn: Connection, active_only: bool = True) -> bool:
         if active_only:
             return await conn.fetchval(
                 "SELECT EXISTS(SELECT 1 FROM games WHERE id = $1 AND active = true)",
@@ -136,10 +134,12 @@ class KnowledgeGraphReader:
     async def get_entities(
         self, conn: Connection, entity_type: str | None = None
     ) -> list[dict]:
-        """Live entities of entity_registry (merge tombstones left out), with their
-        normalised label."""
+        """Live entities of entity_registry (merge tombstones left out): `name` is the
+        label without its internal homonym suffix (what prompts may read), `name_norm` the
+        normalised registry label."""
         query = (
-            "SELECT id, entity_type, name, name_norm, handle FROM entity_registry"
+            "SELECT id, entity_type, identity_bare_label(id) AS name, name_norm, handle"
+            " FROM entity_registry"
             " WHERE game_id = $1 AND merged_into IS NULL"
         )
         params: list = [self.game_id]
@@ -249,7 +249,8 @@ class KnowledgeGraphReader:
         """Get all active NPCs with their fields and relation to protagonist."""
         rows = await conn.fetch(
             """SELECT
-                c.id, c.name, c.known_by_protagonist, c.true_name, c.descriptor,
+                c.id, identity_bare_label(c.id) AS name, c.known_by_protagonist,
+                c.true_name, c.descriptor,
                 display_for_player(c.id) AS display_name,
                 c.species, c.gender, c.pronouns, c.age, c.description,
                 c.traits, c.mood, c.occupation, c.origin,
@@ -308,7 +309,8 @@ class KnowledgeGraphReader:
             return []
         rows = await conn.fetch(
             """SELECT DISTINCT
-                c.id, c.name, c.known_by_protagonist, c.true_name, c.descriptor,
+                c.id, identity_bare_label(c.id) AS name, c.known_by_protagonist,
+                c.true_name, c.descriptor,
                 display_for_player(c.id) AS display_name,
                 c.species, c.occupation, c.traits, c.mood, c.ambient,
                 r_knows.level as relation_level,
@@ -353,9 +355,7 @@ class KnowledgeGraphReader:
         )
         return [dict(r) for r in rows]
 
-    async def get_location_by_name(
-        self, conn: Connection, name: str
-    ) -> dict | None:
+    async def get_location_by_name(self, conn: Connection, name: str) -> dict | None:
         row = await conn.fetchrow(
             """SELECT l.id, l.name, l.location_type, l.sector,
                       l.description, l.atmosphere, l.accessible,
@@ -553,7 +553,8 @@ class KnowledgeGraphReader:
             """SELECT v.id, v.title, v.domain, v.description,
                       v.intensity, v.participants,
                       na.owner_id,
-                      er.name as owner_name, er.entity_type as owner_type
+                      identity_bare_label(na.owner_id) as owner_name,
+                      er.entity_type as owner_type
                FROM v_active_arcs v
                JOIN narrative_arcs na ON na.id = v.id
                LEFT JOIN entity_registry er ON na.owner_id = er.id
@@ -563,9 +564,7 @@ class KnowledgeGraphReader:
         )
         return [dict(r) for r in rows]
 
-    async def find_arc_by_title(
-        self, conn: Connection, title: str
-    ) -> dict | None:
+    async def find_arc_by_title(self, conn: Connection, title: str) -> dict | None:
         """Find an arc by partial title match."""
         row = await conn.fetchrow(
             """SELECT id, title, domain, description, resolved
@@ -682,9 +681,7 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
-    async def get_last_assistant_message(
-        self, conn: Connection
-    ) -> dict | None:
+    async def get_last_assistant_message(self, conn: Connection) -> dict | None:
         """Get the most recent assistant message with location name."""
         row = await conn.fetchrow(
             """SELECT m.id, m.cycle, m.time, m.location_id, m.sequence,
@@ -706,9 +703,7 @@ class KnowledgeGraphReader:
     # NARRATIVE SEEDS
     # =========================================================================
 
-    async def get_active_seeds(
-        self, conn: Connection, limit: int = 15
-    ) -> list[dict]:
+    async def get_active_seeds(self, conn: Connection, limit: int = 15) -> list[dict]:
         """Get active narrative seeds, most recent first."""
         rows = await conn.fetch(
             """SELECT s.id, s.cycle, s.text, s.created_at,
@@ -718,7 +713,8 @@ class KnowledgeGraphReader:
                WHERE s.game_id = $1 AND s.status = 'active'
                ORDER BY s.cycle DESC
                LIMIT $2""",
-            self.game_id, limit,
+            self.game_id,
+            limit,
         )
         return [dict(r) for r in rows]
 
@@ -752,9 +748,7 @@ class KnowledgeGraphReader:
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
-    async def get_chronology_entry(
-        self, conn: Connection, cycle: int
-    ) -> dict | None:
+    async def get_chronology_entry(self, conn: Connection, cycle: int) -> dict | None:
         results = await self.get_chronology(conn, max_cycle=cycle, limit=1)
         if results and results[0]["cycle"] == cycle:
             return results[0]
@@ -804,13 +798,9 @@ class KnowledgeGraphReader:
                 result["arrival_description"] = desc
             elif key == arrival_key("incident"):
                 result["incident"] = desc
-            elif key == arrival_key("mood") and desc.startswith(
-                "État à l'arrivée : "
-            ):
+            elif key == arrival_key("mood") and desc.startswith("État à l'arrivée : "):
                 result["initial_mood"] = desc[19:]
-            elif key == arrival_key("need") and desc.startswith(
-                "Besoin immédiat : "
-            ):
+            elif key == arrival_key("need") and desc.startswith("Besoin immédiat : "):
                 result["immediate_need"] = desc[18:]
 
         return result
@@ -851,7 +841,9 @@ class KnowledgeGraphReader:
                  AND m.cycle >= $2
                  AND m.cycle <= $3
                ORDER BY m.sequence ASC""",
-            self.game_id, from_cycle, to_cycle,
+            self.game_id,
+            from_cycle,
+            to_cycle,
         )
         return [dict(r) for r in rows]
 
@@ -869,11 +861,13 @@ class KnowledgeGraphReader:
         """Full details of a live character, location or organization, by id."""
         entity_type = await conn.fetchval(
             "SELECT entity_type FROM entity_registry WHERE game_id = $1 AND id = $2",
-            self.game_id, entity_id,
+            self.game_id,
+            entity_id,
         )
         if entity_type == "character":
             row = await conn.fetchrow(
-                """SELECT c.*, r.level as relation_level, r.context as relation_context
+                """SELECT c.*, identity_bare_label(c.id) AS bare_label,
+                          r.level as relation_level, r.context as relation_context
                    FROM characters c
                    LEFT JOIN relations r ON r.game_id = c.game_id
                        AND r.target_id = c.id AND r.end_cycle IS NULL
@@ -884,22 +878,29 @@ class KnowledgeGraphReader:
                        )
                    WHERE c.game_id = $1 AND c.id = $2
                      AND c.removed_cycle IS NULL""",
-                self.game_id, entity_id,
+                self.game_id,
+                entity_id,
             )
         elif entity_type in ("location", "organization"):
             table = "locations" if entity_type == "location" else "organizations"
             row = await conn.fetchrow(
                 f"""SELECT * FROM {table}
                     WHERE game_id = $1 AND id = $2 AND removed_cycle IS NULL""",
-                self.game_id, entity_id,
+                self.game_id,
+                entity_id,
             )
         else:
             return None
         if not row:
             return None
         d = dict(row)
+        if "bare_label" in d:
+            # A character's name column holds its internal label (homonym suffix).
+            d["name"] = d.pop("bare_label")
         d["_entity_type"] = entity_type
-        d["recent_facts"] = await self._get_entity_recent_facts(conn, entity_id, limit=5)
+        d["recent_facts"] = await self._get_entity_recent_facts(
+            conn, entity_id, limit=5
+        )
         return d
 
     async def _get_entity_recent_facts(
@@ -913,7 +914,9 @@ class KnowledgeGraphReader:
                WHERE f.game_id = $1 AND fp.entity_id = $2
                ORDER BY f.cycle DESC, f.importance DESC
                LIMIT $3""",
-            self.game_id, entity_id, limit,
+            self.game_id,
+            entity_id,
+            limit,
         )
         return [dict(r) for r in rows]
 
@@ -974,7 +977,9 @@ class KnowledgeGraphReader:
         """
         raw = await conn.fetchval(
             "SELECT engine_snapshot FROM messages WHERE id = $1 AND game_id = $2",
-            message_id, self.game_id,
+            message_id,
+            self.game_id,
         )
-        snapshot = parse_json(raw)  # {} (engine without turn state) is a snapshot, NULL is not
+        # {} (engine without turn state) is a snapshot, NULL is not.
+        snapshot = parse_json(raw)
         return snapshot if isinstance(snapshot, dict) else None

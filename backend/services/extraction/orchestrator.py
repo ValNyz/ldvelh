@@ -354,7 +354,7 @@ async def _build_first_turn_reference(
     """
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT er.name, er.entity_type
+            """SELECT identity_bare_label(er.id) AS name, er.entity_type
                FROM entity_registry er
                WHERE er.game_id = $1
                  AND er.entity_type IN ('character', 'location', 'organization')
