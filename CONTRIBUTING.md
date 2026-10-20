@@ -147,6 +147,8 @@ The entity-identity work (phase 6, #151) is measured against a hand-annotated go
 - **Two modes**:
   - *live API*: `--provider anthropic --runs N` makes real, paid calls with the server key (`ANTHROPIC_API_KEY`...);
   - *emit / import*, without an API key: `--emit-prompts DIR` writes one `<scene id>.json` per request, exactly what the app would send (model, options, system, messages); someone else answers each one into `<scene id>.txt` (for the baseline, Claude subagents of the app's model tier); `--import-responses DIR --responder KIND:DETAIL` parses those answers with the app's own code and scores them. `--responder` is required: it is printed in the report header and json and its kind ends the file name (`...-claude-sonnet-5-5-subagent`), so an imported report never passes for an API run.
+- **Resolver v2** (`--adapter v2`, #154): runs the app's own resolver v2 on a scratch game of a throwaway database (`eval-identity.sh` starts one), rolled back after each scene. Its model calls follow the catalog roles **`identity`** (the small model that decides every turn: Haiku on Anthropic) and **`identity_strong`** (the strong model of the escalation: Sonnet); `--models identity=…,identity_strong=…` overrides them, `--tier cheap` turns the escalation off (the small model alone). Its emit / import is **staged**, because the second call of a turn depends on the first answer: one request per call, `<scene id>.<n>.json` (with its `purpose` and `model`, so it can be routed to the right responder), answered in `<scene id>.<n>.txt` as `backend/evals/identity/RESPONDERS.md` says; each run replays the answered calls and writes the next unanswered one, listed in `DIR/pending.json`, until nothing is pending (`--import-responses` exits with code 3 and scores nothing while a request is pending). `--runs N` uses `DIR/run1` … `DIR/runN`. A replayed run's tokens are estimated (characters / 4) and priced from the model prices when known; the report says so. `--milestone pr2` adds the PR 2 gate (hard pool ≥ 0.85, W ≤ 0.02, L = 0 — no undisclosed secret name of the fixtures in the cards or the outputs — plus the escalation rate and the cost per turn against their targets).
+- **Re-evaluation is mandatory** for any change to the identity prompt (`prompts/identity_prompt.py`, the pack examples it renders), the blocking (`services/identity/candidates.py`, the `IdentityConfig` values) or a model of the `identity` / `identity_strong` roles: re-run the v2 adapter on dev (and, for a gate decision, the test split once) and put the numbers in the PR. A change to the blocking also re-runs `tests/identity/test_candidates.py::test_blocking_recall_of_the_turn_set_on_the_whole_corpus`.
 
 Re-evaluate on dev while working; run the test split only for a gate decision (choose on dev, read test once):
 
@@ -155,9 +157,13 @@ scripts/eval-identity.sh --adapter legacy --split dev --sequences --runs 3 --pro
 scripts/eval-identity.sh --adapter legacy --split test --runs 3 --provider anthropic --gate   # exit 1 if the gate fails
 EVAL_IO=/tmp/identity scripts/eval-identity.sh --adapter legacy --split dev --sequences --emit-prompts /io/dev
 EVAL_IO=/tmp/identity scripts/eval-identity.sh --adapter legacy --split dev --sequences --import-responses /io/dev --responder subagent:claude-sonnet
+scripts/eval-identity.sh --adapter v2 --split dev --runs 1 --provider anthropic
+scripts/eval-identity.sh --adapter v2 --split test --runs 3 --provider anthropic --milestone pr2 --gate
+EVAL_IO=/tmp/identity scripts/eval-identity.sh --adapter v2 --split dev --emit-prompts /io/dev
+EVAL_IO=/tmp/identity scripts/eval-identity.sh --adapter v2 --split dev --import-responses /io/dev --responder subagent:claude-haiku+claude-sonnet --milestone pr2   # repeat until nothing is pending
 ```
 
-The reference numbers are the baseline of the legacy resolver: `tests/reports/identity/2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md`. Flags and details: `backend/scripts/README.md`.
+The reference numbers are the baseline of the legacy resolver: `tests/reports/identity/2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md`, and the PR 2 gate of the resolver v2: **[GATE REPORT: to be filled, `tests/reports/identity/<date>-pr2-gate-anthropic-haiku-sonnet.md`]**. Flags and details: `backend/scripts/README.md`.
 
 ## Architecture rules and lint
 

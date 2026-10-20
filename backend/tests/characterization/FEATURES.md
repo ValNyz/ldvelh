@@ -169,6 +169,19 @@ No F-xx changes behaviour and no snapshot changed. The lot moves code and adds g
 - Removals: dead code; the rollback by index (F-20: `messageId` is required, 422 without it); the unreachable `extracting` turn status.
 - Import cycle `repos` / `kg` / `services.identity` broken: `tests/test_import_order.py`.
 
+### Phase 6c (resolver v2)
+
+F-xx touched: see the F-xx rows above changed by tasks 16-18 (#154). Tasks 16-19: the blocking (`services/identity/candidates.py`, turn-set recall gate R24), the identity prompt and the decision cascade (`prompts/identity_prompt.py`, `services/identity/decision.py`: prepass, the small model of the `identity` role, at most one escalation to the `identity_strong` one, fallback to the prepass), the resolver v2 run after commit by the extraction orchestrator (`services/identity/resolution.py`, model calls outside the turn's unit of work, R28), and its offline evaluation (`evals/identity/adapters/resolver_v2.py`, staged emit / import for responders without an API key, `evals/identity/RESPONDERS.md`).
+
+- [x] F-xx touched are listed above
+- [ ] Full suite green (`scripts/test-backend.sh`), ruff gate green, e2e green (`scripts/test-e2e.sh`)
+- [x] Snapshots changed only in C-12: `rollback_result.undone_changes` 6 -> 10 (the turn's journaled `entity_mentions` and the stub the service creates before the extractor enriches it, R29)
+- [x] Legacy fixture (C-19) replayed through the migrations of the PR
+- [x] Blocking gate: turn-set recall ≥ 0.98 on dev + test (`tests/identity/test_candidates.py::test_blocking_recall_of_the_turn_set_on_the_whole_corpus`)
+- [ ] Tuning on dev, at least three cycles (D27), each summarised in the PR: **[DEV CYCLES: to be filled]**
+- [ ] PR 2 gate on the frozen test split, 3 runs, `--milestone pr2`: hard pool ≥ 0.85, W ≤ 0.02, L = 0, escalation rate (target ≤ 0.20) and cost per turn (target ≤ 0.01 $) printed, plus the cheap tier (`--tier cheap`). **[GATE NUMBERS: to be filled from `tests/reports/identity/<date>-pr2-gate-anthropic-haiku-sonnet.md`]**. Source: subagent responders (Haiku for `identity`, Sonnet for `identity_strong`, ruling R23), to confirm with 3 API runs when a key exists; other providers not run (no key)
+- [ ] Manual smoke: recommended (a turn naming a known NPC by a descriptor, a new NPC, tooltips)
+
 ## Comment mettre à jour un snapshot
 
 A behavior change is allowed only when it fixes an issue listed in the phase. Then:

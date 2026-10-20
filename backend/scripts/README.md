@@ -139,12 +139,31 @@ scripts/eval-identity.sh --adapter legacy --split test --runs 1 --provider anthr
 python -m scripts.eval_identity --adapter legacy --split dev [--sequences] [--category C] [--scene ID]
 python -m scripts.eval_identity ... --emit-prompts DIR       # no call: one <scene id>.json per request
 python -m scripts.eval_identity ... --import-responses DIR --responder subagent:claude-sonnet
+python -m scripts.eval_identity --adapter v2 --split dev [--tier cheap] [--milestone pr2] [--runs N]
+python -m scripts.eval_identity --adapter v2 ... --emit-prompts DIR      # staged: <scene id>.<n>.json per call
+python -m scripts.eval_identity --adapter v2 ... --import-responses DIR --responder subagent:claude-haiku+claude-sonnet
 ```
 
 - `--adapter legacy`: the current resolver (`services/extraction/resolver.py`), driven as
   the extraction orchestrator drives it (`evals/identity/adapters/legacy_resolver.py`).
-  `--models resolver=MODEL` overrides its model (the v2 adapter will take
-  `identity=` / `identity_strong=`, `--tier` and `--annotate-blind`).
+  `--models resolver=MODEL` overrides its model.
+- `--adapter v2`: the resolver v2 (`evals/identity/adapters/resolver_v2.py`), on a scratch
+  game of the database of `TEST_DATABASE_URL` (its name must end with `_test`; the
+  language packs are synced first), rolled back after each scene. `--models
+  identity=MODEL,identity_strong=MODEL` overrides the catalog roles, `--tier cheap`
+  turns the escalation off. Scenes only (no `--sequences` yet). Its emit / import is
+  staged: `<scene id>.<n>.json` per call (with `purpose` and `model`), answered in
+  `<scene id>.<n>.txt` (`evals/identity/RESPONDERS.md`); each run replays the answers
+  and writes the next unanswered call of each scene, listed in `DIR/pending.json` with
+  the count per purpose printed; `--import-responses` exits with code 3 and scores
+  nothing while a request is pending. An answer whose request no longer matches what
+  the code builds is refused (stale). `--runs N` reads `DIR/run1` ... `DIR/runN`. The
+  same directory serves `--tier cheap` (it replays the first stage only). Replayed
+  usage is estimated (characters / 4), priced when the model has a known price.
+- `--milestone pr2`: adds the PR 2 gate (hard pool ≥ 0.85, W ≤ 0.02, L = 0, escalation
+  rate and cost per turn against their targets); with `--gate` the exit code follows it.
+  L counts the undisclosed secret names of the fixtures found in the requests' cards
+  or the outputs (`evals/identity/leaks.py`).
 - Live runs make real, paid calls; the key is the server's (`ANTHROPIC_API_KEY`...) or,
   with a real database, the one the player of `CATALOG_KEYS_USER_EMAIL` saved.
 - `--emit-prompts` / `--import-responses` produce the report without an API key: the
@@ -152,7 +171,9 @@ python -m scripts.eval_identity ... --import-responses DIR --responder subagent:
   app's own code. `--responder KIND:DETAIL` (required) says who answered; it goes in the
   report header and json, and its kind ends the file name, so the report names the app
   model it emulates (`...-claude-sonnet-5-5-subagent`) without passing for an API run.
-  With `eval-identity.sh`, set `EVAL_IO` to the host directory and pass `/io/<path>`.
+  With `eval-identity.sh`, set `EVAL_IO` to the host directory and pass `/io/<path>`
+  (writable with either flag). An import by `subagent:` responders says in its header
+  that the numbers are to be confirmed with 3 API runs when a key exists.
 - `--sequences` adds every sequence (B³, CEAF-e). With the legacy adapter, MESSAGE 1 of a
   turn is its gold history, not the system's own previous annotations: the report
   header says so.
