@@ -18,7 +18,7 @@ GUARD = "Garde du sas"
 @pytest.fixture
 async def world(test_pool, test_user) -> dict:
     """Two guards and two bars, the second of each with an internal suffix; the suffixed
-    guard owns an arc, knows the protagonist and works at the suffixed bar."""
+    guard owns an arc and works at the suffixed bar; the protagonist knows both guards."""
     async with test_pool.acquire() as conn:
         game = await conn.fetchval(
             "INSERT INTO games (user_id, language) VALUES ($1, 'fr') RETURNING id",
@@ -40,7 +40,7 @@ async def world(test_pool, test_user) -> dict:
             )
 
         quay = await create("location", "Quai 9")
-        await create("character", GUARD)
+        first_guard = await create("character", GUARD)
         guard = await create("character", GUARD, scene_location_id=quay, trap=True)
         await create("location", "Le Bar du coin")
         bar = await create("location", "Le Bar du coin", trap=True)
@@ -53,11 +53,13 @@ async def world(test_pool, test_user) -> dict:
         )
         await conn.execute(
             """INSERT INTO relations (game_id, type, source_id, target_id, level)
-               VALUES ($1, 'knows', $2, $3, 5), ($1, 'works_at', $3, $4, NULL)""",
+               VALUES ($1, 'knows', $2, $3, 5), ($1, 'works_at', $3, $4, NULL),
+                      ($1, 'knows', $2, $5, 2)""",
             game,
             pc,
             guard,
             bar,
+            first_guard,
         )
         labels = {
             r["id"]: r["name"]
@@ -67,7 +69,7 @@ async def world(test_pool, test_user) -> dict:
             )
         }
     assert labels == {guard: f"{GUARD} (Quai 9)", bar: "Le Bar du coin (2)"}
-    return {"game": game, "guard": guard, "bar": bar}
+    return {"game": game, "guard": guard, "first_guard": first_guard, "bar": bar}
 
 
 async def test_identity_bare_label_drops_the_internal_suffix(test_pool, world):
@@ -119,3 +121,25 @@ async def test_first_turn_resolver_reference_carries_the_bare_label(test_pool, w
     text, _ = await _build_first_turn_reference(test_pool, world["game"])
     assert f"{GUARD} [= {GUARD}]" in text
     assert "(Quai 9)" not in text and "(2)" not in text
+
+
+async def test_name_lookups_of_relations_answer_nothing_for_homonyms(test_pool, world):
+    """A name two homonyms share names neither (find_entity: NULL): no arbitrary row; a
+    handle names one."""
+    reader = KnowledgeGraphReader(None, world["game"])
+    async with test_pool.acquire() as conn:
+        handle = await conn.fetchval(
+            "SELECT 'E' || handle FROM entity_registry WHERE id = $1", world["guard"]
+        )
+        by_name = await reader.get_protagonist_relation_to(conn, GUARD)
+        by_handle = await reader.get_protagonist_relation_to(conn, handle)
+        relations_by_name = await reader.get_relations(conn, entity_name=GUARD)
+        relations_by_handle = await reader.get_relations(conn, entity_name=handle)
+        bar_relations = await reader.get_relations(conn, entity_name="Le Bar du coin")
+        unknown = await reader.get_relations(conn, entity_name="Personne")
+    assert by_name is None
+    assert by_handle["level"] == 5
+    assert relations_by_name == []
+    assert {r["relation_type"] for r in relations_by_handle} == {"knows", "works_at"}
+    # The bare bar name is shared too (both bars hold it as an alias).
+    assert bar_relations == [] and unknown == []

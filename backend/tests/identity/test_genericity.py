@@ -313,7 +313,7 @@ def test_sql_identity_functions_contain_no_pack_word():
         "ldvelh_norm",
         "ldvelh_norm_for_game",
         "identity_label",
-    } <= (scanned)
+    } <= scanned
     assert found == {}
 
 

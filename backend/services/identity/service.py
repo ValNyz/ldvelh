@@ -87,7 +87,12 @@ class IdentityService:
         """Create an entity with its derived aliases, or return the live entity of the type
         that already holds its label (event 'create_reused'). With `trap` (a verified
         second entity under that label), the newcomer gets an internal label suffix
-        (event 'label_suffixed')."""
+        (event 'label_suffixed').
+
+        A label that only aliases of several entities hold creates nothing (without
+        `trap`): AmbiguousLabel is raised, and no event is written here. `write_item`
+        writes its durable `create_ambiguous` row after the rollback; a caller outside
+        write_item must record it itself."""
         label = " ".join(spec.label.split())
         if spec.entity_type not in CREATABLE_TYPES or not label:
             raise ValueError(

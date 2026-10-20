@@ -115,7 +115,11 @@ class RefUnresolved(IdentityFailure):
 
 class AmbiguousLabel(IdentityFailure):
     """A creation refused: only aliases of several entities hold the label, so it may name
-    any of them (« dans le doute, on ne crée pas »). `label` is story text, DEBUG only."""
+    any of them (« dans le doute, on ne crée pas »). `label` is story text, DEBUG only.
+
+    Nothing records it when it is raised: `write_item` writes its durable identity_events
+    row (kind `create_ambiguous`, after rolling the item back). A caller that runs
+    create_entity outside write_item must record that event itself."""
 
     code = "create_ambiguous"
 

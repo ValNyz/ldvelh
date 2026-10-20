@@ -408,8 +408,8 @@ END $$;
 -- of another live entity of its type, and a former name of its own (step c renamed it),
 -- becomes that bare name with the internal suffix <number>; its registry label does not
 -- change. The bare name is the entity's label alias again; the suffixed label alias of
--- every suffixed entity, characters included, becomes internal (not known). A game without language is not normalised yet:
--- the backfill runs the step above on it.
+-- every suffixed entity, characters included, becomes internal (not known). A game
+-- without language is not normalised yet: the backfill runs the step above on it.
 DO $$
 DECLARE
     v_type text;

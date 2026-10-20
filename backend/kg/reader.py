@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
+from repos import entities as entity_repo
 from schema.engine import coerce_engine
 from utils.json_utils import parse_json
 
@@ -457,7 +458,10 @@ class KnowledgeGraphReader:
         entity_name: str | None = None,
         relation_type: str | None = None,
     ) -> list[dict]:
-        """Get active relations, optionally filtered."""
+        """Active relations, optionally those of one entity and of one type. The entity is
+        resolved by `find_any` (labels, aliases, handle; one type and one entity only): a
+        name two entities share names none of them, so it gives no relation rather than
+        an arbitrary homonym's."""
         query = """
             SELECT relation_id, relation_type,
                    source_name, source_type,
@@ -469,11 +473,11 @@ class KnowledgeGraphReader:
         params: list = [self.game_id]
 
         if entity_name:
-            params.append(entity_name.lower())
-            query += (
-                f" AND (LOWER(source_name) = ${len(params)}"
-                f" OR LOWER(target_name) = ${len(params)})"
-            )
+            found = await entity_repo.find_any(conn, self.game_id, entity_name)
+            if found is None:
+                return []
+            params.append(found[0])
+            query += f" AND (source_id = ${len(params)} OR target_id = ${len(params)})"
 
         if relation_type:
             params.append(relation_type)
@@ -485,13 +489,14 @@ class KnowledgeGraphReader:
     async def get_protagonist_relation_to(
         self, conn: Connection, npc_name: str
     ) -> dict | None:
-        """Get the protagonist's 'knows' relation to an NPC."""
+        """The protagonist's 'knows' relation to the character `npc_name` names
+        (find_entity: none when the name is unknown or shared by homonyms)."""
         row = await conn.fetchrow(
             """SELECT level, context, known_by_protagonist
                FROM v_active_relations
                WHERE game_id = $1
                  AND source_type = 'protagonist'
-                 AND LOWER(target_name) = LOWER($2)
+                 AND target_id = find_entity($1, $2, 'character')
                  AND relation_type = 'knows'""",
             self.game_id,
             npc_name,
