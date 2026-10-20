@@ -19,13 +19,13 @@ Frontend (Next.js)  ←→  Backend (FastAPI)  ←→  PostgreSQL
 backend/
 ├── api/            # FastAPI routes (auth, game, chat), SSEWriter
 ├── domain/         # Pure types (turn, errors, game), no I/O
-├── kg/             # Knowledge graph (populator, reader)
+├── kg/             # Knowledge graph (populator by entity id, reader, refs)
 ├── pipeline/       # Turn pipeline: steps/{load,arbitrate,narrate,commit,respond,schedule}, init_flow, post_turn
 ├── workers/        # Per-game job supervisor and turn locks (in-process, imports no other layer)
-├── repos/          # SQL (games, turns, uow, llm_calls, users, llm_models)
+├── repos/          # SQL (games, turns, uow, entities, llm_calls, users, llm_models)
 ├── prompts/        # LLM prompt templates
 ├── schema/         # Pydantic models
-├── services/       # Business logic (game, LLM, extraction, auth, post-turn hooks and subscribers, Director)
+├── services/       # Business logic (game, LLM, extraction, identity, auth, post-turn hooks and subscribers, Director)
 ├── tests/          # Unit + integration tests (700+)
 ├── startup_checks.py  # Secrets validation run before startup (JWT_SECRET, ENCRYPTION_KEY)
 └── main.py
@@ -225,6 +225,18 @@ Rollback: the backup restore of step 1 is the only way back. The migration's `--
 After the #83 deploy every player is logged out once (tokens without `ver`/`orig_iat` are refused).
 
 One-off check after this change (manual): debug mode used to seed `dev@ldvelh.local` with a known password. Make sure that account does not exist in the production database (`SELECT id FROM users WHERE email = 'dev@ldvelh.local';`) and delete it if it does.
+
+### Merging duplicates (#153)
+
+Two entities that are the same (for example a place or an NPC the resolver created twice) are merged by hand with `backend/scripts/merge_entities.py`. A merge moves every edge to the kept entity and cannot be undone by a turn rollback, so:
+
+1. **Backup first** (`pg_dump -Fc`, see "Before a data migration").
+2. Find the two handles (`E<n>`, shown in the tooltips and the prompts) or ids. Keep the older, better-named one.
+3. From `backend/`, with the production database reached through a tunnel or a restored copy (the script never reads `DATABASE_URL`, you pass `--database-url`): `python -m scripts.merge_entities --database-url URL --game GAME_UUID --keep E12 --drop E31 --reason "same person"`.
+4. Read the two cards and the edges that will move, then answer `y`. Any other answer changes nothing. `--yes` skips the question for a scripted run.
+5. The script prints the `entity_merges` id, or the refusal code (`both_mandatory`, `reserved_type`, `type_mismatch`, `same_entity`, `already_merged`, `missing`). A refusal writes nothing but an audit event.
+
+To undo a merge, restore the backup.
 
 ## CI
 

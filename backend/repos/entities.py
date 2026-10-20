@@ -773,3 +773,30 @@ async def restore_former_name(
         kind,
         known,
     )
+
+
+# (label, table, column) of the edges a merge moves, for the operator's preview.
+_EDGE_COLUMNS = (
+    ("relations (source)", "relations", "source_id"),
+    ("relations (target)", "relations", "target_id"),
+    ("fact participants", "fact_participants", "entity_id"),
+    ("arc participants", "arc_participants", "entity_id"),
+    ("chronology participants", "chronology_participants", "entity_id"),
+    ("event participants", "event_participants", "entity_id"),
+    ("inventory (owner)", "inventory", "owner_id"),
+    ("narrative arcs (owner)", "narrative_arcs", "owner_id"),
+    ("mentions", "entity_mentions", "entity_id"),
+    ("aliases", "entity_aliases", "entity_id"),
+)
+
+
+async def edge_counts(conn, entity_id: UUID) -> dict[str, int]:
+    """How many edges of each kind point at an entity (the non-zero ones)."""
+    counts = {}
+    for label, table, column in _EDGE_COLUMNS:
+        n = await conn.fetchval(
+            f"SELECT count(*) FROM {table} WHERE {column} = $1", entity_id
+        )
+        if n:
+            counts[label] = n
+    return counts

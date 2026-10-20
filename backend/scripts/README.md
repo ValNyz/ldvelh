@@ -198,3 +198,14 @@ CONTRIBUTING.md, "Deploying the identity migration".
 - `identity_invariants.sql`: read-only invariant checks to run after the rehearsal;
   every count of the first table must be 0.
   `psql -v ON_ERROR_STOP=1 -f backend/scripts/identity_invariants.sql`
+
+## Merging duplicate entities (#153)
+
+- `merge_entities.py`: offline operator tool, never run by the application or the
+  entrypoint. It merges one entity into another (`IdentityService.merge`, outside any
+  turn, in one transaction). `--database-url` is required (no environment default).
+  It reminds you to take a backup, shows the two entity cards and the edges that would
+  move, and asks for confirmation on stdin (`--yes` skips it); a refusal changes nothing.
+  It prints the `entity_merges` id or the refusal code. The merge is not undone by a
+  turn rollback: restore the backup. Procedure: CONTRIBUTING.md, "Merging duplicates".
+  `python -m scripts.merge_entities --database-url URL --game GAME --keep E12 --drop E31 --reason TEXT [--yes]`
