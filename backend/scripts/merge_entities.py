@@ -1,6 +1,8 @@
 """Merge two duplicate entities of a game by hand (operator tool, #153).
 
-Offline: it never runs against a database unless --database-url is given. It shows the two
+Offline: it only touches the database it is told to (--database-url or --database-url-env,
+one of them is required; prefer the second, a URL on the command line shows in `ps` and the
+shell history). It shows the two
 entity cards and the edges that would move, asks for confirmation (unless --yes) and calls
 IdentityService.merge outside any turn, in one transaction. The merge is audited in
 entity_merges and is NOT undone by a turn rollback: take a backup first (CONTRIBUTING,
@@ -16,6 +18,7 @@ uuid. The cards show names: the operator owns the data. Nothing but ids and code
 
 import argparse
 import asyncio
+import os
 import re
 import sys
 from uuid import UUID
@@ -62,8 +65,6 @@ async def _card(conn, game_id: UUID, entity_id: UUID, role: str) -> None:
             ", secret" if alias.secret else ""
         )
         print(f"  alias ({alias.kind}, {flags}): {alias.alias}")
-    for label, count in (await entities.edge_counts(conn, entity_id)).items():
-        print(f"  {label}: {count}")
 
 
 async def _main(args: argparse.Namespace) -> int:
@@ -73,7 +74,14 @@ async def _main(args: argparse.Namespace) -> int:
     from services.identity import merges
     from services.identity.service import IdentityService
 
-    conn = await asyncpg.connect(args.database_url)
+    try:
+        conn = await asyncpg.connect(args.database_url)
+    except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError) as exc:
+        # Never the URL (it may hold the password) nor the driver's traceback.
+        print(
+            f"Cannot connect to the database ({type(exc).__name__}).", file=sys.stderr
+        )
+        return 2
     try:
         keep = await _entity_id(conn, args.game, args.keep)
         drop = await _entity_id(conn, args.game, args.drop)
@@ -83,10 +91,17 @@ async def _main(args: argparse.Namespace) -> int:
         )
         await _card(conn, args.game, keep, "KEEP")
         await _card(conn, args.game, drop, "DROP")
-        print("Edges of DROP above move to KEEP (duplicates are closed or merged).")
         refused = await merges.refusal(service, conn, keep, drop)
         if refused:
-            print(f"The guards refuse this merge: {refused}")
+            print(f"The guards refuse this merge ({refused}): nothing was changed.")
+            return 1
+        kind = (await entities.get_registry(conn, args.game, keep)).entity_type
+        moved = await entities.edge_preview(conn, keep, drop, kind)
+        print("Edges that move from DROP to KEEP (duplicates are closed or merged):")
+        for key, count in sorted(moved.items()):
+            print(f"  {key}: {count}")
+        if not moved:
+            print("  none")
         if not args.yes:
             answer = await asyncio.to_thread(input, "Merge DROP into KEEP? [y/N] ")
             if answer.strip().lower() not in ("y", "yes"):
@@ -109,7 +124,11 @@ async def _main(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--database-url", required=True)
+    url = parser.add_mutually_exclusive_group(required=True)
+    url.add_argument("--database-url", help="visible in ps; prefer --database-url-env")
+    url.add_argument(
+        "--database-url-env", metavar="VAR", help="environment variable holding the URL"
+    )
     parser.add_argument("--game", type=UUID, required=True)
     parser.add_argument(
         "--keep", required=True, help="E<n> or uuid of the entity to keep"
@@ -121,7 +140,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    return asyncio.run(_main(build_parser().parse_args(argv)))
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.database_url_env:
+        args.database_url = os.environ.get(args.database_url_env)
+        if not args.database_url:
+            parser.error(
+                f"environment variable {args.database_url_env} is empty or unset"
+            )
+    return asyncio.run(_main(args))
 
 
 if __name__ == "__main__":

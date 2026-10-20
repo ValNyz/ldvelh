@@ -775,28 +775,27 @@ async def restore_former_name(
     )
 
 
-# (label, table, column) of the edges a merge moves, for the operator's preview.
-_EDGE_COLUMNS = (
-    ("relations (source)", "relations", "source_id"),
-    ("relations (target)", "relations", "target_id"),
-    ("fact participants", "fact_participants", "entity_id"),
-    ("arc participants", "arc_participants", "entity_id"),
-    ("chronology participants", "chronology_participants", "entity_id"),
-    ("event participants", "event_participants", "entity_id"),
-    ("inventory (owner)", "inventory", "owner_id"),
-    ("narrative arcs (owner)", "narrative_arcs", "owner_id"),
-    ("mentions", "entity_mentions", "entity_id"),
-    ("aliases", "entity_aliases", "entity_id"),
-)
+class _DryRun(Exception):
+    """Raised inside a savepoint to roll back a preview."""
 
 
-async def edge_counts(conn, entity_id: UUID) -> dict[str, int]:
-    """How many edges of each kind point at an entity (the non-zero ones)."""
-    counts = {}
-    for label, table, column in _EDGE_COLUMNS:
-        n = await conn.fetchval(
-            f"SELECT count(*) FROM {table} WHERE {column} = $1", entity_id
-        )
-        if n:
-            counts[label] = n
-    return counts
+async def edge_preview(
+    conn, keep_id: UUID, drop_id: UUID, entity_type: str
+) -> dict[str, int]:
+    """The edges the SQL merge would move, as {"table.column": rows}, read from the merge's
+    own `identity_merge_edges` run in a savepoint that is rolled back (so the preview can
+    never drift from the merge). Nothing is written."""
+    edges = {}
+    try:
+        async with conn.transaction():
+            value = await conn.fetchval(
+                "SELECT identity_merge_edges($1, $2, $3)",
+                keep_id,
+                drop_id,
+                str(entity_type),
+            )
+            edges = value if isinstance(value, dict) else json.loads(value)
+            raise _DryRun
+    except _DryRun:
+        pass
+    return {key: len(ids) for key, ids in edges.items() if ids}

@@ -203,9 +203,11 @@ CONTRIBUTING.md, "Deploying the identity migration".
 
 - `merge_entities.py`: offline operator tool, never run by the application or the
   entrypoint. It merges one entity into another (`IdentityService.merge`, outside any
-  turn, in one transaction). `--database-url` is required (no environment default).
+  turn, in one transaction). One of `--database-url` or `--database-url-env VAR` is
+  required (prefer the second: a URL on the command line shows in `ps`; no other
+  environment default). A connection failure prints one line, without the URL.
   It reminds you to take a backup, shows the two entity cards and the edges that would
-  move, and asks for confirmation on stdin (`--yes` skips it); a refusal changes nothing.
+  move (counted by the merge's own SQL, in a rolled-back savepoint), and asks for confirmation on stdin (`--yes` skips it); a refusal, or guards that refuse the merge, change nothing.
   It prints the `entity_merges` id or the refusal code. The merge is not undone by a
   turn rollback: restore the backup. Procedure: CONTRIBUTING.md, "Merging duplicates".
-  `python -m scripts.merge_entities --database-url URL --game GAME --keep E12 --drop E31 --reason TEXT [--yes]`
+  `python -m scripts.merge_entities --database-url-env VAR --game GAME --keep E12 --drop E31 --reason TEXT [--yes]`
