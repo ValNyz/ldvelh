@@ -413,6 +413,7 @@ async def client(test_pool, monkeypatch):
     from main import app
     from services import auth_service
 
+    # raising=False: app.state has no pool until a lifespan has run
     monkeypatch.setattr(app.state, "pool", test_pool, raising=False)
 
     # Mock email sending for all HTTP-based registration tests

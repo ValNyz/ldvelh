@@ -76,8 +76,6 @@ def coerce_json_dict(v: Any, info: ValidationInfo | None = None) -> dict:
             elif isinstance(item, str):
                 result[item] = True
         field = info.field_name if info else "?"
-        logger.info(
-            f"[Coerce] {field}: list -> dict (merged {len(v)} items)"
-        )
+        logger.info(f"[Coerce] {field}: list -> dict (merged {len(v)} items)")
         return result
     return {}

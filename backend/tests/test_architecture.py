@@ -219,7 +219,8 @@ def test_layer_exempt_files_exist():
 def test_identity_types_live_in_domain():
     assert not (BACKEND / "services/identity/types.py").exists()
     tree = ast.parse((BACKEND / "domain/identity.py").read_text(encoding="utf-8"))
-    assert "IdentityFailure" in {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+    classes = {n.name for n in tree.body if isinstance(n, ast.ClassDef)}
+    assert "IdentityFailure" in classes
 
 
 def test_no_private_schema_helper_imported_outside_schema():
@@ -228,6 +229,14 @@ def test_no_private_schema_helper_imported_outside_schema():
         if rel.parts[0] == "schema":
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("schema."):
-                found += [f"{rel}: {node.module}.{a.name}" for a in node.names if a.name.startswith("_")]
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith("schema.")
+            ):
+                found += [
+                    f"{rel}: {node.module}.{a.name}"
+                    for a in node.names
+                    if a.name.startswith("_")
+                ]
     assert not found, f"private schema helpers imported outside schema/: {found}"

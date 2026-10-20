@@ -14,7 +14,10 @@ from config import Settings, get_settings
 
 async def get_pool(request: Request) -> asyncpg.Pool:
     """Récupère le pool de connexions posé sur app.state par le lifespan"""
-    return request.app.state.pool
+    pool = getattr(request.app.state, "pool", None)
+    if pool is None:
+        raise RuntimeError("Database pool not initialized")
+    return pool
 
 
 async def get_connection(pool: asyncpg.Pool = Depends(get_pool)) -> AsyncGenerator[asyncpg.Connection, None]:
