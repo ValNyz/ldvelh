@@ -137,6 +137,10 @@ async def test_a_turn_writes_mentions_served_by_entity_id(harness, world_game):
             for r in rows
         }
         ossek = await _id_of(conn, world_game, "Ossek", "character")
+        legacy = await conn.fetchval(
+            "SELECT narrator_context FROM messages WHERE id = $1", message
+        )
+    assert legacy is None  # the dual write is gone (#155; the column goes with #166)
     assert [r["surface"] for r in rows] == ["Quart de Cycle", "Ossek"]
     assert {r["decision"] for r in rows} == {"deterministic"}
     assert all(TEXT[r["start_pos"] : r["end_pos"]] == r["surface"] for r in rows)

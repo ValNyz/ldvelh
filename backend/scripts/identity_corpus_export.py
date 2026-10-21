@@ -2,8 +2,9 @@
 
 One scene per assistant turn: `world` = the game's entities with symbolic ids
 `<type>_<slug>`, `history` = the K = 6 previous assistant messages with their
-`narrator_context` turned into mentions TO REVIEW, `narration` = the turn's text,
-`gold` empty. The skeleton is a starting point: the annotator corrects the world
+spans (the stored mentions: resolver v2, or rebuilt from the legacy spans; the
+dump keeps the key `narrator_context`) turned into mentions TO REVIEW, `narration` =
+the turn's text, `gold` empty. The skeleton is a starting point: the annotator corrects the world
 (duplicates, invented canonicals, missing entities) and writes the gold by hand,
 following tests/fixtures/identity/ANNOTATION.md. Existing files are never overwritten
 (an annotated scene is precious) unless `--force` is given.
@@ -42,8 +43,9 @@ from evals.identity.lexicon import DEFAULT_LANGUAGE, Lexicon, load_lexicon
 ROOT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "identity"
 HISTORY_SIZE = 6
 
-# The spans of a message in the dump format, [start, end, canonical, type] each (the
-# legacy narrator_context, now built from entity_mentions: the live entity's label).
+# The spans of a message in the dump format, [start, end, canonical, type] each, from
+# entity_mentions: the canonical is the live entity's registry name (internal, operator
+# tool; the key keeps the legacy name `narrator_context`).
 _SPANS_SQL = """(SELECT json_agg(json_build_array(em.start_pos, em.end_pos, er.name,
                er.entity_type) ORDER BY em.start_pos, em.end_pos)
           FROM entity_mentions AS em
@@ -230,7 +232,7 @@ def build_world(dump: dict, lexicon: Lexicon) -> list[dict]:
 
 
 def _name_index(world: list[dict], lexicon: Lexicon) -> dict[tuple[str, str], str]:
-    """(type, normalized name or alias) -> entity id, to resolve old canonicals."""
+    """(type, normalized name or alias) -> entity id, to resolve the canonicals."""
     index: dict[tuple[str, str], str] = {}
     for entity in world:
         person = entity["type"] in ("protagonist", "companion")
@@ -246,7 +248,7 @@ def resolve_canonical(
     entity_type: str,
     lexicon: Lexicon,
 ) -> str:
-    """Id of the world entity an old resolver canonical names (or its would-be id)."""
+    """Id of the world entity a span canonical names (or its would-be id)."""
     return index.get(
         (entity_type, slugify(canonical, lexicon)),
         entity_id(entity_type, canonical, lexicon),
@@ -259,7 +261,7 @@ def context_to_mentions(
     index: dict[tuple[str, str], str],
     lexicon: Lexicon,
 ) -> list[dict]:
-    """Old `narrator_context` spans -> history mentions TO REVIEW (MATCH, category guessed).
+    """Dump spans -> history mentions TO REVIEW (MATCH, category guessed).
 
     Personal pronouns are dropped (never mentions); of two spans at the same start
     the longest is kept. An unresolved canonical keeps a would-be id that is not in
@@ -325,7 +327,7 @@ def build_scene(
     message = turns[turn - 1]
     world = build_world(dump, lexicon)
     index = _name_index(world, lexicon)
-    for entity in world:  # last turn before this one where the old resolver tagged it
+    for entity in world:  # last turn before this one where a stored mention tagged it
         seen = [
             n
             for n, m in enumerate(turns[: turn - 1], start=1)
@@ -372,7 +374,7 @@ def build_scene(
 
 
 def unresolved_canonicals(dump: dict, lexicon: Lexicon) -> list[str]:
-    """Old resolver canonicals that name no world entity (invented or missing)."""
+    """Span canonicals that name no world entity (invented or missing)."""
     index = _name_index(build_world(dump, lexicon), lexicon)
     found = {
         f"{canonical} ({entity_type})"

@@ -335,24 +335,9 @@ def _collisions(report: GameReport, entities: list[Entity], norm) -> None:
             )
 
 
-# The legacy spans of a game, message by message: the messages' column before the
-# migration that drops it (20261021000004), then the rows it staged for a game the
-# backfill has not normalised yet.
-_SPANS_IN_COLUMN = """SELECT narrator_context AS spans FROM messages
-     WHERE game_id = $1 AND narrator_context IS NOT NULL ORDER BY sequence"""
-_SPANS_STAGED = """SELECT ls.spans FROM identity_legacy_spans AS ls
-      JOIN messages AS mg ON mg.id = ls.message_id
-     WHERE mg.game_id = $1 ORDER BY mg.sequence"""
-
-
-async def _legacy_spans(conn, game_id: UUID) -> list:
-    in_column = "narrator_context" in await _columns(conn, "messages")
-    query = _SPANS_IN_COLUMN if in_column else _SPANS_STAGED
-    return [_json(r["spans"]) for r in await conn.fetch(query, game_id)]
-
-
-def _mentions(report: GameReport, messages: list, entities, norm) -> None:
-    for spans in messages:
+def _mentions(report: GameReport, messages, entities, norm) -> None:
+    for message in messages:
+        spans = _json(message["narrator_context"])
         for span in spans if isinstance(spans, list) else []:
             if not (
                 isinstance(span, list)
@@ -478,9 +463,12 @@ async def build_report(conn, game: UUID | None = None) -> list[GameReport]:
             normalizer.norm,
         )
         _collisions(report, entities, normalizer.norm)
-        _mentions(
-            report, await _legacy_spans(conn, row["id"]), entities, normalizer.norm
+        messages = await conn.fetch(
+            "SELECT narrator_context FROM messages WHERE game_id = $1"
+            " AND narrator_context IS NOT NULL ORDER BY sequence",
+            row["id"],
         )
+        _mentions(report, messages, entities, normalizer.norm)
         _classify(report, entities, normalizer, lexicon)
         report.secret_facts = [
             (r["cycle"], r["description"])

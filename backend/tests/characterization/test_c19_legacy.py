@@ -15,7 +15,6 @@ scripts/identity_backfill.py finishes them (language, norms, classification): th
 runs both, as a deploy does (entrypoint: sync_lang_packs, dbmate up, identity_backfill).
 """
 
-import json
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
@@ -707,19 +706,19 @@ async def test_c19_world_changes_ids_are_rewritten(test_pool):
     assert dict(fact_back) == {"handle": fact["handle"], "known": False}
 
 
-# --- #155: messages.narrator_context dropped (20261021000004) ----------------------------
+# --- #155: the narrator_context dual write is gone (the column goes with #166) -----------
 
-DROP_NARRATOR_CONTEXT = "20261021000004"
 # Spans of the legacy format on the first assistant message, set before the identity
-# migration: the backfill rebuilds them as mentions (PR 1a), from the rows the drop staged.
+# migration: the backfill rebuilds them as mentions (PR 1a, step e).
 LEGACY_SPANS = (
     '[[0, 5, "Ossek", "character"], [14, 29, "Escale Méridienne", "location"],'
     ' [30, 38, "Célimène", "character"]]'
 )
 BACKEND = Path(__file__).resolve().parents[2]
-# Readers of the legacy format that stay: the dry-run report reads the column before the
-# migration that drops it, the corpus export keeps it as the key of its dump format.
-LEGACY_FORMAT_READERS = {
+# The one reader of the legacy column that stays until #166 drops it: the dry-run
+# report previews step e of the backfill, which reads it. The corpus export only keeps
+# `narrator_context` as a key of its JSON dump format (its spans come from the mentions).
+LEGACY_READERS = {
     "scripts/identity_migration_report.py",
     "scripts/identity_corpus_export.py",
 }
@@ -735,94 +734,62 @@ async def _legacy_spans(conn) -> None:
     )
 
 
-async def _stored_annotations(conn, game_id: str) -> dict[str, list[dict]]:
-    """The mentions of the game as /tooltips/annotations must serve them: live entity,
-    label by display_for_player."""
-    rows = await conn.fetch(
-        """SELECT m.message_id::text, m.start_pos, m.end_pos, er.id::text AS entity_id,
-                  er.entity_type, display_for_player(m.entity_id) AS label
-             FROM entity_mentions AS m
-             JOIN entity_registry AS er ON er.id = entity_follow_merge(m.entity_id)
-            WHERE m.game_id = $1::uuid
-            ORDER BY m.message_id, m.start_pos, m.end_pos""",
-        game_id,
-    )
-    stored: dict[str, list[dict]] = {}
-    for r in rows:
-        stored.setdefault(r["message_id"], []).append(
-            {
-                "start": r["start_pos"],
-                "end": r["end_pos"],
-                "entity_id": r["entity_id"],
-                "entity_type": r["entity_type"],
-                "label": r["label"],
-            }
-        )
-    return stored
-
-
-async def _served_annotations(client, game_id: str, token: str) -> dict[str, list]:
-    r = await client.get(
-        "/api/tooltips/annotations",
-        params={"gameId": game_id},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert r.status_code == 200, r.text
-    return {m["message_id"]: m["annotations"] for m in r.json()["messages"]}
-
-
-def _drop_migration() -> tuple[str, str]:
-    (path,) = MIGRATIONS.glob(f"{DROP_NARRATOR_CONTEXT}_*.sql")
-    up, down = path.read_text(encoding="utf-8").split("-- migrate:down", 1)
-    return up.split("-- migrate:up", 1)[1], down
-
-
 async def test_c19_legacy_annotations_survive_narrator_context_removal(
     client, test_pool, scripted_llm
 ):
-    """Review Focus 5: once the column is gone, /tooltips/annotations serves the old
-    messages' mentions rebuilt in PR 1a, labels by display_for_player; the migration's
-    down rebuilds the column from them, and down then up keeps them."""
+    """Review Focus 5: with nothing reading messages.narrator_context any more,
+    /tooltips/annotations serves the old messages' spans from the mentions rebuilt in
+    PR 1a, on their entities, labels as the player may read them."""
     game_id, email = await load_legacy_game(
         test_pool, before={IDENTITY_MIGRATION: _legacy_spans}
     )
     async with test_pool.acquire() as conn:
         user_id = await conn.fetchval("SELECT id FROM users WHERE email = $1", email)
-        stored = await _stored_annotations(conn, game_id)
-        columns = await conn.fetchval(
-            "SELECT count(*) FROM information_schema.columns"
-            " WHERE table_name = 'messages' AND column_name = 'narrator_context'"
+        message = await conn.fetchval(
+            "SELECT id::text FROM messages WHERE game_id = $1::uuid"
+            " AND role = 'assistant' ORDER BY sequence LIMIT 1",
+            game_id,
         )
-    token = create_token(user_id, email)
-    assert columns == 0
-    assert [len(spans) for spans in stored.values()] == [3]
-    assert await _served_annotations(client, game_id, token) == stored
-
-    up, down = _drop_migration()
-    async with test_pool.acquire() as conn:
-        async with conn.transaction():
-            await conn.execute(down)
-            rebuilt = {
-                str(r["id"]): json.loads(r["narrator_context"])
-                for r in await conn.fetch(
-                    "SELECT id, narrator_context::text FROM messages"
-                    " WHERE game_id = $1::uuid AND narrator_context IS NOT NULL",
-                    game_id,
-                )
-            }
-            await conn.execute(up)
-        after = await _stored_annotations(conn, game_id)
-    assert rebuilt == {
-        message: [[a["start"], a["end"], a["label"], a["entity_type"]] for a in spans]
-        for message, spans in stored.items()
-    }
-    assert after == stored
-    assert await _served_annotations(client, game_id, token) == stored
+        entities = {
+            r["name"]: (str(r["id"]), r["label"])
+            for r in await conn.fetch(
+                "SELECT id, name, display_for_player(id) AS label"
+                " FROM entity_registry WHERE game_id = $1::uuid"
+                " AND name = ANY($2::text[])",
+                game_id,
+                ["Ossek", "Escale Méridienne", "Célimène"],
+            )
+        }
+    r = await client.get(
+        "/api/tooltips/annotations",
+        params={"gameId": game_id},
+        headers={"Authorization": f"Bearer {create_token(user_id, email)}"},
+    )
+    assert r.status_code == 200, r.text
+    served = {m["message_id"]: m["annotations"] for m in r.json()["messages"]}
+    expected = [
+        (0, 5, "Ossek", "character"),
+        (14, 29, "Escale Méridienne", "location"),
+        # The companion, which the legacy resolver tagged 'character' (I2).
+        (30, 38, "Célimène", "companion"),
+    ]
+    assert list(served) == [message]
+    assert served[message] == [
+        {
+            "start": start,
+            "end": end,
+            "entity_id": entities[name][0],
+            "entity_type": entity_type,
+            "label": entities[name][1],
+        }
+        for start, end, name, entity_type in expected
+    ]
 
 
 def test_dual_write_is_gone():
     """No code of the backend reads or writes messages.narrator_context any more (the
-    migrations live in db/, the tests replay the legacy schema)."""
+    migrations live in db/; the tests replay the legacy schema), but the legacy readers
+    named above."""
     pattern = re.compile(r"\bnarrator_context\b")
     hits = sorted(
         rel
@@ -830,7 +797,7 @@ def test_dual_write_is_gone():
         if path.suffix in {".py", ".sql", ".yaml", ".yml", ".md"}
         and (rel := path.relative_to(BACKEND).as_posix()).split("/", 1)[0] != "tests"
         and not rel.startswith(".")
-        and rel not in LEGACY_FORMAT_READERS
+        and rel not in LEGACY_READERS
         and pattern.search(path.read_text(encoding="utf-8"))
     )
     assert hits == []

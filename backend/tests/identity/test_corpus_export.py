@@ -205,3 +205,33 @@ def test_a_dump_without_protagonist_is_refused():
     dump["registry"] = []
     with pytest.raises(ValueError):
         build_scene(dump, 1, "f134", genre="sf")
+
+
+async def test_the_dump_spans_come_from_the_stored_mentions(test_pool):
+    """Both dump queries (live export, psql script) on a real schema: a message's spans
+    are its stored mentions, [start, end, registry name, type] in text order."""
+    import json
+
+    from tests.conftest import TEST_DB_URL
+    from tests.characterization.test_c19_legacy import (
+        IDENTITY_MIGRATION,
+        _legacy_spans,
+        load_legacy_game,
+    )
+
+    game_id, _ = await load_legacy_game(
+        test_pool, before={IDENTITY_MIGRATION: _legacy_spans}
+    )
+    expected = [
+        [0, 5, "Ossek", "character"],
+        [14, 29, "Escale Méridienne", "location"],
+        [30, 38, "Célimène", "companion"],
+    ]
+    live = await fetch_dump(TEST_DB_URL, game_id)
+    select = DUMP_SQL.replace("{game}", game_id).split("SELECT json_build_object", 1)[1]
+    async with test_pool.acquire() as conn:
+        raw = await conn.fetchval("SELECT json_build_object" + select.rstrip().rstrip(";"))
+    scripted = json.loads(raw) if isinstance(raw, str) else raw
+    for dump in (live, scripted):
+        spans = [m["narrator_context"] for m in dump["messages"] if m["narrator_context"]]
+        assert spans == [expected]
