@@ -616,3 +616,24 @@ def test_a_secret_word_inside_another_known_name_is_masked_not_forgotten():
     # The holder's card is never left out, even when it names the bearer (its place).
     placed = 'E4 · character · "le pèlerin" · aliases: "Ysmer" · usual place: Lanterne d\'Ysmer'
     assert leaks.leak_count(scene, [placed], []) == 1
+
+
+def test_a_secret_name_equal_to_another_known_name_still_counts_on_its_holders_card():
+    """M7: the boat is called « Ysmer » too: its own card discloses nothing, the
+    pilgrim's card showing « Ysmer » still leaks it (the equal name is not masked)."""
+    data = _scene()
+    pilgrim = {"id": "character_pilgrim", "type": "character", "label": "Le pèlerin",
+               "known": False, "secret": True, "true_name": "Ysmer Vael",
+               "aliases": [{"text": "Ysmer", "kind": "short", "known": False,
+                            "secret": True}]}  # fmt: skip
+    boat = {"id": "object_boat", "type": "object", "label": "Ysmer", "known": True,
+            "aliases": [{"text": "Ysmer", "kind": "label", "known": True}]}  # fmt: skip
+    scene = Scene.model_validate(
+        {**data, "world": [*data["world"], pilgrim, boat],
+         "scene": {**data["scene"], "secrets": ["character_pilgrim"]}}
+    )  # fmt: skip
+    assert leaks.leak_count(scene, ['E9 · object · "Ysmer"'], []) == 0
+    holder_card = 'E4 · character · "le pèlerin" · aliases: "Ysmer"'
+    assert leaks.leak_count(scene, [holder_card], []) == 1
+    # Outside the cards, the boat's name stays masked: naming the boat leaks nothing.
+    assert leaks.leak_count(scene, [], ['{"surface": "Ysmer", "handle": "E9"}']) == 0

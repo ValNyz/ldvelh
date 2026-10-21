@@ -89,7 +89,8 @@ def _in(name: str, texts: list[str], normalizer: Normalizer) -> bool:
 def leak_count(scene: Scene, cards: list[str], texts: list[str]) -> int:
     """How many secret names of `scene` a card shows, or the other request text and
     the outputs hold while the narration does not. The spans of the other entities'
-    known names are masked first; the holder's own names never are."""
+    known names are masked first (on a card, only those longer than the secret name);
+    the holder's own names never are."""
     normalizer = _normalizer(scene.language)
     count = 0
     for name, holder in _secret_owners(scene).items():
@@ -97,16 +98,21 @@ def leak_count(scene: Scene, cards: list[str], texts: list[str]) -> int:
         # Another entity's known names that hold the word: its card line (the name and
         # the forms the app derives from it) discloses nothing.
         bearers = [n for n in others if find_spans(n, name, normalizer)]
+        # On a card, only a longer name holding the word is masked: another entity's
+        # name equal to the secret one never hides it on its holder's own card.
+        longer = [
+            n for n in bearers if len(normalizer.norm(n)) > len(normalizer.norm(name))
+        ]
 
-        def seen(texts: list[str]) -> bool:
-            return _in(
-                name, [_masked(t, others, normalizer) for t in texts], normalizer
-            )
+        def seen(texts: list[str], masks: list[str]) -> bool:
+            return _in(name, [_masked(t, masks, normalizer) for t in texts], normalizer)
 
         own_cards = [
             c for c in cards if not _in_any(bearers, _card_label(c), normalizer)
         ]
-        count += seen(own_cards) or (not seen([scene.narration]) and seen(texts))
+        count += seen(own_cards, longer) or (
+            not seen([scene.narration], others) and seen(texts, others)
+        )
     return count
 
 
