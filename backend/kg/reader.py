@@ -219,21 +219,24 @@ class KnowledgeGraphReader:
                 c.species, c.gender, c.pronouns, c.age, c.description,
                 c.traits, c.mood, c.occupation, c.origin,
                 c.romantic_potential, c.is_mandatory, c.ambient,
-                wp.name as workplace_name,
+                c.workplace_id, wp.name as workplace_name,
                 res.name as residence_name,
                 -- Relation to protagonist
                 r_knows.level as relation_level,
                 r_knows.context as relation_context,
-                -- Usual location (first spatial relation target)
-                (SELECT l.name FROM relations r_sp
-                 JOIN locations l ON l.id = r_sp.target_id
-                 WHERE r_sp.game_id = c.game_id AND r_sp.source_id = c.id
-                   AND r_sp.type IN ('works_at', 'lives_at', 'frequents')
-                   AND r_sp.end_cycle IS NULL
-                 LIMIT 1) as usual_location
+                usual.name as usual_location, usual.id as usual_location_id
             FROM characters c
             LEFT JOIN locations wp ON c.workplace_id = wp.id
             LEFT JOIN locations res ON c.residence_id = res.id
+            -- Usual location (first spatial relation target)
+            LEFT JOIN LATERAL (
+                SELECT l.id, l.name FROM relations r_sp
+                JOIN locations l ON l.id = r_sp.target_id
+                WHERE r_sp.game_id = c.game_id AND r_sp.source_id = c.id
+                  AND r_sp.type IN ('works_at', 'lives_at', 'frequents')
+                  AND r_sp.end_cycle IS NULL
+                LIMIT 1
+            ) usual ON true
             -- Join protagonist relation via entity_registry
             LEFT JOIN LATERAL (
                 SELECT r.level, r.context
@@ -250,11 +253,6 @@ class KnowledgeGraphReader:
             self.game_id,
         )
         return [dict(r) for r in rows]
-
-    async def get_known_characters(self, conn: Connection) -> list[dict]:
-        """Get NPCs known by the protagonist."""
-        all_chars = await self.get_all_characters(conn)
-        return [c for c in all_chars if c["known_by_protagonist"]]
 
     async def get_npcs_at_location(
         self, conn: Connection, location_name: str
@@ -310,7 +308,7 @@ class KnowledgeGraphReader:
             """SELECT l.id, l.name, l.location_type, l.sector,
                       l.description, l.atmosphere, l.accessible,
                       l.notable_features, l.ambient,
-                      p.name as parent_location_name
+                      l.parent_id, p.name as parent_location_name
                FROM locations l
                LEFT JOIN locations p ON l.parent_id = p.id
                WHERE l.game_id = $1 AND l.removed_cycle IS NULL

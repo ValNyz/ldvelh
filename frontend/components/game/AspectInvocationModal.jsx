@@ -139,15 +139,15 @@ export default function AspectInvocationModal({
 					</div>
 					<div className="space-y-1.5 max-h-48 overflow-y-auto">
 						{aspects.map((aspect, i) => {
-							const name = typeof aspect === 'string' ? aspect : aspect.name;
+							const aspectName = typeof aspect === 'string' ? aspect : aspect.name;
 							const type = typeof aspect === 'object' ? aspect.type : null;
-							const isSelected = selected.includes(name);
+							const isSelected = selected.includes(aspectName);
 							const canSelect = isSelected || selected.length < fatePoints;
 
 							return (
 								<button
 									key={i}
-									onClick={() => toggle(name)}
+									onClick={() => toggle(aspectName)}
 									disabled={!canSelect}
 									className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
 										isSelected
@@ -157,7 +157,7 @@ export default function AspectInvocationModal({
 												: 'bg-gray-800/50 border border-gray-700/50 text-gray-600 cursor-not-allowed'
 									}`}
 								>
-									<span className="font-medium">{name}</span>
+									<span className="font-medium">{aspectName}</span>
 									{type && (
 										<span className="ml-2 text-xs text-gray-500">({type})</span>
 									)}

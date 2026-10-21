@@ -216,17 +216,28 @@ async def test_c14_missing_api_key(harness, world_game, no_api_key):
 
 
 async def test_c15_world_panel(harness, world_game):
+    async with harness.pool.acquire() as conn:
+        # An NPC the PC has not identified, seen under a descriptor (#155).
+        described = await conn.fetchval(
+            "UPDATE characters SET descriptor = 'La silhouette au manteau gris' WHERE id = ("
+            "SELECT id FROM characters WHERE game_id = $1 AND NOT known_by_protagonist"
+            " ORDER BY name DESC LIMIT 1) RETURNING id",
+            world_game)  # fmt: skip
     r = await harness.client.get(f"/api/games/{world_game}/world", headers=harness.headers)
     assert r.status_code == 200
     data = r.json()
     counts_unknown = {k: len(v) for k, v in sorted(data.items())}
     async with harness.pool.acquire() as conn:
-        # The arrival narration names one NPC exactly: the resolver revealed it (#154).
-        known = {r["name"] for r in await conn.fetch(
-            "SELECT name FROM characters WHERE game_id = $1 AND known_by_protagonist",
-            world_game)}  # fmt: skip
-        # The panel lists only characters known by the protagonist.
-        assert {n["name"] for n in data["npcs"]} == known
+        # Every active NPC is listed under what the player may read, with `known` (#155):
+        # the arrival narration names one NPC exactly, the resolver revealed it (#154).
+        shown = {
+            str(r["id"]): (r["shown"], r["known"]) for r in await conn.fetch(
+                "SELECT id, display_for_player(id) AS shown,"
+                " known_by_protagonist AND true_name IS NOT NULL AS known"
+                " FROM characters WHERE game_id = $1 AND removed_cycle IS NULL",
+                world_game)}  # fmt: skip
+        assert {n["id"]: (n["name"], n["known"]) for n in data["npcs"]} == shown
+        [unknown] = [n for n in data["npcs"] if n["id"] == str(described)]
         name = await conn.fetchval(
             "UPDATE characters SET known_by_protagonist = true WHERE id = ("
             "SELECT id FROM characters WHERE game_id = $1 AND NOT known_by_protagonist"
@@ -234,7 +245,7 @@ async def test_c15_world_panel(harness, world_game):
             world_game)
     r2 = await harness.client.get(f"/api/games/{world_game}/world", headers=harness.headers)
     npcs = [n for n in r2.json()["npcs"] if n["name"] == name]
-    assert {n["name"] for n in r2.json()["npcs"]} == known | {name}
+    assert npcs and npcs[0]["known"] is True
     assert_snapshot("c15_world_panel", {
         "keys": sorted(data.keys()),
         "counts_all_unknown": counts_unknown,
@@ -242,6 +253,7 @@ async def test_c15_world_panel(harness, world_game):
         "item_keys": {k: sorted(v[0].keys()) for k, v in sorted(data.items()) if v},
         "npc_keys": sorted(npcs[0].keys()),
         "npc": {k: v for k, v in npcs[0].items() if k != "id"},
+        "unknown_npc": {k: v for k, v in unknown.items() if k != "id"},
     })
 
 

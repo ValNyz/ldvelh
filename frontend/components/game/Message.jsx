@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import DiceRollDisplay from './DiceRollDisplay';
 import EntityTooltip from './EntityTooltip';
-import { injectEntityMarkers } from '../../lib/game/entityMarkers.mjs';
+import { entityIdOf, injectEntityMarkers } from '../../lib/game/entityMarkers.mjs';
 
 /**
  * Composant Message unique
@@ -18,6 +18,7 @@ export default function Message({
 	onEdit,
 	onResend,
 	onRegenerate,
+	spans,
 	tooltipMap,
 	showDebug,
 	engine
@@ -61,7 +62,8 @@ export default function Message({
 						<MarkdownContent
 							content={message.content}
 							isUser={isUser}
-							tooltipMap={tooltipMap}  // NOUVEAU
+							spans={spans}
+							tooltipMap={tooltipMap}
 						/>
 					</div>
 
@@ -129,39 +131,47 @@ export default function Message({
 }
 
 /**
- * Rendu Markdown personnalisé avec tooltips
+ * Keeps the `entity:` links of the stored mentions; any other URL goes through
+ * react-markdown's default filter.
  */
-function MarkdownContent({ content, isUser, tooltipMap }) {
-	// Pre-process: inject bold markers around entity names for tooltip matching
-	const processedContent = useMemo(() => {
-		if (isUser || !tooltipMap || Object.keys(tooltipMap).length === 0) return content;
-		return injectEntityMarkers(content, tooltipMap);
-	}, [content, isUser, tooltipMap]);
+function keepEntityLinks(url) {
+	return entityIdOf(url) !== null ? url : defaultUrlTransform(url);
+}
+
+/**
+ * Rendu Markdown personnalisé avec tooltips : each stored mention (`spans`) becomes an
+ * `entity:` link, rendered with the tooltip of its entity id; bold text stays bold.
+ */
+function MarkdownContent({ content, isUser, spans, tooltipMap }) {
+	const processedContent = useMemo(
+		() => (isUser ? content : injectEntityMarkers(content, spans)),
+		[content, isUser, spans],
+	);
 
 	const components = useMemo(() => ({
 		p: ({ children }) => (
 			<p className="mb-2 last:mb-0">{children}</p>
 		),
-		strong: ({ children }) => {
-			const text = extractText(children);
-			const tooltip = tooltipMap ? findEntityTooltip(text, tooltipMap) : null;
-
-			if (tooltip && !isUser) {
-				return (
-					<EntityTooltip data={tooltip}>
-						<span className="text-blue-400 cursor-help border-b border-dotted border-blue-400/50">
-							{children}
-						</span>
-					</EntityTooltip>
-				);
+		a: ({ href, children }) => {
+			const entityId = entityIdOf(href);
+			if (entityId === null) {
+				return <a href={href}>{children}</a>;
 			}
-
+			const tooltip = tooltipMap?.[entityId];
+			if (!tooltip) return <span>{children}</span>;
 			return (
-				<strong className={isUser ? 'text-white' : 'text-blue-400'}>
-					{children}
-				</strong>
+				<EntityTooltip data={tooltip}>
+					<span className="text-blue-400 cursor-help border-b border-dotted border-blue-400/50">
+						{children}
+					</span>
+				</EntityTooltip>
 			);
 		},
+		strong: ({ children }) => (
+			<strong className={isUser ? 'text-white' : 'text-blue-400'}>
+				{children}
+			</strong>
+		),
 		em: ({ children }) => (
 			<em className={isUser ? 'text-blue-100' : 'text-primary'}>
 				{children}
@@ -193,45 +203,10 @@ function MarkdownContent({ content, isUser, tooltipMap }) {
 	}), [isUser, tooltipMap]);
 
 	return (
-		<ReactMarkdown components={components}>
+		<ReactMarkdown components={components} urlTransform={keepEntityLinks}>
 			{processedContent}
 		</ReactMarkdown>
 	);
-}
-
-/**
- * Extract raw text from React children
- */
-function extractText(children) {
-	if (typeof children === 'string') return children;
-	if (Array.isArray(children)) {
-		return children.map(extractText).join('');
-	}
-	if (children?.props?.children) {
-		return extractText(children.props.children);
-	}
-	return '';
-}
-
-/**
- * Find tooltip data for an entity name in the tooltipMap.
- * tooltipMap is { lowercase_surface: { icon, name, type, infos, relation } }
- * Matches case-insensitively and also checks partial names.
- */
-function findEntityTooltip(text, tooltipMap) {
-	if (!text || !tooltipMap) return null;
-	const lower = text.toLowerCase().trim();
-
-	// Exact match
-	if (tooltipMap[lower]) return tooltipMap[lower];
-
-	// Check if text contains a known entity name
-	for (const [name, data] of Object.entries(tooltipMap)) {
-		if (lower.includes(name) || name.includes(lower)) {
-			return data;
-		}
-	}
-	return null;
 }
 
 /**

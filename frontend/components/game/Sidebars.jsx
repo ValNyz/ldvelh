@@ -144,8 +144,9 @@ export function WorldSidebar({ isOpen, onClose, worldData, loading }) {
 							<h4 className="text-xs text-gray-500 uppercase tracking-wide mb-2">👥 Personnages ({npcs.length})</h4>
 							<div className="space-y-1">
 								{npcs.map((npc) => (
-									<div key={npc.id} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
-										<span className="text-gray-200 text-sm">{npc.name}</span>
+									<div key={npc.id} data-known={npc.known ? 'true' : 'false'} className="bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/30">
+										{/* An NPC not yet identified: its descriptor, set apart */}
+										<span className={npc.known ? 'text-gray-200 text-sm' : 'text-gray-400 text-sm italic'}>{npc.name}</span>
 									</div>
 								))}
 							</div>

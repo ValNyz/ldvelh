@@ -1267,7 +1267,9 @@ CANDIDATE_CARDS_SQL = f"""WITH RECURSIVE {_FAMILY.format(ids="$2", game="$1")},
                   seen.turn AS last_seen_turn,
                   nullif(split_part(dom.row ->> 'description', E'\\n', 1), '')
                       AS description_line
-             FROM entity_registry AS er
+             FROM unnest($2::uuid[]) AS asked (id)
+             JOIN entity_registry AS er
+               ON er.game_id = $1 AND er.id = entity_follow_merge(asked.id)
             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
                   AS dom
              LEFT JOIN seen ON seen.live = er.id
@@ -1609,10 +1611,10 @@ class TooltipRow:
     hidden_fields: frozenset[str]
 
 
-# $1 the game, $2 the id (a merge tombstone is followed), $3 the disclosed entities (none
+# $1 the game, $2 the ids (a merge tombstone is followed), $3 the disclosed entities (none
 # for the player), $4 the detail keys to check against the entity's hidden names (whole
-# normalised words).
-_TOOLTIP_SQL = f"""SELECT er.id AS entity_id, er.entity_type,
+# normalised words). `asked_id` is the id asked for, `entity_id` the live entity.
+_TOOLTIP_SQL = f"""SELECT asked.id AS asked_id, er.id AS entity_id, er.entity_type,
                   {_READABLE_LABEL.format(id="er.id")} AS label,
                   {_LABEL_SECRET.format(id="er.id")} AS label_secret,
                   dom.row AS details,
@@ -1627,7 +1629,9 @@ _TOOLTIP_SQL = f"""SELECT er.id AS entity_id, er.entity_type,
                                              ' ' || ldvelh_norm_for_game(
                                                  $1, dom.row ->> key) || ' ') > 0))
                       AS hidden_fields
-             FROM entity_registry AS er
+             FROM unnest($2::uuid[]) AS asked (id)
+             JOIN entity_registry AS er
+               ON er.game_id = $1 AND er.id = entity_follow_merge(asked.id)
             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
                   AS dom
             CROSS JOIN LATERAL (SELECT ARRAY(
@@ -1638,8 +1642,7 @@ _TOOLTIP_SQL = f"""SELECT er.id AS entity_id, er.entity_type,
                   SELECT ldvelh_norm_for_game($1, dom.row ->> 'true_name')
                    WHERE dom.row ->> 'true_name' IS NOT NULL
                      AND NOT coalesce((dom.row ->> 'known_by_protagonist')::boolean,
-                                      false)) AS names) AS hidden
-            WHERE er.game_id = $1 AND er.id = entity_follow_merge($2)"""
+                                      false)) AS names) AS hidden"""
 
 
 async def tooltip_row(
@@ -1648,10 +1651,23 @@ async def tooltip_row(
     """The tooltip source of the live entity behind `entity_id` (merges followed), its
     `fields` checked against its hidden names; None when the id is no entity of the
     game."""
-    row = await conn.fetchrow(_TOOLTIP_SQL, game_id, entity_id, [], list(fields))
-    if row is None:
-        return None
+    return (await tooltip_rows(conn, game_id, [entity_id], fields)).get(entity_id)
+
+
+async def tooltip_rows(
+    conn, game_id: UUID, entity_ids: list[UUID], fields: list[str]
+) -> dict[UUID, TooltipRow]:
+    """tooltip_row for each of `entity_ids` in one query, keyed by the id asked for; an
+    id that is no entity of the game has no key."""
+    rows = await conn.fetch(
+        _TOOLTIP_SQL, game_id, list(dict.fromkeys(entity_ids)), [], list(fields)
+    )
+    return {row["asked_id"]: _tooltip_row(row) for row in rows}
+
+
+def _tooltip_row(row) -> TooltipRow:
     values = dict(row)
+    del values["asked_id"]
     details = values.pop("details") or {}
     if not isinstance(details, dict):
         details = json.loads(details)

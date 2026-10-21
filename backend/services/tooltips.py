@@ -120,7 +120,7 @@ class Display:
         return infos
 
 
-def _identified(row: TooltipRow) -> bool:
+def identified(row: TooltipRow) -> bool:
     """A character the protagonist knows by its true name, which is no secret name."""
     details = row.details
     return bool(
@@ -142,7 +142,7 @@ def entity_tooltip(row: TooltipRow, display: Display) -> Tooltip:
         )
         return Tooltip(icon, unknown, row.entity_type)
     hidden = row.hidden_fields
-    if row.entity_type != CHARACTER or _identified(row):
+    if row.entity_type != CHARACTER or identified(row):
         return Tooltip(
             icon,
             row.label,

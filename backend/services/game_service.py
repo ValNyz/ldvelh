@@ -21,6 +21,7 @@ from kg.specialized_populator import WorldPopulator
 from schema import DEFAULT_GAME_TIME, EngineType, WorldGeneration
 from services.engine import get_engine
 from services.pending_roll import load_pending_roll
+from services import world_panel
 from repos import games as games_repo
 from services.rollback import plan_rollback, undo_turns
 from services.rollback_cycle import undo_by_cycle
@@ -257,44 +258,28 @@ class GameService:
     # =========================================================================
 
     async def load_npcs(self, game_id: UUID) -> list[dict]:
-        """Charge les PNJs connus du protagoniste, sous le nom que le joueur peut lire
-        (display_for_player)."""
+        """Every active NPC under what the player may read, with `known` (ruling R51,
+        services/world_panel.py)."""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
-            characters = await reader.get_known_characters(conn)
-
-        return [
-            {
-                "id": str(c["id"]),
-                "name": c["display_name"],
-                "occupation": c.get("occupation"),
-                "location": c.get("workplace_name") or c.get("usual_location"),
-                "relationship": self._get_relation_label(c.get("relation_level")),
-                "relation_level": c.get("relation_level"),
-                "description": c.get("description"),
-            }
-            for c in characters
-        ]
+            characters = await reader.get_all_characters(conn)
+            rows = await world_panel.readable_rows(
+                conn, game_id, world_panel.npc_refs(characters)
+            )
+        return world_panel.npc_entries(characters, rows, self._get_relation_label)
 
     async def load_locations(self, game_id: UUID) -> list[dict]:
-        """Charge les lieux"""
+        """The active places under their readable label; a place with nothing readable
+        is left out (ruling R51, services/world_panel.py)."""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
             locations = await reader.get_locations(conn)
-
-        return [
-            {
-                "id": str(loc["id"]),
-                "name": loc["name"],
-                "type": loc.get("location_type"),
-                "sector": loc.get("sector"),
-                "parent": loc.get("parent_location_name"),
-                "accessible": loc.get("accessible", True),
-            }
-            for loc in locations
-        ]
+            rows = await world_panel.readable_rows(
+                conn, game_id, world_panel.location_refs(locations)
+            )
+        return world_panel.location_entries(locations, rows)
 
     async def load_quests(self, game_id: UUID) -> list[dict]:
         """Charge les arcs narratifs actifs"""
@@ -316,21 +301,16 @@ class GameService:
         ]
 
     async def load_organizations(self, game_id: UUID) -> list[dict]:
-        """Charge les organisations"""
+        """The active organizations under their readable label (ruling R51,
+        services/world_panel.py)."""
         reader = self._get_reader(game_id)
 
         async with self.pool.acquire() as conn:
             organizations = await reader.get_organizations(conn)
-
-        return [
-            {
-                "id": str(org["id"]),
-                "name": org["name"],
-                "type": org.get("org_type"),
-                "domain": org.get("domain"),
-            }
-            for org in organizations
-        ]
+            rows = await world_panel.readable_rows(
+                conn, game_id, [org["id"] for org in organizations]
+            )
+        return world_panel.organization_entries(organizations, rows)
 
     async def load_chat_messages(self, game_id: UUID) -> list[dict]:
         """Load chat messages for frontend display.

@@ -184,5 +184,5 @@ export const preferencesApi = {
 
 export const tooltipsApi = {
 	getAnnotations: (gameId) => api.get('/tooltips/annotations', { gameId }),
-	getEntity: (gameId, name, entityType) => api.get('/tooltips/entity', { gameId, name, entityType }),
+	getEntity: (gameId, id) => api.get('/tooltips/entity', { gameId, id }),
 };

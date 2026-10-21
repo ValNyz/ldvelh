@@ -60,7 +60,7 @@ function GameScreen({ user, logout }) {
 	const gamesHook = useGames();
 	const phaseHook = useGamePhase();
 	const prefs = usePreferences(user);
-	const { tooltipMap, refresh: refreshTooltips } = useTooltips(gs.gameId);
+	const { tooltipMap, spansByMessage, refresh: refreshTooltips } = useTooltips(gs.gameId);
 
 	// UI State
 	const [showState, setShowState] = useState(false);
@@ -308,6 +308,7 @@ function GameScreen({ user, logout }) {
 						onCancel={orch.handleCancel}
 						onClearError={gs.clearError}
 						onRetry={orch.handleRetry}
+						spansByMessage={spansByMessage}
 						tooltipMap={tooltipMap}
 						showDebug={prefs.showDebug}
 						engine={gs.gameState?.game?.engine}

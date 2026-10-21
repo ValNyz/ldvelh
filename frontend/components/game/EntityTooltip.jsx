@@ -305,11 +305,3 @@ function InfoLine({ info }) {
 		</div>
 	);
 }
-
-// Helper stub — will be implemented when tooltips are re-enabled
-export function withEntityTooltips(text, tooltipMap) {
-	if (!tooltipMap || tooltipMap.size === 0) {
-		return text;
-	}
-	return text;
-}

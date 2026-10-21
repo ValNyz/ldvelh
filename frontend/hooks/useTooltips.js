@@ -1,27 +1,31 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { tooltipsApi } from '../lib/api';
 
 const POLL_INTERVAL = 5000;
 const MAX_POLLS = 12;
 
 /**
- * Hook to load entity tooltip data from resolver annotations.
+ * Hook to load the stored entity mentions of the narration and their tooltips.
  *
- * After each turn, call refresh() to start polling for new annotations.
- * Builds a tooltipMap: { lowercase_surface: { icon, name, type, infos, relation } }: each
- * text the narration shows for an annotated entity maps to that entity's tooltip, fetched
- * by entity id (its `name` is what the player may read).
+ * After each turn, call refresh() to start polling for new annotations. It builds:
+ * - spansByMessage: { message_id: [{ start, end, entity_id }] }, the mentions of each
+ *   annotated message (offsets in its raw text);
+ * - tooltipMap: { entity_id: { icon, name, type, infos, relation } }, fetched by id
+ *   (its `name` is what the player may read).
  *
- * Bold text in messages is matched against these names for tooltip display.
+ * The annotations are rebuilt when the set of (message_id, number of annotations)
+ * changes, not when a total grows: a rollback or a regeneration that removes messages is
+ * seen, and the keys of messages and entities no longer annotated are dropped.
  */
 export function useTooltips(gameId) {
 	const [tooltipMap, setTooltipMap] = useState({});
+	const [spansByMessage, setSpansByMessage] = useState({});
 	const [isLoading, setIsLoading] = useState(false);
 	const pollRef = useRef(null);
 	const pollCountRef = useRef(0);
-	const prevAnnotationCountRef = useRef(0);
+	const signatureRef = useRef('');
 
 	const stopPolling = useCallback(() => {
 		if (pollRef.current) {
@@ -31,67 +35,48 @@ export function useTooltips(gameId) {
 		pollCountRef.current = 0;
 	}, []);
 
+	// Another game: nothing of the previous one is kept.
+	useEffect(() => {
+		stopPolling();
+		signatureRef.current = '';
+		setTooltipMap({});
+		setSpansByMessage({});
+	}, [gameId, stopPolling]);
+
 	const fetchAndBuild = useCallback(async () => {
 		if (!gameId) return false;
 
 		try {
 			const data = await tooltipsApi.getAnnotations(gameId);
 			const messages = data?.messages || [];
-			if (messages.length === 0) {
-				console.debug('[Tooltips] No annotations yet');
-				return false;
-			}
-			console.debug(`[Tooltips] Got ${messages.length} annotated messages`);
+			const signature = annotationSignature(messages);
+			if (signature === signatureRef.current) return false;
+			signatureRef.current = signature;
 
-			// Count total annotations
-			const totalAnns = messages.reduce((sum, m) => sum + m.annotations.length, 0);
-			if (totalAnns <= prevAnnotationCountRef.current) return false;
-			prevAnnotationCountRef.current = totalAnns;
-
-			// One entry per entity (its id; the label for an unresolved span), with the
-			// texts the narration shows for it: the tooltip is fetched once per entity and
-			// keyed by each surface, so two entities never collapse onto one display name.
+			const spans = {};
 			const entities = new Map();
 			for (const msg of messages) {
+				spans[msg.message_id] = msg.annotations.map(({ start, end, entity_id }) => ({ start, end, entity_id }));
 				for (const ann of msg.annotations) {
-					const key = ann.entity_id || `${ann.entity_type}:${ann.label}`;
-					if (!entities.has(key)) {
-						entities.set(key, { ref: ann.entity_id || ann.label, label: ann.label, entityType: ann.entity_type, surfaces: new Set() });
-					}
-					entities.get(key).surfaces.add(ann.surface || ann.label);
+					if (!entities.has(ann.entity_id)) entities.set(ann.entity_id, ann);
 				}
 			}
 
-			// Fetch tooltip details for each entity — use functional setState to avoid stale closure
-			const newEntries = {};
-			const icons = { character: '👤', companion: '👤', protagonist: '👤', location: '📍', organization: '🏢', object: '📦', arc: '📖' };
+			// One tooltip per entity, fetched again on each change: a reveal renames it.
+			const tooltips = {};
+			await Promise.all(Array.from(entities.values(), async (ann) => {
+				tooltips[ann.entity_id] = await fetchTooltip(gameId, ann);
+			}));
 
-			for (const { ref, label, entityType, surfaces } of entities.values()) {
-				let tooltip;
-				try {
-					const result = await tooltipsApi.getEntity(gameId, ref, entityType);
-					tooltip = result?.found && result.tooltip ? result.tooltip : null;
-				} catch {
-					tooltip = null;
-				}
-				// Entity not in DB yet — basic tooltip
-				tooltip = tooltip || { icon: icons[entityType] || '❓', name: label, type: entityType, infos: [] };
-				for (const surface of surfaces) {
-					newEntries[surface.toLowerCase()] = tooltip;
-				}
-			}
-
-			if (Object.keys(newEntries).length > 0) {
-				setTooltipMap(prev => ({ ...prev, ...newEntries }));
-				console.debug(`[Tooltips] Map updated with ${Object.keys(newEntries).length} entities`);
-			}
-
-			return true;
+			setSpansByMessage(spans);
+			setTooltipMap(tooltips);
+			console.debug(`[Tooltips] ${messages.length} annotated messages, ${entities.size} entities`);
+			return messages.length > 0;
 		} catch (err) {
 			console.error('[Tooltips] Fetch error:', err);
 			return false;
 		}
-	}, [gameId]); // No tooltipMap dependency — uses functional setState
+	}, [gameId]);
 
 	const refresh = useCallback(() => {
 		if (!gameId) return;
@@ -105,7 +90,7 @@ export function useTooltips(gameId) {
 				setIsLoading(false);
 				return;
 			}
-			// Start polling if no annotations yet
+			// Poll until the resolver's mentions of the turn arrive
 			pollRef.current = setInterval(async () => {
 				pollCountRef.current++;
 				const found = await fetchAndBuild();
@@ -117,5 +102,26 @@ export function useTooltips(gameId) {
 		});
 	}, [gameId, fetchAndBuild, stopPolling]);
 
-	return { tooltipMap, isLoading, refresh };
+	useEffect(() => stopPolling, [stopPolling]);
+
+	return { tooltipMap, spansByMessage, isLoading, refresh };
+}
+
+/** What identifies a set of annotated messages: each message id with its count. */
+function annotationSignature(messages) {
+	return messages
+		.map(m => `${m.message_id}:${m.annotations.length}`)
+		.sort()
+		.join('|');
+}
+
+/** The tooltip of an annotated entity; its player-safe label alone when the lookup fails. */
+async function fetchTooltip(gameId, ann) {
+	try {
+		const result = await tooltipsApi.getEntity(gameId, ann.entity_id);
+		if (result?.found && result.tooltip) return result.tooltip;
+	} catch {
+		// The label of the annotation is shown instead.
+	}
+	return { icon: '', name: ann.label, type: ann.entity_type, infos: [] };
 }

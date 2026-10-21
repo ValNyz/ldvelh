@@ -345,8 +345,8 @@ async def test_tooltip_payloads_never_contain_a_hidden_true_name(
 ):
     """L = 0 on the whole JSON of the annotations and the tooltips: the unidentified
     NPC's true name, held by its occupation, ambient and description, and the name of a
-    whole-secret place. The world panel never shows the NPC's true name (its secret
-    places belong to the panel's own filter, task 21)."""
+    whole-secret place. The world panel has its own test
+    (test_world_panel_never_contains_a_hidden_true_name)."""
     game_id = await _world(client, test_user, test_pool)
     justine = await _hide_under_a_descriptor(test_pool, game_id)
     async with test_pool.acquire() as conn:
@@ -398,6 +398,82 @@ async def test_tooltip_payloads_never_contain_a_hidden_true_name(
     assert payloads_["place"]["tooltip"]["infos"] == []
     # A place is no person: the neutral unknown label (M4).
     assert payloads_["place"]["tooltip"]["name"] == load_lang("fr").unknown_entity_label
+
+
+async def test_world_panel_never_contains_a_hidden_true_name(
+    client, test_user, test_pool
+):
+    """Ruling R51: L = 0 on the world panel JSON. The unidentified NPC is listed under its
+    descriptor, `known: false`, without its occupation and description (which hold its
+    true name), and its workplace, a whole-secret place, is not named; that place and a
+    whole-secret organization are left out, as is the parent of a place inside it; a
+    secret place with a readable descriptor is listed under it, its sector (which holds
+    the secret name) left out."""
+    from repos import entities
+
+    game_id = await _world(client, test_user, test_pool)
+    justine = await _hide_under_a_descriptor(test_pool, game_id)
+    secret_org = "Cercle Vauquelin"
+    vault_name = f"Ossuaire {SECRET_PLACE}"
+    async with test_pool.acquire() as conn:
+        crypt = await conn.fetchval(
+            "INSERT INTO locations (game_id, name) VALUES ($1, $2) RETURNING id",
+            game_id,
+            SECRET_PLACE,
+        )
+        cellar = await conn.fetchval(
+            "INSERT INTO locations (game_id, name, parent_id) VALUES ($1, 'Cave basse', $2)"
+            " RETURNING id",
+            game_id,
+            crypt,
+        )
+        vault = await conn.fetchval(
+            "INSERT INTO locations (game_id, name, sector) VALUES ($1, $2, $3) RETURNING id",
+            game_id,
+            vault_name,
+            f"Sous {vault_name}",
+        )
+        org = await conn.fetchval(
+            "INSERT INTO organizations (game_id, name) VALUES ($1, $2) RETURNING id",
+            game_id,
+            secret_org,
+        )
+        await conn.execute(
+            "UPDATE entity_aliases SET secret = true WHERE entity_id = ANY($1::uuid[])",
+            [crypt, vault, org],
+        )
+        await entities.insert_alias(
+            conn, game_id, vault, "location", "la salle aux os", "descriptor",
+            known=True, source="world_gen",
+        )  # fmt: skip
+        await conn.execute(
+            "UPDATE characters SET occupation = $2, description = $3, workplace_id = $4"
+            " WHERE id = $1",
+            justine,
+            f"assistante de {SECRET_NAME}",
+            f"{SECRET_NAME}, ancienne pilote.",
+            crypt,
+        )
+
+    r = await client.get(
+        f"/api/games/{game_id}/world", headers=auth_headers(test_user["token"])
+    )
+    assert r.status_code == 200
+    world = r.json()
+
+    for secret in (SECRET_NAME, SECRET_PLACE, "Vauquelin"):
+        assert not _holds(world, secret), secret
+    [npc] = [n for n in world["npcs"] if n["id"] == str(justine)]
+    assert (npc["name"], npc["known"]) == (DESCRIPTOR, False)
+    assert (npc["occupation"], npc["description"], npc["location"]) == (None,) * 3
+    places = {loc["id"]: loc for loc in world["locations"]}
+    assert str(crypt) not in places
+    assert places[str(cellar)]["parent"] is None
+    assert (places[str(vault)]["name"], places[str(vault)]["sector"]) == (
+        "la salle aux os",
+        None,
+    )
+    assert str(org) not in {o["id"] for o in world["organizations"]}
 
 
 async def test_free_text_holding_an_entitys_own_secret_name_never_reaches_a_tooltip(

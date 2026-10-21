@@ -22,6 +22,7 @@ export default function MessageList({
 	onCancel,
 	onClearError,
 	onRetry,
+	spansByMessage,
 	tooltipMap,
 	showDebug,
 	engine
@@ -92,6 +93,7 @@ export default function MessageList({
 						onEdit={msg.role === 'user' && !loading ? onEdit : null}
 						onResend={msg.role === 'user' && !loading ? onResend : null}
 						onRegenerate={canRegenerate ? onRegenerate : null}
+						spans={msg.id ? spansByMessage?.[msg.id] : undefined}
 						tooltipMap={tooltipMap}
 						showDebug={showDebug}
 						engine={engine}

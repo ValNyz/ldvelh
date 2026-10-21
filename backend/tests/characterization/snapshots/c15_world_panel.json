@@ -1,13 +1,13 @@
 {
   "counts_all_unknown": {
     "locations": 6,
-    "npcs": 1,
+    "npcs": 3,
     "organizations": 1,
     "quests": 4
   },
   "counts_one_known": {
     "locations": 6,
-    "npcs": 2,
+    "npcs": 3,
     "organizations": 1,
     "quests": 4
   },
@@ -23,6 +23,7 @@
     "npcs": [
       "description",
       "id",
+      "known",
       "location",
       "name",
       "occupation",
@@ -52,6 +53,7 @@
   ],
   "npc": {
     "description": "Petite, cheveux gris en chignon serré, posture rigide, regard dur",
+    "known": true,
     "location": "Serres Hydro-7",
     "name": "Dr. Yuki Tanaka",
     "occupation": "directrice technique Symbiose Tech",
@@ -61,10 +63,20 @@
   "npc_keys": [
     "description",
     "id",
+    "known",
     "location",
     "name",
     "occupation",
     "relation_level",
     "relationship"
-  ]
+  ],
+  "unknown_npc": {
+    "description": null,
+    "known": false,
+    "location": "Serres Hydro-7",
+    "name": "La silhouette au manteau gris",
+    "occupation": null,
+    "relation_level": null,
+    "relationship": "Inconnu"
+  }
 }
