@@ -483,6 +483,42 @@ def test_without_case_marking_names_a_short_form_never_links_alone():
     assert load_lang("fr").case_marks_names and load_lang("en").case_marks_names
 
 
+async def test_a_short_form_left_by_the_prepass_is_asked_under_to_check():
+    case = _candidate(6, "Valise souple", "object", aliases=[_alias("Valise", "short")])
+    exact = {NORMALIZER.norm("Valise"): case}
+    text = "Il pose sa valise."
+    found, doubts = decision.scan(
+        text, _set(case, exact=exact), normalizer=NORMALIZER, config=CONFIG
+    )
+    assert found == [] and [(d.surface, d.handle) for d in doubts] == [
+        ("sa valise", "E6")
+    ]
+    seen = []
+
+    def first(prompt):
+        seen.append(prompt)
+        return {"mentions": [_mention("sa valise", "MATCH", "E6")]}
+
+    turn, _ = await _decide({"identity": [first]}, _set(case, exact=exact), text)
+    assert '## TO CHECK\n"sa valise" (after "Il pose"): E6?' in seen[0]
+    assert [d.entity_id for d in turn.decisions] == [case.entity_id]
+
+
+def test_a_card_names_the_candidates_sharing_its_name_and_their_type():
+    place = _candidate(3, "Méridienne", "location")
+    ship = _candidate(4, "Méridienne", "object")
+    card = render_card(
+        place, protagonist=False, companion=False, homonyms=[("E4", "object")]
+    )
+    assert "same name as E4 (object)" in card
+    street = _candidate(5, "Rue Haute", "location")
+    assert decision._homonyms([place, ship, street], NORMALIZER) == {
+        place.entity_id: [("E4", "object")],
+        ship.entity_id: [("E3", "location")],
+        street.entity_id: [],
+    }
+
+
 def test_a_surface_that_repeats_its_context_keeps_only_the_mention():
     voss = _candidate(4, "Rizka Voss", aliases=[_alias("Voss", "short")])
     text = "Si tu cherches Voss, va au sas."

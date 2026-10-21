@@ -76,7 +76,11 @@ or SKIP instead.
 Rules:
 1. A title alone is not enough when several candidates hold it.
 2. The same name held by cards of different kinds (a place and an organization, say) \
-names distinct entities, unless the text says they are one.
+names distinct entities, unless the text says they are one. Pick the kind the sentence \
+calls for: what one goes to, enters, leaves or is in is a place; what decides, sends, \
+employs, pays or rules is an organization or a person; what speaks, looks or moves by \
+itself is a person; what is held, given, opened, carried or used is an object. When the \
+sentence allows several kinds, UNSURE.
 3. Two people who talk to each other in the scene are distinct: list each one in the \
 other's talks_to.
 4. A self-introduction by an entity whose name is still unknown and who is present in the \
@@ -93,6 +97,9 @@ MATCH them, never create them.
 10. A part of an entity (the handle of a tool, the lid of a box) is not that entity: SKIP.
 11. Members of a group, counted or described one by one, are not the group itself: SKIP \
 unless the text names the group.
+12. Each mention under TO CHECK is written like a name of the candidate given after it, \
+but as a common noun: decide it (MATCH that candidate or another, NEW, or SKIP); never \
+leave one out.
 
 For each mention give: surface (the exact words of the mention in the narration, \
 not the words before it), before (the \
@@ -149,6 +156,7 @@ def build_identity_user_prompt(
     scene_lines: list[str],
     *,
     mentions: list[str] | None = None,
+    to_check: list[str] | None = None,
     schema: dict | None = None,
 ) -> str:
     """The user message: the narration, the candidate cards, the mentions the prepass
@@ -160,6 +168,8 @@ def build_identity_user_prompt(
         _section("ALREADY RESOLVED", resolved),
         _section("SCENE", scene_lines),
     ]
+    if to_check:
+        sections.append(_section("TO CHECK", to_check))
     if mentions is not None:
         sections.append(_section("MENTIONS TO DECIDE", mentions))
     if schema is not None:
@@ -176,7 +186,13 @@ def _quoted(text: str) -> str:
     return f'"{text}"'
 
 
-def render_card(c: Candidate, *, protagonist: bool, companion: bool) -> str:
+def render_card(
+    c: Candidate,
+    *,
+    protagonist: bool,
+    companion: bool,
+    homonyms: list[tuple[str, str]] | tuple = (),
+) -> str:
     """One candidate as the model sees it (§4.5.2): handle, type, role, the label the
     player may read, a true name the protagonist does not know yet, the other aliases
     and descriptors, occupation, usual place, last turn seen and one line of
@@ -216,6 +232,9 @@ def render_card(c: Candidate, *, protagonist: bool, companion: bool) -> str:
         parts.append(f"seen at turn {c.last_seen_turn}")
     if c.description_line:
         parts.append(c.description_line)
+    if homonyms:
+        others = ", ".join(f"{handle} ({kind})" for handle, kind in homonyms)
+        parts.append(f"same name as {others}: tell them apart by kind")
     return SEPARATOR.join(parts)
 
 

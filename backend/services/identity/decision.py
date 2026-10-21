@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 MATCH, ALIAS, NEW, UNSURE, SKIP = DECISIONS
 TRUE_NAME = "true_name"
 SHORT = "short"
+DESCRIPTOR = "descriptor"
 # Stored kinds of a name (not a description nor a short form): unknown, it is the name the
 # narration reveals.
 UNKNOWN_NAME_KINDS = frozenset({TRUE_NAME, "label"})
@@ -534,8 +535,21 @@ def prepass(
     exactly one entity (`candidates.exact`), longest run first, left to right; a run the
     text continues into a longer name, or that a word announcing another entity precedes,
     is left to the model (see the module docstring)."""
+    return scan(text, candidates, normalizer=normalizer, config=config)[0]
+
+
+def scan(
+    text: str,
+    candidates: CandidateSet,
+    *,
+    normalizer: Normalizer,
+    config: IdentityConfig | None = None,
+) -> tuple[list[MentionDecision], list[MentionDecision]]:
+    """(the prepass decisions, the doubts): a doubt is an exact short form the prepass
+    leaves because the text writes it as a common noun; the model is asked to decide it
+    (TO CHECK), so that it is not left out."""
     if not candidates.exact:
-        return []
+        return [], []
     config = config or get_identity_config()
     longest = max(len(norm.split()) for norm in candidates.exact)
     # A name's words, plus as many glued or leading words (article, elision, ordinal).
@@ -543,6 +557,7 @@ def prepass(
     runs = _Runs(text, normalizer, config.other_marker_reach)
     words = runs.words
     found: list[MentionDecision] = []
+    doubts: list[MentionDecision] = []
     revealed: set[UUID] = set()
     i = 0
     while i < len(words):
@@ -559,16 +574,19 @@ def prepass(
             i += 1
             continue
         end, surface, c, norm = hit
-        if not (
-            runs.continued(i, end)
-            or runs.announced_other(i)
-            or runs.common_use(surface, c, norm)
-        ):
-            start = max(0, i - config.before_words)
-            before = " ".join(w.group() for w in words[start:i])
+        start = max(0, i - config.before_words)
+        before = " ".join(w.group() for w in words[start:i])
+        if runs.continued(i, end) or runs.announced_other(i):
+            pass  # likely another entity: the model decides it unprompted
+        elif runs.common_use(surface, c, norm):
+            doubt = MentionDecision(
+                surface, UNSURE, before, handle=format_handle(c.handle)
+            )
+            doubts.append(doubt)
+        else:
             found.append(_exact(surface, before, c, norm, revealed))
         i = end
-    return found
+    return found, doubts
 
 
 # --- the cascade (§4.5.5) -------------------------------------------------------------
@@ -636,6 +654,24 @@ async def _attempt(
         return None
 
 
+def _homonyms(candidates: list[Candidate], normalizer: Normalizer):
+    """For each candidate, the (handle, type) of the others sharing one of its names
+    (label or a name alias, not a description): the card says so."""
+    names = {
+        c.entity_id: {normalizer.norm(c.label)}
+        | {a.alias_norm for a in c.aliases if a.kind != DESCRIPTOR}
+        for c in candidates
+    }
+    return {
+        c.entity_id: [
+            (format_handle(o.handle), o.entity_type)
+            for o in candidates
+            if o.entity_id != c.entity_id and names[c.entity_id] & names[o.entity_id]
+        ]
+        for c in candidates
+    }
+
+
 class _Prompt:
     """The prompts of a turn: cards, resolved mentions and scene lines."""
 
@@ -647,6 +683,7 @@ class _Prompt:
         lexicon: Lexicon,
         session: LLMSession,
         config: IdentityConfig,
+        normalizer: Normalizer,
     ):
         self.text, self.scene, self.lexicon = text, scene, lexicon
         self.session, self.config = session, config
@@ -657,12 +694,15 @@ class _Prompt:
         self.handle_of: dict[UUID, str] = {
             c.entity_id: format_handle(c.handle) for c in self.candidates
         }
+        self.homonyms = _homonyms(self.candidates, normalizer)
 
-    def card(self, c: Candidate) -> str:
+    def card(self, c: Candidate, shown: set[str]) -> str:
+        """`c`'s card; the homonyms it names are those among the `shown` handles."""
         return render_card(
             c,
             protagonist=c.entity_id == self.scene.protagonist_id,
             companion=c.entity_id == self.scene.companion_id,
+            homonyms=[h for h in self.homonyms.get(c.entity_id, []) if h[0] in shown],
         )
 
     def scene_lines(self) -> list[str]:
@@ -685,6 +725,7 @@ class _Prompt:
         purpose: Purpose,
         *,
         mentions: list[str] | None = None,
+        doubts: list[MentionDecision] | None = None,
     ) -> tuple[str, str, dict]:
         schema = decision_schema(
             [format_handle(c.handle) for c in chosen], config=self.config
@@ -694,12 +735,21 @@ class _Prompt:
             self.lexicon, strong=purpose is Purpose.IDENTITY_STRONG, config=self.config
         )
         lines = list(dict.fromkeys(f'"{d.surface}" = {d.handle}' for d in resolved))
+        to_check = list(
+            dict.fromkeys(
+                f'"{d.surface}"'
+                + (f' (after "{d.before}")' if d.before else "")
+                + f": {d.handle}?"
+                for d in doubts or []
+            )
+        )
         user = build_identity_user_prompt(
             self.text,
-            [self.card(c) for c in chosen],
+            [self.card(c, {format_handle(o.handle) for o in chosen}) for c in chosen],
             lines,
             self.scene_lines(),
             mentions=mentions,
+            to_check=to_check,
             schema=schema if mode is StructuredOutputMode.TEXT else None,
         )
         return system, user, schema
@@ -831,9 +881,11 @@ async def decide_turn(
     """The identity decisions of a turn's narration (spec §4.5.5)."""
     config = thresholds
     usage: dict = {}
-    pre = prepass(text, candidates, normalizer=normalizer, config=config)
-    prompt = _Prompt(text, candidates, scene, lexicon, session, config)
-    system, user, schema = prompt.messages(prompt.candidates, pre, Purpose.IDENTITY)
+    pre, doubts = scan(text, candidates, normalizer=normalizer, config=config)
+    prompt = _Prompt(text, candidates, scene, lexicon, session, config, normalizer)
+    system, user, schema = prompt.messages(
+        prompt.candidates, pre, Purpose.IDENTITY, doubts=doubts
+    )
     first = await _attempt(
         session, Purpose.IDENTITY, system, user, schema, config, usage
     )
