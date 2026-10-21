@@ -415,7 +415,7 @@ async def _ondrev_game(test_pool, test_user, monkeypatch, s_word: str):
         protagonist = await entities.insert_domain_row(
             conn, game, "protagonist", {"name": "Rafe"}, label_suffix=None
         )
-    scene = SceneContext(None, [], [], [], [], [], protagonist, None, None)
+    scene = SceneContext(None, [], [], [], [], [], protagonist, None)
     return service, scene, ondrev
 
 
@@ -552,7 +552,6 @@ async def test_pipeline_is_parametrizable_with_the_en_stub_pack(test_pool, test_
             open_disclosure_ids=[],
             protagonist_id=protagonist,
             companion_id=None,
-            genre=None,
         )
         session = LLMSession.from_provider(provider)
         candidates = await service.block(conn, text, scene)

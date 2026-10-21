@@ -185,20 +185,6 @@ def _exact(
     return base
 
 
-def prepass(
-    text: str,
-    candidates: CandidateSet,
-    *,
-    normalizer: Normalizer,
-    config: IdentityConfig | None = None,
-) -> list[MentionDecision]:
-    """Link, without the model, every run of words of `text` whose normalised form names
-    exactly one entity (`candidates.exact`), longest run first, left to right; a run the
-    text continues into a longer name, or that a word announcing another entity precedes,
-    is left to the model (see the module docstring)."""
-    return scan(text, candidates, normalizer=normalizer, config=config)[0]
-
-
 def scan(
     text: str,
     candidates: CandidateSet,

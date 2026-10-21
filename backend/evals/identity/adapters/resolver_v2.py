@@ -3,8 +3,9 @@
 Each scene runs in a scratch game of the evaluation database, inside a transaction that is
 rolled back: `world_loader.load_world` rebuilds the scene's world and past messages,
 `scene_context` its SceneContext, the narration is stored as the turn's assistant message,
-then the turn is resolved by the app's own code, in the order IdentityService.resolve_turn
-runs it (block, decide, apply), so that the candidates and the decisions can be read:
+then the turn is resolved by the app's own code, in the order the extraction
+orchestrator's `resolve_phase` runs it (IdentityService.block, decide, apply_resolution),
+so that the candidates and the decisions can be read:
 - blocking on the narration (SQL);
 - the decision cascade with the given LLMSession (prepass, the small model, at most one
   escalation to the strong one); `tier="cheap"` turns the escalation off

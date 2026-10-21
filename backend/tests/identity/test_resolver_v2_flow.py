@@ -394,7 +394,7 @@ async def test_a_proposal_never_lands_on_a_removed_entity(test_pool, game):
 
 
 async def _resolve(conn, game, text: str, mentions: list[dict], *, present=(), strong=()):
-    """resolve_turn on `text` with scripted identity answers (`strong`: the second
+    """block, decide and apply_resolution on `text` with scripted identity answers (`strong`: the second
     opinion's), outside any turn."""
     from domain.identity import SceneContext, TurnRef
     from llm.session import LLMSession
@@ -418,15 +418,18 @@ async def _resolve(conn, game, text: str, mentions: list[dict], *, present=(), s
         open_disclosure_ids=[],
         protagonist_id=protagonist,
         companion_id=None,
-        genre=None,
     )
     provider = ScriptedLLMProvider({
         "identity": json.dumps({"mentions": mentions}),
         "identity_strong": json.dumps({"mentions": list(strong)}),
     })
     service = IdentityService(game, lang="fr", config=get_identity_config())
-    resolution = await service.resolve_turn(
-        conn, LLMSession.from_provider(provider), TurnRef(None, message, 3), text, scene
+    candidates = await service.block(conn, text, scene)
+    decided = await service.decide(
+        conn, LLMSession.from_provider(provider), text, scene, candidates
+    )
+    resolution = await service.apply_resolution(
+        conn, TurnRef(None, message, 3), text, scene, decided
     )
     return resolution, message
 
@@ -640,7 +643,6 @@ def _scene(location_id=None, present=()):
         open_disclosure_ids=[],
         protagonist_id=None,
         companion_id=None,
-        genre=None,
     )
 
 

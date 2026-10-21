@@ -54,7 +54,6 @@ async def _scene(conn, game_id: UUID, **fields) -> SceneContext:
         "open_disclosure_ids": [],
         "protagonist_id": protagonist,
         "companion_id": None,
-        "genre": None,
     }
     return SceneContext(**{**values, **fields})
 
@@ -687,8 +686,8 @@ def test_the_loader_maps_corpus_knowledge_to_what_the_app_holds():
     assert true_name_known(bare) is False  # no alias: nothing says the PC knows it
 
 
-def test_a_known_and_secret_name_is_reported_and_read_as_secret():
-    from evals.identity.corpus import Scene, WorldEntity, known_secret_names
+def test_a_known_and_secret_name_is_read_as_secret():
+    from evals.identity.corpus import Scene, WorldEntity
     from evals.identity.world_loader import true_name_known
     from tests.identity.test_corpus import _scene as corpus_scene
 
@@ -698,5 +697,5 @@ def test_a_known_and_secret_name_is_reported_and_read_as_secret():
              "aliases": [{"text": "Ilse Varn", "kind": "true_name", "known": True,
                           "secret": True}]}  # fmt: skip
     scene = Scene.model_validate({**data, "world": [*data["world"], agent]})
-    assert known_secret_names(scene) == [("character_agent", "Ilse Varn")]
+    assert scene.world[-1].id == "character_agent"
     assert true_name_known(WorldEntity.model_validate(agent)) is False

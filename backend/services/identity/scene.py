@@ -65,7 +65,6 @@ async def collect_scene_context(
     protagonist_id, companion_id = await entities.protagonist_and_companion(
         conn, game_id
     )
-    _, genre = await entities.game_language(conn, game_id)
     return SceneContext(
         location_id=location_id,
         present_ids=await _present(conn, game_id, location_id, deltas),
@@ -78,5 +77,4 @@ async def collect_scene_context(
         open_disclosure_ids=[],
         protagonist_id=protagonist_id,
         companion_id=companion_id,
-        genre=genre,
     )

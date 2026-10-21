@@ -331,5 +331,4 @@ def scene_context(
         ],
         protagonist_id=protagonist,
         companion_id=of_type(COMPANION),
-        genre=scene.genre,
     )

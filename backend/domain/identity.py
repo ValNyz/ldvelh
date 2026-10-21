@@ -121,7 +121,6 @@ class SceneContext:
     open_disclosure_ids: list[UUID]
     protagonist_id: UUID | None
     companion_id: UUID | None
-    genre: str | None
 
 
 @dataclass(frozen=True)

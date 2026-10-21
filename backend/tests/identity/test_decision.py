@@ -42,6 +42,7 @@ from services.identity.lexicon import Lexicon, for_game
 from repos import entities
 from services.identity.mentions import mention_rows
 from services.identity.normalize import Normalizer
+from services.identity.prepass import scan
 from services.identity.service import IdentityService
 from services.llm_providers import StructuredOutputMode
 from tests.characterization.scripted_llm import ScriptedLLMProvider, classify_call
@@ -93,7 +94,6 @@ def _scene(present: list[UUID] | None = None) -> SceneContext:
         open_disclosure_ids=[],
         protagonist_id=PROTAGONIST,
         companion_id=None,
-        genre=None,
     )
 
 
@@ -101,6 +101,11 @@ def _d(
     surface: str, verdict: str, handle: str | None = None, **fields
 ) -> MentionDecision:
     return MentionDecision(surface=surface, decision=verdict, handle=handle, **fields)
+
+
+def _prepass(text, candidates, *, normalizer=NORMALIZER, config=CONFIG):
+    """The prepass decisions of `text` (the doubts left aside)."""
+    return scan(text, candidates, normalizer=normalizer, config=config)[0]
 
 
 def _verify(decisions, candidates, text, scene=None, **kwargs):
@@ -345,7 +350,7 @@ def test_prepass_resolves_unique_exact_matches_without_llm():
     quay = _candidate(4, "Quai 9", "location")
     candidates = _set(keswil, quay, exact={"odran keswil": keswil, "quai 9": quay})
     text = "Odran Keswil attend au Quai n°9 ; plus tard, odran keswil repart."
-    found = decision.prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG)
+    found = _prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG)
     assert [(d.surface, d.entity_id) for d in found] == [
         ("Odran Keswil", keswil.entity_id),
         ("Quai n°9", quay.entity_id),
@@ -380,7 +385,7 @@ def test_prepass_reveals_an_exact_name_the_pc_does_not_know():
                         ("Odran Keswil", keswil))
     }  # fmt: skip
     text = "Odran Keswil salue Vela Sorn. Plus tard, Sorn pose sa lame."
-    found = decision.prepass(
+    found = _prepass(
         text,
         _set(vela, blade, keswil, exact=exact),
         normalizer=NORMALIZER,
@@ -407,7 +412,7 @@ def test_prepass_reveals_an_exact_name_the_pc_does_not_know():
     checked = _verify(found, _set(vela, blade, keswil, exact=exact), text)
     assert {d.surface: d.decision for d in checked}["Vela Sorn"] == "ALIAS"
     # An unknown short form alone reveals nothing: the full name was never read (I3).
-    [only] = decision.prepass(
+    [only] = _prepass(
         "Sorn attend.", _set(vela, exact=exact), normalizer=NORMALIZER, config=CONFIG
     )
     assert (only.decision, only.alias_kind, only.revealed_name) == ("MATCH", None, None)
@@ -434,10 +439,10 @@ def test_prepass_leaves_a_name_the_text_continues_or_announces_as_another():
         "Elle rejoint la Guilde des Convoyeurs au Quai 9, puis parle avec Elara Voss. "
         "On lui tend une seconde clé d'os."
     )
-    found = decision.prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG)
+    found = _prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG)
     assert found == []
     plain = "La Guilde attend au Quai. Voss sourit. La clé d'os brille."
-    found = decision.prepass(plain, candidates, normalizer=NORMALIZER, config=CONFIG)
+    found = _prepass(plain, candidates, normalizer=NORMALIZER, config=CONFIG)
     assert [d.entity_id for d in found] == [
         guild.entity_id,
         quay.entity_id,
@@ -460,11 +465,9 @@ def test_prepass_leaves_a_short_form_written_as_a_common_noun():
     exact = {NORMALIZER.norm(f): c for f, c in (("Valise", case), ("Maison", house))}
     candidates = _set(case, house, exact=exact)
     text = "Il pose sa valise devant la maison de commerce."
-    assert (
-        decision.prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG) == []
-    )
+    assert _prepass(text, candidates, normalizer=NORMALIZER, config=CONFIG) == []
     named = "Il pose la Valise. La Maison paiera."
-    found = decision.prepass(named, candidates, normalizer=NORMALIZER, config=CONFIG)
+    found = _prepass(named, candidates, normalizer=NORMALIZER, config=CONFIG)
     assert [(d.entity_id, d.decision) for d in found] == [
         (case.entity_id, "MATCH"),
         (house.entity_id, "MATCH"),  # an unknown short form alone reveals nothing
@@ -483,7 +486,7 @@ def test_without_case_marking_names_a_short_form_never_links_alone():
     text = (
         "Odran Keswil pose la Valise. Il ouvre la Valise souple, puis le Keswil Bleu."
     )
-    found = decision.prepass(
+    found = _prepass(
         text, _set(case, keswil, exact=exact), normalizer=caseless, config=CONFIG
     )
     # Names of the other kinds still link, and no capital is read as a continuation.
@@ -586,7 +589,7 @@ def test_an_occurrence_the_prepass_leaves_is_never_linked_by_another_one(lang, t
     normalizer = Normalizer(load_lang(lang), CONFIG)
     voss = _voss()
     exact = {normalizer.norm("Voss"): voss}
-    found = decision.prepass(
+    found = _prepass(
         text, _set(voss, exact=exact), normalizer=normalizer, config=CONFIG
     )
     assert [d.start for d in found] == [0]

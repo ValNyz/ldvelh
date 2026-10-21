@@ -642,24 +642,11 @@ class IdentityService:
 
     # --- the resolver v2 of a turn (spec §4.5) ------------------------------------------
 
-    async def resolve_turn(
-        self,
-        conn,
-        session: LLMSession,
-        turn: TurnRef,
-        narration: str,
-        scene: SceneContext,
-    ) -> TurnResolution:
-        """Block, decide and apply the identity decisions of a turn's narration
-        (`resolution`), on one connection: run it in the turn's unit of work. A caller
-        that must hold no connection during the model calls runs `block`, then `decide`
-        with a pooled reader, then `apply_resolution` (the extraction orchestrator)."""
-        candidates = await self.block(conn, narration, scene)
-        decided = await self.decide(conn, session, narration, scene, candidates)
-        return await self.apply_resolution(conn, turn, narration, scene, decided)
-
     async def block(self, conn, narration: str, scene: SceneContext) -> CandidateSet:
-        """The candidates of a narration (SQL, no model call)."""
+        """The candidates of a narration (SQL, no model call). A turn is resolved in
+        three steps, `block`, `decide` then `apply_resolution`, so that the caller holds
+        no pool connection and no lock during the model calls (the extraction
+        orchestrator's `resolve_phase`)."""
         return await resolution.block(self, conn, narration, scene)
 
     async def decide(

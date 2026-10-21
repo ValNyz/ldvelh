@@ -49,7 +49,7 @@ from repos import entities
 from services.identity.lexicon import Lexicon
 from services.identity.mentions import find_spans, occurrence_after
 from services.identity.normalize import Normalizer
-from services.identity.prepass import prepass, scan
+from services.identity.prepass import scan
 from services.llm_providers import StructuredOutputMode
 from utils import parse_json_response
 from utils.log_safe import log_cause
@@ -373,9 +373,6 @@ def _trim_context(d: MentionDecision, normalizer: Normalizer) -> MentionDecision
     if [fold(w) for w in words[:n]] != [fold(w) for w in context]:
         return d
     return replace(d, surface=" ".join(words[n:]))
-
-
-__all__ = ["prepass", "scan", "decide_turn", "parse", "verify"]
 
 
 # --- the cascade (§4.5.5) -------------------------------------------------------------
