@@ -127,6 +127,8 @@ async def run_resolve_and_extract(
                 source_message_id=assistant_message_id,
                 turn_id=turn_id,
             )
+        if resolution is not None or result["extractors"]:
+            # The resolver is a paid call on every turn, with or without extractors.
             await _record_cost(pool, assistant_message_id, result)
         await reveal_phase(pool, game_id, deltas, assistant_message_id, turn_id)
         return result

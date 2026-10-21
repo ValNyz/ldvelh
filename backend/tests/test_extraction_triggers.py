@@ -252,3 +252,30 @@ async def test_a_failing_reveal_does_not_stop_the_next_one(
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     assert any("entity_reveal character item failed" in w for w in warnings)
     assert not any("L'inconnu" in w for w in warnings)
+
+
+async def test_the_resolver_cost_reaches_a_turn_without_extractors(test_pool, test_user):
+    """M5: the resolver is paid on every turn: its cost goes into the message's
+    extraction_cost even when no extractor runs."""
+    from repos import messages
+
+    game_id, message_id = await _assistant_message(test_pool, test_user)
+    resolution = TurnResolution(
+        mentions=[], created=[], aliases_added=0, reveals=[], scene_entities=[],
+        new_types=set(), escalated=False, fallback=False,
+        usage={"identity": {"calls": 1, "input_tokens": 9, "output_tokens": 3,
+                            "cost_usd": 0.002}},
+    )  # fmt: skip
+    spies, _ = _spies()
+    with (
+        patch.dict(EXTRACTOR_MAP, spies),
+        patch.object(orchestrator, "resolve_phase", AsyncMock(return_value=resolution)),
+    ):
+        await orchestrator.run_resolve_and_extract(
+            test_pool, game_id, 1, [], session=MagicMock(),
+            assistant_message_id=message_id, message_content="Tu pars.",
+        )  # fmt: skip
+    assert all(not cls.called for cls in spies.values())
+    async with test_pool.acquire() as conn:
+        deltas = await messages.narrator_deltas(conn, message_id)
+    assert deltas["extraction_cost"]["cost_usd"] == 0.002
