@@ -297,6 +297,7 @@ world:
     secret: true
 - id: object_licence_de_pilote
   type: object
+  carried: true
   label: Licence de pilote
   true_name: null
   descriptor: null

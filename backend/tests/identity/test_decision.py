@@ -1038,6 +1038,16 @@ def _pack_forms() -> set[str]:
     return forms - {""}
 
 
+def test_a_card_says_the_protagonist_carries_an_object():
+    terminal = replace(_candidate(8, "Terminal personnel", "object"), carried=True)
+    card = render_card(terminal, protagonist=False, companion=False)
+    assert "carried by the PROTAGONIST" in card
+    other = render_card(
+        _candidate(9, "Bague", "object"), protagonist=False, companion=False
+    )
+    assert "carried" not in other
+
+
 def test_a_card_marks_a_label_the_pc_does_not_know():
     named = _candidate(
         8,

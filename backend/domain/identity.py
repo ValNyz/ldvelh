@@ -153,6 +153,7 @@ class Candidate:
     description_line: str | None
     score: float
     sources: set[str] = field(compare=False)
+    carried: bool = False  # an object the protagonist carries (its inventory)
 
 
 @dataclass(frozen=True)

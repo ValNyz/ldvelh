@@ -140,6 +140,7 @@ world:
     known: true
 - id: object_badge_d_acces
   type: object
+  carried: true
   label: Badge d'accès
   true_name: null
   descriptor: null

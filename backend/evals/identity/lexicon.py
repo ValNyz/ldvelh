@@ -36,6 +36,9 @@ class Lexicon(BaseModel):
     personal_pronouns: frozenset[str]
     indefinite_pronouns: frozenset[str]
     unambiguous_pronouns: frozenset[str]
+    # Possessives addressing the player (the narration speaks to the protagonist in the
+    # second person): what they qualify belongs to the protagonist (evals/identity/carried.py).
+    second_person_possessives: frozenset[str] = frozenset()
 
     @field_validator("apostrophes")
     @classmethod

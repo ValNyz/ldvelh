@@ -725,6 +725,7 @@ turns:
       known: true
   - id: object_carte_d_acces
     type: object
+    carried: true
     label: Carte d'accès
     true_name: null
     descriptor: null

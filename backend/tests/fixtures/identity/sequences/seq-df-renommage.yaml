@@ -375,6 +375,7 @@ turns:
       known: true
   - id: object_jeton_de_passage
     type: object
+    carried: true
     label: Jeton de passage
     true_name: null
     descriptor: null
@@ -679,6 +680,7 @@ turns:
       known: true
   - id: object_jeton_de_passage
     type: object
+    carried: true
     label: Jeton de passage
     true_name: null
     descriptor: null
@@ -979,6 +981,7 @@ turns:
       known: true
   - id: object_jeton_de_passage
     type: object
+    carried: true
     label: Jeton de passage
     true_name: null
     descriptor: null
@@ -1318,6 +1321,7 @@ turns:
       known: true
   - id: object_jeton_de_passage
     type: object
+    carried: true
     label: Jeton de passage
     true_name: null
     descriptor: null
@@ -1360,6 +1364,7 @@ turns:
       known: true
   - id: object_jeton_a_la_chaine_brisee
     type: object
+    carried: true
     label: le jeton à la chaîne brisée
     true_name: null
     descriptor: le jeton à la chaîne brisée

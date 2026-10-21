@@ -358,6 +358,7 @@ world:
     known: true
 - id: object_foreuse_portative
   type: object
+  carried: true
   label: Foreuse portative
   true_name: null
   descriptor: null

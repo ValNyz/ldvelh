@@ -296,6 +296,7 @@ world:
     known: true
 - id: object_terminal_personnel
   type: object
+  carried: true
   label: Terminal personnel
   true_name: null
   descriptor: null
@@ -309,6 +310,7 @@ world:
     known: true
 - id: object_valise_souple
   type: object
+  carried: true
   label: Valise souple
   true_name: null
   descriptor: null

@@ -98,6 +98,16 @@ class WorldEntity(_Strict):
     )
     location: str | None = None
     last_seen_turn: int | None = None
+    # An object the protagonist carries (its inventory, owner NULL); set by the rule of
+    # evals/identity/carried.py, never by hand (ANNOTATION § 3.1).
+    carried: bool = False
+
+    @field_validator("carried")
+    @classmethod
+    def _carried_object(cls, value: bool, info) -> bool:
+        if value and info.data.get("type") != "object":
+            raise ValueError("carried: objects only")
+        return value
 
 
 class GoldMention(_Strict):

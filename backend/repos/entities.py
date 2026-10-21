@@ -1466,3 +1466,26 @@ async def mentioned_elsewhere(
         game_id,
     )
     return {r["id"] for r in rows}
+
+
+async def carried_by_protagonist(
+    conn, game_id: UUID, entity_ids: list[UUID]
+) -> set[UUID]:
+    """The objects of `entity_ids` the protagonist carries: a row of the protagonist's
+    inventory (inventory.owner_id NULL; NPC possessions are not kept)."""
+    rows = await conn.fetch(
+        """SELECT DISTINCT object_id FROM inventory
+            WHERE game_id = $1 AND owner_id IS NULL AND object_id = ANY($2::uuid[])""",
+        game_id,
+        list(entity_ids),
+    )
+    return {r["object_id"] for r in rows}
+
+
+async def insert_protagonist_item(conn, game_id: UUID, object_id: UUID) -> None:
+    """One `object_id` in the protagonist's inventory (owner_id NULL)."""
+    await conn.execute(
+        "INSERT INTO inventory (game_id, object_id, quantity) VALUES ($1, $2, 1)",
+        game_id,
+        object_id,
+    )

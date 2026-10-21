@@ -111,6 +111,7 @@ world:
     known: true
 - id: object_lanterne_de_corne
   type: object
+  carried: true
   label: Lanterne de corne
   true_name: null
   descriptor: null

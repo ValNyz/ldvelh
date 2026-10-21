@@ -7,3 +7,8 @@
 # determiner: every occurrence in a text must be annotated.
 unambiguous_pronouns: ["quelqu'un", quiconque, celui-ci, celle-ci, ceux-ci, celles-ci,
   celui-là, celle-là, ceux-là, celles-là]
+
+# Possessive determiners of the second person: the narration addresses the protagonist,
+# so « ton terminal » is the protagonist's (the « carried » flag of a world object,
+# ANNOTATION § 3.1).
+second_person_possessives: [ton, ta, tes, votre, vos]

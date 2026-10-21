@@ -89,6 +89,7 @@ world:
     known: true
 - id: object_dague_brisee
   type: object
+  carried: true
   label: Dague brisée
   true_name: null
   descriptor: null

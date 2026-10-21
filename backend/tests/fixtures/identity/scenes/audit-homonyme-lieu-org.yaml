@@ -69,6 +69,7 @@ world:
     known: true
 - id: object_vigie
   type: object
+  carried: true
   label: Vigie
   true_name: null
   descriptor: ton drone

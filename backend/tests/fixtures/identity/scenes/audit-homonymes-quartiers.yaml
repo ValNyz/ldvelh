@@ -53,6 +53,7 @@ world:
     known: true
 - id: object_meridienne
   type: object
+  carried: true
   label: Méridienne
   true_name: null
   descriptor: ta navette

@@ -71,6 +71,8 @@ async def load_world(
     for entity in world:
         if entity.id in ids:
             await _add_aliases(conn, service, entity, ids[entity.id])
+            if entity.carried:
+                await entities.insert_protagonist_item(conn, game_id, ids[entity.id])
     if turn is None:
         turn = max([len(history), *(e.last_seen_turn or 0 for e in world)]) + 1
     current = turn

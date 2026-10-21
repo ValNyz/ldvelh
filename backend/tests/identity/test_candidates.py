@@ -568,3 +568,20 @@ async def test_blocking_recall_of_the_turn_set_on_the_whole_corpus(
         )
         _print_misses("mention miss", mention_misses)
     assert overall >= RECALL_FLOOR
+
+
+async def test_a_carried_object_is_in_the_protagonist_inventory_and_on_its_card(
+    test_pool, game
+):
+    [scene] = [s for s in load_scenes(FIXTURES) if s.id == "real-f134-t09"]  # dev
+    carried = {e.id for e in scene.world if e.carried}
+    assert carried  # the rule flags the protagonist's terminal and suitcase
+    async with test_pool.acquire() as conn:
+        ids = await load_world(conn, game, scene.world, scene.history, turn=scene.turn)
+        objects = [ids[e.id] for e in scene.world if e.type == "object"]
+        held = await entities.carried_by_protagonist(conn, game, objects)
+        service = IdentityService(game, lang="fr", config=get_identity_config())
+        found = await service.block(conn, scene.narration, scene_context(scene, ids))
+    assert held == {ids[i] for i in carried}
+    cards = {c.entity_id: c for c in found.ranked()}
+    assert all(cards[i].carried == (i in held) for i in cards)

@@ -29,6 +29,7 @@ IDENTITY_STRONG_MARKER = "## SECOND OPINION"
 # Tool (or JSON schema) name of the decision output.
 DECISION_TOOL = "identity_decisions"
 SEPARATOR = " · "
+PROTAGONIST = "PROTAGONIST"
 # Marks of a name the protagonist does not know (on a card).
 UNKNOWN = " (unknown to the PC)"
 NAME_UNKNOWN = " (name unknown to the PC)"
@@ -100,6 +101,9 @@ unless the text names the group.
 12. Each mention under TO CHECK is written like a name of the candidate given after it, \
 but as a common noun: decide it (MATCH that candidate or another, NEW, or SKIP); never \
 leave one out.
+13. A possessive or a description that ties an object to another person does not \
+designate an object carried by the PROTAGONIST, unless the text says it changed hands: \
+NEW or SKIP by the rules above.
 
 For each mention give: surface (the exact words of the mention in the narration, \
 not the words before it), before (the \
@@ -199,9 +203,11 @@ def render_card(
     description."""
     parts = [format_handle(c.handle), c.entity_type]
     if protagonist:
-        parts.append("PROTAGONIST")
+        parts.append(PROTAGONIST)
     if companion:
         parts.append("COMPANION")
+    if c.carried:
+        parts.append(f"carried by the {PROTAGONIST}")
     label = _quoted(c.label)
     shown = {c.label.casefold()}
     unknown_label = next(

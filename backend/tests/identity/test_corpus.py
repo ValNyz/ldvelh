@@ -22,6 +22,8 @@ from evals.identity.corpus import (
     validate_sequence,
 )
 from evals.identity.split import shares_in_test, stratified_split
+from evals.identity.carried import carried_objects
+from scripts import identity_corpus_carried
 
 ROOT = Path(__file__).resolve().parent.parent / "fixtures" / "identity"
 NARRATION = "La Kethari âgée cligne des yeux. — Nahle, dit-elle. Le terminal vibre sous sa paume."
@@ -1376,3 +1378,39 @@ def test_the_guide_leak_check_ignores_case_and_dev_copies():
     assert _guide_leaks(guide, [scene], set()) == {"la kethari âgée"}
     assert _guide_leaks("Voir `t1`.", [scene], set()) == {"t1"}
     assert _guide_leaks("« sa paume »", [scene], {"sa paume"}) == set()
+
+
+# --- the « carried » flag of the worlds (#154, ruling R39) ---------------------------
+
+
+def test_every_world_follows_the_carried_rule():
+    """`carried: true` is never set by hand: every scene and sequence turn holds exactly
+    what the rule of evals/identity/carried.py gives (scripts/identity_corpus_carried.py)."""
+    counts, changed = identity_corpus_carried.apply(ROOT, check=True)
+    assert changed == []
+    assert counts["dev"] > 0
+
+
+def test_the_carried_rule_reads_second_person_possessives_of_names_and_history():
+    lantern = {"id": "object_lanterne", "type": "object", "label": "Lanterne de cuivre",
+               "known": True, "aliases": [{"text": "ta lanterne", "kind": "descriptor",
+                                           "known": True}]}  # fmt: skip
+    box = {"id": "object_boite", "type": "object", "label": "Boîte grise", "known": True,
+           "aliases": [{"text": "Boîte grise", "kind": "label", "known": True}]}  # fmt: skip
+    hers = {"id": "object_bague", "type": "object", "label": "Bague", "known": True,
+            "aliases": [{"text": "Bague", "kind": "label", "known": True}]}  # fmt: skip
+    data = _scene()
+    history = [{"text": "Tu poses ta boîte. Elle tourne sa bague.", "mentions": [
+        {"surface": "ta boîte", "start": 8, "category": "DESC",
+         "expected": "MATCH object_boite"},
+        {"surface": "sa bague", "start": 30, "category": "DESC",
+         "expected": "MATCH object_bague"},
+    ]}]  # fmt: skip
+    scene = Scene.model_validate(
+        {**data, "world": [*data["world"], lantern, box, hers], "history": history}
+    )
+    assert carried_objects(scene) == {"object_lanterne", "object_boite"}
+    with pytest.raises(ValidationError, match="objects only"):
+        Scene.model_validate(
+            {**data, "world": [{**data["world"][1], "carried": True}, *data["world"]]}
+        )

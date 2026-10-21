@@ -280,6 +280,7 @@ world:
     known: true
 - id: object_terminal_personnel
   type: object
+  carried: true
   label: Terminal personnel
   true_name: null
   descriptor: null

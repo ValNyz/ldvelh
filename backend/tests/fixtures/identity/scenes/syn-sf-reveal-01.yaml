@@ -332,6 +332,7 @@ world:
     secret: true
 - id: object_bracelet_de_service
   type: object
+  carried: true
   label: Bracelet de service
   true_name: null
   descriptor: null

@@ -184,6 +184,7 @@ async def _cards(
 ) -> dict[UUID, Candidate]:
     """The card of each selected entity."""
     ids = list(selected)
+    carried = await entities.carried_by_protagonist(conn, game_id, ids)
     aliases: dict[UUID, list[CandidateAlias]] = {}
     for row in await entities.candidate_aliases(
         conn, game_id, ids, disclosed=disclosed
@@ -204,6 +205,7 @@ async def _cards(
             description_line=row.description_line,
             score=found[row.entity_id].score,
             sources=set(found[row.entity_id].sources),
+            carried=row.entity_id in carried,
         )
         for row in await entities.candidate_cards(conn, game_id, ids)
     }

@@ -1105,6 +1105,7 @@ turns:
       known: true
   - id: object_anneau_sigillaire
     type: object
+    carried: true
     label: Anneau sigillaire
     true_name: null
     descriptor: null

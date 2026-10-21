@@ -487,6 +487,7 @@ turns:
       known: true
   - id: object_pistolet_scellant
     type: object
+    carried: true
     label: Pistolet-scellant
     true_name: null
     descriptor: null

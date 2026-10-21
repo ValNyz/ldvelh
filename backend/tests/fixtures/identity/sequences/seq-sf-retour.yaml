@@ -937,6 +937,7 @@ turns:
       known: true
   - id: object_balise_de_detresse
     type: object
+    carried: true
     label: Balise de détresse
     true_name: null
     descriptor: null

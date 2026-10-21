@@ -267,6 +267,7 @@ world:
     known: true
 - id: object_chevaliere_d_onyx
   type: object
+  carried: true
   label: Chevalière d'onyx
   true_name: null
   descriptor: null
