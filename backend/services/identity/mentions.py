@@ -201,6 +201,13 @@ def mention_rows(
 ) -> list[MentionRow]:
     """The entity_mentions rows of the linked decisions, in text order (`others`: the
     decisions that link nothing, see `place`)."""
+    return rows_of(text, place(text, linked, normalizer, others))
+
+
+def rows_of(
+    text: str, spans: list[tuple[int, int, MentionDecision, UUID]]
+) -> list[MentionRow]:
+    """The entity_mentions rows of placed spans (start, end, decision, entity)."""
     return [
         MentionRow(
             start_pos=start,
@@ -210,5 +217,5 @@ def mention_rows(
             decision=stored_decision(d),
             evidence=d.evidence or None,
         )
-        for start, end, d, entity_id in place(text, linked, normalizer, others)
+        for start, end, d, entity_id in spans
     ]

@@ -311,8 +311,9 @@ class TurnResolution:
     scene the extractors receive, the entity types worth an extraction (created, or
     linked while still a bare stub), and the cascade's outcome. `usage`: per purpose,
     calls, tokens and cost of the decision; `linked`: the (decision, entity) pairs the
-    mentions were written from (an evaluation reads which decision took each span);
-    `overruled`: see TurnDecisions."""
+    mentions were written from; `spans`: (start, end, decision, entity) of each mention
+    written (an evaluation reads which decision took each span); `overruled`: see
+    TurnDecisions."""
 
     mentions: list[MentionRow]
     created: list[tuple[UUID, SceneEntity]]
@@ -326,6 +327,7 @@ class TurnResolution:
     unsure: int = 0
     usage: dict = field(default_factory=dict)
     linked: list[tuple[MentionDecision, UUID]] = field(default_factory=list)
+    spans: list[tuple[int, int, MentionDecision, UUID]] = field(default_factory=list)
     overruled: int = 0
 
     def stats(self) -> dict:

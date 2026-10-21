@@ -53,7 +53,7 @@ from prompts.identity_prompt import format_handle
 from repos import entities, messages
 from services.identity import candidates as blocking
 from services.identity.decision import decide_turn
-from services.identity.mentions import mention_rows, place
+from services.identity.mentions import place, rows_of
 
 logger = logging.getLogger(__name__)
 
@@ -118,17 +118,26 @@ def _is_new(d: MentionDecision) -> bool:
     return d.decision == NEW and not d.ignored
 
 
-def _owners(
+def _placement(
     narration: str,
     decisions: list[MentionDecision],
     unlinked: list[MentionDecision],
     normalizer,
-) -> set[int]:
-    """Indices of the decisions that take at least one span of the narration (`place`,
-    longest span first), with the NEW that a placed repeat (`same_as`) follows. A
-    decision whose every occurrence a longer one took writes nothing."""
+) -> list[tuple[int, int, MentionDecision, int]]:
+    """(start, end, decision, index) of each span the linked and NEW decisions take in
+    the narration (`place`, longest span first): placed once, before any write."""
     items = [(d, i) for i, d in enumerate(decisions) if _links(d) or _is_new(d)]
-    owners = {i for *_, i in place(narration, items, normalizer, unlinked)}
+    return place(narration, items, normalizer, unlinked)
+
+
+def _owners(
+    decisions: list[MentionDecision],
+    placement: list[tuple[int, int, MentionDecision, int]],
+) -> set[int]:
+    """Indices of the decisions that take at least one span, with the NEW that a placed
+    repeat (`same_as`) follows. A decision whose every occurrence a longer one took
+    writes nothing."""
+    owners = {i for *_, i in placement}
     return owners | {
         origin for i in owners if (origin := decisions[i].same_as) is not None
     }
@@ -190,17 +199,17 @@ class _Application:
 
     async def link(
         self, decisions: list[MentionDecision], owners: set[int]
-    ) -> list[tuple[MentionDecision, UUID]]:
-        """(decision, entity) of every mention that names an entity, NEW created; only
-        the decisions of `owners` (those that take a span) write an alias, a reveal or
-        an entity."""
-        linked: list[tuple[MentionDecision, UUID]] = []
+    ) -> dict[int, UUID]:
+        """The entity of each decision of `owners` (those that take a span) that names
+        one, by index, NEW created; only those decisions write an alias, a reveal or an
+        entity. A NEW that created nothing is absent."""
+        linked: dict[int, UUID] = {}
         made: dict[int, UUID | None] = {}
         for i, d in enumerate(decisions):
             if i not in owners:
                 continue
             if _links(d) and d.entity_id is not None:
-                linked.append((d, d.entity_id))
+                linked[i] = d.entity_id
                 if d.decision == ALIAS and d.alias_kind is not None:
                     await self._alias(d, d.entity_id, d.alias_kind)
             elif d.decision == NEW and not d.ignored:
@@ -210,7 +219,7 @@ class _Application:
                     made[i] = await self._create(d, d.new_type, d.new_kind)
                 entity_id = made.get(i)
                 if entity_id is not None:
-                    linked.append((d, entity_id))
+                    linked[i] = entity_id
         return linked
 
     async def _write(self, label: str, write):
@@ -396,10 +405,17 @@ async def apply(
     unlinked = [
         d for d in decisions.decisions if not d.ignored and d.decision in (UNSURE, SKIP)
     ]
-    # Placed first, written after: a decision that owns no span writes nothing.
-    owners = _owners(narration, decisions.decisions, unlinked, identity.normalizer)
-    linked = await application.link(decisions.decisions, owners)
-    mentions = mention_rows(narration, linked, identity.normalizer, unlinked)
+    # Placed once, written after: a decision that owns no span writes nothing, and the
+    # mentions are the owners' spans (a NEW that created nothing leaves its spans empty).
+    placement = _placement(
+        narration, decisions.decisions, unlinked, identity.normalizer
+    )
+    entity_of = await application.link(
+        decisions.decisions, _owners(decisions.decisions, placement)
+    )
+    written = [(s, e, d, entity_of[i]) for s, e, d, i in placement if i in entity_of]
+    linked = [(decisions.decisions[i], entity) for i, entity in entity_of.items()]
+    mentions = rows_of(narration, written)
     await entities.insert_mentions(
         conn, identity.game_id, turn.message_id, turn.turn_id, mentions
     )
@@ -433,5 +449,6 @@ async def apply(
         unsure=sum(1 for d in decisions.decisions if d.decision == UNSURE),
         usage=decisions.usage,
         linked=linked,
+        spans=written,
         overruled=decisions.overruled,
     )

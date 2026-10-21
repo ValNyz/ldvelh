@@ -764,6 +764,39 @@ async def test_a_decision_that_takes_no_span_writes_nothing(test_pool, game):
     assert (stats["created"], stats["aliases"], stats["reveals"]) == (0, 0, 0)
 
 
+async def test_a_new_that_creates_nothing_never_hands_its_span_to_a_non_owner(
+    test_pool, game
+):
+    """N1: the NEW « Vieux Moulin » owns the span but its label is ambiguous (aliases of
+    two mills) and creates nothing; the shorter ALIAS « Moulin » it covered owned no span,
+    wrote no alias, and gets no mention either (the spans are placed once)."""
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        mills = []
+        for label in ("Moulin Haut", "Moulin Bas"):
+            mill = await service.create_entity(
+                conn, NewEntitySpec("location", label, "proper_name"),
+                turn_id=None, source="world_gen",
+            )
+            await service.add_alias(conn, mill, "Vieux Moulin", "nickname", known=True,
+                                    source="world_gen")
+            mills.append(mill)
+        aliases = await _count(conn, game, "entity_aliases")
+        decisions = [
+            MentionDecision(surface="Vieux Moulin", decision="NEW", new_type="location",
+                            new_kind="proper_name", verified=True),
+            MentionDecision(surface="Moulin", decision="ALIAS", alias_kind="nickname",
+                            entity_id=mills[0], verified=True),
+        ]  # fmt: skip
+        resolution, message = await _apply(
+            conn, game, "Le Vieux Moulin tourne.", decisions
+        )
+        stored = await _count(conn, game, "entity_mentions", "message_id = $2", message)
+        assert await _count(conn, game, "entity_aliases") == aliases
+    assert stored == 0 and resolution.mentions == [] and resolution.spans == []
+    assert resolution.created == [] and resolution.aliases_added == 0
+
+
 def _new_guard(**fields) -> MentionDecision:
     return MentionDecision(surface="le garde", decision="NEW", new_type="character",
                            new_kind="descriptor", verified=True, **fields)

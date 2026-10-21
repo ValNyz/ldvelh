@@ -12,10 +12,9 @@ so that the candidates and the decisions can be read:
   (IdentityConfig.escalation), the small model's decisions stand;
 - the application in the turn's transaction (stubs, aliases, reveals, mentions).
 
-Decisions are mapped to the eval's by span: the (decision, entity) pairs the app wrote its
-mentions from (`TurnResolution.linked`) take exactly the spans it wrote
-(services.identity.mentions.place), then the UNSURE and SKIP decisions, and the NEW the
-app wrote nothing for, the spans still free. A link names the world id of its entity. A NEW names the entity the app
+Decisions are mapped to the eval's by span: the spans the app wrote its mentions on
+(`TurnResolution.spans`, decision and entity each), then the UNSURE and SKIP decisions,
+and the NEW the app wrote nothing for, the spans still free. A link names the world id of its entity. A NEW names the entity the app
 created for it: its first span is the NEW (id `new:<scene id>:<start>`), its other spans
 MATCH that id; a NEW the app folded into a world entity is a MATCH to it (that is what was
 written); a NEW the app refused to create (ambiguous label) has no id.
@@ -99,17 +98,15 @@ def _overlaps(span: tuple[int, int], taken: list[tuple[int, int]]) -> bool:
 
 def placed(
     text: str,
-    linked: list[tuple[MentionDecision, UUID]],
+    written: list[tuple[int, int, MentionDecision, UUID]],
     decisions: list[MentionDecision],
     normalizer: Normalizer,
 ) -> list[tuple[int, int, MentionDecision, UUID | None]]:
-    """(start, end, decision, entity) of every span, in text order: the pairs the app
-    wrote its mentions from, on the spans it wrote; then the other live decisions
-    (UNSURE, SKIP, a NEW that created nothing) on the spans left free."""
-    unlinked = [d for d in decisions if not d.ignored and d.decision not in LINKING]
-    written = place(text, linked, normalizer, unlinked)
+    """(start, end, decision, entity) of every span, in text order: the spans the app
+    wrote (`TurnResolution.spans`); then the other live decisions (UNSURE, SKIP, a NEW
+    that created nothing) on the spans left free."""
     taken = [(s, e) for s, e, _, _ in written]
-    surfaces = {normalizer.fold(d.surface).strip() for d, _ in linked}
+    surfaces = {normalizer.fold(d.surface).strip() for _, _, d, _ in written}
     others = [
         (d, None)
         for d in decisions
@@ -129,7 +126,7 @@ def placed(
 
 def to_decisions(
     scene: Scene,
-    linked: list[tuple[MentionDecision, UUID]],
+    written: list[tuple[int, int, MentionDecision, UUID]],
     decisions: list[MentionDecision],
     world_of: dict[UUID, str],
     normalizer: Normalizer,
@@ -137,7 +134,9 @@ def to_decisions(
     """The eval decisions of the turn (see the module docstring)."""
     born: dict[UUID, str] = {}  # entity created by the turn -> its eval id
     out = []
-    for start, end, d, entity in placed(scene.narration, linked, decisions, normalizer):
+    for start, end, d, entity in placed(
+        scene.narration, written, decisions, normalizer
+    ):
         surface = scene.narration[start:end]
         known = world_of.get(entity) or born.get(entity) if entity else None
         if d.decision in (MATCH, ALIAS):
@@ -230,7 +229,7 @@ class ResolverV2Adapter:
         world_of = {ids[e.id]: e.id for e in scene.world if e.id in ids}
         decisions = to_decisions(
             scene,
-            applied.linked,
+            applied.spans,
             decided.decisions.decisions,
             world_of,
             identity.normalizer,
