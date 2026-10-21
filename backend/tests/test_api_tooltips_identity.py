@@ -259,6 +259,55 @@ async def test_a_known_npc_without_a_protagonist_relation_shows_none(
     assert payload["found"] is True and payload["tooltip"]["relation"] is None
 
 
+async def _known_ossek_with_protagonist_relations(
+    client, test_user, test_pool, relations: list[tuple[str, bool, int]]
+) -> tuple[UUID, UUID]:
+    """The example world with Ossek identified and only the protagonist relations to it
+    of `relations` ((type, known_by_protagonist, seconds after now) each)."""
+    game_id = await _world(client, test_user, test_pool)
+    protagonist = await _id(test_pool, game_id, "entity_type = 'protagonist'")
+    async with test_pool.acquire() as conn:
+        ossek = await conn.fetchval(
+            "UPDATE characters SET known_by_protagonist = true"
+            " WHERE game_id = $1 AND true_name = 'Ossek' RETURNING id",
+            game_id,
+        )
+        await conn.execute(
+            "DELETE FROM relations WHERE game_id = $1 AND target_id = $2",
+            game_id,
+            ossek,
+        )
+        await conn.executemany(
+            """INSERT INTO relations (game_id, type, source_id, target_id, start_cycle,
+                                      known_by_protagonist, created_at)
+               VALUES ($1, $2, $3, $4, 1, $5, now() + make_interval(secs => $6))""",
+            [(game_id, t, protagonist, ossek, k, s) for t, k, s in relations],
+        )
+    return game_id, ossek
+
+
+async def test_a_relation_the_protagonist_does_not_know_is_not_shown(
+    client, test_user, test_pool
+):
+    game_id, ossek = await _known_ossek_with_protagonist_relations(
+        client, test_user, test_pool, [("knows", True, 0), ("family_of", False, 10)]
+    )
+
+    payload = await _tooltip(client, test_user, game_id, ossek)
+
+    assert payload["found"] is True and payload["tooltip"]["relation"] == "knows"
+
+
+async def test_an_unknown_relation_alone_shows_no_relation(client, test_user, test_pool):
+    game_id, ossek = await _known_ossek_with_protagonist_relations(
+        client, test_user, test_pool, [("family_of", False, 0)]
+    )
+
+    payload = await _tooltip(client, test_user, game_id, ossek)
+
+    assert payload["found"] is True and payload["tooltip"]["relation"] is None
+
+
 async def test_tooltip_rows_of_no_id_is_empty_without_a_query():
     from repos import entities
 

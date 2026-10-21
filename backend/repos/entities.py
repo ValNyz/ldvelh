@@ -1599,7 +1599,8 @@ class TooltipRow:
     `label`: what the player may read (_READABLE_LABEL; None when nothing is readable);
     `label_secret`: display_for_player is a secret name (then `label` is a substitute);
     `details`: the domain row (internal: the caller picks what it shows); `relation_type`:
-    the type of the protagonist's latest open relation to the entity; `hidden_fields`: the asked detail keys whose text holds
+    the type of the protagonist's latest open relation to the entity that it knows;
+    `hidden_fields`: the asked detail keys whose text holds
     one of the entity's names the player may not read (a secret alias, an unknown alias
     other than a descriptor, its true name while unknown)."""
 
@@ -1624,6 +1625,7 @@ _TOOLTIP_SQL = f"""SELECT asked.id AS asked_id, er.id AS entity_id, er.entity_ty
                      JOIN entity_registry AS pc
                        ON pc.id = r.source_id AND pc.entity_type = 'protagonist'
                     WHERE r.game_id = $1 AND r.target_id = er.id AND r.end_cycle IS NULL
+                      AND COALESCE(r.known_by_protagonist, true)
                     ORDER BY r.created_at DESC, r.id
                     LIMIT 1) AS relation_type,
                   ARRAY(SELECT key FROM unnest($4::text[]) AS key
