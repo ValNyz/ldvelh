@@ -440,19 +440,50 @@ async def _attempt(
         return None
 
 
-def _decided(
-    d: MentionDecision, pre: list[MentionDecision], text: str, normalizer: Normalizer
-) -> bool:
-    """The model's decision names an occurrence the prepass already decided: the one its
-    `before` words precede, else (no such occurrence) every occurrence of its surface."""
-    taken = {p.start for p in pre if p.start is not None}
+def _prepass_spans(pre: list[MentionDecision]):
+    """(start, end, decision) of the occurrence each prepass decision decided."""
+    return [(p.start, p.start + len(p.surface), p) for p in pre if p.start is not None]
+
+
+def _falls_on(
+    d: MentionDecision, taken: list, text: str, normalizer: Normalizer
+) -> list[MentionDecision] | None:
+    """The prepass decisions whose spans the model's decision names: its own occurrence
+    (the one its `before` words precede) overlaps one, else (no such occurrence) every
+    occurrence of its surface overlaps one. None: an occurrence is left to the model."""
     spans = find_spans(text, d.surface, normalizer)
     if not spans:
-        return False
+        return None
     own = occurrence_after(text, spans, d.before, normalizer)
-    if own is not None:
-        return own in taken
-    return all(s in taken for s, _ in spans)
+    named = [span for span in spans if span[0] == own] if own is not None else spans
+    hits = [[p for s, e, p in taken if start < e and s < end] for start, end in named]
+    return [p for hit in hits for p in hit] if all(hits) else None
+
+
+def _agrees(d: MentionDecision, p: MentionDecision) -> bool:
+    return d.decision in (MATCH, ALIAS) and d.handle == p.handle
+
+
+def _left_to_model(
+    model: list[MentionDecision],
+    pre: list[MentionDecision],
+    text: str,
+    normalizer: Normalizer,
+) -> tuple[list[MentionDecision], int]:
+    """(the model's decisions on occurrences the prepass left, how many of those it
+    dropped disagreed with the prepass). A decision on a prepass span, under the same or
+    another surface (« Terminal » inside « Le Terminal »), is dropped: the prepass
+    decided it, the model never writes an alias, a reveal or an entity there, nor
+    triggers an escalation."""
+    taken = _prepass_spans(pre)
+    kept, overruled = [], 0
+    for d in model:
+        decided = _falls_on(d, taken, text, normalizer)
+        if decided is None:
+            kept.append(d)
+        else:
+            overruled += not all(_agrees(d, p) for p in decided)
+    return kept, overruled
 
 
 def _homonyms(candidates: list[Candidate], normalizer: Normalizer):
@@ -694,7 +725,7 @@ async def decide_turn(
         first = await _attempt(
             session, Purpose.IDENTITY, system, user, schema, config, usage
         )
-    model = [d for d in first or [] if not _decided(d, pre, text, normalizer)]
+    model, overruled = _left_to_model(first or [], pre, text, normalizer)
     redirects = await entities.follow_merges(
         conn, _linked([*pre, *model], prompt.candidates)
     )
@@ -722,7 +753,9 @@ async def decide_turn(
         i for i, d in enumerate(decided) if _risky(d, prompt.candidates, normalizer)
     ]
     if not risky or not config.escalation:
-        return TurnDecisions(decided, escalated=False, fallback=False, usage=usage)
+        return TurnDecisions(
+            decided, escalated=False, fallback=False, usage=usage, overruled=overruled
+        )
 
     chosen = _theirs([decided[i] for i in risky], prompt, normalizer, config)
     mentions = [
@@ -743,4 +776,6 @@ async def decide_turn(
         )
     decided = checked(_settle(decided, risky, answers, normalizer))
     _debug("escalation", decided)
-    return TurnDecisions(decided, escalated=True, fallback=False, usage=usage)
+    return TurnDecisions(
+        decided, escalated=True, fallback=False, usage=usage, overruled=overruled
+    )

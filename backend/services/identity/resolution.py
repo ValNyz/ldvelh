@@ -15,6 +15,8 @@ statements), so the caller holds no pool connection and no lock during a model c
   entity is never folded into it;
 - an ALIAS adds its surface as an alias of the linked entity; an introduction by a true
   name goes through the reveal table instead;
+- the spans are placed before anything is written: a decision that takes no span (a
+  longer one took every occurrence) writes no alias, no reveal and no entity;
 - every linked mention becomes entity_mentions rows (one per occurrence of its surface),
   and the message keeps the legacy narrator_context, [start, end, label, type] with the
   label the player may read (display_for_player), never the surface;
@@ -51,7 +53,7 @@ from prompts.identity_prompt import format_handle
 from repos import entities, messages
 from services.identity import candidates as blocking
 from services.identity.decision import decide_turn
-from services.identity.mentions import mention_rows
+from services.identity.mentions import mention_rows, place
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +114,26 @@ def _links(d: MentionDecision) -> bool:
     return d.decision in (MATCH, ALIAS) and d.entity_id is not None and not d.ignored
 
 
+def _is_new(d: MentionDecision) -> bool:
+    return d.decision == NEW and not d.ignored
+
+
+def _owners(
+    narration: str,
+    decisions: list[MentionDecision],
+    unlinked: list[MentionDecision],
+    normalizer,
+) -> set[int]:
+    """Indices of the decisions that take at least one span of the narration (`place`,
+    longest span first), with the NEW that a placed repeat (`same_as`) follows. A
+    decision whose every occurrence a longer one took writes nothing."""
+    items = [(d, i) for i, d in enumerate(decisions) if _links(d) or _is_new(d)]
+    owners = {i for *_, i in place(narration, items, normalizer, unlinked)}
+    return owners | {
+        origin for i in owners if (origin := decisions[i].same_as) is not None
+    }
+
+
 class _Application:
     """The writes of one turn's decisions, on the turn's connection."""
 
@@ -167,12 +189,16 @@ class _Application:
         return out
 
     async def link(
-        self, decisions: list[MentionDecision]
+        self, decisions: list[MentionDecision], owners: set[int]
     ) -> list[tuple[MentionDecision, UUID]]:
-        """(decision, entity) of every mention that names an entity, NEW created."""
+        """(decision, entity) of every mention that names an entity, NEW created; only
+        the decisions of `owners` (those that take a span) write an alias, a reveal or
+        an entity."""
         linked: list[tuple[MentionDecision, UUID]] = []
         made: dict[int, UUID | None] = {}
         for i, d in enumerate(decisions):
+            if i not in owners:
+                continue
             if _links(d) and d.entity_id is not None:
                 linked.append((d, d.entity_id))
                 if d.decision == ALIAS and d.alias_kind is not None:
@@ -361,10 +387,12 @@ async def apply(
     decisions = replace(
         decisions, decisions=await application.current(decisions.decisions)
     )
-    linked = await application.link(decisions.decisions)
     unlinked = [
         d for d in decisions.decisions if not d.ignored and d.decision in (UNSURE, SKIP)
     ]
+    # Placed first, written after: a decision that owns no span writes nothing.
+    owners = _owners(narration, decisions.decisions, unlinked, identity.normalizer)
+    linked = await application.link(decisions.decisions, owners)
     mentions = mention_rows(narration, linked, identity.normalizer, unlinked)
     await entities.insert_mentions(
         conn, identity.game_id, turn.message_id, turn.turn_id, mentions
@@ -380,7 +408,8 @@ async def apply(
         f"{_LOG}turn resolved game={identity.game_id} mentions={len(mentions)}"
         f" spans={spans} created={len(application.created)}"
         f" aliases={application.aliases_added} reveals={len(application.reveals)}"
-        f" stale={application.stale} fallback={decisions.fallback}"
+        f" stale={application.stale} overruled={decisions.overruled}"
+        f" fallback={decisions.fallback}"
         f" escalated={decisions.escalated} errors={len(application.errors)}"
     )
     return TurnResolution(
@@ -396,4 +425,5 @@ async def apply(
         unsure=sum(1 for d in decisions.decisions if d.decision == UNSURE),
         usage=decisions.usage,
         linked=linked,
+        overruled=decisions.overruled,
     )

@@ -851,6 +851,49 @@ async def test_the_prepass_wins_over_the_model_on_its_surfaces():
     assert d.deterministic and d.entity_id == tassel.entity_id
 
 
+def _terminals():
+    hall = _candidate(2, "Terminal", "location")
+    quay = _candidate(3, "Terminal Quai 7", "location")
+    return hall, quay, _set(hall, quay, exact={NORMALIZER.norm("Terminal"): hall})
+
+
+@pytest.mark.parametrize(
+    "answer,overruled",
+    [
+        (_mention("Terminal", "MATCH", "E3", before="Le"), 1),
+        (_mention("Le Terminal", "MATCH", "E3"), 1),
+        (_mention("Terminal", "ALIAS", "E2", before="Le", alias_kind="nickname"), 0),
+        (_mention("Terminal", "NEW", before="Le", new_type="location",
+                  new_kind="proper_name"), 1),
+    ],
+)  # fmt: skip
+async def test_a_model_decision_on_a_prepass_span_is_dropped_whatever_its_surface(
+    answer, overruled
+):
+    """I1: « Terminal » after « Le » (or « Le Terminal ») names the occurrence the prepass
+    decided: dropped, never escalated, counted when it disagrees."""
+    hall, _, candidates = _terminals()
+    text = "Le Terminal clignote. Tu avances."
+    turn, provider = await _decide(
+        {"identity": [{"mentions": [answer]}]}, candidates, text
+    )
+    assert provider.purposes() == ["identity"]
+    [d] = turn.decisions
+    assert d.deterministic and d.entity_id == hall.entity_id
+    assert turn.overruled == overruled and not turn.escalated
+
+
+async def test_a_model_decision_on_an_occurrence_the_prepass_left_stands():
+    _, _, candidates = _terminals()
+    text = "Le Terminal clignote. Un autre Terminal attend."
+    answer = _mention("Terminal", "NEW", before="Un autre", new_type="location",
+                      new_kind="proper_name")  # fmt: skip
+    turn, _ = await _decide({"identity": [{"mentions": [answer]}]}, candidates, text)
+    verdicts = sorted((d.decision, d.deterministic) for d in turn.decisions)
+    assert verdicts == [("MATCH", True), ("NEW", False)]
+    assert turn.overruled == 0
+
+
 async def test_unconfirmed_escalation_never_guesses():
     stranger = _candidate(4, "la femme au manteau", sources={"present"})
     text = "« Je suis Vela Sorn », dit la femme au manteau."

@@ -720,6 +720,50 @@ async def test_a_link_to_an_entity_gone_since_the_decision_is_dropped(test_pool,
     assert resolution.mentions == [] and stale == 1
 
 
+async def test_a_decision_that_takes_no_span_writes_nothing(test_pool, game):
+    """I1: the prepass took « Le Terminal »; a model ALIAS, a reveal and a NEW on
+    « Terminal » inside it own no span, so no alias, no reveal and no entity is written,
+    and every alias, reveal or entity the turn writes has a mention of its own."""
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        hall = await service.create_entity(
+            conn, NewEntitySpec("location", "Terminal", "proper_name"),
+            turn_id=None, source="world_gen",
+        )
+        quay = await service.create_entity(
+            conn, NewEntitySpec("location", "Terminal Quai 7", "proper_name"),
+            turn_id=None, source="world_gen",
+        )
+        before = await _count(conn, game, "entity_registry")
+        aliases = await _count(conn, game, "entity_aliases")
+        text = "Le Terminal clignote. Tu avances."
+        decisions = [
+            MentionDecision(surface="Le Terminal", decision="MATCH", entity_id=hall,
+                            verified=True, deterministic=True, start=0),
+            MentionDecision(surface="Terminal", decision="ALIAS", before="Le",
+                            alias_kind="nickname", entity_id=quay, verified=True),
+            MentionDecision(surface="Terminal", decision="ALIAS", before="Le",
+                            alias_kind="true_name", entity_id=quay, verified=True),
+            MentionDecision(surface="Terminal", decision="NEW", before="Le",
+                            new_type="location", new_kind="proper_name",
+                            verified=True),
+        ]  # fmt: skip
+        resolution, message = await _apply(conn, game, text, decisions)
+        stored = await conn.fetch(
+            "SELECT entity_id, decision FROM entity_mentions WHERE message_id = $1",
+            message,
+        )
+        assert await _count(conn, game, "entity_registry") == before
+        assert await _count(conn, game, "entity_aliases") == aliases
+    assert [(r["entity_id"], r["decision"]) for r in stored] == [
+        (hall, "deterministic")
+    ]
+    assert resolution.created == [] and resolution.reveals == []
+    assert resolution.aliases_added == 0
+    stats = resolution.stats()
+    assert (stats["created"], stats["aliases"], stats["reveals"]) == (0, 0, 0)
+
+
 def _new_guard(**fields) -> MentionDecision:
     return MentionDecision(surface="le garde", decision="NEW", new_type="character",
                            new_kind="descriptor", verified=True, **fields)

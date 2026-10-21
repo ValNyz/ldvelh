@@ -233,12 +233,15 @@ class MentionDecision:
 @dataclass(frozen=True)
 class TurnDecisions:
     """The decisions of a turn. `escalated`: the strong model was called; `fallback`: the
-    model failed, only the prepass applies. `usage`: per purpose, calls, tokens and cost."""
+    model failed, only the prepass applies. `usage`: per purpose, calls, tokens and cost.
+    `overruled`: the model's decisions dropped because they fell on an occurrence the
+    prepass decided and named something else (another handle, a NEW, an abstention)."""
 
     decisions: list[MentionDecision]
     escalated: bool
     fallback: bool
     usage: dict
+    overruled: int = 0
 
     def events(self) -> list[tuple[str, UUID | None, dict]]:
         """identity_events rows to record, as (kind, entity_id, payload): codes, handles
@@ -308,7 +311,8 @@ class TurnResolution:
     scene the extractors receive, the entity types worth an extraction (created, or
     linked while still a bare stub), and the cascade's outcome. `usage`: per purpose,
     calls, tokens and cost of the decision; `linked`: the (decision, entity) pairs the
-    mentions were written from (an evaluation reads which decision took each span)."""
+    mentions were written from (an evaluation reads which decision took each span);
+    `overruled`: see TurnDecisions."""
 
     mentions: list[MentionRow]
     created: list[tuple[UUID, SceneEntity]]
@@ -322,6 +326,7 @@ class TurnResolution:
     unsure: int = 0
     usage: dict = field(default_factory=dict)
     linked: list[tuple[MentionDecision, UUID]] = field(default_factory=list)
+    overruled: int = 0
 
     def stats(self) -> dict:
         """Counts of the resolution, for the extraction result and the logs."""
@@ -331,6 +336,10 @@ class TurnResolution:
             "escalated": self.escalated,
             "fallback": self.fallback,
             "unsure": self.unsure,
+            "overruled": self.overruled,
+            "created": len(self.created),
+            "aliases": self.aliases_added,
+            "reveals": len(self.reveals),
         }
 
     def cost_usd(self) -> float:
