@@ -6,8 +6,12 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 // CONFIGURATION
 // ============================================================================
 
+const CHARACTER_COLORS = { bg: 'bg-primary/15', border: 'border-primary/40', text: 'text-primary' };
+
 const ENTITY_COLORS = {
-	character: { bg: 'bg-primary/15', border: 'border-primary/40', text: 'text-primary' },
+	character: CHARACTER_COLORS,
+	companion: CHARACTER_COLORS,
+	protagonist: CHARACTER_COLORS,
 	location: { bg: 'bg-blue-500/20', border: 'border-blue-500/50', text: 'text-blue-300' },
 	organization: { bg: 'bg-amber-500/20', border: 'border-amber-500/50', text: 'text-amber-300' },
 	object: { bg: 'bg-emerald-500/20', border: 'border-emerald-500/50', text: 'text-emerald-300' },
@@ -45,6 +49,8 @@ const INFO_ICONS = {
 
 const TYPE_LABELS = {
 	character: 'Personnage',
+	companion: 'Compagnon',
+	protagonist: 'Protagoniste',
 	location: 'Lieu',
 	organization: 'Organisation',
 	object: 'Objet',

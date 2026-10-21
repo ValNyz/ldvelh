@@ -242,3 +242,18 @@ test('a merge after a turn reaches the mentions of an older page of annotations'
 	// One batch request before the turn (the guard), one after it (the survivor).
 	expect(api.calls.filter(c => c.path === '/tooltips/entities')).toHaveLength(2);
 });
+
+test('the hover card names the companion type in the UI language', async ({ page }) => {
+	const narration = 'Célimène hausse les épaules.';
+	await mockApi(page, oneTurn(
+		narration,
+		[annotation(narration, 'Célimène', 'Célimène', { type: 'companion' })],
+		{ [ENTITY_ID]: tooltip('Célimène', 'companion') },
+	));
+	await openGame(page);
+
+	await page.locator(TAGGED).hover();
+	const card = page.locator('div.fixed.z-50');
+	await expect(card.getByText('Compagnon')).toBeVisible();
+	await expect(card.getByText('companion')).toHaveCount(0);
+});
