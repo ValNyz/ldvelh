@@ -331,6 +331,8 @@ async def _narrator_context(conn, game_id: UUID, message_id: UUID) -> int:
     rows = (await entities.mentions_for_messages(conn, game_id, [message_id])).get(
         message_id, []
     )
+    # A span whose entity has nothing readable (a whole secret) shows no annotation.
+    rows = [m for m in rows if m.label is not None]
     if rows:
         await messages.set_narrator_context(
             conn,
@@ -342,12 +344,14 @@ async def _narrator_context(conn, game_id: UUID, message_id: UUID) -> int:
 
 async def _scene_entities(
     conn,
+    game_id: UUID,
     linked: list[tuple[MentionDecision, UUID]],
     scene: SceneContext,
     created: dict[UUID, str],
 ) -> list[tuple[UUID, SceneEntity]]:
     """The entities of the scene the extractors see, with their ids: those the turn
-    names, those present and the place, never the protagonist (named PROTAGONIST)."""
+    names, those present and the place, never the protagonist (named PROTAGONIST), never
+    a secret name (a whole-secret entity is left out)."""
     ids = [entity_id for _, entity_id in linked]
     ids += [*scene.present_ids, *([scene.location_id] if scene.location_id else [])]
     ids = [i for i in dict.fromkeys(ids) if i != scene.protagonist_id]
@@ -362,7 +366,9 @@ async def _scene_entities(
                 is_new=row.entity_id in created,
             ),
         )
-        for row in await entities.scene_entity_rows(conn, ids)
+        for row in await entities.scene_entity_rows(
+            conn, game_id, ids, disclosed=scene.open_disclosure_ids
+        )
         if row.entity_type != PROTAGONIST
     ]
 
@@ -403,7 +409,9 @@ async def apply(
     new_types = await application.worth_extracting(
         list(dict.fromkeys(entity_id for _, entity_id in linked))
     )
-    scene_entities = await _scene_entities(conn, linked, scene, application.created)
+    scene_entities = await _scene_entities(
+        conn, identity.game_id, linked, scene, application.created
+    )
     logger.info(
         f"{_LOG}turn resolved game={identity.game_id} mentions={len(mentions)}"
         f" spans={spans} created={len(application.created)}"

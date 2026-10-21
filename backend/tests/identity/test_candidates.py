@@ -246,6 +246,40 @@ async def test_a_whole_secret_place_is_no_candidate_and_no_usual_place(
     assert "Caveau" not in _shown_text(found)
 
 
+async def test_the_extractors_scene_and_the_annotations_never_show_a_secret_name(
+    test_pool, game, service
+):
+    """M6: the scene the extractors read and the stored annotation labels filter the
+    secrets like the cards: a secret label gives way to the descriptor, a whole-secret
+    entity is left out; an open disclosure lets the name through to the extractors."""
+    async with test_pool.acquire() as conn:
+        spy = await _create(
+            conn, service, "character", "Mira Sel", descriptor="la fileuse", known=True
+        )
+        for name in ("Mira Sel", "Mira", "Sel"):
+            await entities.set_alias_flags(conn, spy, name, known=True, secret=True)
+        vault = await _create(conn, service, "location", "Caveau Noir", secret=True)
+        rows = await entities.scene_entity_rows(conn, game, [spy, vault])
+        opened = await entities.scene_entity_rows(conn, game, [spy], disclosed=[spy])
+        text = "La fileuse entre au Caveau Noir."
+        conversation = await messages.insert_conversation(conn, game, 1)
+        message = await messages.insert_message(
+            conn, game, conversation, "assistant", text, 1
+        )
+        spans = [
+            MentionRow(0, 10, "La fileuse", spy, "match"),
+            MentionRow(20, 31, "Caveau Noir", vault, "match"),
+        ]
+        await entities.insert_mentions(conn, game, message, None, spans)
+        labels = await entities.mentions_for_messages(conn, game, [message])
+    assert [(r.entity_id, r.label.casefold()) for r in rows] == [(spy, "la fileuse")]
+    assert [r.label for r in opened] == ["Mira Sel"]
+    assert [(m.entity_id, m.label and m.label.casefold()) for m in labels[message]] == [
+        (spy, "la fileuse"),
+        (vault, None),
+    ]
+
+
 async def test_unknown_ordinary_aliases_are_on_the_card(test_pool, game, service):
     async with test_pool.acquire() as conn:
         voss = await _create(

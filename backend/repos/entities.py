@@ -329,15 +329,17 @@ async def insert_mentions(
 
 
 async def mentions_for_messages(
-    conn, game_id: UUID, message_ids: list[UUID]
+    conn, game_id: UUID, message_ids: list[UUID], *, disclosed: list[UUID] = ()
 ) -> dict[UUID, list[MentionRow]]:
     """Spans of each message, in text order, on the live entity (merges followed), with
-    the name the player may read as label."""
+    the name the player may read as label: never a secret name (spec §4.8; `disclosed`:
+    the entities an open disclosure lets through), None when nothing is readable."""
     if not message_ids:
         return {}
     rows = await conn.fetch(
-        """SELECT m.message_id, m.start_pos, m.end_pos, m.surface, m.decision, m.evidence,
-                  live.id AS entity_id, er.entity_type, display_for_player(live.id) AS label
+        f"""SELECT m.message_id, m.start_pos, m.end_pos, m.surface, m.decision,
+                  m.evidence, live.id AS entity_id, er.entity_type,
+                  {_READABLE_LABEL.format(id="live.id")} AS label
            FROM entity_mentions AS m
            CROSS JOIN LATERAL (SELECT entity_follow_merge(m.entity_id) AS id) AS live
            JOIN entity_registry AS er ON er.id = live.id
@@ -345,6 +347,7 @@ async def mentions_for_messages(
            ORDER BY m.message_id, m.start_pos, m.end_pos""",
         game_id,
         list(message_ids),
+        list(disclosed),
     )
     result: dict[UUID, list[MentionRow]] = {}
     for r in rows:
@@ -1203,6 +1206,20 @@ _LABEL_SECRET = """(NOT ({id} = ANY($3::uuid[])) AND EXISTS (
         SELECT 1 FROM entity_aliases AS sal
          WHERE sal.game_id = $1 AND sal.entity_id = {id} AND sal.secret
            AND sal.alias_norm = ldvelh_norm_for_game($1, display_for_player({id}))))"""
+# What the player may read for `{id}` ($1 the game, $3 the disclosed entities): its
+# display_for_player label, unless that is a secret name (_LABEL_SECRET); then its first
+# non-secret descriptor, else a known non-secret alias; NULL for a whole-secret entity
+# (the order of candidates._readable_label).
+_READABLE_LABEL = (
+    "CASE WHEN NOT "
+    + _LABEL_SECRET
+    + """ THEN display_for_player({id})
+     ELSE (SELECT ral.alias FROM entity_aliases AS ral
+            WHERE ral.game_id = $1 AND ral.entity_id = {id} AND NOT ral.secret
+              AND (ral.kind = 'descriptor' OR ral.known)
+            ORDER BY ral.kind = 'descriptor' DESC, ral.created_at, ral.alias_norm
+            LIMIT 1) END"""
+)
 
 
 async def candidate_cards(
@@ -1351,28 +1368,35 @@ class SceneEntityRow:
     known: bool
 
 
-async def scene_entity_rows(conn, entity_ids: list[UUID]) -> list[SceneEntityRow]:
+async def scene_entity_rows(
+    conn, game_id: UUID, entity_ids: list[UUID], *, disclosed: list[UUID] = ()
+) -> list[SceneEntityRow]:
     """Handle, type, player-facing label and known flag of each entity (merges
     followed), in the order of `entity_ids`: a character is known when the protagonist
-    knows its name, another entity when one of its non-secret aliases is known."""
+    knows its name, another entity when one of its non-secret aliases is known. A label
+    that is a secret name is replaced like a card's, and a whole-secret entity (nothing
+    readable) is left out: the extractors never see a secret (spec §4.8; `disclosed`:
+    the entities an open disclosure lets through)."""
     if not entity_ids:
         return []
     rows = await conn.fetch(
-        """SELECT DISTINCT ON (live.id) live.id AS entity_id, er.handle, er.entity_type,
-                  display_for_player(live.id) AS label,
+        f"""SELECT DISTINCT ON (live.id) live.id AS entity_id, er.handle, er.entity_type,
+                  {_READABLE_LABEL.format(id="live.id")} AS label,
                   coalesce((SELECT c.known_by_protagonist FROM characters AS c
                              WHERE c.id = live.id),
                            EXISTS (SELECT 1 FROM entity_aliases AS al
                                     WHERE al.entity_id = live.id AND al.known
                                       AND NOT al.secret)) AS known,
                   ids.ord
-             FROM unnest($1::uuid[]) WITH ORDINALITY AS ids (id, ord)
+             FROM unnest($2::uuid[]) WITH ORDINALITY AS ids (id, ord)
              CROSS JOIN LATERAL (SELECT entity_follow_merge(ids.id) AS id) AS live
              JOIN entity_registry AS er ON er.id = live.id
             ORDER BY live.id, ids.ord""",
+        game_id,
         list(entity_ids),
+        list(disclosed),
     )
-    ordered = sorted(rows, key=lambda r: r["ord"])
+    ordered = sorted((r for r in rows if r["label"] is not None), key=lambda r: r["ord"])
     return [
         SceneEntityRow(
             r["entity_id"], r["handle"], r["entity_type"], r["label"], bool(r["known"])
