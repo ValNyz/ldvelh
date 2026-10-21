@@ -116,14 +116,16 @@ export function useTooltips(gameId, messageIds = []) {
 		if (!gameId) return false;
 		const generation = generationRef.current;
 		try {
-			const { spans, labels } = await fetchAnnotations();
+			const { spans: fetched, labels } = await fetchAnnotations();
 			if (generation !== generationRef.current) return false;
-			const changed = spansSignature(spans) !== spansSignature(spansRef.current);
-			const ids = idsToFetch(spans, cacheRef.current, labels);
+			const ids = idsToFetch(fetched, cacheRef.current, labels);
 			const cache = ids.length
-				? await fetchTooltips(ids, spans, labels, cacheRef.current)
+				? await fetchTooltips(ids, fetched, labels, cacheRef.current)
 				: cacheRef.current;
 			if (generation !== generationRef.current) return false;
+			// The chat may have changed during the awaits (rollback): purge again.
+			const spans = purgeSpans(fetched, liveIdsRef.current);
+			const changed = spansSignature(spans) !== spansSignature(spansRef.current);
 			spansRef.current = spans;
 			cacheRef.current = pruneCache(cache, spans);
 			if (changed) setSpansByMessage(spans);

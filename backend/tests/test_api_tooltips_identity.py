@@ -348,6 +348,7 @@ async def test_batch_tooltips_match_the_single_lookups(client, test_user, test_p
     gets from `/tooltips/entity` (an unidentified NPC, a merge tombstone's survivor, an
     arc); an id that is no entity nor arc of the game is absent."""
     from api.tooltips import MAX_TOOLTIP_IDS
+    from repos import entities
 
     game_id = await _world(client, test_user, test_pool)
     justine = await _hide_under_a_descriptor(test_pool, game_id)
@@ -358,8 +359,20 @@ async def test_batch_tooltips_match_the_single_lookups(client, test_user, test_p
         place = await conn.fetchval(
             "SELECT id FROM locations WHERE game_id = $1 LIMIT 1", game_id
         )
+        keep = await conn.fetchval(
+            "INSERT INTO characters (game_id, true_name, known_by_protagonist)"
+            " VALUES ($1, 'Tesk Vahrun', true) RETURNING id",
+            game_id,
+        )
+        tombstone = await conn.fetchval(
+            "INSERT INTO characters (game_id, descriptor) VALUES ($1, $2) RETURNING id",
+            game_id,
+            "Le Kethari au tablier",
+        )
+        await entities.merge_entities(conn, keep, tombstone, "test", None)
     missing = "00000000-0000-0000-0000-0000000000ff"
-    ids = [str(justine), str(arc), str(place), missing]
+    ids = [str(justine), str(arc), str(place), str(tombstone), missing]
+    found = ids[:4]
     headers = auth_headers(test_user["token"])
 
     resp = await client.get(
@@ -370,11 +383,14 @@ async def test_batch_tooltips_match_the_single_lookups(client, test_user, test_p
 
     assert resp.status_code == 200
     batch = resp.json()["tooltips"]
-    assert set(batch) == set(ids[:3])
-    for entity_id in ids[:3]:
+    assert set(batch) == set(found)
+    for entity_id in found:
         single = await _tooltip(client, test_user, game_id, entity_id)
         assert batch[entity_id] == single["tooltip"]
     assert batch[str(justine)]["name"] == DESCRIPTOR
+    # The tombstone is keyed by the id asked for and carries its survivor's tooltip.
+    assert str(keep) not in batch
+    assert batch[str(tombstone)]["name"] == "Tesk Vahrun"
     too_many = ",".join(str(UUID(int=i)) for i in range(1, MAX_TOOLTIP_IDS + 2))
     for bad in ("not-a-uuid", "", too_many):
         resp = await client.get(

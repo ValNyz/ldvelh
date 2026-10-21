@@ -30,6 +30,13 @@ test('messages no longer in the chat are purged, by the chat ids', () => {
 	assert.equal(purgeSpans(prev, ['m1', 'm2', 'm9']), prev);
 });
 
+test('a merge made before a rollback is purged again by the chat ids of commit time', () => {
+	const response = [{ message_id: 'm2', sequence: 2, annotations: [ann('b', 'Bo')] }];
+	const merged = mergeSpans({ m1: [ann('a', 'Ana')] }, response, ['m1', 'm2']);
+	// m2 rolled back while the tooltips were fetched.
+	assert.deepEqual(purgeSpans(merged, ['m1']), { m1: [ann('a', 'Ana')] });
+});
+
 test('the signature changes with a label, not with the order', () => {
 	const one = { m1: [ann('a', 'Ana')], m2: [ann('b', 'Bo')] };
 	const reordered = { m2: [ann('b', 'Bo')], m1: [ann('a', 'Ana')] };
