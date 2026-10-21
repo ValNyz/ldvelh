@@ -48,9 +48,7 @@ KNOWN_VIOLATIONS: set[tuple[str, str]] = {   # (path relative to backend/, full 
 SQL_IN_API_ALLOWED: set[str] = {   # api/ files still holding SQL: frozen debt, may only shrink
     "api/auth.py",          # #108
     "api/dependencies.py",  # #108
-    "api/genres.py",        # #108
     "api/tooltips.py",      # #108
-    "api/world.py",         # #108
 }
 
 _SQL_LEADING_COMMENTS = r"(?:(?:--[^\n]*\n|/\*.*?\*/)\s*)*"   # `-- ...` and `/* ... */` before the statement

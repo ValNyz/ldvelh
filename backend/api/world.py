@@ -16,6 +16,7 @@ from api import routes
 from api.request_types import WizardForm
 from api.dependencies import get_current_user, get_pool
 from llm.session import LLMSession
+from repos import genres as genre_repo
 from repos.llm_models import load_catalog
 from schema.engine import EngineType
 from services.llm_providers import _CLASSES
@@ -70,13 +71,7 @@ async def world_enhance(
         )
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """SELECT slug, label FROM genres
-               WHERE is_preset = true OR user_id = $1
-               ORDER BY is_preset DESC, label ASC""",
-            user["id"],
-        )
-    genres = [dict(r) for r in rows]
+        genres = await genre_repo.visible_genres(conn, user["id"])
     if not genres:
         raise HTTPException(status_code=500, detail="Aucun genre disponible")
 

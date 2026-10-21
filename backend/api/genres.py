@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.dependencies import get_pool, get_current_user
+from repos import genres as genre_repo
 
 router = APIRouter(tags=["genres"])
 
@@ -41,14 +42,8 @@ async def list_genres(
 ) -> dict:
     """List available genres (presets + user's custom ones)."""
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """SELECT id, slug, label, is_preset, world_type
-               FROM genres
-               WHERE is_preset = true OR user_id = $1
-               ORDER BY is_preset DESC, label ASC""",
-            user["id"],
-        )
-    return {"genres": [dict(r) for r in rows]}
+        genres = await genre_repo.visible_genres(conn, user["id"])
+    return {"genres": genres}
 
 
 @router.get("/genres/{genre_id}")
@@ -59,11 +54,7 @@ async def get_genre(
 ) -> dict:
     """Get full genre details."""
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """SELECT * FROM genres
-               WHERE id = $1 AND (is_preset = true OR user_id = $2)""",
-            genre_id, user["id"],
-        )
-    if not row:
+        genre = await genre_repo.visible_genre(conn, user["id"], genre_id)
+    if not genre:
         raise HTTPException(status_code=404, detail="Genre introuvable.")
-    return dict(row)
+    return genre
