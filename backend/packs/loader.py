@@ -100,6 +100,8 @@ class LangPack(_Strict):
     other_markers: list[str]
     apostrophes: list[str]
     unknown_character_label: str
+    unknown_entity_label: str
+    tooltip_labels: dict[str, str]
     proper_name_uses_capitals: bool
     case_marks_names: bool
     min_distinctive_token_len: int
@@ -122,6 +124,13 @@ class LangPack(_Strict):
     def _non_empty(cls, value: list[str], info: ValidationInfo) -> list[str]:
         return _check_entries(info.field_name, value, one_word=False)
 
+    @field_validator("tooltip_labels")
+    @classmethod
+    def _labels(cls, value: dict[str, str]) -> dict[str, str]:
+        if not value or any(not k.strip() or not v.strip() for k, v in value.items()):
+            raise ValueError("tooltip_labels: a non-empty mapping of non-empty labels")
+        return value
+
     @field_validator("min_distinctive_token_len")
     @classmethod
     def _positive(cls, value: int) -> int:
@@ -143,6 +152,9 @@ class GenreIdentity(_Strict):
 
 class GenrePack(_Strict):
     slug: str
+    # The species a tooltip does not print (the usual one of the genre); None: the
+    # identity config's default_species.
+    default_species: str | None = None
     identity: GenreIdentity = GenreIdentity()
 
 

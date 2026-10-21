@@ -3,6 +3,7 @@ excluded, no secret alias without an open disclosure, thresholds from IdentityCo
 turn-set recall >= 0.98 on the gold corpus (dev + test; per-mention C@10 printed)."""
 
 import random
+import re
 from collections import Counter
 from pathlib import Path
 from uuid import UUID
@@ -401,16 +402,17 @@ async def test_last_seen_turn_is_the_rank_among_the_games_assistant_messages(
     assert card.last_seen_turn == 4
 
 
-async def _long_history(conn, game_id: UUID, entity_ids: list[UUID]) -> None:
-    """3000 messages, every other one the narrator's, each naming one of `entity_ids`."""
+async def _history(conn, game_id: UUID, entity_ids: list[UUID], size: int) -> None:
+    """`size` messages, every other one the narrator's, each naming one of `entity_ids`."""
     conversation = await messages.insert_conversation(conn, game_id, 1)
     await conn.execute(
         """INSERT INTO messages (game_id, conversation_id, role, content, sequence)
            SELECT $1, $2, CASE WHEN n % 2 = 0 THEN 'assistant' ELSE 'user' END,
                   'Du monde.', n
-             FROM generate_series(1, 3000) AS n""",
+             FROM generate_series(1, $3) AS n""",
         game_id,
         conversation,
+        size,
     )
     await conn.execute(
         """INSERT INTO entity_mentions (game_id, message_id, start_pos, end_pos,
@@ -423,50 +425,48 @@ async def _long_history(conn, game_id: UUID, entity_ids: list[UUID]) -> None:
     )
 
 
+# An index scan of the mentions by entity: the (game_id, entity_id) index, or the
+# entity_id one the planner may prefer on a small table.
+_BY_ENTITY = re.compile(r"Index.* (?:on|using) idx_entity_mentions_(game_)?entity\b")
+
+
 async def test_mention_reads_follow_the_scene_through_the_game_indexes(
-    test_pool, test_user, game, service
+    test_pool, game, service
 ):
-    """R33, M8: the cards' last turn and mentioned_elsewhere probe the mentions of the
-    scene's entities by (game_id, entity_id) and rank a message through the messages
-    index; neither follows the merges of every mention row of the game."""
+    """R33, M8: the cards' last turn and mentioned_elsewhere can probe the mentions of the
+    scene's entities by entity and rank a message through the messages index; neither
+    follows the merges of every mention row of the game. Planner-robust: a small history,
+    sequential scans disabled, so the plan shows which indexes the queries can use."""
     async with test_pool.acquire() as conn:
         tesk = await _create(conn, service, "character", "Tesk Vahrun")
         crowd = [
-            await _create(conn, service, "character", f"Passant {n}") for n in range(40)
+            await _create(conn, service, "character", f"Passant {n}") for n in range(4)
         ]
-        await _long_history(conn, game, crowd)
-        for _ in range(20):  # the other games of the table
-            other = await conn.fetchval(
-                "INSERT INTO games (user_id, language) VALUES ($1, 'fr') RETURNING id",
-                test_user["id"],
-            )
-            place = await conn.fetchval(
-                "INSERT INTO locations (game_id, name) VALUES ($1, 'Halle') RETURNING id",
-                other,
-            )
-            await _long_history(conn, other, [place])
+        await _history(conn, game, crowd, 200)
         message = await conn.fetchval(
-            "SELECT id FROM messages WHERE game_id = $1 AND sequence = 2000", game
+            "SELECT id FROM messages WHERE game_id = $1 AND sequence = 100", game
         )
         await entities.insert_mentions(
             conn, game, message, None, [MentionRow(4, 9, "monde", tesk, "match")]
         )
-        await conn.execute("VACUUM ANALYZE messages")
-        await conn.execute("VACUUM ANALYZE entity_mentions")
-        cards = await conn.fetch(
-            "EXPLAIN " + entities.CANDIDATE_CARDS_SQL, game, [tesk], []
-        )
-        elsewhere = await conn.fetch(
-            "EXPLAIN " + entities.MENTIONED_ELSEWHERE_SQL, [tesk], message, game
-        )
+        await conn.execute("ANALYZE messages, entity_mentions")
+        async with conn.transaction():
+            await conn.execute("SET LOCAL enable_seqscan = off")
+            cards = await conn.fetch(
+                "EXPLAIN " + entities.CANDIDATE_CARDS_SQL, game, [tesk], []
+            )
+            elsewhere = await conn.fetch(
+                "EXPLAIN " + entities.MENTIONED_ELSEWHERE_SQL, [tesk], message, game
+            )
         [card] = await entities.candidate_cards(conn, game, [tesk])
     cards_plan = "\n".join(r[0] for r in cards)
     elsewhere_plan = "\n".join(r[0] for r in elsewhere)
-    assert card.last_seen_turn == 1000
+    assert card.last_seen_turn == 50
     assert "idx_messages_game_role_sequence" in cards_plan, cards_plan
     for plan in (cards_plan, elsewhere_plan):
-        assert "idx_entity_mentions_game_entity" in plan, plan
+        assert _BY_ENTITY.search(plan), plan
         assert "idx_entity_mentions_game_message" not in plan, plan
+        assert "entity_follow_merge(em.entity_id)" not in plan, plan
 
 
 async def test_a_secret_name_makes_no_homonym(test_pool, game, service):

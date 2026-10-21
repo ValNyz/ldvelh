@@ -5,9 +5,12 @@ Annotations are the stored mentions (`entity_mentions`) of the latest narrator m
 on the live entity (merges followed), labelled with what the player may read
 (display_for_player, never a secret name). A tooltip is read by id: an NPC the
 protagonist has not identified shows its descriptor and observable details only (species,
-mood, ambient), never its occupation, description or relations; an entity with nothing
+mood, ambient), never its occupation, description or relations; a detail whose text holds
+one of the entity's hidden names is left out, whatever the entity; an entity with nothing
 readable shows the language pack's unknown label and nothing else. An id that is no entity
-nor arc of the game is the only "not found".
+nor arc of the game is the only "not found". Line labels and unknown labels come from the
+game's language pack, the species not worth a line from its genre pack (else the identity
+config).
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from dataclasses import asdict, dataclass, field
 from uuid import UUID
 
 from config import get_identity_config
-from packs.loader import load_lang
+from packs.loader import load_genre, load_lang
 from repos import entities
 from repos.entities import TooltipRow
 
@@ -34,31 +37,29 @@ TYPE_ICONS = {
 }
 _UNKNOWN_ICON = "❓"
 _AMBIENT = "ambient"
+_SPECIES = "species"
+_DESCRIPTION = "description"
 
-# The detail lines of a tooltip, per entity type: (detail key, label), a free text (no
-# label) cut at FREE_TEXT_CHARS characters.
+# The detail keys of a tooltip, per entity type, in display order. A free-text detail
+# (_FREE_TEXT) is printed cut at FREE_TEXT_CHARS characters; another one under its label
+# (the language pack's tooltip_labels).
 _TOOLTIP_INFOS = {
-    "character": (
-        ("occupation", "Métier"),
-        ("species", "Espèce"),
-        ("mood", "Humeur"),
-        (_AMBIENT, None),
-    ),
-    "location": (
-        ("location_type", "Type"),
-        ("sector", "Secteur"),
-        ("atmosphere", "Ambiance"),
-    ),
-    "organization": (("org_type", "Type"), ("domain", "Domaine")),
-    "object": (("category", "Catégorie"), ("description", None)),
-    ARC: (("domain", "Domaine"),),
+    "character": ("occupation", _SPECIES, "mood", _AMBIENT),
+    "location": ("location_type", "sector", "atmosphere"),
+    "organization": ("org_type", "domain"),
+    "object": ("category", _DESCRIPTION),
+    ARC: ("domain",),
 }
+_FREE_TEXT = frozenset({_AMBIENT, _DESCRIPTION})
 FREE_TEXT_CHARS = 80
-# A species not worth a line: the default one.
-_DEFAULT_SPECIES = "human"
+# Every detail key a tooltip may print: each is checked against the entity's hidden names.
+CHECKED_FIELDS = sorted({key for keys in _TOOLTIP_INFOS.values() for key in keys})
+# Shown as is although it may hold a hidden name: an object's description (ruling R49.5,
+# left to PR 4 task 26 by the user).
+_UNFILTERED = frozenset({("object", _DESCRIPTION)})
 # What the tooltip of an NPC the protagonist has not identified may show: what anyone
 # can observe (spec §4.9); its occupation, description and relations may name it.
-_OBSERVABLE = frozenset({"species", "mood", _AMBIENT})
+_OBSERVABLE = frozenset({_SPECIES, "mood", _AMBIENT})
 
 
 @dataclass(frozen=True)
@@ -72,18 +73,51 @@ class Tooltip:
     relation: str | None = None
 
 
-def _infos(entity_type: str, details: dict, shown: frozenset[str] | None) -> list[str]:
-    """The detail lines of `details` for the type (`shown`: the keys allowed, None for
-    all of them)."""
-    infos = []
-    for key, label in _TOOLTIP_INFOS.get(entity_type, ()):
-        value = details.get(key)
-        if shown is not None and key not in shown:
-            continue
-        if not value or (key == "species" and value == _DEFAULT_SPECIES):
-            continue
-        infos.append(f"{label}: {value}" if label else value[:FREE_TEXT_CHARS])
-    return infos
+@dataclass(frozen=True)
+class Display:
+    """What the packs of a game give a tooltip: line labels, the unknown labels (a
+    character, any other entity) and the species not worth a line."""
+
+    labels: dict[str, str]
+    unknown_character: str
+    unknown_entity: str
+    default_species: str
+
+    @classmethod
+    def for_packs(cls, language: str | None, genre: str | None) -> Display:
+        lang = load_lang(language or get_identity_config().default_language)
+        return cls(
+            labels=lang.tooltip_labels,
+            unknown_character=lang.unknown_character_label,
+            unknown_entity=lang.unknown_entity_label,
+            default_species=load_genre(genre).default_species
+            or get_identity_config().default_species,
+        )
+
+    def infos(
+        self,
+        entity_type: str,
+        details: dict,
+        shown: frozenset[str] | None = None,
+        hidden: frozenset[str] = frozenset(),
+    ) -> list[str]:
+        """The detail lines of `details` for the type: `shown` the keys allowed (None:
+        all of them), `hidden` the keys holding a hidden name (left out unless
+        _UNFILTERED)."""
+        infos = []
+        for key in _TOOLTIP_INFOS.get(entity_type, ()):
+            value = details.get(key)
+            if shown is not None and key not in shown:
+                continue
+            if key in hidden and (entity_type, key) not in _UNFILTERED:
+                continue
+            if not value or (key == _SPECIES and value == self.default_species):
+                continue
+            if key in _FREE_TEXT:
+                infos.append(value[:FREE_TEXT_CHARS])
+            else:
+                infos.append(f"{self.labels[key]}: {value}")
+        return infos
 
 
 def _identified(row: TooltipRow) -> bool:
@@ -96,50 +130,48 @@ def _identified(row: TooltipRow) -> bool:
     )
 
 
-def _entity_tooltip(row: TooltipRow, unknown_label: str) -> Tooltip:
+def entity_tooltip(row: TooltipRow, display: Display) -> Tooltip:
     """The tooltip of a live entity, by the visibility rules of spec §4.9."""
     icon = TYPE_ICONS.get(row.entity_type, _UNKNOWN_ICON)
     if row.label is None:
         # Nothing readable (a whole secret): neither its name nor any detail.
-        return Tooltip(icon, unknown_label, row.entity_type)
+        unknown = (
+            display.unknown_character
+            if row.entity_type == CHARACTER
+            else display.unknown_entity
+        )
+        return Tooltip(icon, unknown, row.entity_type)
+    hidden = row.hidden_fields
     if row.entity_type != CHARACTER or _identified(row):
         return Tooltip(
             icon,
             row.label,
             row.entity_type,
-            _infos(row.entity_type, row.details, None),
+            display.infos(row.entity_type, row.details, hidden=hidden),
             row.relation_type if row.entity_type == CHARACTER else None,
         )
-    shown = _OBSERVABLE - {_AMBIENT} if row.ambient_names_hidden else _OBSERVABLE
-    return Tooltip(
-        icon, row.label, row.entity_type, _infos(CHARACTER, row.details, shown)
-    )
-
-
-async def _unknown_label(conn, game_id: UUID) -> str:
-    language, _ = await entities.game_language(conn, game_id)
-    return load_lang(
-        language or get_identity_config().default_language
-    ).unknown_character_label
+    infos = display.infos(CHARACTER, row.details, _OBSERVABLE, hidden)
+    return Tooltip(icon, row.label, row.entity_type, infos)
 
 
 async def get_entity_details(conn, entity_id: UUID, *, game_id: UUID) -> dict | None:
     """The tooltip of the entity or arc `entity_id` of the game (a merge tombstone gives
     the entity it was merged into), as a dict; None when the id is neither."""
-    row = await entities.tooltip_row(conn, game_id, entity_id)
+    display = Display.for_packs(*await entities.game_language(conn, game_id))
+    row = await entities.tooltip_row(conn, game_id, entity_id, CHECKED_FIELDS)
     if row is not None:
-        unknown = await _unknown_label(conn, game_id) if row.label is None else ""
-        return asdict(_entity_tooltip(row, unknown))
+        return asdict(entity_tooltip(row, display))
     arc = await entities.arc_tooltip_row(conn, game_id, entity_id)
     if arc is None:
         return None
-    return asdict(Tooltip(TYPE_ICONS[ARC], arc["title"], ARC, _infos(ARC, arc, None)))
+    infos = display.infos(ARC, arc)
+    return asdict(Tooltip(TYPE_ICONS[ARC], arc["title"], ARC, infos))
 
 
 async def message_annotations(conn, game_id: UUID, limit: int) -> list[dict]:
     """The annotated narrator messages, latest first: {message_id, sequence,
     annotations: [{start, end, entity_id, entity_type, label}]}; a mention with nothing
-    readable is left out, and so is a message left without any."""
+    readable is left out (annotated_messages only counts messages with a readable one)."""
     recent = await entities.annotated_messages(conn, game_id, limit)
     mentions = await entities.mentions_for_messages(
         conn, game_id, [message_id for message_id, _ in recent]

@@ -10,6 +10,7 @@ import pytest
 from helpers import auth_headers, last_user_message_id, narration_with
 
 from domain.identity import MentionRow
+from packs.loader import load_lang
 from tests.characterization import payloads
 from tests.prompt_examples import WORLD_GENERATION_EXAMPLE
 
@@ -265,6 +266,10 @@ async def test_entity_tooltip_for_a_valid_id_is_never_found_false(
             " WHERE game_id = $1 AND true_name = 'Ossek'",
             game_id,
         )
+        await conn.execute(
+            "INSERT INTO objects (game_id, name, category) VALUES ($1, 'Clé d''os', 'outil')",
+            game_id,
+        )
         ids = [
             r["id"]
             for r in await conn.fetch(
@@ -274,6 +279,9 @@ async def test_entity_tooltip_for_a_valid_id_is_never_found_false(
         ]
         foreign = await conn.fetchval(
             "SELECT id FROM entity_registry WHERE game_id = $1 LIMIT 1", other_game
+        )
+        foreign_arc = await conn.fetchval(
+            "SELECT id FROM narrative_arcs WHERE game_id = $1 LIMIT 1", other_game
         )
     await _mentions(
         test_pool, game_id, "x" * len(ids), [(n, n + 1, i) for n, i in enumerate(ids)]
@@ -301,10 +309,12 @@ async def test_entity_tooltip_for_a_valid_id_is_never_found_false(
         "character",
         "location",
         "organization",
+        "object",
         "protagonist",
         "companion",
     } <= types
-    for missing in (UUID(int=0), foreign):
+    assert foreign_arc is not None
+    for missing in (UUID(int=0), foreign, foreign_arc):
         assert await _tooltip(client, test_user, game_id, missing) == {"found": False}
 
 
@@ -386,6 +396,174 @@ async def test_tooltip_payloads_never_contain_a_hidden_true_name(
     assert [a["entity_id"] for a in message["annotations"]] == [str(justine)]
     assert payloads_["place"]["found"] is True
     assert payloads_["place"]["tooltip"]["infos"] == []
+    # A place is no person: the neutral unknown label (M4).
+    assert payloads_["place"]["tooltip"]["name"] == load_lang("fr").unknown_entity_label
+
+
+async def test_free_text_holding_an_entitys_own_secret_name_never_reaches_a_tooltip(
+    client, test_user, test_pool
+):
+    """I1: L = 0 on the tooltip JSON. A place whose name is secret but which has a readable
+    descriptor keeps its descriptor as name, and its sector and atmosphere, which hold the
+    secret name, are left out; an identified NPC with a secret identity keeps its name, but
+    its occupation and ambient, which hold the secret identity, are left out."""
+    from repos import entities
+
+    game_id = await _world(client, test_user, test_pool)
+    alias = "Le Corbeau Noir"
+    async with test_pool.acquire() as conn:
+        place = await conn.fetchval(
+            "INSERT INTO locations (game_id, name, sector, atmosphere, location_type)"
+            " VALUES ($1, $2, $3, $4, 'crypt') RETURNING id",
+            game_id,
+            SECRET_PLACE,
+            f"Sous {SECRET_PLACE}",
+            f"froide comme {SECRET_PLACE}",
+        )
+        await conn.execute(
+            "UPDATE entity_aliases SET secret = true WHERE entity_id = $1", place
+        )
+        await entities.insert_alias(
+            conn, game_id, place, "location", "la crypte humide", "descriptor",
+            known=True, source="world_gen",
+        )  # fmt: skip
+        ossek = await conn.fetchval(
+            "UPDATE characters SET known_by_protagonist = true, mood = 'calme',"
+            " species = NULL,"
+            " occupation = $2, ambient = $3"
+            " WHERE game_id = $1 AND true_name = 'Ossek' RETURNING id",
+            game_id,
+            f"agent du {alias}",
+            f"{alias} essuie le comptoir",
+        )
+        await entities.insert_alias(
+            conn, game_id, ossek, "character", alias, "true_name",
+            known=False, secret=True, source="world_gen",
+        )  # fmt: skip
+
+    place_tooltip = await _tooltip(client, test_user, game_id, place)
+    npc_tooltip = await _tooltip(client, test_user, game_id, ossek)
+
+    assert not _holds(place_tooltip, SECRET_PLACE)
+    assert not _holds(place_tooltip, "Vauquelin")
+    assert place_tooltip["tooltip"]["name"] == "la crypte humide"
+    assert place_tooltip["tooltip"]["infos"] == ["Type: crypt"]
+    assert not _holds(npc_tooltip, alias)
+    assert npc_tooltip["tooltip"]["name"] == "Ossek"
+    assert npc_tooltip["tooltip"]["infos"] == ["Humeur: calme"]
+
+
+async def test_unknown_npc_tooltip_drops_an_ambient_holding_its_secret_descriptor(
+    client, test_user, test_pool
+):
+    """M2: a secret descriptor is a hidden name like any secret alias."""
+    from repos import entities
+
+    game_id = await _world(client, test_user, test_pool)
+    justine = await _hide_under_a_descriptor(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        await entities.insert_alias(
+            conn, game_id, justine, "character", "la balafrée", "descriptor",
+            known=False, secret=True, source="world_gen",
+        )  # fmt: skip
+        await conn.execute(
+            "UPDATE characters SET ambient = 'la balafrée attend', mood = 'lasse'"
+            " WHERE id = $1",
+            justine,
+        )
+
+    payload = await _tooltip(client, test_user, game_id, justine)
+
+    assert payload["tooltip"]["infos"] == ["Humeur: lasse"]
+
+
+async def test_annotation_limit_counts_only_messages_with_a_readable_mention(
+    client, test_user, test_pool
+):
+    """M3: the latest message names only a whole-secret place; with limit 1 the older
+    readable message is served."""
+    game_id = await _world(client, test_user, test_pool)
+    justine = await _hide_under_a_descriptor(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        place = await conn.fetchval(
+            "INSERT INTO locations (game_id, name) VALUES ($1, $2) RETURNING id",
+            game_id,
+            SECRET_PLACE,
+        )
+        await conn.execute(
+            "UPDATE entity_aliases SET secret = true WHERE entity_id = $1", place
+        )
+    readable = await _mentions(test_pool, game_id, "Elle attend.", [(0, 4, justine)])
+    hidden = await _mentions(test_pool, game_id, "La crypte.", [(3, 9, place)])
+    async with test_pool.acquire() as conn:
+        await conn.execute("UPDATE messages SET sequence = 2 WHERE id = $1", hidden)
+
+    resp = await client.get(
+        "/api/tooltips/annotations",
+        params={"gameId": str(game_id), "limit": 1},
+        headers=auth_headers(test_user["token"]),
+    )
+
+    assert [m["message_id"] for m in resp.json()["messages"]] == [str(readable)]
+
+
+def test_tooltip_service_holds_no_display_text():
+    """I2: the line labels, the unknown labels and the default species live in the packs
+    and the identity config, never in services/tooltips.py."""
+    import ast
+    from pathlib import Path
+
+    from config import get_identity_config
+    from packs.loader import available_langs
+
+    texts = {get_identity_config().default_species}
+    for lang in available_langs():
+        pack = load_lang(lang)
+        texts |= set(pack.tooltip_labels.values())
+        texts |= {pack.unknown_character_label}
+        texts |= {pack.unknown_entity_label}
+    source = Path(__file__).resolve().parents[1] / "services" / "tooltips.py"
+    literals = {
+        node.value
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    assert literals & texts == set()
+
+
+def test_an_english_game_reads_the_english_labels_and_its_genre_species():
+    """I2: the labels follow the game's language pack; the species not worth a line
+    follows the genre pack, else the identity config."""
+    from uuid import uuid4
+
+    from config import get_identity_config
+    from repos.entities import TooltipRow
+    from services.tooltips import CHECKED_FIELDS, Display, entity_tooltip
+
+    labels = load_lang("en").tooltip_labels
+    display = Display.for_packs("en", None)
+    common = get_identity_config().default_species
+    row = TooltipRow(
+        uuid4(), "character", "Rafe Collins", False,
+        {"known_by_protagonist": True, "true_name": "Rafe Collins", "mood": "tired",
+         "occupation": "grinder", "species": common},
+        None, frozenset(),
+    )  # fmt: skip
+    rare = TooltipRow(
+        uuid4(), "character", "Rafe Collins", False,
+        {"known_by_protagonist": True, "true_name": "Rafe Collins", "species": "elf"},
+        None, frozenset(),
+    )  # fmt: skip
+
+    assert entity_tooltip(row, display).infos == [
+        f"{labels['occupation']}: grinder",
+        f"{labels['mood']}: tired",
+    ]
+    assert entity_tooltip(rare, display).infos == [f"{labels['species']}: elf"]
+    assert display.default_species == common
+    assert set(CHECKED_FIELDS) - {"ambient", "description"} <= set(labels)
+    for lang in ("fr", "en"):
+        assert set(load_lang(lang).tooltip_labels) == set(labels)
 
 
 async def test_regenerate_after_a_reveal_restores_the_panel_and_tooltips(
@@ -443,8 +621,36 @@ async def test_regenerate_after_a_reveal_restores_the_panel_and_tooltips(
                 "SELECT count(*) FROM entity_merges WHERE game_id = $1", world_game
             )
 
+    async def first_turn_spans() -> dict[str, dict]:
+        """The turn-1 annotation of each descriptor, by its label at turn 1."""
+        r = await harness.client.get(
+            "/api/tooltips/annotations",
+            params={"gameId": world_game},
+            headers=harness.headers,
+        )
+        [turn_1] = [
+            m for m in r.json()["messages"] if m["message_id"] == str(turn_1_id)
+        ]
+        return {
+            text[a["start"] : a["end"]].casefold(): a for a in turn_1["annotations"]
+        }
+
+    async with harness.pool.acquire() as conn:
+        turn_1_id = await conn.fetchval(
+            """SELECT id FROM messages WHERE game_id = $1 AND role = 'assistant'
+               ORDER BY sequence DESC OFFSET 1 LIMIT 1""",
+            world_game,
+        )
+        text = await conn.fetchval(
+            "SELECT content FROM messages WHERE id = $1", turn_1_id
+        )
+        survivor = await conn.fetchval(
+            "SELECT kept_id FROM entity_merges WHERE game_id = $1", world_game
+        )
+    merged = (await first_turn_spans())[DESCRIPTOR.casefold()]
     assert await merges() == 1
     assert _holds(await world(), revealed)
+    assert (merged["entity_id"], merged["label"]) == (str(survivor), revealed)
 
     r = await harness.client.post(
         f"/api/games/{world_game}/rollback",
@@ -470,6 +676,14 @@ async def test_regenerate_after_a_reveal_restores_the_panel_and_tooltips(
         )
         tooltips[span["entity_id"]] = r.json()
     assert await merges() == 0
+    async with harness.pool.acquire() as conn:
+        hidden_npc = await conn.fetchval(
+            "SELECT id FROM characters WHERE game_id = $1 AND descriptor = $2",
+            world_game,
+            DESCRIPTOR,
+        )
+    restored = (await first_turn_spans())[DESCRIPTOR.casefold()]
+    assert (restored["entity_id"], restored["label"]) == (str(hidden_npc), DESCRIPTOR)
     assert {DESCRIPTOR, other} <= {s["label"] for s in spans}
     assert all(t["found"] for t in tooltips.values())
     assert {t["tooltip"]["name"] for t in tooltips.values()} >= {DESCRIPTOR, other}

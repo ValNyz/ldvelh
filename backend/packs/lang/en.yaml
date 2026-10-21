@@ -26,6 +26,17 @@ other_markers: [second, third, fourth, another]
 apostrophes: ["'", "’"]
 
 unknown_character_label: "Unknown person"
+unknown_entity_label: "Unknown"
+tooltip_labels:
+  occupation: "Occupation"
+  species: "Species"
+  mood: "Mood"
+  location_type: "Type"
+  sector: "Sector"
+  atmosphere: "Atmosphere"
+  org_type: "Type"
+  domain: "Domain"
+  category: "Category"
 
 proper_name_uses_capitals: true
 # Letter case tells a name from a common noun (false for a script without case, or a

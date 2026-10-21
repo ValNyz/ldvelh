@@ -1569,16 +1569,22 @@ async def annotated_messages(
     conn, game_id: UUID, limit: int
 ) -> list[tuple[UUID, int]]:
     """(id, sequence) of the game's `limit` latest assistant messages holding a stored
-    mention, latest first."""
+    mention the player may read (an entity with a readable label, merges followed),
+    latest first."""
     rows = await conn.fetch(
-        """SELECT m.id, m.sequence FROM messages AS m
+        f"""SELECT m.id, m.sequence FROM messages AS m
             WHERE m.game_id = $1 AND m.role = 'assistant'
-              AND EXISTS (SELECT 1 FROM entity_mentions AS em
-                           WHERE em.game_id = $1 AND em.message_id = m.id)
+              AND EXISTS (
+                  SELECT 1 FROM entity_mentions AS em
+                   CROSS JOIN LATERAL (SELECT entity_follow_merge(em.entity_id) AS id)
+                         AS live
+                   WHERE em.game_id = $1 AND em.message_id = m.id
+                     AND ({_READABLE_LABEL.format(id="live.id")}) IS NOT NULL)
             ORDER BY m.sequence DESC, m.created_at DESC
             LIMIT $2""",
         game_id,
         limit,
+        [],
     )
     return [(r["id"], r["sequence"]) for r in rows]
 
@@ -1590,8 +1596,9 @@ class TooltipRow:
     `label`: what the player may read (_READABLE_LABEL; None when nothing is readable);
     `label_secret`: display_for_player is a secret name (then `label` is a substitute);
     `details`: the domain row (internal: the caller picks what it shows); `relation_type`:
-    an open relation of the entity; `ambient_names_hidden`: its ambient text holds one of
-    its names the player may not read (an unknown or secret alias, its true name)."""
+    an open relation of the entity; `hidden_fields`: the asked detail keys whose text holds
+    one of the entity's names the player may not read (a secret alias, an unknown alias
+    other than a descriptor, its true name while unknown)."""
 
     entity_id: UUID
     entity_type: str
@@ -1599,12 +1606,12 @@ class TooltipRow:
     label_secret: bool
     details: dict
     relation_type: str | None
-    ambient_names_hidden: bool
+    hidden_fields: frozenset[str]
 
 
 # $1 the game, $2 the id (a merge tombstone is followed), $3 the disclosed entities (none
-# for the player).
-_AMBIENT_WORDS = "' ' || ldvelh_norm_for_game($1, dom.row ->> 'ambient') || ' '"
+# for the player), $4 the detail keys to check against the entity's hidden names (whole
+# normalised words).
 _TOOLTIP_SQL = f"""SELECT er.id AS entity_id, er.entity_type,
                   {_READABLE_LABEL.format(id="er.id")} AS label,
                   {_LABEL_SECRET.format(id="er.id")} AS label_secret,
@@ -1612,25 +1619,36 @@ _TOOLTIP_SQL = f"""SELECT er.id AS entity_id, er.entity_type,
                   (SELECT r.type::text FROM relations AS r
                     WHERE r.game_id = $1 AND r.source_id = er.id AND r.end_cycle IS NULL
                     LIMIT 1) AS relation_type,
-                  coalesce(position(' ' || ldvelh_norm_for_game($1, dom.row ->> 'true_name')
-                                    || ' ' IN {_AMBIENT_WORDS}) > 0, false)
-                  OR EXISTS (SELECT 1 FROM entity_aliases AS al
-                              WHERE al.game_id = $1 AND al.entity_id = er.id
-                                AND (al.secret OR NOT al.known)
-                                AND al.kind <> 'descriptor'
-                                AND position(' ' || al.alias_norm || ' '
-                                             IN {_AMBIENT_WORDS}) > 0)
-                      AS ambient_names_hidden
+                  ARRAY(SELECT key FROM unnest($4::text[]) AS key
+                         WHERE EXISTS (
+                             SELECT 1 FROM unnest(hidden.names) AS name
+                              WHERE name <> ''
+                                AND position(' ' || name || ' ' IN
+                                             ' ' || ldvelh_norm_for_game(
+                                                 $1, dom.row ->> key) || ' ') > 0))
+                      AS hidden_fields
              FROM entity_registry AS er
             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
                   AS dom
+            CROSS JOIN LATERAL (SELECT ARRAY(
+                  SELECT al.alias_norm FROM entity_aliases AS al
+                   WHERE al.game_id = $1 AND al.entity_id = er.id
+                     AND (al.secret OR (NOT al.known AND al.kind <> 'descriptor'))
+                  UNION
+                  SELECT ldvelh_norm_for_game($1, dom.row ->> 'true_name')
+                   WHERE dom.row ->> 'true_name' IS NOT NULL
+                     AND NOT coalesce((dom.row ->> 'known_by_protagonist')::boolean,
+                                      false)) AS names) AS hidden
             WHERE er.game_id = $1 AND er.id = entity_follow_merge($2)"""
 
 
-async def tooltip_row(conn, game_id: UUID, entity_id: UUID) -> TooltipRow | None:
-    """The tooltip source of the live entity behind `entity_id` (merges followed); None
-    when the id is no entity of the game."""
-    row = await conn.fetchrow(_TOOLTIP_SQL, game_id, entity_id, [])
+async def tooltip_row(
+    conn, game_id: UUID, entity_id: UUID, fields: list[str]
+) -> TooltipRow | None:
+    """The tooltip source of the live entity behind `entity_id` (merges followed), its
+    `fields` checked against its hidden names; None when the id is no entity of the
+    game."""
+    row = await conn.fetchrow(_TOOLTIP_SQL, game_id, entity_id, [], list(fields))
     if row is None:
         return None
     values = dict(row)
@@ -1638,7 +1656,12 @@ async def tooltip_row(conn, game_id: UUID, entity_id: UUID) -> TooltipRow | None
     if not isinstance(details, dict):
         details = json.loads(details)
     return TooltipRow(
-        **{**values, "label_secret": bool(values["label_secret"])}, details=details
+        **{
+            **values,
+            "label_secret": bool(values["label_secret"]),
+            "hidden_fields": frozenset(values["hidden_fields"]),
+        },
+        details=details,
     )
 
 

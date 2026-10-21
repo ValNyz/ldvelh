@@ -76,6 +76,20 @@ apostrophes: ["'", "’", "ʼ", "‘"]
 # What the player reads for a character whose name the PC does not know and who has no
 # descriptor (display_for_player).
 unknown_character_label: "Inconnu(e)"
+# What the player reads for any other entity with nothing readable (a whole secret).
+unknown_entity_label: "Inconnu"
+# Labels of the tooltip lines, by detail key; a free-text detail (ambient, description)
+# has none.
+tooltip_labels:
+  occupation: "Métier"
+  species: "Espèce"
+  mood: "Humeur"
+  location_type: "Type"
+  sector: "Secteur"
+  atmosphere: "Ambiance"
+  org_type: "Type"
+  domain: "Domaine"
+  category: "Catégorie"
 
 # The script has letter case: a multi-word name has a capital after its first word.
 proper_name_uses_capitals: true

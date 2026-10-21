@@ -21,6 +21,9 @@ NON_LEXICAL_KEYS = frozenset(
         "proper_name_uses_capitals",
         "min_distinctive_token_len",
         "prompt_examples",
+        # Display text of the tooltips, never compared with a narration (services/
+        # tooltips.py, guarded by test_tooltip_service_holds_no_display_text).
+        "tooltip_labels",
     }
 )
 EXCLUDED_DIRS = ("packs/", "tests/", "evals/identity/lexicon/")

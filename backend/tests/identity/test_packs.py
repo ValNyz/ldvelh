@@ -51,6 +51,8 @@ def test_missing_key_is_a_validation_error():
         "proper_name_uses_capitals",
         "prompt_examples",
         "unknown_character_label",
+        "unknown_entity_label",
+        "tooltip_labels",
     ):
         broken = {k: v for k, v in raw.items() if k != key}
         with pytest.raises(ValidationError):

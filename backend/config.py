@@ -150,6 +150,8 @@ class IdentityConfig(BaseSettings):
 
     # Language of a game whose language is not chosen (packs/lang/<lang>.yaml).
     default_language: str = "fr"
+    # Species a tooltip does not print when the genre pack names none (the usual one).
+    default_species: str = "human"
     # pg_trgm word_similarity / similarity floors of the fuzzy candidate generator.
     s_word: float = 0.55
     s_sim: float = 0.35
