@@ -118,7 +118,7 @@ async def test_undo_of_a_reveal_restores_descriptor_and_aliases(
                 EntityRef("La Kethari âgée", "character"),
                 "Nahle Irun-Sa",
                 turn_id=turn_id,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
         revealed = await conn.fetchval(
             "SELECT true_name FROM characters WHERE id = $1", elder
@@ -230,7 +230,7 @@ async def test_mentions_of_a_merged_entity_resolve_through_the_tombstone_and_aga
                 EntityRef("La Kethari âgée", "character"),
                 "Nahle Irun-Sa",
                 turn_id=turn_id,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
         merged = await entities.mentions_for_messages(conn, game, [message])
         stored = await conn.fetchval(

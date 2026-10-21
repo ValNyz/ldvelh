@@ -1279,7 +1279,7 @@ class TestExtractorWrites:
                 EntityRef("La Kethari âgée", "character"),
                 "Nahle Irun-Sa",
                 turn_id=None,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
             row = await conn.fetchrow(
                 "SELECT c.known_by_protagonist, c.true_name, c.descriptor, er.name AS label,"
@@ -1324,7 +1324,7 @@ class TestGameServiceLoadSidebar:
                 EntityRef(first_char, "character"),
                 None,
                 turn_id=None,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
 
         npcs = await service.load_npcs(game_id)

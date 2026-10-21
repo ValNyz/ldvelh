@@ -347,7 +347,7 @@ async def test_a_reveal_never_deletes_through_another_characters_alias(test_pool
             EntityRef("la Kethari âgée", "character"),
             "Kethari au tablier",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         rows = await conn.fetch(
             "SELECT id, known_by_protagonist, true_name FROM characters WHERE game_id = $1"
@@ -410,7 +410,7 @@ async def test_a_reveal_without_real_name_marks_the_true_name_alias_known(
             EntityRef("le Kethari au tablier", "character"),
             None,
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         assert revealed.kind == "known_only"
         kinds = {

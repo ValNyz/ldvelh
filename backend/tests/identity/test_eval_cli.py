@@ -613,3 +613,6 @@ def test_a_secret_word_inside_another_known_name_is_masked_not_forgotten():
     assert leaks.leak_count(scene, [holder_card], []) == 1
     output = '{"surface": "le pèlerin", "handle": "E4", "evidence": "Ysmer, true name"}'
     assert leaks.leak_count(scene, [], [output]) == 1
+    # The holder's card is never left out, even when it names the bearer (its place).
+    placed = 'E4 · character · "le pèlerin" · aliases: "Ysmer" · usual place: Lanterne d\'Ysmer'
+    assert leaks.leak_count(scene, [placed], []) == 1

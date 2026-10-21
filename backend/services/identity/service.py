@@ -810,7 +810,7 @@ class IdentityService:
         turn_id: UUID | None,
         source: str,
         evidence: str | None = None,
-        disclosed: frozenset[UUID] = frozenset(),
+        disclosed: frozenset[UUID],
     ) -> RevealOutcome:
         """The protagonist learns the name of the entity `ref` names (`real_name`, else
         the name it has), or the fact: the table of spec §4.7 (`reveals`). Idempotent;

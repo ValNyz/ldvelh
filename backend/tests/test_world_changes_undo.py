@@ -257,7 +257,7 @@ async def test_undo_of_a_rename_restores_the_registry_name(test_pool, world):
                 EntityRef("Arno Vey", "character"),
                 "Brune Okafor",
                 turn_id=turn_id,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
         assert outcome.kind == "conflict"
         assert await _registry_id(conn, game_id, "Brune Okafor") == reg_id
@@ -316,7 +316,7 @@ async def test_undo_reverses_two_turns_in_order(test_pool, world):
         identity = await IdentityService.for_game(conn, game_id)
         async with uow(conn, t2):
             await identity.reveal(
-                conn, EntityRef("X", "character"), "Y", turn_id=t2, source="reveal"
+                conn, EntityRef("X", "character"), "Y", turn_id=t2, source="reveal", disclosed=frozenset()
             )
         await _undo(conn, t2, t1)
         assert await _world(conn) == before

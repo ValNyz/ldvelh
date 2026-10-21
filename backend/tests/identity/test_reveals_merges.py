@@ -119,7 +119,7 @@ async def test_reveal_by_descriptor_with_article_sets_the_true_name(
             _ref("La Kethari âgée"),
             "Nahle Irun-Sa",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         row = await _character_row(conn, elder)
         aliases = await _aliases(conn, game, elder)
@@ -152,7 +152,7 @@ async def test_reveal_of_a_hidden_name_with_the_same_spelling_marks_known(
         )
         before = await _character_row(conn, voss)
         outcome = await service.reveal(
-            conn, _ref("la doctoresse"), "elara voss", turn_id=None, source="reveal"
+            conn, _ref("la doctoresse"), "elara voss", turn_id=None, source="reveal", disclosed=frozenset()
         )
         row = await _character_row(conn, voss)
         aliases = await _aliases(conn, game, voss)
@@ -191,7 +191,7 @@ async def test_reveal_with_a_different_spelling_keeps_the_world_gen_spelling_as_
             _ref("La Kethari âgée"),
             "Nahle Irun-Sah",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         row = await _character_row(conn, nahle)
         aliases = await _aliases(conn, game, nahle)
@@ -212,7 +212,7 @@ async def test_conflicting_reveal_believes_the_narration_and_keeps_the_old_name_
             conn, game, true_name="Arno Vey", descriptor="Le docker"
         )
         outcome = await service.reveal(
-            conn, _ref("le docker"), "Brune Okafor", turn_id=None, source="reveal"
+            conn, _ref("le docker"), "Brune Okafor", turn_id=None, source="reveal", disclosed=frozenset()
         )
         row = await _character_row(conn, docker)
         aliases = await _aliases(conn, game, docker)
@@ -247,13 +247,13 @@ async def test_reveal_without_real_name_is_a_counted_noop(test_pool, game, servi
             for _ in range(2)
         ]
         no_name = await service.reveal(
-            conn, _ref("le guichetier"), None, turn_id=None, source="reveal"
+            conn, _ref("le guichetier"), None, turn_id=None, source="reveal", disclosed=frozenset()
         )
         unknown = await service.reveal(
-            conn, _ref("Personne Ici"), "Tom", turn_id=None, source="reveal"
+            conn, _ref("Personne Ici"), "Tom", turn_id=None, source="reveal", disclosed=frozenset()
         )
         ambiguous = await service.reveal(
-            conn, _ref("Garde du sas"), "Tom", turn_id=None, source="reveal"
+            conn, _ref("Garde du sas"), "Tom", turn_id=None, source="reveal", disclosed=frozenset()
         )
         rows = [await _character_row(conn, c) for c in (clerk, *guards)]
         noops = await _events(conn, game, "reveal_noop")
@@ -291,7 +291,7 @@ async def test_reveal_to_an_existing_name_merges_and_keeps_every_edge(
             _ref("La Kethari âgée"),
             "Nahle Irun-Sa",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         ends = await conn.fetch(
             "SELECT id, source_id, target_id, end_cycle FROM relations"
@@ -369,7 +369,7 @@ async def test_merge_is_refused_for_two_mandatory_npcs_and_for_the_companion(
             conn, companion, twin, reason="test", turn_id=None
         )
         revealed = await service.reveal(
-            conn, _ref("la capitaine"), "Ilsa Morn", turn_id=None, source="reveal"
+            conn, _ref("la capitaine"), "Ilsa Morn", turn_id=None, source="reveal", disclosed=frozenset()
         )
         refused = await _events(conn, game, "merge_refused")
         live = await conn.fetchval(
@@ -417,7 +417,7 @@ async def test_merge_keeps_the_oldest_entity(test_pool, game, service):
             _ref("La Kethari âgée"),
             "Nahle Irun-Sa",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         tombstone = await conn.fetchval(
             "SELECT merged_into FROM entity_registry WHERE id = $1", newer
@@ -518,10 +518,10 @@ async def test_reveal_is_idempotent(test_pool, game, service):
                 _ref("La Kethari âgée"),
                 "Nahle Irun-Sa",
                 turn_id=None,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             ),
             await service.reveal(
-                conn, _ref("le guichetier"), "Orin Kell", turn_id=None, source="reveal"
+                conn, _ref("le guichetier"), "Orin Kell", turn_id=None, source="reveal", disclosed=frozenset()
             ),
         ]
 
@@ -560,13 +560,13 @@ async def test_reveal_of_a_fact_marks_it_known(test_pool, game, service):
         await conn.execute("UPDATE facts SET known = false WHERE id = $1", fact)
         handle = await conn.fetchval("SELECT handle FROM facts WHERE id = $1", fact)
         first = await service.reveal(
-            conn, FactRef(f"F{handle}"), None, turn_id=None, source="reveal"
+            conn, FactRef(f"F{handle}"), None, turn_id=None, source="reveal", disclosed=frozenset()
         )
         second = await service.reveal(
-            conn, FactRef(str(fact)), None, turn_id=None, source="reveal"
+            conn, FactRef(str(fact)), None, turn_id=None, source="reveal", disclosed=frozenset()
         )
         unknown = await service.reveal(
-            conn, FactRef("F999999"), None, turn_id=None, source="reveal"
+            conn, FactRef("F999999"), None, turn_id=None, source="reveal", disclosed=frozenset()
         )
         known = await conn.fetchval("SELECT known FROM facts WHERE id = $1", fact)
     assert [(o.kind, o.entity_id) for o in (first, second, unknown)] == [
@@ -596,7 +596,7 @@ async def test_a_revealed_descriptor_of_an_unnamed_character_never_merges(
                 _ref("la Kethari âgée"),
                 "Le Kethari au tablier",
                 turn_id=turn_id,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
         merges = await conn.fetchval(
             "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
@@ -657,7 +657,7 @@ async def test_a_revealed_short_form_of_another_name_never_merges(
             source="world_gen",
         )
         outcome = await service.reveal(
-            conn, _ref("la Kethari âgée"), "Nahle", turn_id=None, source="reveal"
+            conn, _ref("la Kethari âgée"), "Nahle", turn_id=None, source="reveal", disclosed=frozenset()
         )
         merges = await conn.fetchval(
             "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
@@ -686,7 +686,7 @@ async def test_a_merge_survivor_with_another_hidden_name_believes_the_narration(
                 _ref("le docker"),
                 "Brune Okafor",
                 turn_id=turn_id,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
         row = await _character_row(conn, older)
         aliases = await _aliases(conn, game, older)
@@ -723,7 +723,7 @@ async def test_a_name_two_characters_hold_is_an_ambiguous_refusal(
             conn, other, "Ilsa Morn", "true_name", known=False, source="world_gen"
         )
         outcome = await service.reveal(
-            conn, _ref("la Kethari âgée"), "Ilsa Morn", turn_id=None, source="reveal"
+            conn, _ref("la Kethari âgée"), "Ilsa Morn", turn_id=None, source="reveal", disclosed=frozenset()
         )
         merges = await conn.fetchval(
             "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
@@ -754,7 +754,7 @@ async def test_an_object_is_never_merged_by_a_reveal(test_pool, game, service):
             EntityRef("Tasse de cuivre", "object"),
             "Gobelet fêlé",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         merges = await conn.fetchval(
             "SELECT count(*) FROM entity_merges WHERE game_id = $1", game
@@ -779,11 +779,11 @@ async def test_a_location_reveal_follows_the_same_table(test_pool, game, service
         ref = EntityRef(f"E{handle}", "location")
         hidden = await _aliases(conn, game, bar)
         same = await service.reveal(
-            conn, ref, "bar des docks", turn_id=None, source="reveal"
+            conn, ref, "bar des docks", turn_id=None, source="reveal", disclosed=frozenset()
         )
         known = await _aliases(conn, game, bar)
         other = await service.reveal(
-            conn, ref, "Le Comptoir de Mia", turn_id=None, source="reveal"
+            conn, ref, "Le Comptoir de Mia", turn_id=None, source="reveal", disclosed=frozenset()
         )
         renamed = await _aliases(conn, game, bar)
         name = await conn.fetchval("SELECT name FROM locations WHERE id = $1", bar)
@@ -839,7 +839,7 @@ async def test_dedup_keeps_two_different_reveals_and_drops_the_same_one_twice(
         async with uow(conn, turn_id):
             for ref in ("Personne", "Quelqu'un d'autre", "la personne"):
                 await service.reveal(
-                    conn, _ref(ref), "Tom", turn_id=turn_id, source="reveal"
+                    conn, _ref(ref), "Tom", turn_id=turn_id, source="reveal", disclosed=frozenset()
                 )
         noops = await _events(conn, game, "reveal_noop")
     assert [e["payload"]["ref_key"] for e in noops] == [
@@ -868,7 +868,7 @@ async def test_dedup_keeps_a_refusal_against_other_holders(test_pool, game, serv
                 _ref("la Kethari âgée"),
                 "Ilsa Morn",
                 turn_id=turn_id,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
         await conn.execute(
             "DELETE FROM entity_aliases WHERE entity_id = $1 AND alias = 'Ilsa Morn'",
@@ -880,7 +880,7 @@ async def test_dedup_keeps_a_refusal_against_other_holders(test_pool, game, serv
                 _ref("la Kethari âgée"),
                 "Ilsa Morn",
                 turn_id=turn_id,
-                source="reveal",
+                source="reveal", disclosed=frozenset(),
             )
         refused = await _events(conn, game, "merge_refused")
     assert [len(e["payload"]["holder_ids"]) for e in refused] == [3, 2]
@@ -909,7 +909,7 @@ async def test_renaming_a_suffixed_character_onto_a_free_name_leaves_no_intermed
             _ref(f"E{handle}"),
             "Brune Okafor",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         row = await _character_row(conn, guards[1])
         suffix = await conn.fetchval(
@@ -945,7 +945,7 @@ async def test_a_second_pass_in_the_same_turn_records_no_new_event(
                 return [
                     (
                         await service.reveal(
-                            conn, _ref(r), real, turn_id=turn_id, source="reveal"
+                            conn, _ref(r), real, turn_id=turn_id, source="reveal", disclosed=frozenset()
                         )
                     ).kind
                     for r, real in reveals
@@ -985,7 +985,7 @@ async def test_revealing_a_homonym_by_its_own_descriptor_keeps_its_suffix(
         handle = await entities.handle_of(conn, guards[1])
         before = await _character_row(conn, guards[1])
         outcome = await service.reveal(
-            conn, _ref(f"E{handle}"), "Garde du sas", turn_id=None, source="reveal"
+            conn, _ref(f"E{handle}"), "Garde du sas", turn_id=None, source="reveal", disclosed=frozenset()
         )
         row = await _character_row(conn, guards[1])
         suffix = await conn.fetchval(
@@ -1054,7 +1054,7 @@ async def test_a_secret_name_is_never_revealed_without_an_open_disclosure(
             source="world_gen",
         )
         closed = await service.reveal(
-            conn, _ref("La Kethari âgée"), "Nahle Irun-Sa", turn_id=None, source="resolver"
+            conn, _ref("La Kethari âgée"), "Nahle Irun-Sa", turn_id=None, source="resolver", disclosed=frozenset()
         )
         still = await _character_row(conn, elder)
         events = await conn.fetch(

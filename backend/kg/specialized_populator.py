@@ -709,6 +709,8 @@ class ExtractionPopulator(KnowledgeGraphPopulator):
                 update.real_name,
                 turn_id=None,
                 source="extractor",
+                # No disclosure opens before PR 4 (R43): wire it there.
+                disclosed=frozenset(),
             )
         if changes:
             await self.update_entity(conn, resolved.entity_id, entity_type, changes)

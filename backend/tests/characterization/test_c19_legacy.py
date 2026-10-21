@@ -507,7 +507,7 @@ async def test_c19_legacy_reveal_by_descriptor_works_after_migration(test_pool):
             EntityRef("La Kethari âgée", "character"),
             "Nom Révélé",
             turn_id=None,
-            source="reveal",
+            source="reveal", disclosed=frozenset(),
         )
         assert revealed.kind == "applied"
         row = await conn.fetchrow(

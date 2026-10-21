@@ -99,6 +99,8 @@ async def apply_entity_reveals(
                     real,
                     turn_id=turn_id,
                     source=source,
+                    # No disclosure opens before PR 4 (R43): wire it there.
+                    disclosed=frozenset(),
                 ),
                 log_prefix,
             )
@@ -139,7 +141,7 @@ async def reveal(
     turn_id: UUID | None,
     source: str,
     evidence: str | None = None,
-    disclosed: frozenset[UUID] = frozenset(),
+    disclosed: frozenset[UUID],
 ) -> RevealOutcome:
     if isinstance(ref, FactRef):
         return await _reveal_fact(service, conn, ref, turn_id)

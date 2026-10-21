@@ -4,8 +4,9 @@ A secret name of a scene is a name its gold knowledge marks secret (`kind: name`
 `state: secret`) or an alias the world flags secret (the alias or its whole entity),
 unless an open name disclosure of the scene lets it through. Inside a known, non-secret
 name of another entity (a place named after the person whose identity is the secret) the
-word discloses nothing: those spans are masked before searching, and the card line of such
-an entity (its name and the forms the app derives from it) is left out; everywhere else
+word discloses nothing: those spans are masked before searching, and the card of such an
+entity (the line whose label holds that name, with the forms the app derives from it) is
+left out; everywhere else
 the name counts, on its holder's own card first of all. The resolver leaks it when
 a candidate card shows it (the app never shows a secret alias without an open
 disclosure, even one the narration contains), or when the rest of a request or a
@@ -19,6 +20,7 @@ names themselves are never printed.
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 
 from config import get_identity_config
@@ -27,6 +29,7 @@ from packs.loader import load_lang
 from services.identity.mentions import find_spans
 from services.identity.normalize import Normalizer
 
+_QUOTED = re.compile(r'"([^"]*)"')
 SECRET = "secret"
 NAME = "name"
 
@@ -100,9 +103,17 @@ def leak_count(scene: Scene, cards: list[str], texts: list[str]) -> int:
                 name, [_masked(t, others, normalizer) for t in texts], normalizer
             )
 
-        own_cards = [c for c in cards if not _in_any(bearers, c, normalizer)]
+        own_cards = [
+            c for c in cards if not _in_any(bearers, _card_label(c), normalizer)
+        ]
         count += seen(own_cards) or (not seen([scene.narration]) and seen(texts))
     return count
+
+
+def _card_label(line: str) -> str:
+    """The label of a card line: its first quoted string (after the handle and type)."""
+    match = _QUOTED.search(line)
+    return match.group(1) if match else ""
 
 
 def _in_any(names: list[str], text: str, normalizer: Normalizer) -> bool:
