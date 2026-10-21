@@ -1649,20 +1649,12 @@ _TOOLTIP_SQL = f"""SELECT asked.id AS asked_id, er.id AS entity_id, er.entity_ty
                                       false)) AS names) AS hidden"""
 
 
-async def tooltip_row(
-    conn, game_id: UUID, entity_id: UUID, fields: list[str]
-) -> TooltipRow | None:
-    """The tooltip source of the live entity behind `entity_id` (merges followed), its
-    `fields` checked against its hidden names; None when the id is no entity of the
-    game."""
-    return (await tooltip_rows(conn, game_id, [entity_id], fields)).get(entity_id)
-
-
 async def tooltip_rows(
     conn, game_id: UUID, entity_ids: list[UUID], fields: list[str]
 ) -> dict[UUID, TooltipRow]:
-    """tooltip_row for each of `entity_ids` in one query, keyed by the id asked for; an
-    id that is no entity of the game has no key."""
+    """The tooltip source of the live entity behind each of `entity_ids` (merges
+    followed), its `fields` checked against its hidden names, in one query, keyed by the
+    id asked for; an id that is no entity of the game has no key."""
     rows = await conn.fetch(
         _TOOLTIP_SQL, game_id, list(dict.fromkeys(entity_ids)), [], list(fields)
     )
@@ -1683,11 +1675,6 @@ def _tooltip_row(row) -> TooltipRow:
         },
         details=details,
     )
-
-
-async def arc_tooltip_row(conn, game_id: UUID, arc_id: UUID) -> dict | None:
-    """Title and domain of a narrative arc of the game (None: no such arc)."""
-    return (await arc_tooltip_rows(conn, game_id, [arc_id])).get(arc_id)
 
 
 async def arc_tooltip_rows(
