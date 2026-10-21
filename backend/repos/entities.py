@@ -1182,7 +1182,9 @@ async def live_handles(conn, game_id: UUID, entity_ids: list[UUID]) -> dict[UUID
 
 @dataclass(frozen=True)
 class CardRow:
-    """What a candidate card shows of an entity, aliases aside."""
+    """What a candidate card shows of an entity, aliases aside. `label_secret`: the label
+    the player would read is a secret name of the entity (no open disclosure);
+    `usual_location` is already blank when the place's own label is secret."""
 
     entity_id: UUID
     handle: int
@@ -1192,16 +1194,29 @@ class CardRow:
     usual_location: str | None
     last_seen_turn: int | None
     description_line: str | None
+    label_secret: bool = False
 
 
-async def candidate_cards(conn, game_id: UUID, entity_ids: list[UUID]) -> list[CardRow]:
+# The label `display_for_player` gives `{id}` is one of its secret aliases and no open
+# disclosure lets the entity's secrets through ($3).
+_LABEL_SECRET = """(NOT ({id} = ANY($3::uuid[])) AND EXISTS (
+        SELECT 1 FROM entity_aliases AS sal
+         WHERE sal.game_id = $1 AND sal.entity_id = {id} AND sal.secret
+           AND sal.alias_norm = ldvelh_norm_for_game($1, display_for_player({id}))))"""
+
+
+async def candidate_cards(
+    conn, game_id: UUID, entity_ids: list[UUID], *, disclosed: list[UUID] = ()
+) -> list[CardRow]:
     """Cards of live entities: what the player may read as label, occupation, usual place
     (workplace, residence, parent location or headquarters), the last turn it was mentioned
     in (rank of the latest assistant message mentioning it or an entity merged into it;
     None when never mentioned), first line of description. Mentions are read in one pass
-    through the entity index, merges resolved once."""
+    through the entity index, merges resolved once. Secrets stay filtered (spec §4.8): a
+    label that is a secret name is flagged (`label_secret`, the caller replaces it), a
+    usual place whose label is a secret name is left blank."""
     rows = await conn.fetch(
-        """WITH RECURSIVE family (live, id) AS (
+        f"""WITH RECURSIVE family (live, id) AS (
                 SELECT id, id FROM unnest($2::uuid[]) AS id
                 UNION
                 SELECT family.live, er.id
@@ -1218,6 +1233,7 @@ async def candidate_cards(conn, game_id: UUID, entity_ids: list[UUID]) -> list[C
                  GROUP BY family.live)
            SELECT er.id AS entity_id, er.handle, er.entity_type,
                   display_for_player(er.id) AS label,
+                  {_LABEL_SECRET.format(id="er.id")} AS label_secret,
                   dom.row ->> 'occupation' AS occupation,
                   (SELECT display_for_player(place.id)
                      FROM entity_registry AS place
@@ -1225,7 +1241,8 @@ async def candidate_cards(conn, game_id: UUID, entity_ids: list[UUID]) -> list[C
                       AND place.id = coalesce((dom.row ->> 'workplace_id')::uuid,
                                               (dom.row ->> 'residence_id')::uuid,
                                               (dom.row ->> 'parent_id')::uuid,
-                                              (dom.row ->> 'headquarters_id')::uuid))
+                                              (dom.row ->> 'headquarters_id')::uuid)
+                      AND NOT {_LABEL_SECRET.format(id="place.id")})
                       AS usual_location,
                   seen.turn AS last_seen_turn,
                   nullif(split_part(dom.row ->> 'description', E'\\n', 1), '')
@@ -1237,6 +1254,7 @@ async def candidate_cards(conn, game_id: UUID, entity_ids: list[UUID]) -> list[C
             WHERE er.game_id = $1 AND er.id = ANY($2::uuid[])""",
         game_id,
         list(entity_ids),
+        list(disclosed),
     )
     return [CardRow(**dict(r)) for r in rows]
 

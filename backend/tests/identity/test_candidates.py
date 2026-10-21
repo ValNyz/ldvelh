@@ -194,6 +194,59 @@ async def test_secret_alias_never_appears_without_an_open_disclosure(
     assert any(a.secret for a in disclosed.aliases)
 
 
+def _shown_text(found) -> str:
+    """Everything the cards of a candidate set show (labels, aliases, places)."""
+    parts = []
+    for c in [*found.ranked(), *found.exact.values()]:
+        parts += [c.label, c.usual_location or "", *(a.alias for a in c.aliases)]
+    return " | ".join(parts)
+
+
+async def test_a_known_character_whose_true_name_is_secret_shows_its_descriptor(
+    test_pool, game, service
+):
+    """R42: known_by_protagonist with a secret true name (an operator merge can reach it)
+    never puts the name on a card; an open disclosure lets it through."""
+    async with test_pool.acquire() as conn:
+        spy = await _create(
+            conn, service, "character", "Mira Sel", descriptor="la fileuse", known=True
+        )
+        for name in ("Mira Sel", "Mira", "Sel"):  # the name and its derived forms
+            await entities.set_alias_flags(conn, spy, name, known=True, secret=True)
+        closed = await _scene(conn, game, present_ids=[spy])
+        hidden = await _block(conn, service, "La fileuse attend.", closed)
+        opened = await _block(
+            conn,
+            service,
+            "La fileuse attend.",
+            SceneContext(**{**closed.__dict__, "open_disclosure_ids": [spy]}),
+        )
+    card = _by_id(hidden)[spy]
+    assert card.label.casefold() == "la fileuse" and "Mira" not in _shown_text(hidden)
+    assert _by_id(opened)[spy].label == "Mira Sel"
+
+
+async def test_a_whole_secret_place_is_no_candidate_and_no_usual_place(
+    test_pool, game, service
+):
+    async with test_pool.acquire() as conn:
+        vault = await _create(conn, service, "location", "Caveau Noir", secret=True)
+        smith = await _create(
+            conn,
+            service,
+            "character",
+            "Forgeronne au tablier",
+            "descriptor",
+            fields={"workplace_id": vault},
+        )
+        scene = await _scene(conn, game, location_id=vault, present_ids=[smith])
+        found = await _block(conn, service, "La forgeronne au tablier sourit.", scene)
+    cards = _by_id(found)
+    assert vault not in cards and smith in cards
+    assert cards[smith].usual_location is None
+    assert "Caveau" not in _shown_text(found)
+
+
 async def test_unknown_ordinary_aliases_are_on_the_card(test_pool, game, service):
     async with test_pool.acquire() as conn:
         voss = await _create(

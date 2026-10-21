@@ -24,6 +24,7 @@ from services.identity.lexicon import Lexicon
 from services.identity.normalize import Normalizer
 
 EXACT = "exact"
+DESCRIPTOR = "descriptor"
 TRGM = "trgm"
 TOKENS = "tokens"
 LEVENSHTEIN = "levenshtein"
@@ -175,6 +176,20 @@ async def _context(conn, game_id: UUID, scene: SceneContext):
     )
 
 
+def _readable_label(row, aliases: list[CandidateAlias]) -> str | None:
+    """The label a card shows: the player's label, unless it is a secret name; then a
+    descriptor, else a known name, among the entity's non-secret aliases (None: nothing
+    readable, a whole-secret entity)."""
+    if not row.label_secret:
+        return row.label
+    visible = [a for a in aliases if not a.secret]
+    for wanted in (lambda a: a.kind == DESCRIPTOR, lambda a: a.known):
+        found = next((a for a in visible if wanted(a)), None)
+        if found is not None:
+            return found.alias
+    return None
+
+
 async def _cards(
     conn,
     game_id: UUID,
@@ -182,7 +197,8 @@ async def _cards(
     selected: set[UUID],
     disclosed: list[UUID],
 ) -> dict[UUID, Candidate]:
-    """The card of each selected entity."""
+    """The card of each selected entity; a whole-secret entity (nothing readable without
+    a disclosure) gets none, so it is no candidate (spec §4.8)."""
     ids = list(selected)
     carried = await entities.carried_by_protagonist(conn, game_id, ids)
     aliases: dict[UUID, list[CandidateAlias]] = {}
@@ -192,13 +208,18 @@ async def _cards(
         aliases.setdefault(row.entity_id, []).append(
             CandidateAlias(row.alias, row.alias_norm, row.kind, row.known, row.secret)
         )
-    return {
-        row.entity_id: Candidate(
+    cards = {}
+    for row in await entities.candidate_cards(conn, game_id, ids, disclosed=disclosed):
+        own = aliases.get(row.entity_id, [])
+        label = _readable_label(row, own)
+        if label is None:
+            continue
+        cards[row.entity_id] = Candidate(
             entity_id=row.entity_id,
             handle=row.handle,
             entity_type=row.entity_type,
-            label=row.label,
-            aliases=aliases.get(row.entity_id, []),
+            label=label,
+            aliases=own,
             occupation=row.occupation,
             usual_location=row.usual_location,
             last_seen_turn=row.last_seen_turn,
@@ -207,5 +228,4 @@ async def _cards(
             sources=set(found[row.entity_id].sources),
             carried=row.entity_id in carried,
         )
-        for row in await entities.candidate_cards(conn, game_id, ids)
-    }
+    return cards
