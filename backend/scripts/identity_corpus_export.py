@@ -42,6 +42,14 @@ from evals.identity.lexicon import DEFAULT_LANGUAGE, Lexicon, load_lexicon
 ROOT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "identity"
 HISTORY_SIZE = 6
 
+# The spans of a message in the dump format, [start, end, canonical, type] each (the
+# legacy narrator_context, now built from entity_mentions: the live entity's label).
+_SPANS_SQL = """(SELECT json_agg(json_build_array(em.start_pos, em.end_pos, er.name,
+               er.entity_type) ORDER BY em.start_pos, em.end_pos)
+          FROM entity_mentions AS em
+          JOIN entity_registry AS er ON er.id = entity_follow_merge(em.entity_id)
+         WHERE em.message_id = messages.id) AS narrator_context"""
+
 # One JSON object per game; `{game}` is a validated UUID.
 DUMP_SQL = """SET default_transaction_read_only = on;
 \\pset pager off
@@ -72,7 +80,7 @@ SELECT json_build_object(
  'facts', (SELECT json_agg(f ORDER BY f.created_at) FROM (SELECT description,
            created_at FROM facts WHERE game_id = '{game}') f),
  'messages', (SELECT json_agg(m ORDER BY m.created_at, m.sequence) FROM (SELECT role,
-              sequence, content, location_id, narrator_context,
+              sequence, content, location_id, """ + _SPANS_SQL + """,
               narrator_deltas -> 'entity_reveals' AS entity_reveals, created_at
               FROM messages WHERE game_id = '{game}') m)
 );
@@ -95,7 +103,7 @@ _QUERIES = {
     "arcs": "SELECT title, description FROM narrative_arcs WHERE game_id = $1"
     " ORDER BY created_at",
     "facts": "SELECT description FROM facts WHERE game_id = $1 ORDER BY created_at",
-    "messages": "SELECT role, sequence, content, location_id, narrator_context,"
+    "messages": "SELECT role, sequence, content, location_id, " + _SPANS_SQL + ","
     " narrator_deltas -> 'entity_reveals' AS entity_reveals FROM messages"
     " WHERE game_id = $1 ORDER BY created_at, sequence",
 }

@@ -1,5 +1,5 @@
 """The resolver v2 after the commit (#154, spec §4.5.6, §4.6, §4.9): the turn's mentions
-are stored with the legacy narrator_context, new entities are created by the identity
+are stored by entity id and served as such, new entities are created by the identity
 service (never by an extractor), extractors run for the types the turn really created or
 left bare and see the scene by handle, and a resolver outage keeps the coreference."""
 
@@ -115,7 +115,7 @@ def test_shared_surfaces_go_to_the_decision_whose_context_precedes_them():
 # --- the turn, end to end ----------------------------------------------------------------
 
 
-async def test_a_turn_writes_mentions_and_the_legacy_narrator_context(harness, world_game):
+async def test_a_turn_writes_mentions_served_by_entity_id(harness, world_game):
     await _turn(harness, world_game, payloads.NARRATION)
     async with harness.pool.acquire() as conn:
         message = await _last_message(conn, world_game)
@@ -123,9 +123,6 @@ async def test_a_turn_writes_mentions_and_the_legacy_narrator_context(harness, w
             """SELECT start_pos, end_pos, surface, entity_id, decision
                FROM entity_mentions WHERE message_id = $1 ORDER BY start_pos""",
             message,
-        )
-        raw = await conn.fetchval(
-            "SELECT narrator_context FROM messages WHERE id = $1", message
         )
         labels = {
             r["entity_id"]: await conn.fetchval(
@@ -143,10 +140,19 @@ async def test_a_turn_writes_mentions_and_the_legacy_narrator_context(harness, w
     assert [r["surface"] for r in rows] == ["Quart de Cycle", "Ossek"]
     assert {r["decision"] for r in rows} == {"deterministic"}
     assert all(TEXT[r["start_pos"] : r["end_pos"]] == r["surface"] for r in rows)
-    context = json.loads(raw) if isinstance(raw, str) else raw
-    assert context == [
-        [r["start_pos"], r["end_pos"], labels[r["entity_id"]], types[r["entity_id"]]]
-        for r in rows
+    r = await harness.client.get(
+        "/api/tooltips/annotations", params={"gameId": world_game}, headers=harness.headers
+    )
+    served = {m["message_id"]: m["annotations"] for m in r.json()["messages"]}
+    assert served[str(message)] == [
+        {
+            "start": m["start_pos"],
+            "end": m["end_pos"],
+            "entity_id": str(m["entity_id"]),
+            "entity_type": types[m["entity_id"]],
+            "label": labels[m["entity_id"]],
+        }
+        for m in rows
     ]
     # An NPC the PC had not identified, named exactly by the narration: the name is
     # revealed (spec §4.5.5 prepass), so the annotation now shows it.
@@ -318,16 +324,13 @@ async def test_resolver_output_never_reaches_the_player(harness, world_game):
     await _turn(harness, world_game, narration_with(narrative_text=text))
     async with harness.pool.acquire() as conn:
         message = await _last_message(conn, world_game)
-        raw = await conn.fetchval(
-            "SELECT narrator_context FROM messages WHERE id = $1", message
-        )
-    context = json.loads(raw) if isinstance(raw, str) else raw
-    spans = [a for a in context if text[a[0] : a[1]] == surface]
-    assert spans and all(a[2] == shown for a in spans)
-    assert all(a[2] != surface for a in context)
     r = await harness.client.get(
         "/api/tooltips/annotations", params={"gameId": world_game}, headers=harness.headers
     )
+    served = {m["message_id"]: m["annotations"] for m in r.json()["messages"]}
+    context = served[str(message)]
+    spans = [a for a in context if text[a["start"] : a["end"]] == surface]
+    assert spans and all(a["label"] == shown for a in spans)
     labels = {a["label"] for m in r.json()["messages"] for a in m["annotations"]}
     assert surface not in labels
 

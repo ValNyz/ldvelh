@@ -18,8 +18,7 @@ statements), so the caller holds no pool connection and no lock during a model c
 - the spans are placed before anything is written: a decision that takes no span (a
   longer one took every occurrence) writes no alias, no reveal and no entity;
 - every linked mention becomes entity_mentions rows (one per occurrence of its surface),
-  and the message keeps the legacy narrator_context, [start, end, label, type] with the
-  label the player may read (display_for_player), never the surface;
+  which the player reads by entity id (/tooltips/annotations), never the surface;
 - the cascade's non-trivial decisions become identity_events;
 - the entity types worth an extraction: the ones created, and the linked stubs without
   description named for the first time (so a stub the story never describes costs one
@@ -50,7 +49,7 @@ from domain.identity import (
 from kg.item_writes import write_item
 from llm.session import LLMSession
 from prompts.identity_prompt import format_handle
-from repos import entities, messages
+from repos import entities
 from services.identity import candidates as blocking
 from services.identity.decision import decide_turn
 from services.identity.mentions import place, rows_of
@@ -334,23 +333,6 @@ class _Application:
         }
 
 
-async def _narrator_context(conn, game_id: UUID, message_id: UUID) -> int:
-    """The legacy annotations of the message from its stored mentions (labels as the
-    player may read them, merges followed); the number of spans."""
-    rows = (await entities.mentions_for_messages(conn, game_id, [message_id])).get(
-        message_id, []
-    )
-    # A span whose entity has nothing readable (a whole secret) shows no annotation.
-    rows = [m for m in rows if m.label is not None]
-    if rows:
-        await messages.set_narrator_context(
-            conn,
-            message_id,
-            [[m.start_pos, m.end_pos, m.label, m.entity_type] for m in rows],
-        )
-    return len(rows)
-
-
 async def _scene_entities(
     conn,
     game_id: UUID,
@@ -419,7 +401,6 @@ async def apply(
     await entities.insert_mentions(
         conn, identity.game_id, turn.message_id, turn.turn_id, mentions
     )
-    spans = await _narrator_context(conn, identity.game_id, turn.message_id)
     for kind, entity_id, payload in decisions.events():
         await identity.record_event(conn, kind, turn.turn_id, entity_id, payload)
     new_types = await application.worth_extracting(
@@ -430,7 +411,7 @@ async def apply(
     )
     logger.info(
         f"{_LOG}turn resolved game={identity.game_id} mentions={len(mentions)}"
-        f" spans={spans} created={len(application.created)}"
+        f" created={len(application.created)}"
         f" aliases={application.aliases_added} reveals={len(application.reveals)}"
         f" stale={application.stale} overruled={decisions.overruled}"
         f" fallback={decisions.fallback}"

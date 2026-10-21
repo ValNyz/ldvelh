@@ -138,16 +138,13 @@ async def run_latency_test(num_turns: int = 8, provider: str = "wandb"):
 
             # Query results
             async with pool.acquire() as conn:
-                ann = await conn.fetchrow(
-                    """SELECT narrator_context FROM messages
-                       WHERE game_id = $1 AND role = 'assistant'
-                       ORDER BY sequence DESC LIMIT 1""",
+                ann_count = await conn.fetchval(
+                    """SELECT COUNT(*) FROM entity_mentions
+                       WHERE message_id = (SELECT id FROM messages
+                                            WHERE game_id = $1 AND role = 'assistant'
+                                            ORDER BY sequence DESC LIMIT 1)""",
                     game_uuid,
                 )
-                ann_data = ann["narrator_context"] if ann else None
-                if isinstance(ann_data, str):
-                    ann_data = json.loads(ann_data)
-                ann_count = len(ann_data) if isinstance(ann_data, list) else 0
 
                 chars = await conn.fetchval("SELECT COUNT(*) FROM characters WHERE game_id = $1", game_uuid)
                 known = await conn.fetchval(
@@ -174,7 +171,7 @@ async def run_latency_test(num_turns: int = 8, provider: str = "wandb"):
             facts = await conn.fetchval("SELECT COUNT(*) FROM facts WHERE game_id = $1", game_uuid)
             rels = await conn.fetchval("SELECT COUNT(*) FROM relations WHERE game_id = $1", game_uuid)
             ann_msgs = await conn.fetchval(
-                "SELECT COUNT(*) FROM messages WHERE game_id = $1 AND narrator_context IS NOT NULL", game_uuid
+                "SELECT COUNT(DISTINCT message_id) FROM entity_mentions WHERE game_id = $1", game_uuid
             )
             total_msgs = await conn.fetchval("SELECT COUNT(*) FROM messages WHERE game_id = $1", game_uuid)
 

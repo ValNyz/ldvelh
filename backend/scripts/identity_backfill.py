@@ -6,7 +6,7 @@ rewrites the journal, all without a word of any language. What reads a language 
 here, per game, in one transaction (`run`):
 0. a game without language gets IdentityConfig.default_language;
 1. identity_legacy_normalise (SQL, from the migration): alias and registry norms, orphans,
-   normalised collisions (suffix), mentions rebuilt from narrator_context; skipped for a
+   normalised collisions (suffix), mentions rebuilt from the legacy spans; skipped for a
    game already backfilled (a late exception): its data is live, not legacy;
 2. a legacy game (see `is_legacy`) gets its unknown characters classified
    (services/identity/classify.py, the rule the dry-run report prints), its journaled

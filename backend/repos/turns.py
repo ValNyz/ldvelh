@@ -50,7 +50,6 @@ async def save_message(
     location_id: UUID | None = None,
     narrator_deltas: dict | None = None,
     engine_snapshot: dict | None = None,
-    narrator_context: list | None = None,
     turn_id: UUID | None = None,
 ) -> UUID:
     """Save a message in a conversation; `location_id`: the place of the turn."""
@@ -58,8 +57,8 @@ async def save_message(
         """INSERT INTO messages (
             game_id, conversation_id, role, content,
             cycle, game_date, time, location_id, sequence,
-            narrator_deltas, engine_snapshot, narrator_context, turn_id
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id""",
+            narrator_deltas, engine_snapshot, turn_id
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id""",
         game_id,
         conversation_id,
         role,
@@ -71,7 +70,6 @@ async def save_message(
         sequence,
         narrator_deltas,
         engine_snapshot,
-        narrator_context,
         turn_id,
     )
 

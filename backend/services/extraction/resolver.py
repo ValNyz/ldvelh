@@ -3,7 +3,7 @@ LDVELH - Entity Resolver (Context-Propagation)
 Resolves narrative entity mentions to canonical DB names using two-message
 coreference: the previous turn's annotated response + current response.
 
-The previous assistant message carries span annotations (narrator_context)
+The previous assistant message carries span annotations ([start, end, name, type])
 that map text ranges to canonical entity names. The resolver reads those
 to understand what entities exist, then maps mentions in the new response.
 """

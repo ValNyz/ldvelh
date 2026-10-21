@@ -1047,24 +1047,27 @@ Cancellation: `cancel()` aborts the `AbortController`, frontend updates message 
 
 Both endpoints check that the caller owns the game (`GameService.verify_ownership`): 404 `Game not found` for an unknown game, 403 `Access denied` for someone else's.
 
-- `GET /api/tooltips/annotations?gameId={id}&limit=10`: the stored mentions (`entity_mentions`) of the latest assistant messages that hold one (`services/tooltips.py`). Returns `{messages: [{message_id, sequence, annotations}]}`, each annotation with `start`, `end` (offsets in the raw text), `entity_id`, `entity_type` and `label`: the live entity (merge tombstones followed) and what the player may read for it (`display_for_player`, a secret name replaced by a readable descriptor or alias; a mention of an entity with nothing readable is left out).
+- `GET /api/tooltips/annotations?gameId={id}&limit=10[&before={sequence}]`: the stored mentions (`entity_mentions`) of the latest assistant messages that hold one (`services/tooltips.py`), or of the page older than `before` (a message sequence; `limit` at most 50). Returns `{messages: [{message_id, sequence, annotations}]}`, each annotation with `start`, `end` (offsets in the raw text), `entity_id`, `entity_type` and `label`: the live entity (merge tombstones followed) and what the player may read for it (`display_for_player`, a secret name replaced by a readable descriptor or alias; a mention of an entity with nothing readable is left out).
 - `GET /api/tooltips/entity?gameId={id}&id={uuid}`: hover card of one entity of the game, by id (a merge tombstone gives its survivor; an arc gets its title and domain). Returns `{found: true, tooltip: {icon, name, type, infos, relation}}`, or `{found: false}` only when the id is no entity nor arc of the game. An NPC the protagonist has not identified shows its descriptor and what anyone can observe (species, mood, ambient), never its occupation, description or relation; an entity with nothing readable shows the language pack's unknown label (`unknown_character_label` for a character, `unknown_entity_label` otherwise) and no detail.
+- `GET /api/tooltips/entities?gameId={id}&ids={uuid},{uuid}`: the same cards in batch, `{tooltips: {<id>: tooltip}}` keyed by the id asked for; at most 100 ids (422 beyond, or on a malformed id); an id that is no entity nor arc of the game is absent.
+
+The mentions live only in `entity_mentions` (one row per occurrence of a linked surface, by entity id, written by the resolver v2 after the turn commits). The legacy column `messages.narrator_context` (`[start, end, label, type]` spans) is gone (migration `20261021000004_drop_narrator_context.sql`, #155): its down rebuilds it from the mentions, labels by `display_for_player`. The spans of a game the identity backfill has not normalised yet wait in `identity_legacy_spans` until the backfill turns them into mentions.
 
 Every route that reads a game id (path, query, header or body) must check ownership: `backend/tests/test_game_ownership_guard.py` lists them from the OpenAPI schema and calls each one as another user (403, game unchanged), so a new game route without the check fails CI until it is added there. `PATCH /games/{id}` takes the id from the path only (its body is `{name}`).
 
 Tooltips are looked up by entity id. The hover card of a character not yet identified shows `display_for_player` as its name and no occupation, description or relation. Whatever the entity, a detail line whose text holds one of its hidden names (a secret alias, an unknown alias other than a descriptor, its true name while unknown) is left out, except an object's description (PR 4). Line labels and unknown labels come from the game's language pack (`tooltip_labels`, `unknown_character_label`, `unknown_entity_label`); the species not worth a line comes from the genre pack (`default_species`), else `IDENTITY_DEFAULT_SPECIES`.
 
-**Frontend:** `useTooltips(gameId)` hook. Auto-refreshes on `onSaved` event. Returns `tooltipMap` used by `MessageList` to render entity name hover cards.
+**Frontend:** `useTooltips(gameId)` hook, refreshed on the `onSaved` event. It keeps `spansByMessage` (`{message_id: [{start, end, entity_id}]}`, each annotations page merged into the known spans, older pages read back with `before`; a message leaves it only when the chat no longer shows it) and `tooltipMap` (`{entity_id: tooltip}`, filled by the batch endpoint for new ids and for entities whose label changed). `injectEntityMarkers(text, spans)` writes each span as an `entity:<id>` link by offset (code points), only inside one plain text node of the markdown parse; `Message.jsx` renders that link with the tooltip of its id. Mentions are never matched by name.
 
 ### World Sidebar
 
 **File:** `backend/api/routes.py` — `GET /games/{id}/world`
 
-Returns:
-- `npcs`: characters (name, description, occupation, location)
-- `locations`: all locations (name, type, sector)
+Returns (`services/world_panel.py`):
+- `npcs`: every active NPC under what the player may read for it, with `known` (identified by the protagonist under a true name that is no secret); an NPC not identified shows no occupation, description nor relation, and a detail holding one of an entity's hidden names is left out
+- `locations`: the locations (type, sector) under their readable label; one with nothing readable is left out
 - `quests`: narrative arcs with `arc_type = 'quest'`
-- `organizations`: all organizations
+- `organizations`: the organizations under their readable label, same rule
 
 **Frontend:** `useWorldData(gameId, enabled)` hook. Auto-refreshes on `onSaved` event. Displayed in `WorldSidebar` component (right sidebar).
 

@@ -6,7 +6,7 @@ function per phase:
 1. Resolver v2 (always): the scene of the turn and its candidates, the identity
    decisions (model calls with no pool connection held), then their application in the turn's unit of work,
    share-locking the source message: stubs created by the identity service,
-   entity_mentions and the legacy narrator_context, identity_events (#154).
+   entity_mentions, identity_events (#154).
 2. Extractors: run for the entity types the turn really created or left bare, plus the
    narrator's extraction_triggers; they reference the scene's entities by handle (phase a:
    entities, phase b: arcs and progression).

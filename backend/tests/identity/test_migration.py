@@ -12,6 +12,7 @@ from tests.characterization.test_c19_legacy import (
     COMMITMENT,
     IDENTITY_MIGRATION,
     OSSEK,
+    _drop_migration,
     _journal_a_turn_before_the_migration,
     add_legacy_character,
     identity_invariants,
@@ -32,6 +33,13 @@ def data_section() -> str:
     text = MIGRATION.read_text(encoding="utf-8").split("-- migrate:down", 1)[0]
     section = text.split("\n-- Section 3:", 1)[1].split("\n-- Section 4:", 1)[0]
     return "-- Section 3:" + section
+
+
+def replayed_data_section() -> str:
+    """The data section over the current schema: it reads messages.narrator_context,
+    which 20261021000004 drops, so it runs between that migration's down and up."""
+    up, down = _drop_migration()
+    return down + data_section() + up
 
 
 # What the data section and the backfill write, ids of new rows aside (random).
@@ -101,12 +109,12 @@ async def test_migration_is_idempotent(test_pool):
     async with test_pool.acquire() as conn:
         once = await snapshot(conn)
     game_id, _ = await load_legacy_game(
-        test_pool, extra=[(data_section(), "")], before=hooks
+        test_pool, extra=[(replayed_data_section(), "")], before=hooks
     )
     async with test_pool.acquire() as conn:
         twice = await snapshot(conn)
         assert twice == once
-        await conn.execute(data_section())
+        await conn.execute(replayed_data_section())
         await identity_backfill(conn, UUID(game_id))
         assert await snapshot(conn) == once
         await identity_invariants(conn, game_id)
@@ -269,8 +277,9 @@ async def test_name_norm_collision_gets_a_suffix_and_is_reported(test_pool):
 
 async def test_mentions_are_rebuilt_from_narrator_context(test_pool):
     """A narrator_context span whose (name, type) resolves to one entity becomes a
-    mention on its id; the others are dropped; narrator_context is kept. The dry-run
-    report, read before the migration, counts the same and says why each is dropped."""
+    mention on its id; the others are dropped; the spans staged when the column went
+    (20261021000004) are consumed. The dry-run report, read before the migration,
+    counts the same and says why each is dropped."""
     from collections import Counter
 
     from scripts.identity_migration_report import build_report
@@ -299,9 +308,9 @@ async def test_mentions_are_rebuilt_from_narrator_context(test_pool):
             " WHERE m.game_id = $1::uuid ORDER BY m.start_pos",
             game_id,
         )
-        kept = await conn.fetchval(
-            "SELECT count(*) FROM messages WHERE game_id = $1::uuid"
-            " AND narrator_context IS NOT NULL",
+        staged = await conn.fetchval(
+            "SELECT count(*) FROM identity_legacy_spans AS ls"
+            " JOIN messages AS mg ON mg.id = ls.message_id WHERE mg.game_id = $1::uuid",
             game_id,
         )
     assert [(m["start_pos"], m["name"], m["decision"]) for m in mentions] == [
@@ -310,7 +319,7 @@ async def test_mentions_are_rebuilt_from_narrator_context(test_pool):
         # The companion, which the legacy resolver tags 'character' (I2).
         (30, "Célimène", "deterministic"),
     ]
-    assert mentions[0]["first_surface"] and kept >= 1
+    assert mentions[0]["first_surface"] and staged == 0
     assert reports[0].mentions_kept == 3
     assert reports[0].mentions_dropped == Counter(
         {
@@ -318,6 +327,29 @@ async def test_mentions_are_rebuilt_from_narrator_context(test_pool):
             ("Pacte", "arc", "aucune entité de ce type"): 1,
         }
     )
+
+
+async def test_the_report_reads_the_staged_spans_once_the_column_is_gone(test_pool):
+    """After 20261021000004 and before the backfill, the report reads the spans the drop
+    staged for the game: the same mentions as before the migration."""
+    from scripts.identity_migration_report import build_report
+
+    async def hook(conn):
+        await conn.execute(
+            """UPDATE messages SET narrator_context =
+                   '[[0, 5, "Ossek", "character"], [6, 13, "Fantôme", "character"]]'::jsonb
+                WHERE id = (SELECT id FROM messages WHERE game_id = $1::uuid
+                             AND role = 'assistant' ORDER BY sequence LIMIT 1)""",
+            legacy_game_id(),
+        )
+
+    game_id, _ = await load_legacy_game(
+        test_pool, before={IDENTITY_MIGRATION: hook}, backfill=False
+    )
+    async with test_pool.acquire() as conn:
+        (report,) = await build_report(conn, UUID(game_id))
+    assert report.mentions_kept == 1
+    assert sum(report.mentions_dropped.values()) == 1
 
 
 async def test_backfill_adds_short_and_title_aliases_once(test_pool):
@@ -771,7 +803,7 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
     """N5: a correction that arrives after play is skipped for a character the player
     knows under another true name, and rewrites only the journal of the turns played
     before the migration. M2: the legacy pass (norms, collisions, mentions rebuilt from
-    narrator_context) leaves the live game alone; N3: only the corrected characters get
+    the legacy spans) leaves the live game alone; N3: only the corrected characters get
     derived aliases."""
     from scripts.identity_backfill import run as identity_backfill
     from scripts.identity_exceptions import load_exceptions
@@ -801,12 +833,15 @@ async def test_a_late_exception_never_overwrites_play(test_pool, tmp_path):
             game_id,
         )
         message = await conn.fetchval(
-            """INSERT INTO messages (game_id, conversation_id, role, content, sequence,
-                                     narrator_context)
-               VALUES ($1::uuid, $2, 'assistant', 'Ossek attend.', 9999,
-                       '[[0, 5, "Ossek", "character"]]'::jsonb) RETURNING id""",
+            """INSERT INTO messages (game_id, conversation_id, role, content, sequence)
+               VALUES ($1::uuid, $2, 'assistant', 'Ossek attend.', 9999) RETURNING id""",
             game_id,
             conversation,
+        )
+        await conn.execute(
+            """INSERT INTO identity_legacy_spans (message_id, spans)
+               VALUES ($1, '[[0, 5, "Ossek", "character"]]'::jsonb)""",
+            message,
         )
         # A derived alias the game no longer has: a late correction never re-adds it.
         await conn.execute(

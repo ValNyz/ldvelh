@@ -57,16 +57,6 @@ async def scene_location(conn, game_id: UUID, message_id: UUID) -> UUID | None:
     )
 
 
-async def set_narrator_context(conn, message_id: UUID, annotations: list) -> None:
-    """The legacy span annotations of a message, [start, end, label, type] each (written
-    next to entity_mentions until the column goes, spec §4.9)."""
-    await conn.execute(
-        "UPDATE messages SET narrator_context = $1 WHERE id = $2",
-        annotations,
-        message_id,
-    )
-
-
 async def narrator_deltas(conn, message_id: UUID) -> dict:
     """The narrator deltas stored with a message ({} when none)."""
     row = await conn.fetchval(
