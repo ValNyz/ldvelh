@@ -1,5 +1,6 @@
 """LLMSession and /api/providers driven by the llm_models catalog (#70)."""
 
+import logging
 from uuid import uuid4
 
 import pytest
@@ -188,3 +189,31 @@ def test_identity_purposes_pick_catalog_roles_then_fall_back_to_narration():
     m = LLMSession("mistral", "k", user_model="big", catalog=bare, user_id=USER)
     assert m.model_for(Purpose.IDENTITY) == "big"
     assert m.model_for(Purpose.IDENTITY_STRONG) == "big"
+
+
+def test_an_identity_role_left_without_an_enabled_holder_warns_once(caplog):
+    """I3: a refresh retired the identity holder: the narration model serves the role,
+    and the session says so once (provider, roles, model ids; never story text)."""
+    cat = ModelCatalog([
+        _a("claude-sonnet-5-5", roles=("narration", "identity_strong")),
+        _a("claude-haiku-5-5", roles=("mechanical", "identity"), rank=2, status="retired"),
+    ])
+    s = LLMSession("anthropic", "k", catalog=cat, user_id=USER)
+    with caplog.at_level(logging.WARNING, logger="llm.session"):
+        assert s.model_for(Purpose.IDENTITY) == "claude-sonnet-5-5"
+        assert s.model_for(Purpose.IDENTITY_STRONG) == "claude-sonnet-5-5"
+        again = LLMSession("anthropic", "k", catalog=cat, user_id=USER)
+        again.model_for(Purpose.IDENTITY)
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 2  # one per session
+    assert "identity" in warnings[0] and "claude-haiku-5-5" in warnings[0]
+    assert "identity_strong:" not in warnings[0]
+
+
+def test_a_provider_that_never_held_an_identity_role_falls_back_silently(caplog):
+    bare = ModelCatalog([_e("big")])
+    s = LLMSession("mistral", "k", user_model="big", catalog=bare, user_id=USER)
+    with caplog.at_level(logging.WARNING, logger="llm.session"):
+        assert s.model_for(Purpose.IDENTITY) == "big"
+        assert s.model_for(Purpose.IDENTITY_STRONG) == "big"
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]

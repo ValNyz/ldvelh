@@ -59,6 +59,11 @@ class ModelCatalog:
                 return e.model_id
         return None
 
+    def holders(self, provider: str, role: str) -> list[CatalogEntry]:
+        """The provider's rows carrying `role`, whatever their status."""
+        found = [e for e in self._entries.values() if e.provider == provider and role in e.roles]
+        return sorted(found, key=_sort_key)
+
     def profile(self, provider: str, model_id: str) -> ModelProfile | None:
         e = self.entry(provider, model_id)
         return e.profile if e else None

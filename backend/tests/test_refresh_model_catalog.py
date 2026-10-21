@@ -285,6 +285,24 @@ async def test_role_without_enabled_model_fails_the_run(conn):
 
 
 @pytest.mark.asyncio
+async def test_an_optional_role_left_without_a_holder_is_reported_not_moved(conn, capsys):
+    """I3: the identity holder fails for good: reported (the narration model serves the
+    role from now on), never moved, the run still OK."""
+    await _insert(conn, "mistral", "holder", roles=["narration", "mechanical"], inp=1, out=1,
+                  price_source="code")
+    await _insert(conn, "mistral", "small", roles=["identity"], inp=1, out=1,
+                  price_source="code")
+    healthy = await _refresh(conn, "mistral", ["holder", "small"])
+    assert healthy.optional_roles_lost == []
+    report = await _refresh(conn, "mistral", ["holder", "small"],
+                            prober=_prober({"small": "NotFoundError: Error code: 404"}))
+    assert report.ok and report.optional_roles_lost == ["identity"]
+    assert (await _row(conn, "mistral", "small"))["roles"] == ["identity"]
+    refresh._print_report(report)
+    assert "identity: NO ENABLED MODEL (optional" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
 async def test_probe_selection(conn):
     await _insert(conn, "mistral", "healthy-norole", inp=1, out=1, price_source="code")
     await _insert(conn, "mistral", "holder", roles=["narration", "mechanical"], inp=1, out=1,

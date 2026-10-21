@@ -131,6 +131,7 @@ class LLMSession:
         self.user_model = user_model
         self.ledger = ledger or get_usage_ledger()
         self._providers: dict[Purpose, LLMProvider] = {}
+        self._role_fallback_warned = False
 
     @classmethod
     def from_provider(cls, provider: LLMProvider, ledger: UsageLedger | None = None) -> "LLMSession":
@@ -170,8 +171,11 @@ class LLMSession:
                 return user_model or cat.default_model(name, NARRATION_ROLE)
             if purpose in _CATALOG_ROLES:
                 # The identity resolver's own models (Haiku, Sonnet), else the narration one.
-                return (cat.default_model(name, _CATALOG_ROLES[purpose])
-                        or cat.default_model(name, NARRATION_ROLE))
+                chosen = cat.default_model(name, _CATALOG_ROLES[purpose])
+                if chosen:
+                    return chosen
+                self._warn_role_fallback()
+                return cat.default_model(name, NARRATION_ROLE)
             if purpose is Purpose.MECHANICAL:
                 chosen = cat.default_model(name, MECHANICAL_ROLE)
                 if chosen:
@@ -193,6 +197,26 @@ class LLMSession:
             return get_provider(self.provider_name, api_key=self._api_key,
                                 model=self.user_model).model_name("mechanical")
         return None  # identity, extraction, director, summary: provider default
+
+    def _warn_role_fallback(self) -> None:
+        """One WARNING per session when an identity role falls back to the narration
+        model although the provider has rows carrying it, none enabled (a catalog refresh
+        retired or failed its holder): provider, roles and model ids only. A provider
+        that never had a holder falls back by design, silently."""
+        if self._role_fallback_warned:
+            return
+        self._role_fallback_warned = True
+        cat, name = self.catalog, self.provider_name
+        stale = {
+            role: [e.model_id for e in cat.holders(name, role)]
+            for role in _CATALOG_ROLES.values()
+            if cat.default_model(name, role) is None
+        }
+        stale = {role: ids for role, ids in stale.items() if ids}
+        if stale:
+            held = "; ".join(f"{role}: {', '.join(ids)}" for role, ids in stale.items())
+            logger.warning(f"[LLM] {name}: no enabled holder for {', '.join(stale)} "
+                           f"(rows not enabled: {held}), the narration model serves them")
 
     def provider_for(self, purpose: Purpose) -> LLMProvider:
         if purpose not in self._providers:

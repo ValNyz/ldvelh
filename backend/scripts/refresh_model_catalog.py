@@ -298,6 +298,9 @@ class RefreshReport:
     statuses: dict[str, str] = field(default_factory=dict)  # model -> new status
     role_moves: dict[str, str] = field(default_factory=dict)  # role -> model
     roles_lost: list[str] = field(default_factory=list)
+    # Optional roles (identity...) left without an enabled, priced holder: never moved,
+    # the narration model serves them until an operator sets a holder (--set-role).
+    optional_roles_lost: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -451,7 +454,7 @@ async def _apply(conn, provider: str, listed: dict[str, dict], plan: _Plan, outc
     rows = await _read_rows(conn, provider, lock=True)
     listed = _with_known_rows(provider, listed, rows)
     had_enabled = {role: any(r["status"] == "enabled" and role in r["roles"] for r in rows.values())
-                   for role in ROLES}
+                   for role in (*ROLES, *OPTIONAL_ROLES)}
     dirty: set[str] = set()
 
     # 2. New chat models arrive as pending.
@@ -585,6 +588,8 @@ async def _apply(conn, provider: str, listed: dict[str, dict], plan: _Plan, outc
         report.role_moves[role] = chosen["model_id"]
         logger.warning(f"[catalog] {provider}: {role} moved to {chosen['model_id']}")
 
+    report.optional_roles_lost = _optional_roles_lost(provider, rows, had_enabled)
+
     for model_id in dirty:
         r = rows[model_id]
         probed_now = r["last_probed_at"] == "now"
@@ -599,6 +604,23 @@ async def _apply(conn, provider: str, listed: dict[str, dict], plan: _Plan, outc
             r["cache_write_price"], r["cache_read_price"], r["price_source"], r["profile"],
             r["probe_results"] or None, probed_now,
         )
+
+
+def _optional_roles_lost(provider: str, rows: dict[str, dict],
+                         had_enabled: dict[str, bool]) -> list[str]:
+    """The optional roles that had an enabled holder before the run and have no enabled,
+    priced one after it. Never moved (an operator chooses them); reported, since the
+    identity resolver then runs on the narration model (several times the cost)."""
+    lost = [
+        role for role in OPTIONAL_ROLES
+        if had_enabled[role] and not any(
+            r["status"] == "enabled" and _priced_row(r) and role in r["roles"]
+            for r in rows.values())
+    ]
+    for role in lost:
+        logger.warning(f"[catalog] {provider}: no enabled, priced model left for {role}, "
+                       "the narration model serves it")
+    return lost
 
 
 # =============================================================================
@@ -687,6 +709,8 @@ def _print_report(r: RefreshReport) -> None:
         print(f"           {role} -> {model}")
     for role in r.roles_lost:
         print(f"           {role}: NO ENABLED MODEL")
+    for role in r.optional_roles_lost:
+        print(f"           {role}: NO ENABLED MODEL (optional: the narration model serves it)")
 
 
 async def main(argv: list[str] | None = None) -> int:
