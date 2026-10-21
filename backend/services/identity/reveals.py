@@ -47,6 +47,8 @@ if TYPE_CHECKING:
     from schema.narration import EntityReveal
     from services.identity.service import IdentityService
 
+SECRET_CLOSED = "secret_closed"  # reveal_noop reason (R43)
+_NAME_KINDS = frozenset({"true_name", "label"})
 logger = logging.getLogger(__name__)
 
 CHARACTER = "character"
@@ -137,6 +139,7 @@ async def reveal(
     turn_id: UUID | None,
     source: str,
     evidence: str | None = None,
+    disclosed: frozenset[UUID] = frozenset(),
 ) -> RevealOutcome:
     if isinstance(ref, FactRef):
         return await _reveal_fact(service, conn, ref, turn_id)
@@ -154,6 +157,13 @@ async def reveal(
         return RevealOutcome("noop", None)
     entity_id = resolved.entity_id
     real = " ".join(real_name.split()) if real_name else ""
+    if entity_id not in disclosed and await _secret_closed(
+        service, conn, entity_id, real
+    ):
+        await _noop_event(
+            service, conn, turn_id, entity_id, ref.entity_type, SECRET_CLOSED
+        )
+        return RevealOutcome("noop", entity_id)
     step = _Reveal(service, conn, ref.entity_type, turn_id, source, evidence)
     if not real:
         outcome = await step.known(entity_id)
@@ -192,6 +202,20 @@ async def _reveal_fact(
         conn, "reveal_applied", turn_id, None, {"fact_id": str(fact_id)}
     )
     return RevealOutcome("applied", fact_id)
+
+
+async def _secret_closed(service: IdentityService, conn, entity_id: UUID, real: str):
+    """The reveal would disclose a secret name of the entity (the revealed name, or, with
+    none given, its own name) while no disclosure is open (ruling R43): the Director owns
+    secrets, a narrator who writes one makes a point-of-view error, never a reveal."""
+    secret = [
+        a
+        for a in await entities.list_aliases(conn, service.game_id, entity_id)
+        if a.secret
+    ]
+    if real:
+        return service.normalizer.norm(real) in {a.alias_norm for a in secret}
+    return any(a.kind in _NAME_KINDS for a in secret)
 
 
 async def _noop_event(

@@ -810,10 +810,12 @@ class IdentityService:
         turn_id: UUID | None,
         source: str,
         evidence: str | None = None,
+        disclosed: frozenset[UUID] = frozenset(),
     ) -> RevealOutcome:
         """The protagonist learns the name of the entity `ref` names (`real_name`, else
         the name it has), or the fact: the table of spec §4.7 (`reveals`). Idempotent;
-        an unresolved or ambiguous reference is a counted no-op, never a guess."""
+        an unresolved or ambiguous reference is a counted no-op, never a guess; a secret
+        name of an entity not in `disclosed` is never revealed (`secret_closed`)."""
         return await reveals.reveal(
             self,
             conn,
@@ -822,6 +824,7 @@ class IdentityService:
             turn_id=turn_id,
             source=source,
             evidence=evidence,
+            disclosed=disclosed,
         )
 
     async def merge(

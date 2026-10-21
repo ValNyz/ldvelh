@@ -2,6 +2,7 @@
 merge that keeps every edge on the older entity, and the cases of #25 (orphans)."""
 
 import hashlib
+import json
 from uuid import UUID, uuid4
 
 import pytest
@@ -1031,3 +1032,45 @@ async def test_a_merge_keeps_the_survivor_known_flag_unless_the_names_are_one(
     assert kept["known"] is False and shown == "La fileuse"
     # The same name on both sides: what the protagonist knew of it stays known.
     assert both["known"] is True
+
+
+async def test_a_secret_name_is_never_revealed_without_an_open_disclosure(
+    test_pool, game, service
+):
+    """R43: a secret true name read in the narration is a reveal_noop `secret_closed`;
+    with the entity's disclosure open, it is revealed."""
+    from domain.identity import AliasSpec
+
+    async with test_pool.acquire() as conn:
+        elder = await service.create_entity(
+            conn,
+            NewEntitySpec(
+                "character",
+                "La Kethari âgée",
+                "descriptor",
+                aliases=[AliasSpec("Nahle Irun-Sa", "true_name", False, secret=True)],
+            ),
+            turn_id=None,
+            source="world_gen",
+        )
+        closed = await service.reveal(
+            conn, _ref("La Kethari âgée"), "Nahle Irun-Sa", turn_id=None, source="resolver"
+        )
+        still = await _character_row(conn, elder)
+        events = await conn.fetch(
+            "SELECT payload FROM identity_events WHERE game_id = $1 AND kind = 'reveal_noop'",
+            game,
+        )
+        opened = await service.reveal(
+            conn,
+            _ref("La Kethari âgée"),
+            "Nahle Irun-Sa",
+            turn_id=None,
+            source="resolver",
+            disclosed=frozenset({elder}),
+        )
+        after = await _character_row(conn, elder)
+    payloads = [e["payload"] if isinstance(e["payload"], dict) else json.loads(e["payload"]) for e in events]
+    assert closed.kind == "noop" and still["known"] is False
+    assert [p["reason"] for p in payloads] == ["secret_closed"]
+    assert opened.kind != "noop" and after["known"] is True

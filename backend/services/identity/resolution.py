@@ -204,6 +204,7 @@ class _Application:
                     d.revealed_name or d.surface,
                     turn_id=self.turn.turn_id,
                     source=SOURCE,
+                    disclosed=frozenset(self.scene.open_disclosure_ids),
                     evidence=d.evidence or None,
                 ),
             )
