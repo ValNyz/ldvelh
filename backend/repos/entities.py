@@ -1222,32 +1222,35 @@ _READABLE_LABEL = (
 )
 
 
-async def candidate_cards(
-    conn, game_id: UUID, entity_ids: list[UUID], *, disclosed: list[UUID] = ()
-) -> list[CardRow]:
-    """Cards of live entities: what the player may read as label, occupation, usual place
-    (workplace, residence, parent location or headquarters), the last turn it was mentioned
-    in (rank of the latest assistant message mentioning it or an entity merged into it;
-    None when never mentioned), first line of description. Mentions are read in one pass
-    through the entity index, merges resolved once. Secrets stay filtered (spec §4.8): a
-    label that is a secret name is flagged (`label_secret`, the caller replaces it), a
-    usual place whose label is a secret name is left blank."""
-    rows = await conn.fetch(
-        f"""WITH RECURSIVE family (live, id) AS (
-                SELECT id, id FROM unnest($2::uuid[]) AS id
+# Each entity of {ids} (`live`) with itself and every entity merged into it, at any depth
+# (`id`), among the registry rows of the game {game}.
+_FAMILY = """family (live, id) AS (
+                SELECT id, id FROM unnest({ids}::uuid[]) AS id
                 UNION
                 SELECT family.live, er.id
                   FROM family JOIN entity_registry AS er ON er.merged_into = family.id
-                 WHERE er.game_id = $1),
-                turns AS (
-                SELECT id, (row_number() OVER (ORDER BY sequence, created_at))::int AS turn
-                  FROM messages WHERE game_id = $1 AND role = 'assistant'),
-                seen AS (
-                SELECT family.live, max(turns.turn) AS turn
+                 WHERE er.game_id = {game})"""
+
+# The card rows of candidate_cards ($1 the game, $2 the entities, $3 the disclosed ones).
+# The last turn an entity was seen in is the rank of the latest assistant message that
+# mentions it or its family: the mentions are read through (game_id, entity_id), the
+# rank is the count of the game's assistant messages up to that one through
+# (game_id, role, sequence, created_at); no message of the game is numbered otherwise.
+CANDIDATE_CARDS_SQL = f"""WITH RECURSIVE {_FAMILY.format(ids="$2", game="$1")},
+                latest AS (
+                SELECT DISTINCT ON (family.live) family.live, msg.sequence, msg.created_at
                   FROM family
-                  JOIN entity_mentions AS em ON em.entity_id = family.id
-                  JOIN turns ON turns.id = em.message_id
-                 GROUP BY family.live)
+                  JOIN entity_mentions AS em
+                       ON em.game_id = $1 AND em.entity_id = family.id
+                  JOIN messages AS msg ON msg.id = em.message_id AND msg.role = 'assistant'
+                 ORDER BY family.live, msg.sequence DESC, msg.created_at DESC),
+                seen AS (
+                SELECT latest.live,
+                       (SELECT count(*) FROM messages AS m
+                         WHERE m.game_id = $1 AND m.role = 'assistant'
+                           AND (m.sequence, m.created_at)
+                               <= (latest.sequence, latest.created_at))::int AS turn
+                  FROM latest)
            SELECT er.id AS entity_id, er.handle, er.entity_type,
                   display_for_player(er.id) AS label,
                   {_LABEL_SECRET.format(id="er.id")} AS label_secret,
@@ -1268,10 +1271,21 @@ async def candidate_cards(
             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
                   AS dom
              LEFT JOIN seen ON seen.live = er.id
-            WHERE er.game_id = $1 AND er.id = ANY($2::uuid[])""",
-        game_id,
-        list(entity_ids),
-        list(disclosed),
+            WHERE er.game_id = $1 AND er.id = ANY($2::uuid[])"""
+
+
+async def candidate_cards(
+    conn, game_id: UUID, entity_ids: list[UUID], *, disclosed: list[UUID] = ()
+) -> list[CardRow]:
+    """Cards of live entities: what the player may read as label, occupation, usual place
+    (workplace, residence, parent location or headquarters), the last turn it was mentioned
+    in (rank of the latest assistant message mentioning it or an entity merged into it;
+    None when never mentioned), first line of description. The cost follows the scene
+    (its entities' mentions), not the length of the game (CANDIDATE_CARDS_SQL). Secrets
+    stay filtered (spec §4.8): a label that is a secret name is flagged (`label_secret`,
+    the caller replaces it), a usual place whose label is a secret name is left blank."""
+    rows = await conn.fetch(
+        CANDIDATE_CARDS_SQL, game_id, list(entity_ids), list(disclosed)
     )
     return [CardRow(**dict(r)) for r in rows]
 
@@ -1498,20 +1512,29 @@ async def characters_at(conn, game_id: UUID, location_id: UUID) -> list[UUID]:
     return [r["id"] for r in rows]
 
 
+# The live entities of $1 that a message of the game $3 other than $2 mentions, merges
+# followed from each entity down to its family: one (game_id, entity_id) index probe per
+# family member, never a pass over the mentions of the game.
+MENTIONED_ELSEWHERE_SQL = f"""WITH RECURSIVE {_FAMILY.format(ids="$1", game="$3")}
+           SELECT DISTINCT family.live AS id
+             FROM family
+             JOIN entity_registry AS live
+                  ON live.id = family.live AND live.game_id = $3
+                     AND live.merged_into IS NULL
+            WHERE EXISTS (SELECT 1 FROM entity_mentions AS em
+                           WHERE em.game_id = $3 AND em.entity_id = family.id
+                             AND em.message_id <> $2)"""
+
+
 async def mentioned_elsewhere(
     conn, game_id: UUID, entity_ids: list[UUID], message_id: UUID
 ) -> set[UUID]:
-    """The ids of `entity_ids` that a message other than `message_id` mentions (merges
-    followed)."""
+    """The live ids of `entity_ids` that a message other than `message_id` mentions
+    (directly or through an entity merged into them)."""
     if not entity_ids:
         return set()
     rows = await conn.fetch(
-        """SELECT DISTINCT entity_follow_merge(entity_id) AS id FROM entity_mentions
-            WHERE game_id = $3 AND message_id <> $2
-              AND entity_follow_merge(entity_id) = ANY($1::uuid[])""",
-        list(entity_ids),
-        message_id,
-        game_id,
+        MENTIONED_ELSEWHERE_SQL, list(entity_ids), message_id, game_id
     )
     return {r["id"] for r in rows}
 

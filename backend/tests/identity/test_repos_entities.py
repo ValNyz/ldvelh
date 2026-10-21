@@ -444,3 +444,27 @@ async def test_an_extractor_descriptor_alias_carries_its_turn(test_pool, game):
         "Garde en armure": ("system", turn_id),
         "Le garde": ("extractor", turn_id),
     }
+
+
+async def test_mentioned_elsewhere_follows_merges_and_skips_the_message(
+    test_pool, game
+):
+    """R33: an entity counts as mentioned elsewhere when another message names it or an
+    entity merged into it; the given message and the tombstones themselves never count."""
+    async with test_pool.acquire() as conn:
+        keep = await _character(conn, game, true_name="Tesk Vahrun")
+        drop = await _character(conn, game, descriptor="Le Kethari au tablier")
+        alone = await _character(conn, game, true_name="Mira Sol")
+        earlier, current = await _message(conn, game), await _message(conn, game)
+        await entities.insert_mentions(
+            conn, game, earlier, None, [MentionRow(0, 2, "La", drop, "match")]
+        )
+        await entities.insert_mentions(
+            conn, game, current, None, [MentionRow(0, 2, "La", alone, "match")]
+        )
+        await entities.merge_entities(conn, keep, drop, "test", None)
+        seen = await entities.mentioned_elsewhere(
+            conn, game, [keep, drop, alone], current
+        )
+        none = await entities.mentioned_elsewhere(conn, game, [], current)
+    assert (seen, none) == ({keep}, set())

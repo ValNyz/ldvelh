@@ -364,6 +364,111 @@ async def test_a_never_mentioned_entity_has_no_last_seen_turn(test_pool, game, s
     assert cards[unseen].last_seen_turn is None
 
 
+async def test_last_seen_turn_is_the_rank_among_the_games_assistant_messages(
+    test_pool, test_user, game, service
+):
+    """M8: the card's "seen at turn N" keeps its absolute number (the rank of the latest
+    assistant message naming the entity, user messages and other games left out) while
+    the query only reads the scene's mentions."""
+    async with test_pool.acquire() as conn:
+        tesk = await _create(conn, service, "character", "Tesk Vahrun")
+        other = await conn.fetchval(
+            "INSERT INTO games (user_id, language) VALUES ($1, 'fr') RETURNING id",
+            test_user["id"],
+        )
+        elsewhere = await messages.insert_conversation(conn, other, 1)
+        for sequence in range(1, 6):
+            await messages.insert_message(
+                conn, other, elsewhere, "assistant", "Ailleurs.", sequence
+            )
+        conversation = await messages.insert_conversation(conn, game, 1)
+        narrator = {}
+        for sequence in range(1, 13):
+            role = "assistant" if sequence % 2 == 0 else "user"
+            message = await messages.insert_message(
+                conn, game, conversation, role, "Tesk Vahrun attend.", sequence
+            )
+            narrator[sequence] = message
+        for sequence in (4, 8):  # the 2nd and 4th assistant messages
+            await entities.insert_mentions(
+                conn,
+                game,
+                narrator[sequence],
+                None,
+                [MentionRow(0, 11, "Tesk Vahrun", tesk, "match")],
+            )
+        [card] = await entities.candidate_cards(conn, game, [tesk])
+    assert card.last_seen_turn == 4
+
+
+async def _long_history(conn, game_id: UUID, entity_ids: list[UUID]) -> None:
+    """3000 messages, every other one the narrator's, each naming one of `entity_ids`."""
+    conversation = await messages.insert_conversation(conn, game_id, 1)
+    await conn.execute(
+        """INSERT INTO messages (game_id, conversation_id, role, content, sequence)
+           SELECT $1, $2, CASE WHEN n % 2 = 0 THEN 'assistant' ELSE 'user' END,
+                  'Du monde.', n
+             FROM generate_series(1, 3000) AS n""",
+        game_id,
+        conversation,
+    )
+    await conn.execute(
+        """INSERT INTO entity_mentions (game_id, message_id, start_pos, end_pos,
+                                        surface, entity_id, decision)
+           SELECT $1, m.id, 0, 2, 'Du',
+                  ($2::uuid[])[1 + m.sequence % cardinality($2::uuid[])], 'match'
+             FROM messages AS m WHERE m.game_id = $1 AND m.role = 'assistant'""",
+        game_id,
+        entity_ids,
+    )
+
+
+async def test_mention_reads_follow_the_scene_through_the_game_indexes(
+    test_pool, test_user, game, service
+):
+    """R33, M8: the cards' last turn and mentioned_elsewhere probe the mentions of the
+    scene's entities by (game_id, entity_id) and rank a message through the messages
+    index; neither follows the merges of every mention row of the game."""
+    async with test_pool.acquire() as conn:
+        tesk = await _create(conn, service, "character", "Tesk Vahrun")
+        crowd = [
+            await _create(conn, service, "character", f"Passant {n}") for n in range(40)
+        ]
+        await _long_history(conn, game, crowd)
+        for _ in range(20):  # the other games of the table
+            other = await conn.fetchval(
+                "INSERT INTO games (user_id, language) VALUES ($1, 'fr') RETURNING id",
+                test_user["id"],
+            )
+            place = await conn.fetchval(
+                "INSERT INTO locations (game_id, name) VALUES ($1, 'Halle') RETURNING id",
+                other,
+            )
+            await _long_history(conn, other, [place])
+        message = await conn.fetchval(
+            "SELECT id FROM messages WHERE game_id = $1 AND sequence = 2000", game
+        )
+        await entities.insert_mentions(
+            conn, game, message, None, [MentionRow(4, 9, "monde", tesk, "match")]
+        )
+        await conn.execute("VACUUM ANALYZE messages")
+        await conn.execute("VACUUM ANALYZE entity_mentions")
+        cards = await conn.fetch(
+            "EXPLAIN " + entities.CANDIDATE_CARDS_SQL, game, [tesk], []
+        )
+        elsewhere = await conn.fetch(
+            "EXPLAIN " + entities.MENTIONED_ELSEWHERE_SQL, [tesk], message, game
+        )
+        [card] = await entities.candidate_cards(conn, game, [tesk])
+    cards_plan = "\n".join(r[0] for r in cards)
+    elsewhere_plan = "\n".join(r[0] for r in elsewhere)
+    assert card.last_seen_turn == 1000
+    assert "idx_messages_game_role_sequence" in cards_plan, cards_plan
+    for plan in (cards_plan, elsewhere_plan):
+        assert "idx_entity_mentions_game_entity" in plan, plan
+        assert "idx_entity_mentions_game_message" not in plan, plan
+
+
 async def test_a_secret_name_makes_no_homonym(test_pool, game, service):
     """A present entity whose secret true name is another character's label does not pull
     that character into the context: it would hint at the secret."""
