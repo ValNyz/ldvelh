@@ -1267,9 +1267,7 @@ CANDIDATE_CARDS_SQL = f"""WITH RECURSIVE {_FAMILY.format(ids="$2", game="$1")},
                   seen.turn AS last_seen_turn,
                   nullif(split_part(dom.row ->> 'description', E'\\n', 1), '')
                       AS description_line
-             FROM unnest($2::uuid[]) AS asked (id)
-             JOIN entity_registry AS er
-               ON er.game_id = $1 AND er.id = entity_follow_merge(asked.id)
+             FROM entity_registry AS er
             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
                   AS dom
              LEFT JOIN seen ON seen.live = er.id
