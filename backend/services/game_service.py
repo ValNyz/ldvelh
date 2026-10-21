@@ -264,10 +264,9 @@ class GameService:
 
         async with self.pool.acquire() as conn:
             characters = await reader.get_all_characters(conn)
-            rows = await world_panel.readable_rows(
-                conn, game_id, world_panel.npc_refs(characters)
+            return await world_panel.load_npcs(
+                conn, game_id, characters, self._get_relation_label
             )
-        return world_panel.npc_entries(characters, rows, self._get_relation_label)
 
     async def load_locations(self, game_id: UUID) -> list[dict]:
         """The active places under their readable label; a place with nothing readable
@@ -276,10 +275,7 @@ class GameService:
 
         async with self.pool.acquire() as conn:
             locations = await reader.get_locations(conn)
-            rows = await world_panel.readable_rows(
-                conn, game_id, world_panel.location_refs(locations)
-            )
-        return world_panel.location_entries(locations, rows)
+            return await world_panel.load_locations(conn, game_id, locations)
 
     async def load_quests(self, game_id: UUID) -> list[dict]:
         """Charge les arcs narratifs actifs"""
@@ -307,10 +303,7 @@ class GameService:
 
         async with self.pool.acquire() as conn:
             organizations = await reader.get_organizations(conn)
-            rows = await world_panel.readable_rows(
-                conn, game_id, [org["id"] for org in organizations]
-            )
-        return world_panel.organization_entries(organizations, rows)
+            return await world_panel.load_organizations(conn, game_id, organizations)
 
     async def load_chat_messages(self, game_id: UUID) -> list[dict]:
         """Load chat messages for frontend display.

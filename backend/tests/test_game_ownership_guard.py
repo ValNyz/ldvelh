@@ -32,6 +32,9 @@ GAME_SCOPED_CALLS = {
     ("GET", "/api/tooltips/entity"): {
         "params": {"gameId": GAME, "id": "00000000-0000-0000-0000-000000000000"},
     },
+    ("GET", "/api/tooltips/entities"): {
+        "params": {"gameId": GAME, "ids": "00000000-0000-0000-0000-000000000000"},
+    },
 }
 TOOLTIP_ROUTES = [key for key in GAME_SCOPED_CALLS if key[1].startswith("/api/tooltips/")]
 

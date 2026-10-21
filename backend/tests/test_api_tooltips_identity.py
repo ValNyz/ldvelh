@@ -54,9 +54,11 @@ async def _id(test_pool, game_id: UUID, where: str, *args) -> UUID:
         )
 
 
-async def _mentions(test_pool, game_id: UUID, content: str, spans: list) -> UUID:
-    """A narrator message holding `content`, with a stored mention per (start, end,
-    entity id) of `spans`."""
+async def _mentions(
+    test_pool, game_id: UUID, content: str, spans: list, sequence: int = 1
+) -> UUID:
+    """A narrator message holding `content` at `sequence`, with a stored mention per
+    (start, end, entity id) of `spans`."""
     from repos import entities
 
     async with test_pool.acquire() as conn:
@@ -66,10 +68,11 @@ async def _mentions(test_pool, game_id: UUID, content: str, spans: list) -> UUID
         )
         message = await conn.fetchval(
             """INSERT INTO messages (game_id, conversation_id, role, content, sequence)
-               VALUES ($1, $2, 'assistant', $3, 1) RETURNING id""",
+               VALUES ($1, $2, 'assistant', $3, $4) RETURNING id""",
             game_id,
             conversation,
             content,
+            sequence,
         )
         rows = [MentionRow(s, e, content[s:e], i, "match") for s, e, i in spans]
         await entities.insert_mentions(conn, game_id, message, None, rows)
@@ -340,6 +343,74 @@ async def test_arc_tooltip_is_served(client, test_user, test_pool):
     }
 
 
+async def test_batch_tooltips_match_the_single_lookups(client, test_user, test_pool):
+    """Ruling R52: `/tooltips/entities` serves, by the id asked for, the tooltip each id
+    gets from `/tooltips/entity` (an unidentified NPC, a merge tombstone's survivor, an
+    arc); an id that is no entity nor arc of the game is absent."""
+    from api.tooltips import MAX_TOOLTIP_IDS
+
+    game_id = await _world(client, test_user, test_pool)
+    justine = await _hide_under_a_descriptor(test_pool, game_id)
+    async with test_pool.acquire() as conn:
+        arc = await conn.fetchval(
+            "SELECT id FROM narrative_arcs WHERE game_id = $1 LIMIT 1", game_id
+        )
+        place = await conn.fetchval(
+            "SELECT id FROM locations WHERE game_id = $1 LIMIT 1", game_id
+        )
+    missing = "00000000-0000-0000-0000-0000000000ff"
+    ids = [str(justine), str(arc), str(place), missing]
+    headers = auth_headers(test_user["token"])
+
+    resp = await client.get(
+        "/api/tooltips/entities",
+        params={"gameId": str(game_id), "ids": ",".join(ids)},
+        headers=headers,
+    )
+
+    assert resp.status_code == 200
+    batch = resp.json()["tooltips"]
+    assert set(batch) == set(ids[:3])
+    for entity_id in ids[:3]:
+        single = await _tooltip(client, test_user, game_id, entity_id)
+        assert batch[entity_id] == single["tooltip"]
+    assert batch[str(justine)]["name"] == DESCRIPTOR
+    too_many = ",".join(str(UUID(int=i)) for i in range(1, MAX_TOOLTIP_IDS + 2))
+    for bad in ("not-a-uuid", "", too_many):
+        resp = await client.get(
+            "/api/tooltips/entities",
+            params={"gameId": str(game_id), "ids": bad},
+            headers=headers,
+        )
+        assert resp.status_code == 422, bad
+
+
+async def test_annotations_page_back_with_before(client, test_user, test_pool):
+    """`before` serves the page of annotated messages older than a sequence, so the
+    frontend covers every message it shows, not only the latest `limit`."""
+    game_id = await _world(client, test_user, test_pool)
+    place = await _id(test_pool, game_id, "entity_type = 'location'")
+    async with test_pool.acquire() as conn:
+        name = await conn.fetchval("SELECT display_for_player($1)", place)
+    ids = [
+        await _mentions(test_pool, game_id, name, [(0, len(name), place)], sequence)
+        for sequence in (1, 2, 3)
+    ]
+
+    async def page(**params) -> list[str]:
+        resp = await client.get(
+            "/api/tooltips/annotations",
+            params={"gameId": str(game_id), **params},
+            headers=auth_headers(test_user["token"]),
+        )
+        assert resp.status_code == 200
+        return [m["message_id"] for m in resp.json()["messages"]]
+
+    assert await page(limit=2) == [str(ids[2]), str(ids[1])]
+    assert await page(limit=2, before=2) == [str(ids[0])]
+    assert await page(limit=2, before=1) == []
+
+
 async def test_tooltip_payloads_never_contain_a_hidden_true_name(
     client, test_user, test_pool
 ):
@@ -466,6 +537,7 @@ async def test_world_panel_never_contains_a_hidden_true_name(
     [npc] = [n for n in world["npcs"] if n["id"] == str(justine)]
     assert (npc["name"], npc["known"]) == (DESCRIPTOR, False)
     assert (npc["occupation"], npc["description"], npc["location"]) == (None,) * 3
+    assert (npc["relationship"], npc["relation_level"]) == (None, None)
     places = {loc["id"]: loc for loc in world["locations"]}
     assert str(crypt) not in places
     assert places[str(cellar)]["parent"] is None

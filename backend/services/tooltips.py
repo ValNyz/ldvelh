@@ -157,22 +157,37 @@ def entity_tooltip(row: TooltipRow, display: Display) -> Tooltip:
 async def get_entity_details(conn, entity_id: UUID, *, game_id: UUID) -> dict | None:
     """The tooltip of the entity or arc `entity_id` of the game (a merge tombstone gives
     the entity it was merged into), as a dict; None when the id is neither."""
+    return (await get_entities_details(conn, [entity_id], game_id=game_id)).get(
+        entity_id
+    )
+
+
+async def get_entities_details(
+    conn, entity_ids: list[UUID], *, game_id: UUID
+) -> dict[UUID, dict]:
+    """get_entity_details for each of `entity_ids` in two queries, by the id asked for;
+    an id that is no entity nor arc of the game has no key."""
     display = Display.for_packs(*await entities.game_language(conn, game_id))
-    row = await entities.tooltip_row(conn, game_id, entity_id, CHECKED_FIELDS)
-    if row is not None:
-        return asdict(entity_tooltip(row, display))
-    arc = await entities.arc_tooltip_row(conn, game_id, entity_id)
-    if arc is None:
-        return None
-    infos = display.infos(ARC, arc)
-    return asdict(Tooltip(TYPE_ICONS[ARC], arc["title"], ARC, infos))
+    rows = await entities.tooltip_rows(conn, game_id, entity_ids, CHECKED_FIELDS)
+    found = {i: asdict(entity_tooltip(row, display)) for i, row in rows.items()}
+    others = [i for i in entity_ids if i not in found]
+    if others:
+        for arc_id, arc in (
+            await entities.arc_tooltip_rows(conn, game_id, others)
+        ).items():
+            infos = display.infos(ARC, arc)
+            found[arc_id] = asdict(Tooltip(TYPE_ICONS[ARC], arc["title"], ARC, infos))
+    return found
 
 
-async def message_annotations(conn, game_id: UUID, limit: int) -> list[dict]:
-    """The annotated narrator messages, latest first: {message_id, sequence,
-    annotations: [{start, end, entity_id, entity_type, label}]}; a mention with nothing
-    readable is left out (annotated_messages only counts messages with a readable one)."""
-    recent = await entities.annotated_messages(conn, game_id, limit)
+async def message_annotations(
+    conn, game_id: UUID, limit: int, before: int | None = None
+) -> list[dict]:
+    """The annotated narrator messages, latest first (with `before`, those whose
+    sequence is lower): {message_id, sequence, annotations: [{start, end, entity_id,
+    entity_type, label}]}; a mention with nothing readable is left out
+    (annotated_messages only counts messages with a readable one)."""
+    recent = await entities.annotated_messages(conn, game_id, limit, before)
     mentions = await entities.mentions_for_messages(
         conn, game_id, [message_id for message_id, _ in recent]
     )

@@ -1566,11 +1566,12 @@ async def insert_protagonist_item(conn, game_id: UUID, object_id: UUID) -> None:
 
 
 async def annotated_messages(
-    conn, game_id: UUID, limit: int
+    conn, game_id: UUID, limit: int, before: int | None = None
 ) -> list[tuple[UUID, int]]:
     """(id, sequence) of the game's `limit` latest assistant messages holding a stored
     mention the player may read (an entity with a readable label, merges followed),
-    latest first."""
+    latest first; with `before`, only the messages whose sequence is lower (the page
+    before a known one)."""
     rows = await conn.fetch(
         f"""SELECT m.id, m.sequence FROM messages AS m
             WHERE m.game_id = $1 AND m.role = 'assistant'
@@ -1580,11 +1581,13 @@ async def annotated_messages(
                          AS live
                    WHERE em.game_id = $1 AND em.message_id = m.id
                      AND ({_READABLE_LABEL.format(id="live.id")}) IS NOT NULL)
+              AND ($4::int IS NULL OR m.sequence < $4)
             ORDER BY m.sequence DESC, m.created_at DESC
             LIMIT $2""",
         game_id,
         limit,
         [],
+        before,
     )
     return [(r["id"], r["sequence"]) for r in rows]
 
@@ -1681,9 +1684,17 @@ def _tooltip_row(row) -> TooltipRow:
 
 async def arc_tooltip_row(conn, game_id: UUID, arc_id: UUID) -> dict | None:
     """Title and domain of a narrative arc of the game (None: no such arc)."""
-    row = await conn.fetchrow(
-        "SELECT title, domain FROM narrative_arcs WHERE game_id = $1 AND id = $2",
+    return (await arc_tooltip_rows(conn, game_id, [arc_id])).get(arc_id)
+
+
+async def arc_tooltip_rows(
+    conn, game_id: UUID, arc_ids: list[UUID]
+) -> dict[UUID, dict]:
+    """Title and domain of each narrative arc of the game among `arc_ids`, by id."""
+    rows = await conn.fetch(
+        "SELECT id, title, domain FROM narrative_arcs"
+        " WHERE game_id = $1 AND id = ANY($2::uuid[])",
         game_id,
-        arc_id,
+        list(arc_ids),
     )
-    return dict(row) if row else None
+    return {r["id"]: {"title": r["title"], "domain": r["domain"]} for r in rows}

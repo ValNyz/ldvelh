@@ -1337,7 +1337,10 @@ class TestGameServiceLoadSidebar:
             assert "name" in npc
             assert isinstance(npc["name"], str)
             assert len(npc["name"]) > 0
-            # relationship should be a label string, not None
+            # An NPC not identified carries no relation (spec §4.9); else a label string
+            if not npc["known"]:
+                assert (npc["relationship"], npc["relation_level"]) == (None, None)
+                continue
             assert npc["relationship"] in (
                 "Inconnu",
                 "Hostile",
