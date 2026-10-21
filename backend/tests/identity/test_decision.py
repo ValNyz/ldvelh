@@ -3,6 +3,7 @@ rendered from the packs, the output schema, the code verifications, the determin
 prepass and the Haiku -> Sonnet cascade with its fallback."""
 
 import json
+from dataclasses import replace
 import re
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -39,6 +40,7 @@ from services.identity import decision
 from services.identity.decision import MentionDecision
 from services.identity.lexicon import Lexicon, for_game
 from repos import entities
+from services.identity.mentions import mention_rows
 from services.identity.normalize import Normalizer
 from services.identity.service import IdentityService
 from services.llm_providers import StructuredOutputMode
@@ -397,7 +399,8 @@ def test_prepass_reveals_an_exact_name_the_pc_does_not_know():
         "short",
         "Vela Sorn",
     )
-    assert by_surface["sa lame"].decision == "MATCH"
+    # A short form stored in lower case is a common word: left to the model.
+    assert "sa lame" not in by_surface
     assert all(d.deterministic for d in found)
     # Out of the scene, an exact stored name still designates its entity.
     checked = _verify(found, _set(vela, blade, keswil, exact=exact), text)
@@ -517,6 +520,36 @@ def test_a_card_names_the_candidates_sharing_its_name_and_their_type():
         ship.entity_id: [("E3", "location")],
         street.entity_id: [],
     }
+
+
+def test_a_lower_case_short_form_never_links_alone_whatever_starts_the_sentence():
+    licence = _candidate(
+        6, "Licence de pilote", "object", aliases=[_alias("pilote", "short")]
+    )
+    exact = {NORMALIZER.norm("pilote"): licence}
+    found, doubts = decision.scan(
+        "Un pilote balafré entre.",
+        _set(licence, exact=exact),
+        normalizer=NORMALIZER,
+        config=CONFIG,
+    )
+    assert found == [] and [d.surface for d in doubts] == ["Un pilote"]
+
+
+def test_a_prepass_decision_keeps_to_the_form_it_decided():
+    street = _candidate(3, "Rue des Lampions", "location")
+    named = MentionDecision(
+        surface="les Lampions",
+        decision="MATCH",
+        entity_id=street.entity_id,
+        deterministic=True,
+    )
+    text = "Les lampions grésillent ; la Brigade patrouille sur les Lampions."
+    rows = mention_rows(text, [(named, street.entity_id)], NORMALIZER)
+    assert [r.surface for r in rows] == ["les Lampions"]
+    model = replace(named, deterministic=False)
+    rows = mention_rows(text, [(model, street.entity_id)], NORMALIZER)
+    assert [r.surface for r in rows] == ["Les lampions", "les Lampions"]
 
 
 def test_a_surface_that_repeats_its_context_keeps_only_the_mention():

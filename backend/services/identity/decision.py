@@ -444,13 +444,18 @@ class _Runs:
     def common_use(self, surface: str, c: Candidate, norm: str) -> bool:
         """A short form maybe written as a common noun. Where letter case marks names
         (the pack's case_marks_names), a capitalised stored short form (a word of a name
-        or of a label) the text writes in lower case is not used as a name; where it does
-        not, a short form can never be told from a common noun, so it never links alone."""
+        or of a label) the text writes in lower case is not used as a name, and a short
+        form stored in lower case is a common word; where case marks nothing, a short form
+        can never be told from a common noun. Either way it never links alone."""
         alias = next((a for a in c.aliases if a.alias_norm == norm), None)
         if alias is None or alias.kind != SHORT:
             return False
-        if not self.capitals:
+        if not self.capitals or not any(_capitalised(w) for w in alias.alias.split()):
+            # Without case, or stored in lower case (a common word of a label, never a
+            # name): nothing shows a name use.
             return True
+        # The stored words against the written ones from the end: a leading determiner
+        # (capitalised at a sentence start) is never compared.
         stored, written = alias.alias.split(), surface.split()
         return any(
             _capitalised(a) and b[:1].islower()

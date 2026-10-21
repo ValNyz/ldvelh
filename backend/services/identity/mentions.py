@@ -2,7 +2,8 @@
 
 A decision names a surface; every whole-word occurrence of it in the text is a span,
 compared case- and accent-insensitively (the pack's folding), with offsets in the raw
-text. Occurrences of a surface several decisions share go to them in text order (the
+text; a prepass decision keeps to the occurrences written exactly like its surface (it
+decided each written form on its own, another form may be another use). Occurrences of a surface several decisions share go to them in text order (the
 prepass decides each occurrence on its own); a span overlapping a longer one already
 taken is dropped, never moved.
 """
@@ -58,12 +59,17 @@ def place(
 ) -> list[tuple[int, int, MentionDecision, T]]:
     """(start, end, decision, item) of each span the decisions take in `text`, in text
     order (see the module docstring)."""
-    by_surface: dict[str, list[tuple[MentionDecision, T]]] = {}
+    by_surface: dict[tuple[bool, str], list[tuple[MentionDecision, T]]] = {}
     for d, item in items:
-        by_surface.setdefault(normalizer.fold(d.surface).strip(), []).append((d, item))
+        # A prepass decision decided one written form: it keeps to that exact form.
+        key = d.surface if d.deterministic else normalizer.fold(d.surface).strip()
+        by_surface.setdefault((not d.deterministic, key), []).append((d, item))
     candidates = []
-    for owners in by_surface.values():
+    # Prepass groups first: at equal length, the decided occurrence keeps its decision.
+    for (_, key), owners in sorted(by_surface.items(), key=lambda g: g[0][0]):
         spans = find_spans(text, owners[0][0].surface, normalizer)
+        if owners[0][0].deterministic:
+            spans = [(s, e) for s, e in spans if text[s:e] == key]
         for rank, (start, end) in enumerate(spans):
             d, item = owners[min(rank, len(owners) - 1)]
             candidates.append((start, end, d, item))
