@@ -6,6 +6,7 @@ import {
 	changesSpans, chunks, idsToFetch, latestLabels, mergeSpans, pruneCache, purgeSpans,
 	referencedEntities, spansSignature, tooltipMapOf,
 } from '../lib/game/annotations.mjs';
+import { createRunGuard } from '../lib/game/runGuard.mjs';
 
 const POLL_INTERVAL = 5000;
 const MAX_POLLS = 12;
@@ -29,7 +30,8 @@ const IDS_PER_REQUEST = 100;
  *   and renamed entities are fetched, in one batch request; a failed id is asked again
  *   on the next fetch.
  *
- * Work started for another game is ignored (a generation counter).
+ * Only the latest run commits (a run guard): work started for another game, or by a
+ * poll still awaiting when refresh() starts again, is ignored.
  */
 export function useTooltips(gameId, messageIds = []) {
 	const [tooltipMap, setTooltipMap] = useState({});
@@ -37,7 +39,8 @@ export function useTooltips(gameId, messageIds = []) {
 	const [isLoading, setIsLoading] = useState(false);
 	const pollRef = useRef(null);
 	const pollCountRef = useRef(0);
-	const generationRef = useRef(0);
+	const guardRef = useRef(null);
+	if (!guardRef.current) guardRef.current = createRunGuard();
 	const spansRef = useRef({});
 	const cacheRef = useRef({});
 	const liveIdsRef = useRef(messageIds);
@@ -53,7 +56,7 @@ export function useTooltips(gameId, messageIds = []) {
 
 	// Another game: nothing of the previous one is kept, and its work in flight is void.
 	useEffect(() => {
-		generationRef.current += 1;
+		guardRef.current.start();
 		stopPolling();
 		spansRef.current = {};
 		cacheRef.current = {};
@@ -113,17 +116,17 @@ export function useTooltips(gameId, messageIds = []) {
 		return next;
 	}, [gameId]);
 
-	const fetchAndBuild = useCallback(async () => {
+	/** One fetch for the run `isCurrent` (createRunGuard): it commits only if still current. */
+	const fetchAndBuild = useCallback(async (isCurrent) => {
 		if (!gameId) return false;
-		const generation = generationRef.current;
 		try {
 			const { spans: fetched, labels } = await fetchAnnotations();
-			if (generation !== generationRef.current) return false;
+			if (!isCurrent()) return false;
 			const ids = idsToFetch(fetched, cacheRef.current, labels);
 			const cache = ids.length
 				? await fetchTooltips(ids, fetched, labels, cacheRef.current)
 				: cacheRef.current;
-			if (generation !== generationRef.current) return false;
+			if (!isCurrent()) return false;
 			// The chat may have changed during the awaits (rollback): purge again.
 			const spans = purgeSpans(fetched, liveIdsRef.current);
 			const changed = spansSignature(spans) !== spansSignature(spansRef.current);
@@ -141,11 +144,12 @@ export function useTooltips(gameId, messageIds = []) {
 	const refresh = useCallback(() => {
 		if (!gameId) return;
 		stopPolling();
-		const generation = generationRef.current;
+		// A poll of an earlier refresh still awaiting must not commit after this one.
+		const isCurrent = guardRef.current.start();
 		setIsLoading(true);
 
-		fetchAndBuild().then(hasNew => {
-			if (generation !== generationRef.current) return;
+		fetchAndBuild(isCurrent).then(hasNew => {
+			if (!isCurrent()) return;
 			if (hasNew) {
 				setIsLoading(false);
 				return;
@@ -153,8 +157,8 @@ export function useTooltips(gameId, messageIds = []) {
 			// Poll until the resolver's mentions of the turn arrive
 			pollRef.current = setInterval(async () => {
 				pollCountRef.current++;
-				const found = await fetchAndBuild();
-				if (generation !== generationRef.current) return;
+				const found = await fetchAndBuild(isCurrent);
+				if (!isCurrent()) return;
 				if (found || pollCountRef.current >= MAX_POLLS) {
 					stopPolling();
 					setIsLoading(false);
