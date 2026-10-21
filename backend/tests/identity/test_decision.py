@@ -597,6 +597,56 @@ def test_an_occurrence_the_prepass_leaves_is_never_linked_by_another_one(lang, t
     assert [r.start_pos for r in rows] == [0]
 
 
+@pytest.mark.parametrize(
+    "lang,opening,titled",
+    [
+        ("fr", "Elara Voss entre dans la salle.", "Dame Voss entre dans la salle."),
+        ("en", "Elara Voss walks into the hall.", "Captain Voss walks into the hall."),
+    ],
+)
+def test_a_short_form_after_a_capitalised_word_opening_the_sentence_is_a_doubt(
+    lang, opening, titled
+):
+    """I2: at a sentence start the capital of the word before a short form tells nothing
+    (another person's first name, or an adverb): TO CHECK, never a link; a title or an
+    article before it is no such word."""
+    normalizer = Normalizer(load_lang(lang), CONFIG)
+    voss = _voss()
+    candidates = _set(voss, exact={normalizer.norm("Voss"): voss})
+    found, doubts = scan(opening, candidates, normalizer=normalizer, config=CONFIG)
+    assert found == [] and [(d.surface, d.handle) for d in doubts] == [("Voss", "E8")]
+    second = opening.replace(".", ". ") + opening
+    found, doubts = scan(second, candidates, normalizer=normalizer, config=CONFIG)
+    assert found == [] and len(doubts) == 2  # after a full stop too
+    found, doubts = scan(titled, candidates, normalizer=normalizer, config=CONFIG)
+    assert [d.entity_id for d in found] == [voss.entity_id] and doubts == []
+    # In mid-sentence the capitalised word continues the name: the model decides it.
+    middle = "Il salue Elara Voss." if lang == "fr" else "He greets Elara Voss."
+    assert scan(middle, candidates, normalizer=normalizer, config=CONFIG) == ([], [])
+    # Without letter case marking names, a short form never links alone anyway.
+    caseless = Normalizer(
+        load_lang(lang).model_copy(update={"case_marks_names": False}), CONFIG
+    )
+    found, _ = scan(titled, candidates, normalizer=caseless, config=CONFIG)
+    assert found == []
+
+
+def test_a_prepass_span_leaves_out_an_article_the_name_does_not_hold():
+    """M9: « Le Terminal » for the entity « Terminal » takes « Terminal » (the article
+    goes with the words before); « La clé d'os », stored with its article, keeps it."""
+    hall, _, candidates = _terminals()
+    [d] = _prepass("Le Terminal clignote.", candidates)
+    assert (d.surface, d.start, d.before) == ("Terminal", 3, "Le")
+    [d] = _prepass("Il entre dans l'Terminal.", candidates)
+    assert d.surface == "Terminal" and d.entity_id == hall.entity_id
+    key = _candidate(9, "la clé d'os", "object",
+                     aliases=[_alias("la clé d'os", "descriptor")])  # fmt: skip
+    [d] = _prepass(
+        "La clé d'os brille.", _set(key, exact={NORMALIZER.norm("la clé d'os"): key})
+    )
+    assert (d.surface, d.start) == ("La clé d'os", 0)
+
+
 async def test_the_model_keeps_the_occurrences_the_prepass_left():
     voss = _voss()
     terminal = _candidate(
@@ -617,7 +667,7 @@ async def test_the_model_keeps_the_occurrences_the_prepass_left():
     verdicts = sorted((d.surface, d.decision, d.deterministic) for d in turn.decisions)
     assert ("Voss", "NEW", False) in verdicts and ("Voss", "MATCH", True) in verdicts
     assert ("le terminal", "SKIP", False) in verdicts
-    assert ("Le Terminal", "MATCH", True) in verdicts
+    assert ("Terminal", "MATCH", True) in verdicts  # the article left out (M9)
 
 
 def test_an_abstention_with_a_wrong_context_still_takes_its_occurrence():

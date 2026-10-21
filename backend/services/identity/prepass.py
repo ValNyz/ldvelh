@@ -4,11 +4,13 @@ It links every run of words of the turn's text whose normalised form names exact
 candidate (`CandidateSet.exact`), longest run first, left to right; an exact name the
 protagonist does not know yet, written in full, is revealed (ALIAS true_name, ruling R36);
 an unknown short form alone reveals nothing. Each decision carries the offset of its
-occurrence (`start`), the only span it takes. It leaves to the
-model a name the text continues (a number, a capitalised word where case marks names), a
-name after a word announcing another entity (pack `other_markers`), and a short form that
-the text writes, or that is stored, as a common noun; the last are returned as doubts, the
-model's TO CHECK lines.
+occurrence (`start`), the only span it takes; a leading article or elision the matched
+name does not hold stays out of that span. It leaves to the model a name the text
+continues (a number, a capitalised word where case marks names), a name after a word
+announcing another entity (pack `other_markers`), a short form that the text writes, or
+that is stored, as a common noun, and a short form right after a capitalised word opening
+the sentence (neither an article nor a title: the case tells nothing there); the last two
+are returned as doubts, the model's TO CHECK lines.
 """
 
 from __future__ import annotations
@@ -100,17 +102,48 @@ class _Runs:
             after += 1
         return self.capitals and self._capitalised_before(first)
 
-    def _capitalised_before(self, first: int) -> bool:
+    def _name_before(self, first: int) -> int | None:
+        """The word right before the run, in the same phrase, when it is capitalised and
+        neither an article nor a title of the pack (None otherwise)."""
         before = first - 1
-        if before < 1 or not self.adjacent(before, first):
+        if before < 0 or not self.adjacent(before, first):
+            return None
+        folded = self.folded(before)
+        if (
+            not _capitalised(self.words[before].group())
+            or folded in self.titles
+            or folded in self.articles
+        ):
+            return None
+        return before
+
+    def _opens_sentence(self, i: int) -> bool:
+        """Word `i` starts the text or a phrase (nothing tight links it to the one before)."""
+        return i == 0 or not self.adjacent(i - 1, i)
+
+    def _capitalised_before(self, first: int) -> bool:
+        before = self._name_before(first)
+        return before is not None and not self._opens_sentence(before)
+
+    def short_after_opening_name(self, first: int, c: Candidate, norm: str) -> bool:
+        """Where letter case marks names, a short form right after a capitalised word that
+        opens the sentence (« Elara Voss entre ») may be the end of another name, or
+        follow a capitalised adverb: the case says nothing at a sentence start, so the
+        model decides it (a doubt, never a link)."""
+        alias = _matched(c, norm)
+        if not self.capitals or alias is None or alias.kind != SHORT:
             return False
-        word = self.words[before].group()
-        mid_sentence = self.adjacent(before - 1, before)
-        return (
-            mid_sentence
-            and _capitalised(word)
-            and self.folded(before) not in self.titles
-        )
+        before = self._name_before(first)
+        return before is not None and self._opens_sentence(before)
+
+    def name_start(self, first: int, end: int, c: Candidate, norm: str) -> int:
+        """The first word of the decided name in words [first, end): a leading article or
+        elision that the matched name does not hold is left out of its span (it stays
+        among the words before)."""
+        if end <= first + 1 or _holds_article(c, norm, self.normalizer):
+            return first
+        rest = self.text[self.words[first + 1].start() : self.words[end - 1].end()]
+        return first + 1 if self.normalizer.norm(rest) == norm else first
 
     def common_use(self, surface: str, c: Candidate, norm: str) -> bool:
         """A short form maybe written as a common noun. Where letter case marks names
@@ -118,7 +151,7 @@ class _Runs:
         or of a label) the text writes in lower case is not used as a name, and a short
         form stored in lower case is a common word; where case marks nothing, a short form
         can never be told from a common noun. Either way it never links alone."""
-        alias = next((a for a in c.aliases if a.alias_norm == norm), None)
+        alias = _matched(c, norm)
         if alias is None or alias.kind != SHORT:
             return False
         if not self.capitals or not any(_capitalised(w) for w in alias.alias.split()):
@@ -143,9 +176,23 @@ class _Runs:
         )
 
 
+def _matched(c: Candidate, norm: str):
+    """The alias of `c` an exact form matches (None: none of its aliases)."""
+    return next((a for a in c.aliases if a.alias_norm == norm), None)
+
+
+def _holds_article(c: Candidate, norm: str, normalizer: Normalizer) -> bool:
+    """A stored name of `c` with the normalised form `norm` starts with an article or an
+    elision (« la clé d'os »): the written one keeps its own."""
+    names = [a.alias for a in c.aliases if a.alias_norm == norm]
+    if normalizer.norm(c.label) == norm:
+        names.append(c.label)
+    return any(normalizer.key(name) != norm for name in names)
+
+
 def _unknown_alias(c: Candidate, norm: str):
     """The alias of `c` an exact form matches when the protagonist does not know it."""
-    alias = next((a for a in c.aliases if a.alias_norm == norm), None)
+    alias = _matched(c, norm)
     return alias if alias is not None and not alias.known else None
 
 
@@ -185,6 +232,26 @@ def _exact(
     return base
 
 
+def _decision(
+    runs: _Runs,
+    i: int,
+    end: int,
+    c: Candidate,
+    norm: str,
+    revealed: set[UUID],
+    config: IdentityConfig,
+) -> MentionDecision:
+    """The prepass decision on words [i, end), its span without a leading article the
+    matched name does not hold."""
+    words = runs.words
+    first = runs.name_start(i, end, c, norm)
+    surface = runs.text[words[first].start() : words[end - 1].end()]
+    before = " ".join(
+        w.group() for w in words[max(0, first - config.before_words) : first]
+    )
+    return _exact(surface, before, c, norm, revealed, words[first].start())
+
+
 def scan(
     text: str,
     candidates: CandidateSet,
@@ -222,10 +289,11 @@ def scan(
             continue
         end, surface, c, norm = hit
         start = max(0, i - config.before_words)
-        before = " ".join(w.group() for w in words[start:i])
         if runs.continued(i, end) or runs.announced_other(i):
             pass  # likely another entity: the model decides it unprompted
-        elif runs.common_use(surface, c, norm):
+        elif runs.common_use(surface, c, norm) or runs.short_after_opening_name(
+            i, c, norm
+        ):
             # Shown to the model as written: the words before, punctuation included.
             written = " ".join(text[words[start].start() : words[i].start()].split())
             doubt = MentionDecision(
@@ -237,6 +305,6 @@ def scan(
             )
             doubts.append(doubt)
         else:
-            found.append(_exact(surface, before, c, norm, revealed, words[i].start()))
+            found.append(_decision(runs, i, end, c, norm, revealed, config))
         i = end
     return found, doubts
