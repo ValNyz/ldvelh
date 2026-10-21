@@ -214,7 +214,7 @@ export default function EntityTooltip({ children, data, className = '' }) {
 						{/* Header avec couleur selon type */}
 						<div className={`${colors.bg} px-3 py-2 border-b ${colors.border}`}>
 							<div className="flex items-center gap-2">
-								<span className="text-lg">{icon}</span>
+								{icon && <span className="text-lg">{icon}</span>}
 								<div className="flex-1 min-w-0">
 									<div className="font-semibold text-white truncate">{displayName}</div>
 									<div className={`text-xs ${colors.text} opacity-80`}>{typeLabel}</div>

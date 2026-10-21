@@ -2,30 +2,45 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { tooltipsApi } from '../lib/api';
+import {
+	chunks, idsToFetch, latestLabels, mergeSpans, pruneCache, purgeSpans,
+	referencedEntities, spansSignature, tooltipMapOf,
+} from '../lib/game/annotations.mjs';
 
 const POLL_INTERVAL = 5000;
 const MAX_POLLS = 12;
+// Annotated messages per request (the backend's cap) and pages read back at most.
+const PAGE_SIZE = 50;
+const MAX_PAGES = 20;
+// Entity ids per batch tooltip request (the backend's cap).
+const IDS_PER_REQUEST = 100;
 
 /**
  * Hook to load the stored entity mentions of the narration and their tooltips.
  *
- * After each turn, call refresh() to start polling for new annotations. It builds:
- * - spansByMessage: { message_id: [{ start, end, entity_id }] }, the mentions of each
- *   annotated message (offsets in its raw text);
- * - tooltipMap: { entity_id: { icon, name, type, infos, relation } }, fetched by id
- *   (its `name` is what the player may read).
+ * `messageIds`: the ids of the messages the chat shows. After each turn, call refresh()
+ * to poll for new annotations. It keeps:
+ * - spansByMessage: { message_id: [{ start, end, entity_id, ... }] }. Each response is
+ *   merged in (lib/game/annotations.mjs): the latest page, and the older pages read back
+ *   with `before` while they bring messages not seen yet, so every shown message keeps
+ *   its mentions. A message leaves the map when the chat no longer shows it;
+ * - tooltipMap: { entity_id: tooltip }, from a cache keyed by id and label: only new ids
+ *   and renamed entities are fetched, in one batch request; a failed id is asked again
+ *   on the next fetch.
  *
- * The annotations are rebuilt when the set of (message_id, number of annotations)
- * changes, not when a total grows: a rollback or a regeneration that removes messages is
- * seen, and the keys of messages and entities no longer annotated are dropped.
+ * Work started for another game is ignored (a generation counter).
  */
-export function useTooltips(gameId) {
+export function useTooltips(gameId, messageIds = []) {
 	const [tooltipMap, setTooltipMap] = useState({});
 	const [spansByMessage, setSpansByMessage] = useState({});
 	const [isLoading, setIsLoading] = useState(false);
 	const pollRef = useRef(null);
 	const pollCountRef = useRef(0);
-	const signatureRef = useRef('');
+	const generationRef = useRef(0);
+	const spansRef = useRef({});
+	const cacheRef = useRef({});
+	const liveIdsRef = useRef(messageIds);
+	liveIdsRef.current = messageIds;
 
 	const stopPolling = useCallback(() => {
 		if (pollRef.current) {
@@ -35,57 +50,99 @@ export function useTooltips(gameId) {
 		pollCountRef.current = 0;
 	}, []);
 
-	// Another game: nothing of the previous one is kept.
+	// Another game: nothing of the previous one is kept, and its work in flight is void.
 	useEffect(() => {
+		generationRef.current += 1;
 		stopPolling();
-		signatureRef.current = '';
+		spansRef.current = {};
+		cacheRef.current = {};
 		setTooltipMap({});
 		setSpansByMessage({});
 	}, [gameId, stopPolling]);
 
+	// Messages gone from the chat (rollback, regeneration) lose their mentions.
+	const liveKey = messageIds.join(',');
+	useEffect(() => {
+		const kept = purgeSpans(spansRef.current, liveIdsRef.current);
+		if (kept === spansRef.current) return;
+		spansRef.current = kept;
+		cacheRef.current = pruneCache(cacheRef.current, kept);
+		setSpansByMessage(kept);
+		setTooltipMap(tooltipMapOf(cacheRef.current));
+	}, [liveKey]);
+
+	/** The annotations of the latest page, then of older pages while they are new. */
+	const fetchAnnotations = useCallback(async () => {
+		let spans = spansRef.current;
+		let labels = {};
+		let before;
+		for (let page = 0; page < MAX_PAGES; page++) {
+			const data = await tooltipsApi.getAnnotations(gameId, { limit: PAGE_SIZE, before });
+			const messages = data?.messages || [];
+			const unseen = messages.some(m => !(m.message_id in spans));
+			labels = { ...latestLabels(messages), ...labels };
+			spans = mergeSpans(spans, messages, liveIdsRef.current);
+			if (messages.length < PAGE_SIZE || !unseen) break;
+			before = messages[messages.length - 1].sequence;
+		}
+		return { spans, labels };
+	}, [gameId]);
+
+	/**
+	 * The cache with the tooltips of `ids` put in, each under its latest label; ids whose
+	 * request failed stay out.
+	 */
+	const fetchTooltips = useCallback(async (ids, spans, labels, cache) => {
+		const next = { ...cache };
+		const annotation = referencedEntities(spans);
+		await Promise.all(chunks(ids, IDS_PER_REQUEST).map(async (part) => {
+			try {
+				const data = await tooltipsApi.getEntities(gameId, part);
+				for (const id of part) {
+					const label = labels[id] ?? annotation[id].label;
+					const type = annotation[id].entity_type;
+					// No entity behind the id: its player-safe label alone.
+					const tooltip = data?.tooltips?.[id] || { name: label, type, infos: [] };
+					next[id] = { label, tooltip };
+				}
+			} catch (err) {
+				console.error('[Tooltips] Entity fetch error:', err);
+			}
+		}));
+		return next;
+	}, [gameId]);
+
 	const fetchAndBuild = useCallback(async () => {
 		if (!gameId) return false;
-
+		const generation = generationRef.current;
 		try {
-			const data = await tooltipsApi.getAnnotations(gameId);
-			const messages = data?.messages || [];
-			const signature = annotationSignature(messages);
-			if (signature === signatureRef.current) return false;
-			signatureRef.current = signature;
-
-			const spans = {};
-			const entities = new Map();
-			for (const msg of messages) {
-				spans[msg.message_id] = msg.annotations.map(({ start, end, entity_id }) => ({ start, end, entity_id }));
-				for (const ann of msg.annotations) {
-					if (!entities.has(ann.entity_id)) entities.set(ann.entity_id, ann);
-				}
-			}
-
-			// One tooltip per entity, fetched again on each change: a reveal renames it.
-			const tooltips = {};
-			await Promise.all(Array.from(entities.values(), async (ann) => {
-				tooltips[ann.entity_id] = await fetchTooltip(gameId, ann);
-			}));
-
-			setSpansByMessage(spans);
-			setTooltipMap(tooltips);
-			console.debug(`[Tooltips] ${messages.length} annotated messages, ${entities.size} entities`);
-			return messages.length > 0;
+			const { spans, labels } = await fetchAnnotations();
+			if (generation !== generationRef.current) return false;
+			const changed = spansSignature(spans) !== spansSignature(spansRef.current);
+			const ids = idsToFetch(spans, cacheRef.current, labels);
+			const cache = ids.length
+				? await fetchTooltips(ids, spans, labels, cacheRef.current)
+				: cacheRef.current;
+			if (generation !== generationRef.current) return false;
+			spansRef.current = spans;
+			cacheRef.current = pruneCache(cache, spans);
+			if (changed) setSpansByMessage(spans);
+			if (changed || ids.length) setTooltipMap(tooltipMapOf(cacheRef.current));
+			return changed;
 		} catch (err) {
 			console.error('[Tooltips] Fetch error:', err);
 			return false;
 		}
-	}, [gameId]);
+	}, [gameId, fetchAnnotations, fetchTooltips]);
 
 	const refresh = useCallback(() => {
 		if (!gameId) return;
 		stopPolling();
-		pollCountRef.current = 0;
+		const generation = generationRef.current;
 		setIsLoading(true);
 
-		// Immediate first fetch
 		fetchAndBuild().then(hasNew => {
+			if (generation !== generationRef.current) return;
 			if (hasNew) {
 				setIsLoading(false);
 				return;
@@ -94,6 +151,7 @@ export function useTooltips(gameId) {
 			pollRef.current = setInterval(async () => {
 				pollCountRef.current++;
 				const found = await fetchAndBuild();
+				if (generation !== generationRef.current) return;
 				if (found || pollCountRef.current >= MAX_POLLS) {
 					stopPolling();
 					setIsLoading(false);
@@ -105,23 +163,4 @@ export function useTooltips(gameId) {
 	useEffect(() => stopPolling, [stopPolling]);
 
 	return { tooltipMap, spansByMessage, isLoading, refresh };
-}
-
-/** What identifies a set of annotated messages: each message id with its count. */
-function annotationSignature(messages) {
-	return messages
-		.map(m => `${m.message_id}:${m.annotations.length}`)
-		.sort()
-		.join('|');
-}
-
-/** The tooltip of an annotated entity; its player-safe label alone when the lookup fails. */
-async function fetchTooltip(gameId, ann) {
-	try {
-		const result = await tooltipsApi.getEntity(gameId, ann.entity_id);
-		if (result?.found && result.tooltip) return result.tooltip;
-	} catch {
-		// The label of the annotation is shown instead.
-	}
-	return { icon: '', name: ann.label, type: ann.entity_type, infos: [] };
 }

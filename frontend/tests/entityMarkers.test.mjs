@@ -85,6 +85,31 @@ test('a span inside a code block is dropped', () => {
 	assert.equal(injectEntityMarkers(inline, [span(inline, 'Vergence', A)]), inline);
 });
 
+test('a span right after ! or \\ is dropped (image, escaped bracket)', () => {
+	const bang = 'Quoi?!Vergence dort.';
+	assert.equal(injectEntityMarkers(bang, [span(bang, 'Vergence', A)]), bang);
+	const escaped = 'Un \\Vergence ici.';
+	assert.equal(injectEntityMarkers(escaped, [span(escaped, 'Vergence', A)]), escaped);
+});
+
+test('a span inside indented code or a tilde fence is dropped', () => {
+	const indented = 'Il récite :\n\n    Vergence se tait\n\nPuis rien.';
+	assert.equal(injectEntityMarkers(indented, [span(indented, 'Vergence', A)]), indented);
+	const tilde = 'Avant.\n~~~\nVergence\n~~~\nAprès.';
+	assert.equal(injectEntityMarkers(tilde, [span(tilde, 'Vergence', A)]), tilde);
+});
+
+test('a span inside a reference link or its definition is dropped', () => {
+	const text = 'Voir [la carte][Vergence] ici.\n\n[Vergence]: https://x.example';
+	assert.equal(injectEntityMarkers(text, [span(text, 'la carte', A)]), text);
+	assert.equal(injectEntityMarkers(text, [span(text, 'Vergence', A)]), text);
+	const definition = text.lastIndexOf('Vergence');
+	assert.equal(
+		injectEntityMarkers(text, [{ start: definition, end: definition + 8, entity_id: A }]),
+		text,
+	);
+});
+
 test('a span out of the text or empty is dropped', () => {
 	const text = 'Vergence.';
 	assert.equal(injectEntityMarkers(text, [{ start: 4, end: 40, entity_id: A }]), text);

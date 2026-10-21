@@ -60,7 +60,9 @@ function GameScreen({ user, logout }) {
 	const gamesHook = useGames();
 	const phaseHook = useGamePhase();
 	const prefs = usePreferences(user);
-	const { tooltipMap, spansByMessage, refresh: refreshTooltips } = useTooltips(gs.gameId);
+	// The chat's message ids: a message no longer shown loses its mentions.
+	const shownMessageIds = useMemo(() => gs.messages.map(m => m.id).filter(Boolean), [gs.messages]);
+	const { tooltipMap, spansByMessage, refresh: refreshTooltips } = useTooltips(gs.gameId, shownMessageIds);
 
 	// UI State
 	const [showState, setShowState] = useState(false);
