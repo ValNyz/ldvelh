@@ -1324,15 +1324,21 @@ async def full_name_aliases(
     conn, game_id: UUID, entity_type: str
 ) -> list[tuple[UUID, str]]:
     """(live entity, alias) of the non-secret whole-name aliases (FULL_NAME_KINDS) of the
-    live entities of the type, merges followed."""
+    live entities of the type, merges followed. The domain row is read once per entity,
+    not per alias."""
     rows = await conn.fetch(
-        """SELECT DISTINCT live.id AS entity_id, al.alias
-             FROM entity_aliases AS al
-            CROSS JOIN LATERAL (SELECT entity_follow_merge(al.entity_id) AS id) AS live
-            WHERE al.game_id = $1 AND al.entity_type = $2 AND NOT al.secret
-              AND al.kind = ANY($3::text[])
-              AND identity_domain_row($2, live.id) IS NOT NULL
-              AND (identity_domain_row($2, live.id) ->> 'removed_cycle') IS NULL""",
+        """WITH named AS (
+                SELECT DISTINCT entity_follow_merge(al.entity_id) AS id, al.alias
+                  FROM entity_aliases AS al
+                 WHERE al.game_id = $1 AND al.entity_type = $2 AND NOT al.secret
+                   AND al.kind = ANY($3::text[])),
+                alive AS (
+                SELECT live.id
+                  FROM (SELECT DISTINCT id FROM named) AS live
+                 CROSS JOIN LATERAL (SELECT identity_domain_row($2, live.id) AS row) AS dom
+                 WHERE dom.row IS NOT NULL AND (dom.row ->> 'removed_cycle') IS NULL)
+           SELECT named.id AS entity_id, named.alias
+             FROM named JOIN alive USING (id)""",
         game_id,
         str(entity_type),
         list(FULL_NAME_KINDS),
