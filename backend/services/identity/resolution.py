@@ -10,7 +10,9 @@ statements), so the caller holds no pool connection and no lock during a model c
 - a NEW creates its entity through IdentityService.create_entity (`source` resolver), with
   the surface cleaned by code as its label (no leading article for a descriptor, the case
   kept); a verified trap (two entities under one label) gets an internal suffix, an
-  ambiguous label creates nothing (`create_ambiguous`);
+  ambiguous label creates nothing (`create_ambiguous`). A label held by a candidate the
+  model was shown is a trap too: the model saw that card and decided NEW, so the new
+  entity is never folded into it;
 - an ALIAS adds its surface as an alias of the linked entity; an introduction by a true
   name goes through the reveal table instead;
 - every linked mention becomes entity_mentions rows (one per occurrence of its surface),
@@ -53,7 +55,7 @@ from services.identity.mentions import mention_rows
 
 logger = logging.getLogger(__name__)
 
-MATCH, ALIAS, NEW, UNSURE, _ = DECISIONS
+MATCH, ALIAS, NEW, UNSURE, SKIP = DECISIONS
 TRUE_NAME = "true_name"
 PROTAGONIST = "protagonist"
 DESCRIPTOR = "descriptor"
@@ -113,8 +115,18 @@ def _links(d: MentionDecision) -> bool:
 class _Application:
     """The writes of one turn's decisions, on the turn's connection."""
 
-    def __init__(self, identity, conn, turn: TurnRef, scene: SceneContext):
+    def __init__(
+        self,
+        identity,
+        conn,
+        turn: TurnRef,
+        scene: SceneContext,
+        shown: frozenset[UUID] = frozenset(),
+    ):
         self.identity, self.conn, self.turn, self.scene = identity, conn, turn, scene
+        # The candidates the model saw: a NEW decided over one of them is a distinct
+        # entity, never folded into it.
+        self.shown = shown
         self.errors: list[str | dict] = []
         self.created: dict[UUID, str] = {}  # new entity -> its type
         self.aliases_added = 0
@@ -244,7 +256,9 @@ class _Application:
         before = set(
             await entities.live_candidates(conn, identity.game_id, label, entity_type)
         )
-        trap = await self._is_trap(d, kind, before)
+        # A label held by a candidate the model was shown and decided against: the NEW is
+        # another entity under that label (a homonym), not a reuse of the candidate.
+        trap = bool(before & self.shown) or await self._is_trap(d, kind, before)
         spec = NewEntitySpec(
             entity_type,
             label,
@@ -336,14 +350,21 @@ async def apply(
 ) -> TurnResolution:
     """Apply a turn's decisions (see the module docstring); returns what was done."""
     decisions = decided.decisions
-    application = _Application(identity, conn, turn, scene)
+    shown = frozenset(
+        c.entity_id
+        for c in [*decided.candidates.ranked(), *decided.candidates.exact.values()]
+    )
+    application = _Application(identity, conn, turn, scene, shown)
     # The decisions as they stand now: a merge caught here is recorded like one caught
     # at decision time (tombstone_redirected).
     decisions = replace(
         decisions, decisions=await application.current(decisions.decisions)
     )
     linked = await application.link(decisions.decisions)
-    mentions = mention_rows(narration, linked, identity.normalizer)
+    unlinked = [
+        d for d in decisions.decisions if not d.ignored and d.decision in (UNSURE, SKIP)
+    ]
+    mentions = mention_rows(narration, linked, identity.normalizer, unlinked)
     await entities.insert_mentions(
         conn, identity.game_id, turn.message_id, turn.turn_id, mentions
     )

@@ -105,7 +105,8 @@ def placed(
     """(start, end, decision, entity) of every span, in text order: the pairs the app
     wrote its mentions from, on the spans it wrote; then the other live decisions
     (UNSURE, SKIP, a NEW that created nothing) on the spans left free."""
-    written = place(text, linked, normalizer)
+    unlinked = [d for d in decisions if not d.ignored and d.decision not in LINKING]
+    written = place(text, linked, normalizer, unlinked)
     taken = [(s, e) for s, e, _, _ in written]
     surfaces = {normalizer.fold(d.surface).strip() for d, _ in linked}
     others = [

@@ -89,6 +89,29 @@ def test_a_shorter_mention_inside_a_longer_one_is_dropped():
     ]
 
 
+def test_shared_surfaces_go_to_the_decision_whose_context_precedes_them():
+    """Three « Vauclair », decided one by one (by their `before` words): the house, the
+    castle, and one left UNSURE that no link may take."""
+    text = "Un parchemin. Vauclair signe. Le chemin de ronde, Vauclair veille. Les murs de Vauclair."
+    house, castle = UUID(int=1), UUID(int=2)
+    unsure = MentionDecision(surface="Vauclair", decision="UNSURE", before="Un parchemin.")
+    rows = mention_rows(
+        text,
+        [
+            (MentionDecision(surface="Vauclair", decision="MATCH",
+                             before="chemin de ronde,"), house),
+            (MentionDecision(surface="Vauclair", decision="MATCH",
+                             before="Les murs de"), castle),
+        ],
+        NORMALIZER,
+        [unsure],
+    )  # fmt: skip
+    assert [(text[: r.start_pos].split()[-1], r.entity_id) for r in rows] == [
+        ("ronde,", house),
+        ("de", castle),
+    ]
+
+
 # --- the turn, end to end ----------------------------------------------------------------
 
 
@@ -437,6 +460,34 @@ async def test_a_new_descriptor_is_labelled_without_its_article(test_pool, game)
     assert resolution.new_types == {"character"}
     assert [(i, line.is_new) for i, line in resolution.created] == [(row["id"], True)]
     assert [line.label for line in resolution.scene_entities] == ["Vieille au châle"]
+
+
+async def test_a_new_decided_over_a_shown_candidate_is_never_folded_into_it(
+    test_pool, game
+):
+    """« son terminal » (the cook's) decided NEW while the protagonist's « Terminal
+    personnel » (short alias « Terminal ») was on the cards: a new object, not a reuse."""
+    service = IdentityService(game, lang="fr", config=get_identity_config())
+    async with test_pool.acquire() as conn:
+        mine = await service.create_entity(
+            conn,
+            NewEntitySpec("object", "Terminal personnel", "proper_name"),
+            turn_id=None,
+            source="world_gen",
+        )
+        text = "Le cuisinier pose son terminal sur le comptoir. Terminal personnel."
+        resolution, _ = await _resolve(
+            conn,
+            game,
+            text,
+            [_mention("son terminal", "NEW", new_type="object", new_kind="descriptor")],
+        )
+        objects = await conn.fetch("SELECT id FROM objects WHERE game_id = $1", game)
+    [created] = [i for i, line in resolution.created]
+    assert created != mine and len(objects) == 2
+    assert {r.entity_id for r in resolution.mentions if r.surface == "son terminal"} == {
+        created
+    }
 
 
 async def test_an_alias_is_learned_and_a_true_name_is_revealed(test_pool, game):
