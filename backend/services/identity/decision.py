@@ -582,8 +582,10 @@ def scan(
         if runs.continued(i, end) or runs.announced_other(i):
             pass  # likely another entity: the model decides it unprompted
         elif runs.common_use(surface, c, norm):
+            # Shown to the model as written: the words before, punctuation included.
+            written = " ".join(text[words[start].start() : words[i].start()].split())
             doubt = MentionDecision(
-                surface, UNSURE, before, handle=format_handle(c.handle)
+                surface, UNSURE, written, handle=format_handle(c.handle)
             )
             doubts.append(doubt)
         else:

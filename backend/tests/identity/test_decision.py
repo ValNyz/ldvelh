@@ -508,6 +508,18 @@ async def test_a_short_form_left_by_the_prepass_is_asked_under_to_check():
     assert [d.entity_id for d in turn.decisions] == [case.entity_id]
 
 
+def test_to_check_quotes_the_text_as_written():
+    voss = _candidate(
+        3, "Atelier Voss", "location", aliases=[_alias("Coupleur", "short")]
+    )
+    exact = {NORMALIZER.norm("Coupleur"): voss}
+    text = "Un apprenti passe par l'atelier.\n\n— Voss, le coupleur, il est prêt."
+    _, [doubt] = decision.scan(
+        text, _set(voss, exact=exact), normalizer=NORMALIZER, config=CONFIG
+    )
+    assert (doubt.surface, doubt.before) == ("le coupleur", "l'atelier. — Voss,")
+
+
 def test_a_card_names_the_candidates_sharing_its_name_and_their_type():
     place = _candidate(3, "Méridienne", "location")
     ship = _candidate(4, "Méridienne", "object")
