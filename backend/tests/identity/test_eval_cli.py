@@ -589,7 +589,10 @@ async def test_a_cheap_only_directory_is_not_called_a_cascade(
     assert eval_identity.CHEAP_REPLAY_NOTE not in note
 
 
-def test_a_secret_name_the_world_already_shows_elsewhere_is_no_leak():
+def test_a_secret_word_inside_another_known_name_is_masked_not_forgotten():
+    """I2: « Ysmer » is secret (the pilgrim's name) and a word of the known « Lanterne
+    d'Ysmer »: the lantern's card discloses nothing, the pilgrim's card or an output
+    tying « Ysmer » to him does (the old check dropped the name for the whole scene)."""
     data = _scene()
     pilgrim = {"id": "character_pilgrim", "type": "character", "label": "Le pèlerin",
                "known": False, "secret": True, "true_name": "Ysmer Vael",
@@ -603,5 +606,10 @@ def test_a_secret_name_the_world_already_shows_elsewhere_is_no_leak():
         {**data, "world": [*data["world"], pilgrim, lantern],
          "scene": {**data["scene"], "secrets": ["character_pilgrim"]}}
     )  # fmt: skip
-    assert "Ysmer" not in leaks.secret_names(scene)
-    assert leaks.leak_count(scene, ['E9 · object · "Lanterne d\'Ysmer"'], []) == 0
+    assert "Ysmer" in leaks.secret_names(scene)
+    lantern_card = 'E9 · object · "Lanterne d\'Ysmer" · aliases: "Ysmer", "Lanterne"'
+    assert leaks.leak_count(scene, [lantern_card], []) == 0
+    holder_card = 'E4 · character · "le pèlerin" · aliases: "Ysmer"'
+    assert leaks.leak_count(scene, [holder_card], []) == 1
+    output = '{"surface": "le pèlerin", "handle": "E4", "evidence": "Ysmer, true name"}'
+    assert leaks.leak_count(scene, [], [output]) == 1

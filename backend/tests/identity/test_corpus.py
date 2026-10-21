@@ -1414,3 +1414,14 @@ def test_the_carried_rule_reads_second_person_possessives_of_names_and_history()
         Scene.model_validate(
             {**data, "world": [{**data["world"][1], "carried": True}, *data["world"]]}
         )
+
+
+def test_every_corpus_language_has_second_person_possessives():
+    """The carried rule needs the list: a language without it would flag nothing."""
+    from evals.identity.lexicon import load_lexicon
+
+    languages = {s.language for s in corpus.load_scenes(ROOT)}
+    languages |= {t.language for q in corpus.load_sequences(ROOT) for t in q.turns}
+    assert languages and all(
+        load_lexicon(lang).second_person_possessives for lang in languages
+    )

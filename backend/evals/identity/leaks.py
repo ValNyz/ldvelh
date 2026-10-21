@@ -2,9 +2,11 @@
 
 A secret name of a scene is a name its gold knowledge marks secret (`kind: name`,
 `state: secret`) or an alias the world flags secret (the alias or its whole entity),
-unless an open name disclosure of the scene lets it through, or the world already shows it:
-a name that is a whole word of a known, non-secret name of another entity (a place named
-after a person whose identity is the secret) discloses nothing. The resolver leaks it when
+unless an open name disclosure of the scene lets it through. Inside a known, non-secret
+name of another entity (a place named after the person whose identity is the secret) the
+word discloses nothing: those spans are masked before searching, and the card line of such
+an entity (its name and the forms the app derives from it) is left out; everywhere else
+the name counts, on its holder's own card first of all. The resolver leaks it when
 a candidate card shows it (the app never shows a secret alias without an open
 disclosure, even one the narration contains), or when the rest of a request or a
 model's output holds it while the narration does not (an echo of the text the resolver
@@ -34,44 +36,47 @@ def _normalizer(language: str) -> Normalizer:
     return Normalizer(load_lang(language), get_identity_config())
 
 
-def secret_names(scene: Scene) -> list[str]:
-    """Every undisclosed secret name of `scene` (see the module doc)."""
+def _secret_owners(scene: Scene) -> dict[str, str | None]:
+    """Each undisclosed secret name of `scene` and the world id that holds it."""
     disclosed = {d.handle for d in scene.scene.open_disclosures if d.kind == NAME}
-    names = [
-        k.text
-        for k in scene.gold_knowledge
-        if k.kind == NAME and k.state == SECRET and k.ref not in disclosed
-    ]
-    owner = {
+    owners: dict[str, str | None] = {
         k.text: k.ref
         for k in scene.gold_knowledge
-        if k.kind == NAME and k.state == SECRET
+        if k.kind == NAME and k.state == SECRET and k.ref not in disclosed
     }
     for entity in scene.world:
         if entity.id in disclosed:
             continue
         for a in entity.aliases:
             if a.secret or entity.secret:
-                names.append(a.text)
-                owner.setdefault(a.text, entity.id)
-    normalizer = _normalizer(scene.language)
+                owners.setdefault(a.text, entity.id)
+    return {name: owner for name, owner in owners.items() if name.strip()}
+
+
+def secret_names(scene: Scene) -> list[str]:
+    """Every undisclosed secret name of `scene` (see the module doc)."""
+    return list(_secret_owners(scene))
+
+
+def _others_known(scene: Scene, holder: str | None) -> list[str]:
+    """The known, non-secret names of the entities other than `holder`."""
     return [
-        name
-        for name in dict.fromkeys(n for n in names if n.strip())
-        if not _shown_elsewhere(scene, name, owner.get(name), normalizer)
-    ]
-
-
-def _shown_elsewhere(scene: Scene, name: str, holder: str | None, normalizer) -> bool:
-    """`name` is a word of a name the protagonist knows of another, non-secret entity."""
-    shown = [
         a.text
         for e in scene.world
         if e.id != holder and not e.secret
         for a in e.aliases
         if a.known and not a.secret
     ]
-    return _in(name, shown, normalizer)
+
+
+def _masked(text: str, names: list[str], normalizer: Normalizer) -> str:
+    """`text` with every span of `names` blanked: a secret word inside another entity's
+    known name (a place named after the secret person) discloses nothing there."""
+    chars = list(text)
+    for name in names:
+        for start, end in find_spans(text, name, normalizer):
+            chars[start:end] = " " * (end - start)
+    return "".join(chars)
 
 
 def _in(name: str, texts: list[str], normalizer: Normalizer) -> bool:
@@ -80,11 +85,25 @@ def _in(name: str, texts: list[str], normalizer: Normalizer) -> bool:
 
 def leak_count(scene: Scene, cards: list[str], texts: list[str]) -> int:
     """How many secret names of `scene` a card shows, or the other request text and
-    the outputs hold while the narration does not."""
+    the outputs hold while the narration does not. The spans of the other entities'
+    known names are masked first; the holder's own names never are."""
     normalizer = _normalizer(scene.language)
-    narration = [scene.narration]
-    return sum(
-        _in(name, cards, normalizer)
-        or (not _in(name, narration, normalizer) and _in(name, texts, normalizer))
-        for name in secret_names(scene)
-    )
+    count = 0
+    for name, holder in _secret_owners(scene).items():
+        others = _others_known(scene, holder)
+        # Another entity's known names that hold the word: its card line (the name and
+        # the forms the app derives from it) discloses nothing.
+        bearers = [n for n in others if find_spans(n, name, normalizer)]
+
+        def seen(texts: list[str]) -> bool:
+            return _in(
+                name, [_masked(t, others, normalizer) for t in texts], normalizer
+            )
+
+        own_cards = [c for c in cards if not _in_any(bearers, c, normalizer)]
+        count += seen(own_cards) or (not seen([scene.narration]) and seen(texts))
+    return count
+
+
+def _in_any(names: list[str], text: str, normalizer: Normalizer) -> bool:
+    return any(find_spans(text, n, normalizer) for n in names)

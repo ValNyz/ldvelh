@@ -31,6 +31,11 @@ def _possessed(lexicon, surface: str) -> bool:
 def carried_objects(scene: Scene) -> set[str]:
     """The world ids of the objects the protagonist carries in `scene` (see above)."""
     lexicon = load_lexicon(scene.language)
+    if not lexicon.second_person_possessives:
+        raise ValueError(
+            f"no second_person_possessives in the {scene.language!r} evaluation lexicon:"
+            " the carried rule cannot run"
+        )
     objects = {e.id for e in scene.world if e.type == OBJECT}
     carried = {
         e.id
