@@ -182,3 +182,63 @@ test('the world panel sets apart an NPC not identified, under its descriptor', a
 	await expect(unknown.locator('span.italic')).toBeVisible();
 	await expect(page.locator('[data-known="true"]')).toHaveText('Ossek');
 });
+
+test('a merge after a turn reaches the mentions of an older page of annotations', async ({ page }) => {
+	// 55 annotated narrator messages name a guard (OTHER_ID). The turn merges it into
+	// ENTITY_ID: every stored mention now points at the survivor under its true name. The
+	// turn's own narration names nobody, so page 1 brings no unseen message: the older
+	// page is read back because page 1 changed known spans.
+	const narration = 'Le garde salue.';
+	const messages = [];
+	const mentions = (id, label) => {
+		const out = [];
+		for (let i = 1; i <= 55; i++) {
+			out.unshift({
+				message_id: `dddddddd-0000-0000-0000-${String(i).padStart(12, '0')}`,
+				sequence: i,
+				annotations: [annotation(narration, 'garde', label, { id })],
+			});
+		}
+		return out;
+	};
+	for (let i = 1; i <= 55; i++) {
+		messages.push({ id: `dddddddd-0000-0000-0000-${String(i).padStart(12, '0')}`, role: 'assistant', content: `${narration} (${i})` });
+	}
+	let merged = false;
+	const api = await mockApi(page, {
+		...gameMocks(messages, [], {}),
+		[`GET /games/${GAME_ID}`]: () => ({
+			state: { game: { name: 'Partie Brume', engine: 'none' }, world_created: true },
+			messages,
+		}),
+		'GET /tooltips/annotations': (body, url) => annotationPages(
+			merged ? mentions(ENTITY_ID, 'Tesk Vahrun') : mentions(OTHER_ID, 'le garde'))(body, url),
+		'GET /tooltips/entities': (body, url) => entityTooltips(
+			merged ? { [ENTITY_ID]: tooltip('Tesk Vahrun') } : { [OTHER_ID]: tooltip('le garde') })(body, url),
+		'POST /chat': () => {
+			merged = true;
+			return { __sse: [
+				{ type: 'chunk', content: 'La porte grince.' },
+				{ type: 'done', displayText: 'La porte grince.', state: {} },
+				{ type: 'saved' },
+			] };
+		},
+	});
+	await openGame(page);
+	await expect(page.locator(TAGGED)).toHaveCount(55);
+
+	const input = page.getByPlaceholder(/Ton action/);
+	await input.fill('Je salue le garde.');
+	await input.press('Control+Enter');
+	await expect(page.getByText('La porte grince.')).toBeVisible();
+
+	// The oldest message (on page 2) shows the survivor's tooltip.
+	const oldest = page.locator(TAGGED).first();
+	await expect(async () => {
+		await page.mouse.move(0, 0);
+		await oldest.hover();
+		await expect(page.locator('div.fixed.z-50').getByText('Tesk Vahrun')).toBeVisible({ timeout: 500 });
+	}).toPass();
+	// One batch request before the turn (the guard), one after it (the survivor).
+	expect(api.calls.filter(c => c.path === '/tooltips/entities')).toHaveLength(2);
+});

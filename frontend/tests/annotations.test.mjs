@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-	chunks, idsToFetch, latestLabels, mergeSpans, pruneCache, purgeSpans, spansSignature,
+	changesSpans, chunks, idsToFetch, latestLabels, mergeSpans, pruneCache, purgeSpans, spansSignature,
 	tooltipMapOf,
 } from '../lib/game/annotations.mjs';
 
@@ -62,4 +62,20 @@ test('only new ids and renamed entities are fetched; the cache follows the spans
 test('ids are sent in chunks of the backend cap', () => {
 	assert.deepEqual(chunks([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
 	assert.deepEqual(chunks([], 2), []);
+});
+
+test('a response changes the spans when a message is new or its spans differ', () => {
+	const known = { m1: [ann('a', 'Ana')], m2: [ann('b', 'le garde')] };
+	const same = [
+		{ message_id: 'm2', sequence: 2, annotations: [ann('b', 'le garde')] },
+		{ message_id: 'm1', sequence: 1, annotations: [ann('a', 'Ana')] },
+	];
+	assert.equal(changesSpans(known, same), false);
+	assert.equal(changesSpans(known, []), false);
+	// A new message.
+	assert.equal(changesSpans(known, [{ message_id: 'm3', sequence: 3, annotations: [] }]), true);
+	// A reveal renames the entity of a known message.
+	assert.equal(changesSpans(known, [{ message_id: 'm2', sequence: 2, annotations: [ann('b', 'Tesk')] }]), true);
+	// A merge moves a known mention to the surviving id.
+	assert.equal(changesSpans(known, [{ message_id: 'm2', sequence: 2, annotations: [ann('k', 'le garde')] }]), true);
 });

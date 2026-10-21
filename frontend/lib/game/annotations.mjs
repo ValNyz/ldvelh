@@ -30,12 +30,27 @@ export function purgeSpans(spans, liveIds) {
 	return Object.keys(kept).length === Object.keys(spans).length ? spans : kept;
 }
 
+/** What identifies the mentions of one message: its spans with their ids and labels. */
+function messageSignature(anns) {
+	return anns.map(a => `${a.start}-${a.end}-${a.entity_id}-${a.label}`).join(',');
+}
+
 /** What identifies the mentions of `spans`: each message with its spans and labels. */
 export function spansSignature(spans) {
 	return Object.entries(spans)
-		.map(([id, anns]) => `${id}:${anns.map(a => `${a.start}-${a.end}-${a.entity_id}-${a.label}`).join(',')}`)
+		.map(([id, anns]) => `${id}:${messageSignature(anns)}`)
 		.sort()
 		.join('|');
+}
+
+/**
+ * Whether `messages` (a response) would change `spans`: a message not known yet, or one
+ * whose spans differ from the known ones (a reveal or a merge renames an entity or moves
+ * a mention to the surviving id).
+ */
+export function changesSpans(spans, messages) {
+	return (messages || []).some(m =>
+		!(m.message_id in spans) || messageSignature(spans[m.message_id]) !== messageSignature(m.annotations));
 }
 
 /** The current label of each entity of `messages` (a response: labels are fresh). */

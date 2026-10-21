@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { tooltipsApi } from '../lib/api';
 import {
-	chunks, idsToFetch, latestLabels, mergeSpans, pruneCache, purgeSpans,
+	changesSpans, chunks, idsToFetch, latestLabels, mergeSpans, pruneCache, purgeSpans,
 	referencedEntities, spansSignature, tooltipMapOf,
 } from '../lib/game/annotations.mjs';
 
@@ -22,8 +22,9 @@ const IDS_PER_REQUEST = 100;
  * to poll for new annotations. It keeps:
  * - spansByMessage: { message_id: [{ start, end, entity_id, ... }] }. Each response is
  *   merged in (lib/game/annotations.mjs): the latest page, and the older pages read back
- *   with `before` while they bring messages not seen yet, so every shown message keeps
- *   its mentions. A message leaves the map when the chat no longer shows it;
+ *   with `before` while they bring a message not seen yet or change a known one (a
+ *   reveal or a merge), so every shown message keeps its mentions up to date. A message
+ *   leaves the map when the chat no longer shows it;
  * - tooltipMap: { entity_id: tooltip }, from a cache keyed by id and label: only new ids
  *   and renamed entities are fetched, in one batch request; a failed id is asked again
  *   on the next fetch.
@@ -71,7 +72,7 @@ export function useTooltips(gameId, messageIds = []) {
 		setTooltipMap(tooltipMapOf(cacheRef.current));
 	}, [liveKey]);
 
-	/** The annotations of the latest page, then of older pages while they are new. */
+	/** The annotations of the latest page, then of older pages while they change something. */
 	const fetchAnnotations = useCallback(async () => {
 		let spans = spansRef.current;
 		let labels = {};
@@ -79,10 +80,10 @@ export function useTooltips(gameId, messageIds = []) {
 		for (let page = 0; page < MAX_PAGES; page++) {
 			const data = await tooltipsApi.getAnnotations(gameId, { limit: PAGE_SIZE, before });
 			const messages = data?.messages || [];
-			const unseen = messages.some(m => !(m.message_id in spans));
+			const changes = changesSpans(spans, messages);
 			labels = { ...latestLabels(messages), ...labels };
 			spans = mergeSpans(spans, messages, liveIdsRef.current);
-			if (messages.length < PAGE_SIZE || !unseen) break;
+			if (messages.length < PAGE_SIZE || !changes) break;
 			before = messages[messages.length - 1].sequence;
 		}
 		return { spans, labels };
