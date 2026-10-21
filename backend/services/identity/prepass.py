@@ -31,8 +31,6 @@ SHORT = "short"
 # Stored kinds of a name (not a description nor a short form): unknown, it is the name the
 # narration reveals.
 UNKNOWN_NAME_KINDS = frozenset({TRUE_NAME, "label"})
-# Characters read after a name for an ordinal marker and its number.
-_AHEAD = 32
 
 
 def _joins(normalizer: Normalizer) -> re.Pattern[str]:
@@ -90,10 +88,13 @@ class _Runs:
         number right after it (or after an ordinal marker of the pack: « Quai n°9 »),
         or (where letter case marks names) a capitalised word right after it (past
         articles), or before it in mid-sentence (a title aside)."""
-        stop = self.words[end - 1].end()
-        tail = self.text[stop : stop + _AHEAD]
-        if self.normalizer.opens_with_number(tail):
-            return True  # an ordinal marker of the pack, then a number
+        if end < len(self.words):
+            # A marker is one word (packs.loader): the next two words hold it and the number.
+            last = self.words[min(end + 1, len(self.words) - 1)]
+            if self.normalizer.opens_with_number(
+                self.text[self.words[end - 1].end() : last.end()]
+            ):
+                return True
         after = end
         while after < len(self.words) and self.adjacent(after - 1, after):
             word = self.words[after].group()
