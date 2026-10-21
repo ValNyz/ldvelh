@@ -1560,3 +1560,93 @@ async def insert_protagonist_item(conn, game_id: UUID, object_id: UUID) -> None:
         game_id,
         object_id,
     )
+
+
+# Tooltips (spec §4.9): what the player may read of an entity, by id.
+
+
+async def annotated_messages(
+    conn, game_id: UUID, limit: int
+) -> list[tuple[UUID, int]]:
+    """(id, sequence) of the game's `limit` latest assistant messages holding a stored
+    mention, latest first."""
+    rows = await conn.fetch(
+        """SELECT m.id, m.sequence FROM messages AS m
+            WHERE m.game_id = $1 AND m.role = 'assistant'
+              AND EXISTS (SELECT 1 FROM entity_mentions AS em
+                           WHERE em.game_id = $1 AND em.message_id = m.id)
+            ORDER BY m.sequence DESC, m.created_at DESC
+            LIMIT $2""",
+        game_id,
+        limit,
+    )
+    return [(r["id"], r["sequence"]) for r in rows]
+
+
+@dataclass(frozen=True)
+class TooltipRow:
+    """What a tooltip is built from, for the live entity behind an id.
+
+    `label`: what the player may read (_READABLE_LABEL; None when nothing is readable);
+    `label_secret`: display_for_player is a secret name (then `label` is a substitute);
+    `details`: the domain row (internal: the caller picks what it shows); `relation_type`:
+    an open relation of the entity; `ambient_names_hidden`: its ambient text holds one of
+    its names the player may not read (an unknown or secret alias, its true name)."""
+
+    entity_id: UUID
+    entity_type: str
+    label: str | None
+    label_secret: bool
+    details: dict
+    relation_type: str | None
+    ambient_names_hidden: bool
+
+
+# $1 the game, $2 the id (a merge tombstone is followed), $3 the disclosed entities (none
+# for the player).
+_AMBIENT_WORDS = "' ' || ldvelh_norm_for_game($1, dom.row ->> 'ambient') || ' '"
+_TOOLTIP_SQL = f"""SELECT er.id AS entity_id, er.entity_type,
+                  {_READABLE_LABEL.format(id="er.id")} AS label,
+                  {_LABEL_SECRET.format(id="er.id")} AS label_secret,
+                  dom.row AS details,
+                  (SELECT r.type::text FROM relations AS r
+                    WHERE r.game_id = $1 AND r.source_id = er.id AND r.end_cycle IS NULL
+                    LIMIT 1) AS relation_type,
+                  coalesce(position(' ' || ldvelh_norm_for_game($1, dom.row ->> 'true_name')
+                                    || ' ' IN {_AMBIENT_WORDS}) > 0, false)
+                  OR EXISTS (SELECT 1 FROM entity_aliases AS al
+                              WHERE al.game_id = $1 AND al.entity_id = er.id
+                                AND (al.secret OR NOT al.known)
+                                AND al.kind <> 'descriptor'
+                                AND position(' ' || al.alias_norm || ' '
+                                             IN {_AMBIENT_WORDS}) > 0)
+                      AS ambient_names_hidden
+             FROM entity_registry AS er
+            CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
+                  AS dom
+            WHERE er.game_id = $1 AND er.id = entity_follow_merge($2)"""
+
+
+async def tooltip_row(conn, game_id: UUID, entity_id: UUID) -> TooltipRow | None:
+    """The tooltip source of the live entity behind `entity_id` (merges followed); None
+    when the id is no entity of the game."""
+    row = await conn.fetchrow(_TOOLTIP_SQL, game_id, entity_id, [])
+    if row is None:
+        return None
+    values = dict(row)
+    details = values.pop("details") or {}
+    if not isinstance(details, dict):
+        details = json.loads(details)
+    return TooltipRow(
+        **{**values, "label_secret": bool(values["label_secret"])}, details=details
+    )
+
+
+async def arc_tooltip_row(conn, game_id: UUID, arc_id: UUID) -> dict | None:
+    """Title and domain of a narrative arc of the game (None: no such arc)."""
+    row = await conn.fetchrow(
+        "SELECT title, domain FROM narrative_arcs WHERE game_id = $1 AND id = $2",
+        game_id,
+        arc_id,
+    )
+    return dict(row) if row else None

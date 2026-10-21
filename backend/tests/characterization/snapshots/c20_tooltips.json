@@ -1,4 +1,11 @@
 {
+  "annotation_keys": [
+    "end",
+    "entity_id",
+    "entity_type",
+    "label",
+    "start"
+  ],
   "annotations": [
     {
       "annotations": [
@@ -6,13 +13,15 @@
           5,
           19,
           "Le Quart de Cycle",
-          "location"
+          "location",
+          true
         ],
         [
           144,
           149,
           "Ossek",
-          "character"
+          "character",
+          true
         ]
       ],
       "sequence_present": true
@@ -23,13 +32,15 @@
           5,
           19,
           "Le Quart de Cycle",
-          "location"
+          "location",
+          true
         ],
         [
           144,
           149,
           "Ossek",
-          "character"
+          "character",
+          true
         ]
       ],
       "sequence_present": true
@@ -43,7 +54,7 @@
         "Humeur: tendue, irritable"
       ],
       "name": "Inconnu(e)",
-      "relation": "works_at",
+      "relation": null,
       "type": "character"
     }
   },
@@ -62,8 +73,6 @@
     }
   },
   "missing": {
-    "found": false,
-    "name": "Nobody At All",
-    "type": "character"
+    "found": false
   }
 }

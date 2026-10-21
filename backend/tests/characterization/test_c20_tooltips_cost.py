@@ -6,14 +6,14 @@ These pin current behavior of paths that had no direct test before the refactor.
 import json
 from uuid import UUID
 
-from tests.characterization import payloads
 from tests.characterization.snapshot import assert_snapshot
 
 
 async def test_c20_tooltips_annotations_and_entity(harness, world_game):
     # The default narration names "Ossek" and "Quart de Cycle" exactly: the deterministic
-    # prepass of the resolver v2 links both (the scripted model adds nothing), so spans are
-    # stored with the label the player may read (#154).
+    # prepass of the resolver v2 links both (the scripted model adds nothing), so their
+    # mentions are stored and served by entity id with the label the player may read
+    # (#154, #155).
     await harness.chat(world_game, "Je regarde autour de moi.")
     await harness.drain()
 
@@ -23,35 +23,38 @@ async def test_c20_tooltips_annotations_and_entity(harness, world_game):
     ann = r.json()
     async with harness.pool.acquire() as conn:
         char = await conn.fetchval(
-            "SELECT name FROM characters WHERE game_id = $1 ORDER BY name LIMIT 1", world_game)
+            "SELECT id FROM characters WHERE game_id = $1 ORDER BY name LIMIT 1", world_game)
         loc = await conn.fetchval(
-            "SELECT name FROM locations WHERE game_id = $1 ORDER BY name LIMIT 1", world_game)
-    found_char = await harness.client.get(
-        "/api/tooltips/entity",
-        params={"gameId": world_game, "name": char, "entityType": "character"},
-        headers=harness.headers)
-    found_loc = await harness.client.get(
-        "/api/tooltips/entity",
-        params={"gameId": world_game, "name": loc, "entityType": "location"},
-        headers=harness.headers)
-    missing = await harness.client.get(
-        "/api/tooltips/entity",
-        params={"gameId": world_game, "name": "Nobody At All", "entityType": "character"},
-        headers=harness.headers)
+            "SELECT id FROM locations WHERE game_id = $1 ORDER BY name LIMIT 1", world_game)
+
+    async def tooltip(entity_id) -> dict:
+        r = await harness.client.get(
+            "/api/tooltips/entity", params={"gameId": world_game, "id": str(entity_id)},
+            headers=harness.headers)
+        assert r.status_code == 200
+        return r.json()
+
+    found_char, found_loc = await tooltip(char), await tooltip(loc)
+    missing = await tooltip(UUID(int=0))
+    mentioned = {a["entity_id"] for m in ann["messages"] for a in m["annotations"]}
     assert ann["messages"], "resolved mentions must produce stored annotation spans"
-    assert found_char.json()["found"] is True
-    assert found_loc.json()["found"] is True
-    assert missing.json()["found"] is False
+    assert found_char["found"] is True
+    assert found_loc["found"] is True
+    assert missing["found"] is False
+    assert all([(await tooltip(entity_id))["found"] for entity_id in mentioned])
     assert_snapshot("c20_tooltips", {
         "annotations": [
             {"sequence_present": m["sequence"] is not None,
-             "annotations": [[a["start"], a["end"], a["label"], a["entity_type"]]
+             "annotations": [[a["start"], a["end"], a["label"], a["entity_type"],
+                              _is_uuid(a["entity_id"])]
                              for a in m["annotations"]]}
             for m in ann["messages"]
         ],
-        "character_tooltip": found_char.json(),
-        "location_tooltip": found_loc.json(),
-        "missing": missing.json(),
+        "annotation_keys": sorted({k for m in ann["messages"] for a in m["annotations"]
+                                   for k in a}),
+        "character_tooltip": found_char,
+        "location_tooltip": found_loc,
+        "missing": missing,
     })
 
 

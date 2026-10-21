@@ -30,7 +30,7 @@ GAME_SCOPED_CALLS = {
     ("POST", "/api/chat"): {"json": {"gameId": GAME, "message": "Salut"}},
     ("GET", "/api/tooltips/annotations"): {"params": {"gameId": GAME}},
     ("GET", "/api/tooltips/entity"): {
-        "params": {"gameId": GAME, "name": "Rook", "entityType": "character"},
+        "params": {"gameId": GAME, "id": "00000000-0000-0000-0000-000000000000"},
     },
 }
 TOOLTIP_ROUTES = [key for key in GAME_SCOPED_CALLS if key[1].startswith("/api/tooltips/")]
