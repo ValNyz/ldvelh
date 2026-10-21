@@ -2,7 +2,10 @@
 
 `load_world` creates the protagonist and the companion as game creation does (their domain
 row), every other entity of the `world` snapshot through the identity service (derived
-aliases, then the snapshot's own with their flags), and one assistant message
+aliases, then the snapshot's own with their flags), mapped to what the app would hold: a
+character is known to the protagonist only when its true name is known and not secret, a
+non-character is stored under the name the protagonist can read (its hidden canonical
+label stays an alias with its own flags), and one assistant message
 per past turn: the `history` messages for the last turns, with their gold mentions; for
 the earlier turns, a message that mentions each entity last seen in that turn, so that
 the entity's last turn and the recent messages read like those of a game. An arc is not
@@ -28,6 +31,7 @@ ASSISTANT = "assistant"
 PROTAGONIST, COMPANION, CHARACTER = "protagonist", "companion", "character"
 LOCATION, ORGANIZATION = "location", "organization"
 NAME_DISCLOSURE = "name"
+DESCRIPTOR_KIND = "descriptor"
 # Gold decision of a link (scorer LINKS) -> entity_mentions.decision.
 _MATCH = "match"
 _MENTION_DECISION = {"MATCH": _MATCH, "ALIAS": "alias"}
@@ -97,7 +101,7 @@ def _spec(
                 CHARACTER,
                 entity.true_name,
                 "proper_name",
-                known=entity.known,
+                known=true_name_known(entity),
                 secret=entity.secret,
                 descriptor=entity.descriptor,
                 fields=fields,
@@ -113,14 +117,51 @@ def _spec(
         fields["parent_id"] = place
     if place is not None and entity.type == ORGANIZATION:
         fields["headquarters_id"] = place
+    name, kind = readable_name(entity)
     return NewEntitySpec(
         entity.type,
-        entity.label,
-        "proper_name",
-        known=entity.known,
+        name,
+        "descriptor" if kind == DESCRIPTOR_KIND else "proper_name",
+        known=True,
         secret=entity.secret,
         fields=fields,
     )
+
+
+def _same(a: str, b: str) -> bool:
+    return " ".join(a.casefold().split()) == " ".join(b.casefold().split())
+
+
+def _hidden(entity: WorldEntity, alias) -> bool:
+    return not alias.known or alias.secret or entity.secret
+
+
+def true_name_known(entity: WorldEntity) -> bool:
+    """The app's known_by_protagonist of a character: the PC knows its true name (the
+    true-name alias known and not secret). The corpus entity-level `known` means "knows
+    at least one name" (ANNOTATION § 3.1), which is not the same thing."""
+    own = [a for a in entity.aliases if _same(a.text, entity.true_name or "")]
+    if not own:
+        return entity.known
+    return all(not _hidden(entity, a) for a in own)
+
+
+def readable_name(entity: WorldEntity) -> tuple[str, str]:
+    """(name, kind) a non-character is stored under: its canonical label when the PC can
+    read it, else what the PC reads instead (a known, non-secret name, else a
+    descriptor), as a reveal would have it; the canonical label stays an alias with its
+    own flags. A whole-secret entity with nothing readable keeps its label."""
+    canonical = [a for a in entity.aliases if _same(a.text, entity.label)]
+    if not any(_hidden(entity, a) for a in canonical):
+        return entity.label, "label"
+    readable = [a for a in entity.aliases if not _hidden(entity, a)]
+    for wanted in (lambda a: a.kind != DESCRIPTOR_KIND, lambda a: True):
+        found = next((a for a in readable if wanted(a)), None)
+        if found is not None:
+            return found.text, found.kind
+    if entity.descriptor and not entity.secret:
+        return entity.descriptor, DESCRIPTOR_KIND
+    return entity.label, "label"
 
 
 async def _create_with_place(

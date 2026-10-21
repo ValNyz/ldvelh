@@ -524,6 +524,18 @@ def validate_scene(scene: Scene) -> list[str]:
     return errors
 
 
+def known_secret_names(scene: Scene) -> list[tuple[str, str]]:
+    """(entity id, name) of each name (not a descriptor, which is what the PC sees)
+    flagged both known and secret: contradictory (§ 7.1, a secret is not known). The
+    world loader reads it as secret (never shown); the corpus reports list them."""
+    return [
+        (e.id, a.text)
+        for e in scene.world
+        for a in e.aliases
+        if a.kind != "descriptor" and a.known and (a.secret or e.secret)
+    ]
+
+
 def _cluster_errors(sequence: Sequence) -> list[str]:
     mentions = {
         f"{t.id}:{m.start}": (t.id, m)

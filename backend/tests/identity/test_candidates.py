@@ -585,3 +585,54 @@ async def test_a_carried_object_is_in_the_protagonist_inventory_and_on_its_card(
     assert held == {ids[i] for i in carried}
     cards = {c.entity_id: c for c in found.ranked()}
     assert all(cards[i].carried == (i in held) for i in cards)
+
+
+def test_the_loader_maps_corpus_knowledge_to_what_the_app_holds():
+    """R42: a character known only by a nickname has an unknown true name in the app; a
+    non-character whose canonical label is hidden is stored under what the PC reads."""
+    from evals.identity.corpus import WorldEntity
+    from evals.identity.world_loader import readable_name, true_name_known
+
+    spinner = WorldEntity.model_validate({
+        "id": "character_mira", "type": "character", "label": "Mira Sel",
+        "true_name": "Mira Sel", "descriptor": "la fileuse", "known": True,
+        "aliases": [
+            {"text": "Mira Sel", "kind": "true_name", "known": False, "secret": True},
+            {"text": "la Fileuse", "kind": "nickname", "known": True},
+            {"text": "la fileuse", "kind": "descriptor", "known": True},
+        ],
+    })  # fmt: skip
+    assert true_name_known(spinner) is False
+    known = spinner.model_copy(update={"aliases": [
+        {"text": "Mira Sel", "kind": "true_name", "known": True}]})  # fmt: skip
+    known = WorldEntity.model_validate(known.model_dump())
+    assert true_name_known(known) is True
+    room = WorldEntity.model_validate({
+        "id": "location_salle", "type": "location", "label": "Salle des Pompes",
+        "true_name": "Salle des Pompes", "known": False,
+        "aliases": [
+            {"text": "Salle des Pompes", "kind": "true_name", "known": False},
+            {"text": "la salle au bout du couloir", "kind": "descriptor", "known": True},
+        ],
+    })  # fmt: skip
+    assert readable_name(room) == ("la salle au bout du couloir", "descriptor")
+    plain = WorldEntity.model_validate({
+        "id": "location_cantine", "type": "location", "label": "Cantine",
+        "known": True, "aliases": [{"text": "Cantine", "kind": "label", "known": True}],
+    })  # fmt: skip
+    assert readable_name(plain) == ("Cantine", "label")
+
+
+def test_a_known_and_secret_name_is_reported_and_read_as_secret():
+    from evals.identity.corpus import Scene, WorldEntity, known_secret_names
+    from evals.identity.world_loader import true_name_known
+    from tests.identity.test_corpus import _scene as corpus_scene
+
+    data = corpus_scene()
+    agent = {"id": "character_agent", "type": "character", "label": "Ilse Varn",
+             "true_name": "Ilse Varn", "known": True,
+             "aliases": [{"text": "Ilse Varn", "kind": "true_name", "known": True,
+                          "secret": True}]}  # fmt: skip
+    scene = Scene.model_validate({**data, "world": [*data["world"], agent]})
+    assert known_secret_names(scene) == [("character_agent", "Ilse Varn")]
+    assert true_name_known(WorldEntity.model_validate(agent)) is False
