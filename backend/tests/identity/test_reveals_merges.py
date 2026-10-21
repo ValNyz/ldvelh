@@ -999,3 +999,35 @@ async def test_revealing_a_homonym_by_its_own_descriptor_keeps_its_suffix(
         "Garde du sas (2)": ("label", False)
     }
     assert [e["entity_id"] for e in suffixed] == [guards[1]]
+
+
+# --- R42: a merge never makes keep's name known through drop's flag -------------------
+
+
+async def test_a_merge_keeps_the_survivor_known_flag_unless_the_names_are_one(
+    test_pool, game, service
+):
+    async with test_pool.acquire() as conn:
+        hidden = await _character(
+            conn, game, true_name="Mira Sel", descriptor="La fileuse",
+            known_by_protagonist=False,
+        )  # fmt: skip
+        await entities.set_alias_flags(conn, hidden, "Mira Sel", known=False, secret=True)
+        cover = await _character(
+            conn, game, true_name="Toby Renn", known_by_protagonist=True
+        )
+        first = await service.merge(conn, hidden, cover, reason="test", turn_id=None)
+        kept = await _character_row(conn, hidden)
+        shown = await conn.fetchval("SELECT display_for_player($1)", hidden)
+        same = await _character(conn, game, true_name="Ana Ferro", known_by_protagonist=False)
+        twin = await _character(
+            conn, game, true_name="Ana Ferro", label_suffix="2",
+            known_by_protagonist=True,
+        )  # fmt: skip
+        second = await service.merge(conn, same, twin, reason="test", turn_id=None)
+        both = await _character_row(conn, same)
+    assert first.refused is None and second.refused is None
+    # Drop's known name never makes keep's secret true name readable.
+    assert kept["known"] is False and shown == "La fileuse"
+    # The same name on both sides: what the protagonist knew of it stays known.
+    assert both["known"] is True

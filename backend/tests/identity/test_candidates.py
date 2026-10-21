@@ -656,9 +656,8 @@ def test_the_loader_maps_corpus_knowledge_to_what_the_app_holds():
         ],
     })  # fmt: skip
     assert true_name_known(spinner) is False
-    known = spinner.model_copy(update={"aliases": [
+    known = WorldEntity.model_validate({**spinner.model_dump(), "aliases": [
         {"text": "Mira Sel", "kind": "true_name", "known": True}]})  # fmt: skip
-    known = WorldEntity.model_validate(known.model_dump())
     assert true_name_known(known) is True
     room = WorldEntity.model_validate({
         "id": "location_salle", "type": "location", "label": "Salle des Pompes",
