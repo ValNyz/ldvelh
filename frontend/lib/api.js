@@ -185,7 +185,6 @@ export const preferencesApi = {
 export const tooltipsApi = {
 	// A page of the annotated narrator messages, latest first; `before`: older than that sequence.
 	getAnnotations: (gameId, { limit, before } = {}) => api.get('/tooltips/annotations', { gameId, limit, before }),
-	getEntity: (gameId, id) => api.get('/tooltips/entity', { gameId, id }),
 	// The tooltips of several entities by id: { tooltips: { id: tooltip } }.
 	getEntities: (gameId, ids) => api.get('/tooltips/entities', { gameId, ids: ids.join(',') }),
 };
