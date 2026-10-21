@@ -358,7 +358,7 @@ def test_prepass_resolves_unique_exact_matches_without_llm():
 def test_prepass_reveals_an_exact_name_the_pc_does_not_know():
     """An unknown true name read exactly is revealed (ALIAS true_name, deterministic, the
     stored name to reveal), a later short form of it is an ALIAS short, a known name a
-    MATCH, and an unknown short form of no unknown name a plain MATCH."""
+    MATCH, and an unknown short form alone a plain MATCH that reveals nothing."""
     vela = _candidate(
         4,
         "la femme au manteau",
@@ -398,7 +398,7 @@ def test_prepass_reveals_an_exact_name_the_pc_does_not_know():
     assert (later.decision, later.alias_kind, later.revealed_name) == (
         "ALIAS",
         "short",
-        "Vela Sorn",
+        None,
     )
     # A short form stored in lower case is a common word: left to the model.
     assert "sa lame" not in by_surface
@@ -406,11 +406,15 @@ def test_prepass_reveals_an_exact_name_the_pc_does_not_know():
     # Out of the scene, an exact stored name still designates its entity.
     checked = _verify(found, _set(vela, blade, keswil, exact=exact), text)
     assert {d.surface: d.decision for d in checked}["Vela Sorn"] == "ALIAS"
-    # The first mention of an unknown short form reveals the name that holds it.
+    # An unknown short form alone reveals nothing: the full name was never read (I3).
     [only] = decision.prepass(
         "Sorn attend.", _set(vela, exact=exact), normalizer=NORMALIZER, config=CONFIG
     )
-    assert (only.alias_kind, only.revealed_name) == ("true_name", "Vela Sorn")
+    assert (only.decision, only.alias_kind, only.revealed_name) == ("MATCH", None, None)
+    assert (first.start, later.start) == (
+        text.index("Vela Sorn"),
+        text.index("Sorn pose"),
+    )
 
 
 def test_prepass_leaves_a_name_the_text_continues_or_announces_as_another():
@@ -463,7 +467,7 @@ def test_prepass_leaves_a_short_form_written_as_a_common_noun():
     found = decision.prepass(named, candidates, normalizer=NORMALIZER, config=CONFIG)
     assert [(d.entity_id, d.decision) for d in found] == [
         (case.entity_id, "MATCH"),
-        (house.entity_id, "ALIAS"),
+        (house.entity_id, "MATCH"),  # an unknown short form alone reveals nothing
     ]
 
 
@@ -563,6 +567,66 @@ def test_a_prepass_decision_keeps_to_the_form_it_decided():
     model = replace(named, deterministic=False)
     rows = mention_rows(text, [(model, street.entity_id)], NORMALIZER)
     assert [r.surface for r in rows] == ["Les lampions", "les Lampions"]
+
+
+def _voss():
+    return _candidate(8, "Rizka Voss", aliases=[_alias("Voss", "short")])
+
+
+@pytest.mark.parametrize(
+    "lang,text",
+    [
+        ("fr", "Voss sourit. Puis une autre Voss entre."),
+        ("fr", "Voss sourit. Il entre chez Voss Frères."),
+        ("en", "Voss smiles. Then another Voss walks in."),
+    ],
+)
+def test_an_occurrence_the_prepass_leaves_is_never_linked_by_another_one(lang, text):
+    """I1: the prepass decides each occurrence; its decision takes that span only."""
+    normalizer = Normalizer(load_lang(lang), CONFIG)
+    voss = _voss()
+    exact = {normalizer.norm("Voss"): voss}
+    found = decision.prepass(
+        text, _set(voss, exact=exact), normalizer=normalizer, config=CONFIG
+    )
+    assert [d.start for d in found] == [0]
+    rows = mention_rows(text, [(d, voss.entity_id) for d in found], normalizer)
+    assert [r.start_pos for r in rows] == [0]
+
+
+async def test_the_model_keeps_the_occurrences_the_prepass_left():
+    voss = _voss()
+    terminal = _candidate(
+        9, "Terminal personnel", "object", aliases=[_alias("Terminal", "short")]
+    )
+    exact = {NORMALIZER.norm("Voss"): voss, NORMALIZER.norm("Terminal"): terminal}
+    text = "Voss sourit. Puis une autre Voss entre. Le Terminal vibre ; il pose le terminal."
+    first = {
+        "mentions": [
+            _mention("Voss", "NEW", before="Puis une autre", new_type="character",
+                     new_kind="proper_name"),
+            _mention("le terminal", "SKIP", before="vibre ; il pose"),
+        ]
+    }  # fmt: skip
+    turn, _ = await _decide(
+        {"identity": [first]}, _set(voss, terminal, exact=exact), text
+    )
+    verdicts = sorted((d.surface, d.decision, d.deterministic) for d in turn.decisions)
+    assert ("Voss", "NEW", False) in verdicts and ("Voss", "MATCH", True) in verdicts
+    assert ("le terminal", "SKIP", False) in verdicts
+    assert ("Le Terminal", "MATCH", True) in verdicts
+
+
+def test_an_abstention_with_a_wrong_context_still_takes_its_occurrence():
+    voss = UUID(int=1)
+    text = "Voss rit. Voss part."
+    rows = mention_rows(
+        text,
+        [(MentionDecision(surface="Voss", decision="MATCH", before=""), voss)],
+        NORMALIZER,
+        [MentionDecision(surface="Voss", decision="UNSURE", before="pas ici")],
+    )
+    assert [r.start_pos for r in rows] == [0]
 
 
 def test_a_surface_that_repeats_its_context_keeps_only_the_mention():

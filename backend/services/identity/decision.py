@@ -47,6 +47,7 @@ from prompts.identity_prompt import (
 )
 from repos import entities
 from services.identity.lexicon import Lexicon
+from services.identity.mentions import find_spans, occurrence_after
 from services.identity.normalize import Normalizer
 from services.identity.prepass import prepass, scan
 from services.llm_providers import StructuredOutputMode
@@ -442,6 +443,21 @@ async def _attempt(
         return None
 
 
+def _decided(
+    d: MentionDecision, pre: list[MentionDecision], text: str, normalizer: Normalizer
+) -> bool:
+    """The model's decision names an occurrence the prepass already decided: the one its
+    `before` words precede, else (no such occurrence) every occurrence of its surface."""
+    taken = {p.start for p in pre if p.start is not None}
+    spans = find_spans(text, d.surface, normalizer)
+    if not spans:
+        return False
+    own = occurrence_after(text, spans, d.before, normalizer)
+    if own is not None:
+        return own in taken
+    return all(s in taken for s, _ in spans)
+
+
 def _homonyms(candidates: list[Candidate], normalizer: Normalizer):
     """For each candidate, the (handle, type) of the others sharing one of its names
     (label or a name alias, not a description): the card says so."""
@@ -681,8 +697,7 @@ async def decide_turn(
         first = await _attempt(
             session, Purpose.IDENTITY, system, user, schema, config, usage
         )
-    taken = {normalizer.fold(d.surface).strip() for d in pre}
-    model = [d for d in first or [] if normalizer.fold(d.surface).strip() not in taken]
+    model = [d for d in first or [] if not _decided(d, pre, text, normalizer)]
     redirects = await entities.follow_merges(
         conn, _linked([*pre, *model], prompt.candidates)
     )

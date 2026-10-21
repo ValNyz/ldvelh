@@ -2,8 +2,9 @@
 
 A decision names a surface; every whole-word occurrence of it in the text is a span,
 compared case- and accent-insensitively (the pack's folding), with offsets in the raw
-text; a prepass decision keeps to the occurrences written exactly like its surface (it
-decided each written form on its own, another form may be another use). When the model
+text; a prepass decision takes only the occurrence it decided (its `start`; without one,
+the occurrences written exactly like its surface): the prepass decides each occurrence
+on its own and may leave another occurrence of the same form to the model. When the model
 gave several decisions for one surface, each occurrence goes to the decision whose
 `before` words precede it, and one an unlinked decision (UNSURE, SKIP) claims stays
 unlinked. Occurrences of a surface several decisions share go to them in text order (the
@@ -66,6 +67,24 @@ def _preceding(text: str, start: int, count: int, normalizer: Normalizer) -> str
     return " ".join(normalizer.fold(w) for w in words)
 
 
+def occurrence_after(
+    text: str, spans: list[tuple[int, int]], before: str, normalizer: Normalizer
+) -> int | None:
+    """The start of the span `before`'s words precede (None when none does)."""
+    context = [normalizer.fold(w) for w in WORD.findall(before)]
+    if not context:
+        return None
+    wanted = " ".join(context)
+    return next(
+        (
+            s
+            for s, _ in spans
+            if _preceding(text, s, len(context), normalizer) == wanted
+        ),
+        None,
+    )
+
+
 def _owners_of(
     spans: list[tuple[int, int]],
     owners: list[tuple[MentionDecision, T]],
@@ -105,11 +124,37 @@ def _owners_of(
         owner = claimants[hit][1]
         if owner is not None:
             placed.append((s, e, *owner))
+    if any(claimants[i][1] is None for i in unused):
+        # An abstention whose context did not match is still owed an occurrence: the
+        # leftovers go to every unplaced decision in text order, linked or not.
+        for s, e in rest:
+            owner = claimants[unused.pop(0)][1] if unused else None
+            if owner is not None:
+                placed.append((s, e, *owner))
+        return placed
     free = [claimants[i][1] for i in unused if claimants[i][1] is not None] or owners
     for rank, (s, e) in enumerate(rest):
         d, item = free[min(rank, len(free) - 1)]
         placed.append((s, e, d, item))
     return placed
+
+
+def _decided_spans(
+    spans: list[tuple[int, int]],
+    owners: list[tuple[MentionDecision, T]],
+    text: str,
+    written: str,
+    normalizer: Normalizer,
+) -> list[tuple[int, int, MentionDecision, T]]:
+    """The spans of prepass decisions: each the occurrence it decided (`start`); one
+    without an offset keeps to the occurrences written exactly like its surface."""
+    located = [(d, item) for d, item in owners if d.start is not None]
+    out = [(s, e, d, item) for d, item in located for s, e in spans if s == d.start]
+    loose = [(d, item) for d, item in owners if d.start is None]
+    if loose:
+        exact = [(s, e) for s, e in spans if text[s:e] == written]
+        out += _owners_of(exact, loose, [], text, normalizer)
+    return out
 
 
 def place(
@@ -134,8 +179,7 @@ def place(
     for (model, key), owners in sorted(by_surface.items(), key=lambda g: g[0][0]):
         spans = find_spans(text, owners[0][0].surface, normalizer)
         if not model:
-            spans = [(s, e) for s, e in spans if text[s:e] == key]
-            candidates += _owners_of(spans, owners, [], text, normalizer)
+            candidates += _decided_spans(spans, owners, text, key, normalizer)
             continue
         candidates += _owners_of(spans, owners, unlinked.get(key, []), text, normalizer)
     taken: list[tuple[int, int]] = []

@@ -2,7 +2,9 @@
 
 It links every run of words of the turn's text whose normalised form names exactly one
 candidate (`CandidateSet.exact`), longest run first, left to right; an exact name the
-protagonist does not know yet is revealed (ALIAS true_name, ruling R36). It leaves to the
+protagonist does not know yet, written in full, is revealed (ALIAS true_name, ruling R36);
+an unknown short form alone reveals nothing. Each decision carries the offset of its
+occurrence (`start`), the only span it takes. It leaves to the
 model a name the text continues (a number, a capitalised word where case marks names), a
 name after a word announcing another entity (pack `other_markers`), and a short form that
 the text writes, or that is stored, as a common noun; the last are returned as doubts, the
@@ -131,19 +133,10 @@ class _Runs:
         )
 
 
-def _revealed_name(c: Candidate, norm: str) -> str | None:
-    """The unknown name an exact form of `c` discloses: the form itself when it is a name
-    the protagonist does not know (a true name, a label), the unknown name holding all its
-    words when it is an unknown short form of one; None for a known form."""
+def _unknown_alias(c: Candidate, norm: str):
+    """The alias of `c` an exact form matches when the protagonist does not know it."""
     alias = next((a for a in c.aliases if a.alias_norm == norm), None)
-    if alias is None or alias.known:
-        return None
-    names = [a for a in c.aliases if not a.known and a.kind in UNKNOWN_NAME_KINDS]
-    if alias.kind in UNKNOWN_NAME_KINDS:
-        return alias.alias
-    words = set(norm.split())
-    holder = next((a for a in names if words <= set(a.alias_norm.split())), None)
-    return holder.alias if holder is not None else None
+    return alias if alias is not None and not alias.known else None
 
 
 def _exact(
@@ -152,11 +145,13 @@ def _exact(
     c: Candidate,
     norm: str,
     revealed: set[UUID],
+    start: int,
 ) -> MentionDecision:
-    """The prepass decision on an exact form of `c`: MATCH, or, for a name the protagonist
-    does not know, ALIAS true_name at its entity's first such mention in the turn (later
-    ones: the form's own kind, a short form as short)."""
-    name = _revealed_name(c, norm)
+    """The prepass decision on the exact form of `c` at `start`: MATCH; for a name the
+    protagonist does not know, written in full (a true name, a label), ALIAS true_name
+    that reveals that very name; after it, an unknown short form of the same entity is an
+    ALIAS short. An unknown short form alone reveals nothing (the full name was never
+    read): a plain MATCH."""
     base = MentionDecision(
         surface=surface,
         decision=MATCH,
@@ -165,14 +160,19 @@ def _exact(
         entity_id=c.entity_id,
         verified=True,
         deterministic=True,
+        start=start,
     )
-    if name is None:
+    alias = _unknown_alias(c, norm)
+    if alias is None:
         return base
-    alias = next(a for a in c.aliases if a.alias_norm == norm)
-    first = c.entity_id not in revealed
-    revealed.add(c.entity_id)
-    kind = SHORT if not first and alias.kind == SHORT else TRUE_NAME
-    return replace(base, decision=ALIAS, alias_kind=kind, revealed_name=name)
+    if alias.kind in UNKNOWN_NAME_KINDS:
+        revealed.add(c.entity_id)
+        return replace(
+            base, decision=ALIAS, alias_kind=TRUE_NAME, revealed_name=alias.alias
+        )
+    if alias.kind == SHORT and c.entity_id in revealed:
+        return replace(base, decision=ALIAS, alias_kind=SHORT)
+    return base
 
 
 def prepass(
@@ -233,10 +233,14 @@ def scan(
             # Shown to the model as written: the words before, punctuation included.
             written = " ".join(text[words[start].start() : words[i].start()].split())
             doubt = MentionDecision(
-                surface, UNSURE, written, handle=format_handle(c.handle)
+                surface,
+                UNSURE,
+                written,
+                handle=format_handle(c.handle),
+                start=words[i].start(),
             )
             doubts.append(doubt)
         else:
-            found.append(_exact(surface, before, c, norm, revealed))
+            found.append(_exact(surface, before, c, norm, revealed, words[i].start()))
         i = end
     return found, doubts

@@ -226,6 +226,9 @@ class MentionDecision:
     deterministic: bool = False
     escalated: bool = False
     revealed_name: str | None = None
+    # Offset in the text of the occurrence a prepass decision decided (None for a model
+    # decision, which may name several occurrences): it takes that span only.
+    start: int | None = None
 
 
 @dataclass(frozen=True)
