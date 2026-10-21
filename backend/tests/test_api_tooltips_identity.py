@@ -538,6 +538,7 @@ def test_an_english_game_reads_the_english_labels_and_its_genre_species():
 
     from config import get_identity_config
     from repos.entities import TooltipRow
+    from packs.loader import TOOLTIP_LABEL_KEYS, available_langs
     from services.tooltips import CHECKED_FIELDS, Display, entity_tooltip
 
     labels = load_lang("en").tooltip_labels
@@ -561,9 +562,9 @@ def test_an_english_game_reads_the_english_labels_and_its_genre_species():
     ]
     assert entity_tooltip(rare, display).infos == [f"{labels['species']}: elf"]
     assert display.default_species == common
-    assert set(CHECKED_FIELDS) - {"ambient", "description"} <= set(labels)
-    for lang in ("fr", "en"):
-        assert set(load_lang(lang).tooltip_labels) == set(labels)
+    assert set(CHECKED_FIELDS) - {"ambient", "description"} == TOOLTIP_LABEL_KEYS
+    for lang in available_langs():
+        assert set(load_lang(lang).tooltip_labels) == TOOLTIP_LABEL_KEYS
 
 
 async def test_regenerate_after_a_reveal_restores_the_panel_and_tooltips(

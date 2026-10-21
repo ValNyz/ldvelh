@@ -61,6 +61,22 @@ def test_missing_key_is_a_validation_error():
         LangPack.model_validate({**raw, "unknown_key": []})
 
 
+def test_a_pack_missing_a_tooltip_label_is_rejected_at_load():
+    """N1: every pack labels the fixed set of tooltip keys; one missing, or an unknown
+    one, fails validation instead of a tooltip later."""
+    raw = _raw("fr")
+    labels = raw["tooltip_labels"]
+    missing = {k: v for k, v in labels.items() if k != "sector"}
+    with pytest.raises(ValidationError, match="sector"):
+        LangPack.model_validate({**raw, "tooltip_labels": missing})
+    with pytest.raises(ValidationError, match="planet"):
+        LangPack.model_validate(
+            {**raw, "tooltip_labels": {**labels, "planet": "Planète"}}
+        )
+    with pytest.raises(ValidationError):
+        LangPack.model_validate({**raw, "tooltip_labels": {**labels, "sector": " "}})
+
+
 def test_unknown_language_raises_pack_not_found():
     with pytest.raises(PackNotFound):
         load_lang("xx")

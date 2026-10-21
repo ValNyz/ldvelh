@@ -83,6 +83,23 @@ _PHRASE_KEYS = (
 )
 
 
+# The detail keys a tooltip prints under a label (services/tooltips.py): every language
+# pack labels each of them, so that no tooltip meets a missing label.
+TOOLTIP_LABEL_KEYS = frozenset(
+    {
+        "occupation",
+        "species",
+        "mood",
+        "location_type",
+        "sector",
+        "atmosphere",
+        "org_type",
+        "domain",
+        "category",
+    }
+)
+
+
 class LangPack(_Strict):
     lang: str
     version: str
@@ -127,8 +144,14 @@ class LangPack(_Strict):
     @field_validator("tooltip_labels")
     @classmethod
     def _labels(cls, value: dict[str, str]) -> dict[str, str]:
-        if not value or any(not k.strip() or not v.strip() for k, v in value.items()):
-            raise ValueError("tooltip_labels: a non-empty mapping of non-empty labels")
+        if set(value) != TOOLTIP_LABEL_KEYS:
+            missing = sorted(TOOLTIP_LABEL_KEYS - set(value))
+            unknown = sorted(set(value) - TOOLTIP_LABEL_KEYS)
+            raise ValueError(
+                f"tooltip_labels: missing keys {missing}, unknown keys {unknown}"
+            )
+        if any(not label.strip() for label in value.values()):
+            raise ValueError("tooltip_labels: empty label")
         return value
 
     @field_validator("min_distinctive_token_len")
