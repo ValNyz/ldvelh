@@ -16,7 +16,6 @@ from config import IdentityConfig, get_identity_config
 from domain.identity import (
     ALIAS_KINDS,
     DECISIONS,
-    MENTION_CATEGORIES,
     NEW_ENTITY_TYPES,
     NEW_KINDS,
     Candidate,
@@ -107,7 +106,7 @@ NEW or SKIP by the rules above.
 
 For each mention give: surface (the exact words of the mention in the narration, \
 not the words before it), before (the \
-{before_words} words just before it), category, decision, handle (a handle of the \
+{before_words} words just before it), decision, handle (a handle of the \
 CANDIDATES, or null), alias_kind, new_type, new_kind, evidence (at most \
 {evidence_max_words} words) and talks_to (the surfaces it speaks with), when relevant."""
 
@@ -265,7 +264,6 @@ def decision_schema(
                 "type": "string",
                 "description": f"the {config.before_words} words just before it",
             },
-            "category": _optional(MENTION_CATEGORIES),
             "decision": {"type": "string", "enum": list(DECISIONS)},
             "handle": _optional(tuple(handles)),
             "alias_kind": _optional(ALIAS_KINDS),

@@ -28,7 +28,6 @@ from config import IdentityConfig, get_identity_config, get_settings
 from domain.identity import (
     ALIAS_KINDS,
     DECISIONS,
-    MENTION_CATEGORIES,
     NEW_ENTITY_TYPES,
     NEW_KINDS,
     Candidate,
@@ -132,7 +131,6 @@ def _item(raw, config: IdentityConfig) -> MentionDecision:
         surface=surface,
         decision=verdict,
         before=_text(raw, "before"),
-        category=_choice(raw, "category", MENTION_CATEGORIES),
         handle=None if handle in (None, "") else str(handle).strip(),
         alias_kind=_choice(raw, "alias_kind", ALIAS_KINDS),
         new_type=_choice(raw, "new_type", NEW_ENTITY_TYPES),

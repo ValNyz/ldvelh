@@ -133,7 +133,8 @@ def test_schema_enumerates_candidate_handles_only():
         item["required"]
     )
     assert "confidence" not in item["properties"]
-    for field in ("category", "alias_kind", "new_type", "new_kind", "talks_to"):
+    assert "category" not in item["properties"]  # ruling R40
+    for field in ("alias_kind", "new_type", "new_kind", "talks_to"):
         assert field in item["properties"]
 
 
@@ -601,7 +602,6 @@ def test_text_mode_parses_json_from_prose():
                     {
                         "surface": "Odran",
                         "before": "",
-                        "category": "PART",
                         "decision": "MATCH",
                         "handle": "E3",
                         "evidence": " ".join(["word"] * 40),

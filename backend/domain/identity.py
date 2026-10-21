@@ -171,21 +171,11 @@ class CandidateSet:
         return [*self.turn, *self.context]
 
 
-# The listwise decision of the resolver v2 (spec §4.5.3): its verdicts, the mention
-# categories of the gold corpus (§3.2), the alias kinds of entity_aliases, the types a
-# mention may create and the kinds of a new label.
+# The listwise decision of the resolver v2 (spec §4.5.3): its verdicts, the alias kinds
+# of entity_aliases, the types a mention may create and the kinds of a new label. The
+# spec's per-mention `category` (the gold corpus's names, never defined to the model) is
+# not asked (ruling R40).
 DECISIONS = ("MATCH", "ALIAS", "NEW", "UNSURE", "SKIP")
-MENTION_CATEGORIES = (
-    "EASY",
-    "PART",
-    "DESC",
-    "GAP",
-    "REVEAL",
-    "NEW",
-    "XTYPE",
-    "SKIP",
-    "PC",
-)
 ALIAS_KINDS = (
     "true_name",
     "descriptor",
@@ -218,7 +208,6 @@ class MentionDecision:
     surface: str
     decision: str
     before: str = ""
-    category: str | None = None
     handle: str | None = None
     alias_kind: str | None = None
     new_type: str | None = None
@@ -278,7 +267,7 @@ class TurnDecisions:
                     )
                 )
             if d.decision == "UNSURE" and d.rejection is None and not d.ignored:
-                rows.append(("uncertain", None, {"category": d.category}))
+                rows.append(("uncertain", None, {}))
         if self.fallback:
             rows.append(("resolver_fallback", None, {"prepass": len(self.decisions)}))
         if self.escalated:

@@ -34,7 +34,6 @@ IDENTITY_NEW_CHARACTER = json.dumps({
         "before": "",
         "decision": "NEW",
         "handle": None,
-        "category": "NEW",
         "new_type": "character",
         "new_kind": "proper_name",
         "evidence": "a person the scene introduces",
