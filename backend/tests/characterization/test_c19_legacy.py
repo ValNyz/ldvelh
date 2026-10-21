@@ -734,7 +734,7 @@ async def _legacy_spans(conn) -> None:
     )
 
 
-async def test_c19_legacy_annotations_survive_narrator_context_removal(
+async def test_c19_legacy_annotations_are_served_from_entity_mentions(
     client, test_pool, scripted_llm
 ):
     """Review Focus 5: with nothing reading messages.narrator_context any more,
