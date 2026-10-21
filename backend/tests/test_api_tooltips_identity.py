@@ -195,6 +195,8 @@ async def test_unknown_npc_tooltip_drops_an_ambient_that_names_it(
 async def test_a_known_npc_still_shows_its_true_name_occupation_and_relation(
     client, test_user, test_pool
 ):
+    """The relation line is the protagonist's latest open relation to the NPC, never
+    one of the NPC's own relations (a workplace, a home) nor an ended one."""
     game_id = await _world(client, test_user, test_pool)
     async with test_pool.acquire() as conn:
         ossek = await conn.fetchval(
@@ -202,18 +204,59 @@ async def test_a_known_npc_still_shows_its_true_name_occupation_and_relation(
             " WHERE game_id = $1 AND true_name = 'Ossek' RETURNING id",
             game_id,
         )
-        relation = await conn.fetchval(
-            """SELECT type::text FROM relations
-                WHERE game_id = $1 AND source_id = $2 AND end_cycle IS NULL LIMIT 1""",
+        protagonist = await _id(test_pool, game_id, "entity_type = 'protagonist'")
+        place = await _id(test_pool, game_id, "entity_type = 'location'")
+        await conn.execute(
+            "DELETE FROM relations WHERE game_id = $1 AND (source_id = $2 OR target_id = $2)",
             game_id,
             ossek,
+        )
+        await conn.executemany(
+            """INSERT INTO relations
+                   (game_id, type, source_id, target_id, start_cycle, end_cycle, created_at)
+               VALUES ($1, $2, $3, $4, 1, $5, now() + make_interval(secs => $6))""",
+            [
+                (game_id, "works_at", ossek, place, None, 30),
+                (game_id, "knows", protagonist, ossek, None, 0),
+                (game_id, "friend_of", protagonist, ossek, None, 10),
+                (game_id, "enemy_of", protagonist, ossek, 1, 20),
+            ],
         )
 
     payload = await _tooltip(client, test_user, game_id, ossek)
 
     assert payload["found"] is True and payload["tooltip"]["name"] == "Ossek"
     assert any(info.startswith("Métier") for info in payload["tooltip"]["infos"])
-    assert payload["tooltip"]["relation"] == relation
+    assert payload["tooltip"]["relation"] == "friend_of"
+
+
+async def test_a_known_npc_without_a_protagonist_relation_shows_none(
+    client, test_user, test_pool
+):
+    game_id = await _world(client, test_user, test_pool)
+    async with test_pool.acquire() as conn:
+        ossek = await conn.fetchval(
+            "UPDATE characters SET known_by_protagonist = true"
+            " WHERE game_id = $1 AND true_name = 'Ossek' RETURNING id",
+            game_id,
+        )
+        place = await _id(test_pool, game_id, "entity_type = 'location'")
+        await conn.execute(
+            "DELETE FROM relations WHERE game_id = $1 AND target_id = $2",
+            game_id,
+            ossek,
+        )
+        await conn.execute(
+            """INSERT INTO relations (game_id, type, source_id, target_id, start_cycle)
+               VALUES ($1, 'works_at', $2, $3, 1)""",
+            game_id,
+            ossek,
+            place,
+        )
+
+    payload = await _tooltip(client, test_user, game_id, ossek)
+
+    assert payload["found"] is True and payload["tooltip"]["relation"] is None
 
 
 async def test_entity_tooltip_by_id_follows_a_merge(client, test_user, test_pool):
