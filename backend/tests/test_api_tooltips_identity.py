@@ -259,6 +259,16 @@ async def test_a_known_npc_without_a_protagonist_relation_shows_none(
     assert payload["found"] is True and payload["tooltip"]["relation"] is None
 
 
+async def test_tooltip_rows_of_no_id_is_empty_without_a_query():
+    from repos import entities
+
+    class NoQuery:
+        async def fetch(self, *args):
+            raise AssertionError("no query expected")
+
+    assert await entities.tooltip_rows(NoQuery(), UUID(int=1), [], ["mood"]) == {}
+
+
 async def test_entity_tooltip_by_id_follows_a_merge(client, test_user, test_pool):
     from repos import entities
 

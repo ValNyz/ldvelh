@@ -1614,7 +1614,8 @@ class TooltipRow:
 
 # $1 the game, $2 the ids (a merge tombstone is followed), $3 the disclosed entities (none
 # for the player), $4 the detail keys to check against the entity's hidden names (whole
-# normalised words). `asked_id` is the id asked for, `entity_id` the live entity.
+# normalised words). `asked_id` is the id asked for, `entity_id` the live entity; the
+# game's normalisation parameters are read once (`params`), not per checked key.
 _TOOLTIP_SQL = f"""SELECT asked.id AS asked_id, er.id AS entity_id, er.entity_type,
                   {_READABLE_LABEL.format(id="er.id")} AS label,
                   {_LABEL_SECRET.format(id="er.id")} AS label_secret,
@@ -1630,12 +1631,13 @@ _TOOLTIP_SQL = f"""SELECT asked.id AS asked_id, er.id AS entity_id, er.entity_ty
                              SELECT 1 FROM unnest(hidden.names) AS name
                               WHERE name <> ''
                                 AND position(' ' || name || ' ' IN
-                                             ' ' || ldvelh_norm_for_game(
-                                                 $1, dom.row ->> key) || ' ') > 0))
+                                             ' ' || ldvelh_norm(
+                                                 dom.row ->> key, params.p) || ' ') > 0))
                       AS hidden_fields
              FROM unnest($2::uuid[]) AS asked (id)
              JOIN entity_registry AS er
                ON er.game_id = $1 AND er.id = entity_follow_merge(asked.id)
+            CROSS JOIN (SELECT ldvelh_lang_params($1) AS p) AS params
             CROSS JOIN LATERAL (SELECT identity_domain_row(er.entity_type, er.id) AS row)
                   AS dom
             CROSS JOIN LATERAL (SELECT ARRAY(
@@ -1643,7 +1645,7 @@ _TOOLTIP_SQL = f"""SELECT asked.id AS asked_id, er.id AS entity_id, er.entity_ty
                    WHERE al.game_id = $1 AND al.entity_id = er.id
                      AND (al.secret OR (NOT al.known AND al.kind <> 'descriptor'))
                   UNION
-                  SELECT ldvelh_norm_for_game($1, dom.row ->> 'true_name')
+                  SELECT ldvelh_norm(dom.row ->> 'true_name', params.p)
                    WHERE dom.row ->> 'true_name' IS NOT NULL
                      AND NOT coalesce((dom.row ->> 'known_by_protagonist')::boolean,
                                       false)) AS names) AS hidden"""
@@ -1655,6 +1657,8 @@ async def tooltip_rows(
     """The tooltip source of the live entity behind each of `entity_ids` (merges
     followed), its `fields` checked against its hidden names, in one query, keyed by the
     id asked for; an id that is no entity of the game has no key."""
+    if not entity_ids:
+        return {}
     rows = await conn.fetch(
         _TOOLTIP_SQL, game_id, list(dict.fromkeys(entity_ids)), [], list(fields)
     )
