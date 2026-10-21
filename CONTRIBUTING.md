@@ -163,7 +163,7 @@ EVAL_IO=/tmp/identity scripts/eval-identity.sh --adapter v2 --split dev --emit-p
 EVAL_IO=/tmp/identity scripts/eval-identity.sh --adapter v2 --split dev --import-responses /io/dev --responder subagent:claude-haiku+claude-sonnet --milestone pr2   # repeat until nothing is pending
 ```
 
-The reference numbers are the baseline of the legacy resolver: `tests/reports/identity/2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md`, and the PR 2 gate of the resolver v2: **[GATE REPORT: to be filled, `tests/reports/identity/<date>-pr2-gate-anthropic-haiku-sonnet.md`]**. Flags and details: `backend/scripts/README.md`.
+The reference numbers are the baseline of the legacy resolver: `tests/reports/identity/2026-10-19-baseline-{test,dev}-anthropic-claude-sonnet-5-5-subagent.md`, and the PR 2 gate of the resolver v2: `tests/reports/identity/2026-10-21-pr2-gate-anthropic-haiku-sonnet.md` (hard pool 0.859, W 0.018, L 0, escalation 0.265; subagent responders, to confirm with 3 API runs when a key exists; the first read, `…-pr2-gate-read1-…`, failed on an evaluation-loader artefact, ruling R42). Flags and details: `backend/scripts/README.md`.
 
 ## Architecture rules and lint
 
