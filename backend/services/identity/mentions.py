@@ -25,7 +25,7 @@ MATCH, ALIAS, NEW, _, _ = DECISIONS
 _STORED = {MATCH: "match", ALIAS: "alias", NEW: "new"}
 DETERMINISTIC = "deterministic"
 T = TypeVar("T")
-_WORDS = re.compile(r"\w+")
+WORD = re.compile(r"\w+")  # a word, as every identity module reads it
 
 
 def _folded_with_offsets(text: str, normalizer: Normalizer) -> tuple[str, list[int]]:
@@ -62,7 +62,7 @@ def _preceding(text: str, start: int, count: int, normalizer: Normalizer) -> str
     """The `count` words before `start`, folded."""
     if count <= 0:
         return ""
-    words = _WORDS.findall(text[:start])[-count:]
+    words = WORD.findall(text[:start])[-count:]
     return " ".join(normalizer.fold(w) for w in words)
 
 
@@ -83,7 +83,7 @@ def _owners_of(
         return [(s, e, d, item) for s, e in spans]
     claimants = [(d, (d, item)) for d, item in owners] + [(d, None) for d in others]
     context = [
-        [normalizer.fold(w) for w in _WORDS.findall(d.before)] for d, _ in claimants
+        [normalizer.fold(w) for w in WORD.findall(d.before)] for d, _ in claimants
     ]
     unused = list(range(len(claimants)))
     placed, rest = [], []
