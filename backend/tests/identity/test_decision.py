@@ -1114,6 +1114,19 @@ def _pack_forms() -> set[str]:
     return forms - {""}
 
 
+def test_an_open_abstention_is_an_uncertain_event_without_payload():
+    """R40: the `uncertain` event carries no category any more."""
+    live = MentionDecision(surface="Un passant", decision="UNSURE")
+    refused = MentionDecision(
+        surface="Odran", decision="UNSURE", rejection="unknown_id_downgraded"
+    )
+    events = TurnDecisions([live, refused], escalated=False, fallback=False, usage={})
+    rows = events.events()
+    assert ("uncertain", None, {}) in rows
+    assert [r[0] for r in rows].count("uncertain") == 1
+    assert any(r[0] == "unknown_id_downgraded" for r in rows)
+
+
 def test_a_card_says_the_protagonist_carries_an_object():
     terminal = replace(_candidate(8, "Terminal personnel", "object"), carried=True)
     card = render_card(terminal, protagonist=False, companion=False)

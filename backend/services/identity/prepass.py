@@ -57,11 +57,21 @@ class _Runs:
         self.text, self.normalizer, self.reach = text, normalizer, reach
         self.words = list(WORD.finditer(text))
         self.joins = _joins(normalizer)
+        # Between two words of one phrase around a name: spaces, apostrophes, hyphens;
+        # never a sign that may end a sentence (an ordinal sign such as a dot).
+        quotes = "".join(re.escape(ch) for ch in normalizer.pack.apostrophes)
+        self.tight = re.compile(rf"[\s{quotes}-]*")
         pack = normalizer.pack
         self.articles = set(normalizer.folded_entries([*pack.articles, *pack.elisions]))
         self.titles = set(normalizer.folded_entries(pack.titles))
         self.others = set(normalizer.folded_entries(pack.other_markers))
         self.capitals = pack.case_marks_names
+
+    def adjacent(self, left: int, right: int) -> bool:
+        """Words `left` and `right` sit in one phrase: only spaces, apostrophes or hyphens
+        between them (the continuation and "another" rules read no further)."""
+        gap = self.text[self.words[left].end() : self.words[right].start()]
+        return bool(self.tight.fullmatch(gap))
 
     def joined(self, left: int, right: int) -> bool:
         """Words `left` and `right` (= left + 1) are one run: nothing but joins between."""
@@ -77,7 +87,7 @@ class _Runs:
         capitalised word right after it (past articles), or before it in mid-sentence (a
         title aside)."""
         after = end
-        while after < len(self.words) and self.joined(after - 1, after):
+        while after < len(self.words) and self.adjacent(after - 1, after):
             word = self.words[after].group()
             if word[:1].isdigit():
                 return True
@@ -92,10 +102,10 @@ class _Runs:
 
     def _capitalised_before(self, first: int) -> bool:
         before = first - 1
-        if before < 1 or not self.joined(before, first):
+        if before < 1 or not self.adjacent(before, first):
             return False
         word = self.words[before].group()
-        mid_sentence = self.joined(before - 1, before)
+        mid_sentence = self.adjacent(before - 1, before)
         return (
             mid_sentence
             and _capitalised(word)
@@ -128,7 +138,7 @@ class _Runs:
         reach = range(max(0, first - self.reach), first)
         return any(
             self.folded(i) in self.others
-            and all(self.joined(j, j + 1) for j in range(i, first))
+            and all(self.adjacent(j, j + 1) for j in range(i, first))
             for i in reach
         )
 

@@ -1425,3 +1425,11 @@ def test_every_corpus_language_has_second_person_possessives():
     assert languages and all(
         load_lexicon(lang).second_person_possessives for lang in languages
     )
+
+
+def test_a_true_name_needs_its_own_alias():
+    world = _scene()["world"]
+    bare = {"id": "character_ana", "type": "character", "label": "Ana Ferro",
+            "true_name": "Ana Ferro", "known": False, "aliases": []}  # fmt: skip
+    errors = _errors(world=[*world, bare])
+    assert any("true_name has no alias of its own" in e for e in errors)

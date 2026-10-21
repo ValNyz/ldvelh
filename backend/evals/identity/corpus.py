@@ -521,7 +521,21 @@ def validate_scene(scene: Scene) -> list[str]:
     errors += _effect_errors(scene, ids)
     errors += _scene_info_errors(scene, ids)
     errors += _knowledge_errors(scene, world)
+    errors += _true_name_alias_errors(scene)
     return errors
+
+
+def _true_name_alias_errors(scene: Scene) -> list[str]:
+    """A true name needs its own alias: its flags say whether the PC knows it (§ 3.1)."""
+
+    def same(a: str, b: str) -> bool:
+        return " ".join(a.casefold().split()) == " ".join(b.casefold().split())
+
+    return [
+        f"world: {e.id!r} true_name has no alias of its own"
+        for e in scene.world
+        if e.true_name and not any(same(a.text, e.true_name) for a in e.aliases)
+    ]
 
 
 def known_secret_names(scene: Scene) -> list[tuple[str, str]]:

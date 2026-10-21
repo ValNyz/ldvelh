@@ -117,12 +117,12 @@ def _spec(
         fields["parent_id"] = place
     if place is not None and entity.type == ORGANIZATION:
         fields["headquarters_id"] = place
-    name, kind = readable_name(entity)
+    name, kind, known = readable_name(entity)
     return NewEntitySpec(
         entity.type,
         name,
         "descriptor" if kind == DESCRIPTOR_KIND else "proper_name",
-        known=True,
+        known=known,
         secret=entity.secret,
         fields=fields,
     )
@@ -141,27 +141,25 @@ def true_name_known(entity: WorldEntity) -> bool:
     true-name alias known and not secret). The corpus entity-level `known` means "knows
     at least one name" (ANNOTATION § 3.1), which is not the same thing."""
     own = [a for a in entity.aliases if _same(a.text, entity.true_name or "")]
-    if not own:
-        return entity.known
-    return all(not _hidden(entity, a) for a in own)
+    return bool(own) and all(not _hidden(entity, a) for a in own)
 
 
-def readable_name(entity: WorldEntity) -> tuple[str, str]:
-    """(name, kind) a non-character is stored under: its canonical label when the PC can
-    read it, else what the PC reads instead (a known, non-secret name, else a
+def readable_name(entity: WorldEntity) -> tuple[str, str, bool]:
+    """(name, kind, known) a non-character is stored under: its canonical label when the
+    PC can read it, else what the PC reads instead (a known, non-secret name, else a
     descriptor), as a reveal would have it; the canonical label stays an alias with its
-    own flags. A whole-secret entity with nothing readable keeps its label."""
+    own flags. With nothing readable, it keeps its label, unknown to the PC."""
     canonical = [a for a in entity.aliases if _same(a.text, entity.label)]
     if not any(_hidden(entity, a) for a in canonical):
-        return entity.label, "label"
+        return entity.label, "label", True
     readable = [a for a in entity.aliases if not _hidden(entity, a)]
     for wanted in (lambda a: a.kind != DESCRIPTOR_KIND, lambda a: True):
         found = next((a for a in readable if wanted(a)), None)
         if found is not None:
-            return found.text, found.kind
+            return found.text, found.kind, True
     if entity.descriptor and not entity.secret:
-        return entity.descriptor, DESCRIPTOR_KIND
-    return entity.label, "label"
+        return entity.descriptor, DESCRIPTOR_KIND, True
+    return entity.label, "label", False
 
 
 async def _create_with_place(

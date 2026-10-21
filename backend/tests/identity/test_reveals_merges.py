@@ -1074,3 +1074,32 @@ async def test_a_secret_name_is_never_revealed_without_an_open_disclosure(
     assert closed.kind == "noop" and still["known"] is False
     assert [p["reason"] for p in payloads] == ["secret_closed"]
     assert opened.kind != "noop" and after["known"] is True
+
+
+async def test_a_survivor_without_a_name_takes_the_dropped_name_and_its_flag(
+    test_pool, game, service
+):
+    """M9: keep had no true name, so it takes drop's and the flag that goes with it. A
+    location carries no known flag: its merge only completes fields."""
+    async with test_pool.acquire() as conn:
+        nameless = await _character(
+            conn, game, descriptor="Le passeur", known_by_protagonist=False
+        )
+        named = await _character(
+            conn, game, true_name="Oren Salt", known_by_protagonist=True
+        )
+        outcome = await service.merge(conn, nameless, named, reason="test", turn_id=None)
+        row = await _character_row(conn, nameless)
+        dock = await service.create_entity(
+            conn, NewEntitySpec("location", "Quai Nord", "proper_name"),
+            turn_id=None, source="world_gen",
+        )  # fmt: skip
+        pier = await service.create_entity(
+            conn, NewEntitySpec("location", "Jetée Nord", "proper_name"),
+            turn_id=None, source="world_gen",
+        )  # fmt: skip
+        places = await service.merge(conn, dock, pier, reason="test", turn_id=None)
+        name = await conn.fetchval("SELECT name FROM locations WHERE id = $1", dock)
+    assert outcome.refused is None and places.refused is None
+    assert (row["true_name"], row["known"]) == ("Oren Salt", True)
+    assert name == "Quai Nord"

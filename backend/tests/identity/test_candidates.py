@@ -667,12 +667,24 @@ def test_the_loader_maps_corpus_knowledge_to_what_the_app_holds():
             {"text": "la salle au bout du couloir", "kind": "descriptor", "known": True},
         ],
     })  # fmt: skip
-    assert readable_name(room) == ("la salle au bout du couloir", "descriptor")
+    assert readable_name(room) == ("la salle au bout du couloir", "descriptor", True)
     plain = WorldEntity.model_validate({
         "id": "location_cantine", "type": "location", "label": "Cantine",
         "known": True, "aliases": [{"text": "Cantine", "kind": "label", "known": True}],
     })  # fmt: skip
-    assert readable_name(plain) == ("Cantine", "label")
+    assert readable_name(plain) == ("Cantine", "label", True)
+    vault = WorldEntity.model_validate({
+        "id": "location_caveau", "type": "location", "label": "Caveau Noir",
+        "known": False, "secret": True,
+        "aliases": [{"text": "Caveau Noir", "kind": "label", "known": False,
+                     "secret": True}],
+    })  # fmt: skip
+    assert readable_name(vault) == ("Caveau Noir", "label", False)  # nothing readable
+    bare = WorldEntity.model_validate({
+        "id": "character_bare", "type": "character", "label": "Ana Ferro",
+        "true_name": "Ana Ferro", "known": True, "aliases": [],
+    })  # fmt: skip
+    assert true_name_known(bare) is False  # no alias: nothing says the PC knows it
 
 
 def test_a_known_and_secret_name_is_reported_and_read_as_secret():

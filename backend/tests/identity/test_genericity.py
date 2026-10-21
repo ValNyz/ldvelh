@@ -504,7 +504,8 @@ async def test_pipeline_is_parametrizable_with_the_en_stub_pack(test_pool, test_
     from services.identity.service import IdentityService
     from tests.characterization.scripted_llm import ScriptedLLMProvider
 
-    text = "Reyes walks to the Mill."
+    # The capitalised form is linked; the lower-case one is a doubt for the model.
+    text = "Reyes walks to the Mill. Later the mill creaks."
     async with test_pool.acquire() as conn:
         game = await conn.fetchval(
             "INSERT INTO games (user_id, language) VALUES ($1, 'en') RETURNING id",
@@ -571,3 +572,5 @@ async def test_pipeline_is_parametrizable_with_the_en_stub_pack(test_pool, test_
     assert not {e for e in _fr_only_entries() if e in rendered}
     english = yaml.safe_load((PACKS_DIR / "lang" / "en.yaml").read_text(encoding="utf-8"))
     assert english["prompt_examples"]["identity"][0]["input"] in rendered
+    to_check = rendered[rendered.index("## TO CHECK") :]
+    assert '"the mill"' in to_check[:120]
