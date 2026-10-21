@@ -117,12 +117,26 @@ class Normalizer:
         return frozenset(self.folded_entries(self.pack.articles))
 
     @cached_property
-    def _ordinal(self) -> re.Pattern[str] | None:
+    def _ordinal_body(self) -> str | None:
+        """The pack's folded ordinal markers as one regex alternation (None: no marker)."""
         markers = self.folded_entries(self.pack.ordinal_markers)
-        if not markers:
-            return None
-        body = "|".join(re.escape(m) for m in markers)
-        return re.compile(rf"(^|[\W_])({body}) *(?=[0-9])")
+        return "|".join(re.escape(m) for m in markers) if markers else None
+
+    @cached_property
+    def _ordinal(self) -> re.Pattern[str] | None:
+        body = self._ordinal_body
+        return None if body is None else re.compile(rf"(^|[\W_])({body}) *(?=[0-9])")
+
+    @cached_property
+    def _ordinal_ahead(self) -> re.Pattern[str] | None:
+        body = self._ordinal_body
+        return None if body is None else re.compile(rf"\s*(?:{body}) *[0-9]")
+
+    def opens_with_number(self, text: str) -> bool:
+        """`text` opens with an ordinal marker of the pack and a number (« n°9 »): the
+        name right before it goes on with that number (step 3 reads them as one)."""
+        pattern = self._ordinal_ahead
+        return pattern is not None and pattern.match(self.fold(text)) is not None
 
     def _clean(self, text: str) -> str:
         """Steps 1-5: the folded text, apostrophes still in."""

@@ -451,6 +451,29 @@ def test_prepass_leaves_a_name_the_text_continues_or_announces_as_another():
     ]
 
 
+@pytest.mark.parametrize(
+    "lang, label, short, numbered, plain",
+    [
+        ("fr", "Quai 6", "Quai",
+         "Elle attend au Quai n°9, puis au Quai numéro 12.", "Elle attend au Quai."),
+        ("en", "Dock 6", "Dock",
+         "She waits at Dock no. 9, then at Dock number 12.", "She waits at the Dock."),
+    ],
+)  # fmt: skip
+def test_prepass_leaves_a_short_form_before_an_ordinal_marker_and_a_number(
+    lang, label, short, numbered, plain
+):
+    """R45: « Quai n°9 » is another quay; the pack's ordinal marker between the short
+    form and the number does not hide the number."""
+    normalizer = Normalizer(load_lang(lang), CONFIG)
+    assert load_lang(lang).ordinal_markers
+    quay = _candidate(7, label, "location", aliases=[_alias(short, "short")])
+    candidates = _set(quay, exact={normalizer.norm(short): quay})
+    assert _prepass(numbered, candidates, normalizer=normalizer) == []
+    found = _prepass(plain, candidates, normalizer=normalizer)
+    assert [d.entity_id for d in found] == [quay.entity_id]
+
+
 def test_prepass_leaves_a_short_form_written_as_a_common_noun():
     case = _candidate(6, "Valise souple", "object", aliases=[_alias("Valise", "short")])
     house = _candidate(
